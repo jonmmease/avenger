@@ -8,7 +8,7 @@ use crate::{
     format::split_compact_pattern,
     locale::{
         CurrencyDisplayNames, CurrencyFormat, CurrencyPattern, DecimalPattern, DecimalPatternSpec,
-        LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
+        GroupingSpec, LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
     },
 };
 
@@ -21,21 +21,18 @@ pub struct NumberLocaleRegistry {
 impl NumberLocaleRegistry {
     pub fn with_builtins() -> Self {
         let mut registry = Self::default();
-        registry.builtins.insert(
-            LocaleId::new("en-US"),
-            NumberLocaleSpec {
-                decimal: Some(".".to_string()),
-                group: Some(",".to_string()),
-                grouping: Some(Default::default()),
-                minus: Some("-".to_string()),
-                plus: Some("+".to_string()),
-                percent: Some("%".to_string()),
-                permille: Some("\u{2030}".to_string()),
-                nan: Some("NaN".to_string()),
-                infinity: Some("\u{221e}".to_string()),
-                ..Default::default()
-            },
-        );
+        registry
+            .builtins
+            .insert(LocaleId::new("en-US"), builtin_en_us_spec());
+        registry
+            .builtins
+            .insert(LocaleId::new("de-DE"), builtin_de_de_spec());
+        registry
+            .builtins
+            .insert(LocaleId::new("fr-FR"), builtin_fr_fr_spec());
+        registry
+            .builtins
+            .insert(LocaleId::new("ja-JP"), builtin_ja_jp_spec());
         registry
     }
 
@@ -177,6 +174,220 @@ impl NumberLocaleRegistry {
         }
 
         Ok(locale)
+    }
+}
+
+fn builtin_en_us_spec() -> NumberLocaleSpec {
+    NumberLocaleSpec {
+        decimal: Some(".".to_string()),
+        group: Some(",".to_string()),
+        grouping: Some(Default::default()),
+        minus: Some("-".to_string()),
+        plus: Some("+".to_string()),
+        percent: Some("%".to_string()),
+        permille: Some("\u{2030}".to_string()),
+        nan: Some("NaN".to_string()),
+        infinity: Some("\u{221e}".to_string()),
+        ..Default::default()
+    }
+}
+
+fn builtin_de_de_spec() -> NumberLocaleSpec {
+    NumberLocaleSpec {
+        decimal: Some(",".to_string()),
+        group: Some(".".to_string()),
+        grouping: Some(GroupingSpec::default()),
+        minus: Some("-".to_string()),
+        plus: Some("+".to_string()),
+        percent: Some("%".to_string()),
+        permille: Some("\u{2030}".to_string()),
+        nan: Some("NaN".to_string()),
+        infinity: Some("\u{221e}".to_string()),
+        currency: Some(currency_suffix_format("\u{00a0}", false)),
+        currency_names: Some(currency_names([
+            ("USD", "$", "$", "US-Dollar"),
+            ("EUR", "\u{20ac}", "\u{20ac}", "Euro"),
+            ("JPY", "\u{00a5}", "\u{00a5}", "Japanischer Yen"),
+        ])),
+        compact_short: Some(vec![
+            compact_tier(3, "{0}"),
+            compact_tier(6, "{0}\u{00a0}Mio."),
+            compact_tier(9, "{0}\u{00a0}Mrd."),
+            compact_tier(12, "{0}\u{00a0}Bio."),
+        ]),
+        compact_long: Some(vec![
+            CompactTier {
+                exponent: 3,
+                one: Some("{0} Tausend".to_string()),
+                other: "{0} Tausend".to_string(),
+            },
+            CompactTier {
+                exponent: 6,
+                one: Some("{0} Million".to_string()),
+                other: "{0} Millionen".to_string(),
+            },
+            CompactTier {
+                exponent: 9,
+                one: Some("{0} Milliarde".to_string()),
+                other: "{0} Milliarden".to_string(),
+            },
+            CompactTier {
+                exponent: 12,
+                one: Some("{0} Billion".to_string()),
+                other: "{0} Billionen".to_string(),
+            },
+        ]),
+        ..Default::default()
+    }
+}
+
+fn builtin_fr_fr_spec() -> NumberLocaleSpec {
+    NumberLocaleSpec {
+        decimal: Some(",".to_string()),
+        group: Some("\u{202f}".to_string()),
+        grouping: Some(GroupingSpec::default()),
+        minus: Some("-".to_string()),
+        plus: Some("+".to_string()),
+        percent: Some("%".to_string()),
+        permille: Some("\u{2030}".to_string()),
+        nan: Some("NaN".to_string()),
+        infinity: Some("\u{221e}".to_string()),
+        currency: Some(currency_suffix_format("\u{00a0}", true)),
+        currency_names: Some(currency_names([
+            ("USD", "$US", "$", "dollars des \u{00c9}tats-Unis"),
+            ("EUR", "\u{20ac}", "\u{20ac}", "euros"),
+            ("JPY", "JPY", "\u{00a5}", "yens japonais"),
+        ])),
+        compact_short: Some(vec![
+            compact_tier(3, "{0}\u{00a0}k"),
+            compact_tier(6, "{0}\u{00a0}M"),
+            compact_tier(9, "{0}\u{00a0}Md"),
+            compact_tier(12, "{0}\u{00a0}Bn"),
+        ]),
+        compact_long: Some(vec![
+            CompactTier {
+                exponent: 3,
+                one: Some("{0} millier".to_string()),
+                other: "{0} mille".to_string(),
+            },
+            CompactTier {
+                exponent: 6,
+                one: Some("{0} million".to_string()),
+                other: "{0} millions".to_string(),
+            },
+            CompactTier {
+                exponent: 9,
+                one: Some("{0} milliard".to_string()),
+                other: "{0} milliards".to_string(),
+            },
+            CompactTier {
+                exponent: 12,
+                one: Some("{0} billion".to_string()),
+                other: "{0} billions".to_string(),
+            },
+        ]),
+        ..Default::default()
+    }
+}
+
+fn builtin_ja_jp_spec() -> NumberLocaleSpec {
+    NumberLocaleSpec {
+        decimal: Some(".".to_string()),
+        group: Some(",".to_string()),
+        grouping: Some(GroupingSpec::default()),
+        minus: Some("-".to_string()),
+        plus: Some("+".to_string()),
+        percent: Some("%".to_string()),
+        permille: Some("\u{2030}".to_string()),
+        nan: Some("NaN".to_string()),
+        infinity: Some("\u{221e}".to_string()),
+        currency: Some(currency_prefix_format()),
+        currency_names: Some(currency_names([
+            ("USD", "$", "$", "\u{7c73}\u{30c9}\u{30eb}"),
+            ("EUR", "\u{20ac}", "\u{20ac}", "\u{30e6}\u{30fc}\u{30ed}"),
+            ("JPY", "\u{ffe5}", "\u{ffe5}", "\u{65e5}\u{672c}\u{5186}"),
+        ])),
+        compact_short: Some(vec![
+            compact_tier(4, "{0}\u{4e07}"),
+            compact_tier(8, "{0}\u{5104}"),
+            compact_tier(12, "{0}\u{5146}"),
+            compact_tier(16, "{0}\u{4eac}"),
+        ]),
+        compact_long: Some(vec![
+            compact_tier(4, "{0}\u{4e07}"),
+            compact_tier(8, "{0}\u{5104}"),
+            compact_tier(12, "{0}\u{5146}"),
+            compact_tier(16, "{0}\u{4eac}"),
+        ]),
+        ..Default::default()
+    }
+}
+
+fn currency_prefix_format() -> CurrencyFormat {
+    CurrencyFormat {
+        standard: CurrencyPattern {
+            positive_prefix: "\u{00a4}".to_string(),
+            positive_suffix: String::new(),
+            negative_prefix: "-\u{00a4}".to_string(),
+            negative_suffix: String::new(),
+        },
+        accounting: CurrencyPattern {
+            positive_prefix: "\u{00a4}".to_string(),
+            positive_suffix: String::new(),
+            negative_prefix: "(\u{00a4}".to_string(),
+            negative_suffix: ")".to_string(),
+        },
+    }
+}
+
+fn currency_suffix_format(space: &str, accounting_parentheses: bool) -> CurrencyFormat {
+    CurrencyFormat {
+        standard: CurrencyPattern {
+            positive_prefix: String::new(),
+            positive_suffix: format!("{space}\u{00a4}"),
+            negative_prefix: "-".to_string(),
+            negative_suffix: format!("{space}\u{00a4}"),
+        },
+        accounting: CurrencyPattern {
+            positive_prefix: String::new(),
+            positive_suffix: format!("{space}\u{00a4}"),
+            negative_prefix: if accounting_parentheses {
+                "(".to_string()
+            } else {
+                "-".to_string()
+            },
+            negative_suffix: if accounting_parentheses {
+                format!("{space}\u{00a4})")
+            } else {
+                format!("{space}\u{00a4}")
+            },
+        },
+    }
+}
+
+fn currency_names<const N: usize>(
+    names: [(&'static str, &'static str, &'static str, &'static str); N],
+) -> BTreeMap<String, CurrencyDisplayNames> {
+    names
+        .into_iter()
+        .map(|(code, symbol, narrow_symbol, name)| {
+            (
+                code.to_string(),
+                CurrencyDisplayNames {
+                    symbol: Some(symbol.to_string()),
+                    narrow_symbol: Some(narrow_symbol.to_string()),
+                    name: Some(name.to_string()),
+                },
+            )
+        })
+        .collect()
+}
+
+fn compact_tier(exponent: i32, pattern: &str) -> CompactTier {
+    CompactTier {
+        exponent,
+        one: Some(pattern.to_string()),
+        other: pattern.to_string(),
     }
 }
 
@@ -352,6 +563,113 @@ mod tests {
         let locale = registry.resolve("en-US").unwrap();
         assert_eq!(locale.decimal, ".");
         assert_eq!(locale.group, ",");
+    }
+
+    #[test]
+    fn resolves_additional_builtin_locale_symbols() {
+        let registry = NumberLocaleRegistry::with_builtins();
+
+        let de = registry.resolve("de-DE").unwrap();
+        assert_eq!(de.decimal, ",");
+        assert_eq!(de.group, ".");
+
+        let fr = registry.resolve("fr-FR").unwrap();
+        assert_eq!(fr.decimal, ",");
+        assert_eq!(fr.group, "\u{202f}");
+
+        let ja = registry.resolve("ja-JP").unwrap();
+        assert_eq!(ja.currency_names["JPY"].symbol.as_deref(), Some("\u{ffe5}"));
+    }
+
+    #[test]
+    fn formats_with_additional_builtin_locales() {
+        let registry = NumberLocaleRegistry::with_builtins();
+
+        let de = registry.resolve("de-DE").unwrap();
+        let de_context = NumberFormatContext::new(&de).with_registry(&registry);
+        assert_eq!(
+            format_number(
+                1234.5,
+                Some(",.1f"),
+                NumberFormatOverrides::default(),
+                de_context,
+            )
+            .unwrap()
+            .text,
+            "1.234,5"
+        );
+        assert_eq!(
+            format_number(
+                1234.5,
+                Some(",.2C[EUR]"),
+                NumberFormatOverrides::default(),
+                de_context,
+            )
+            .unwrap()
+            .text,
+            "1.234,50\u{00a0}\u{20ac}"
+        );
+        assert_eq!(
+            format_number(
+                1_200_000.0,
+                Some(".2S"),
+                NumberFormatOverrides::default(),
+                de_context,
+            )
+            .unwrap()
+            .text,
+            "1,2\u{00a0}Mio."
+        );
+
+        let fr = registry.resolve("fr-FR").unwrap();
+        let fr_context = NumberFormatContext::new(&fr).with_registry(&registry);
+        assert_eq!(
+            format_number(
+                1234.5,
+                Some(",.2C[EUR]"),
+                NumberFormatOverrides::default(),
+                fr_context,
+            )
+            .unwrap()
+            .text,
+            "1\u{202f}234,50\u{00a0}\u{20ac}"
+        );
+        assert_eq!(
+            format_number(
+                1_200_000.0,
+                Some(".2S"),
+                NumberFormatOverrides::default(),
+                fr_context,
+            )
+            .unwrap()
+            .text,
+            "1,2\u{00a0}M"
+        );
+
+        let ja = registry.resolve("ja-JP").unwrap();
+        let ja_context = NumberFormatContext::new(&ja).with_registry(&registry);
+        assert_eq!(
+            format_number(
+                1234.5,
+                Some(",C[JPY]"),
+                NumberFormatOverrides::default(),
+                ja_context,
+            )
+            .unwrap()
+            .text,
+            "\u{ffe5}1,234"
+        );
+        assert_eq!(
+            format_number(
+                1_200_000.0,
+                Some(".3S"),
+                NumberFormatOverrides::default(),
+                ja_context,
+            )
+            .unwrap()
+            .text,
+            "120\u{4e07}"
+        );
     }
 
     #[test]
