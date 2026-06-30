@@ -105,7 +105,7 @@ pub enum CurrencyDisplay {
     NarrowSymbol,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct NumberLocaleSpec {
     pub base: Option<LocaleId>,
     pub decimal: Option<String>,

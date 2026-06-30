@@ -1377,6 +1377,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some(",.2f".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![Some(1234.567), Some(0.123), Some(-987.654), None];
         let result = formatter.format(&values, Some("--"));
@@ -1386,12 +1387,52 @@ mod tests {
     }
 
     #[test]
+    fn test_number_formatting_with_builtin_locale() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+
+        let formatter = DefaultFormatter {
+            format_str: Some(",.1f".to_string()),
+            number_locale: Some("de-DE".to_string()),
+            ..Default::default()
+        };
+        let values = vec![Some(1234.5), None];
+        let result = formatter.format(&values, Some("--"));
+
+        assert_eq!(result, vec!["1.234,5", "--"]);
+    }
+
+    #[test]
+    fn test_number_formatting_with_custom_locale_registry() {
+        use crate::formatter::{DefaultFormatter, NumberFormatter};
+        use avenger_format_number::NumberLocaleRegistry;
+
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "scale-test",
+                r#"{ "base": "en-US", "decimal": "~", "group": "_" }"#,
+            )
+            .expect("custom locale");
+        let formatter = DefaultFormatter {
+            format_str: Some(",.1f".to_string()),
+            number_locale: Some("scale-test".to_string()),
+            number_locale_registry: Some(Arc::new(registry)),
+            ..Default::default()
+        };
+        let values = vec![Some(1234.5), None];
+        let result = formatter.format(&values, Some("--"));
+
+        assert_eq!(result, vec!["1_234~5", "--"]);
+    }
+
+    #[test]
     fn test_number_formatting_percentage() {
         use crate::formatter::{DefaultFormatter, NumberFormatter};
 
         let formatter = DefaultFormatter {
             format_str: Some(".1%".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![Some(0.5), Some(0.123), Some(1.0), None];
         let result = formatter.format(&values, Some("N/A"));
@@ -1407,6 +1448,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some(".2e".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![Some(1234.0), Some(0.00123), None, Some(0.0)];
         let result = formatter.format(&values, Some("--"));
@@ -1439,6 +1481,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%B %d, %Y".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
@@ -1458,6 +1501,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%m/%d/%y".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2023, 12, 25).unwrap()),
@@ -1504,6 +1548,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%m-%d %H:%M".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(
@@ -1557,6 +1602,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%m-%d %H:%M %Z".to_string()),
             local_tz: Some(Tz::America__New_York),
+            ..Default::default()
         };
         let values = vec![
             Some(DateTime::from_timestamp(1640995200, 0).unwrap()), // 2022-01-01 00:00:00 UTC
@@ -1660,6 +1706,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some(",.0f".to_string()),
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(1_000_000.0),
@@ -1680,6 +1727,7 @@ mod tests {
         let formatter = DefaultFormatter {
             format_str: Some("%Y-%j".to_string()), // Year and day of year
             local_tz: None,
+            ..Default::default()
         };
         let values = vec![
             Some(NaiveDate::from_ymd_opt(2000, 1, 1).unwrap()), // Leap year start
