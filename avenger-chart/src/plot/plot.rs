@@ -2045,6 +2045,22 @@ mod tests {
                 .get("custom"),
             Some(&number_locale_spec)
         );
+
+        let serialized =
+            bincode::serialize(&compiled).expect("serialize compiled plot with formatting context");
+        let decoded: CompiledPlot = bincode::deserialize(&serialized)
+            .expect("deserialize compiled plot with formatting context");
+        assert_eq!(
+            decoded.formatting_context.resolved_number_locale(),
+            "custom"
+        );
+        assert_eq!(
+            decoded
+                .formatting_context
+                .number_locale_specs()
+                .get("custom"),
+            Some(&number_locale_spec)
+        );
         Ok(())
     }
 

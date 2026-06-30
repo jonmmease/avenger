@@ -3,12 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormattingContext {
     pub number_locale: Option<String>,
-    #[serde(default, skip_serializing_if = "number_locale_specs_is_empty")]
+    #[serde(default)]
     pub number_locale_specs: avenger_text::NumberLocaleSpecs,
-}
-
-fn number_locale_specs_is_empty(specs: &avenger_text::NumberLocaleSpecs) -> bool {
-    specs.is_empty()
 }
 
 impl FormattingContext {
