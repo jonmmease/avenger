@@ -14,11 +14,11 @@ use avenger_chart_core::{
     AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChartTool, CompileContext,
     CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
     CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
-    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, IntoExpr,
-    IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param, PlotMark,
-    PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint,
-    SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate, Store,
-    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, FormattingContext,
+    IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param,
+    PlotMark, PlotMarkKind, RepeatContext, RepeatDomainCoordination, RepeatVariable,
+    ScaleInferenceHint, SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate,
+    Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -68,6 +68,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Time handling defaults for temporal transforms, scales, and guides.
     pub(crate) time_context: TimeContext,
+
+    /// Formatting defaults for scales, guides, and retained markup labels.
+    pub(crate) formatting_context: FormattingContext,
 
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
@@ -138,6 +141,7 @@ impl<C: CoordinateSystem> Plot<C> {
             subtitle: None,
             theme: None,
             time_context: TimeContext::default(),
+            formatting_context: FormattingContext::default(),
             guide_config: None,
             param_specs: Vec::new(),
             event_bindings: Vec::new(),
@@ -441,8 +445,16 @@ impl<C: CoordinateSystem> Plot<C> {
         let effective_time_context = self
             .time_context
             .resolved_with_parent(&inherited_time_context);
+        let inherited_formatting_context = inherited_tool_context
+            .map(|context| context.formatting_context())
+            .cloned()
+            .unwrap_or_default();
+        let effective_formatting_context = self
+            .formatting_context
+            .resolved_with_parent(&inherited_formatting_context);
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context)
-            .with_time_context(effective_time_context.clone());
+            .with_time_context(effective_time_context.clone())
+            .with_formatting_context(effective_formatting_context.clone());
         let coord_system = if let Some(repeat_context) = tool_context.repeat_context() {
             self.coord_system.resolve_repeat(repeat_context)?
         } else {
@@ -747,6 +759,7 @@ impl<C: CoordinateSystem> Plot<C> {
             subtitle: self.subtitle,
             theme: self.theme,
             time_context: effective_time_context,
+            formatting_context: effective_formatting_context,
             scale_to_coord_channel,
             scale_specs,
             data: data_plan_node,
@@ -964,6 +977,12 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
+    /// Set formatting defaults for scales, guides, and retained markup labels.
+    pub fn formatting_context(mut self, formatting_context: FormattingContext) -> Self {
+        self.formatting_context = formatting_context;
+        self
+    }
+
     /// Configure the guide (coordinate system visual elements like axes and background)
     pub fn configure_guide(mut self, guide: C::Guide) -> Self {
         self.guide_config = match self.guide_config {
@@ -1107,6 +1126,7 @@ struct RepeatPlotParts<C: CoordinateSystem> {
     subtitle: Option<PlotSubtitle>,
     theme: Option<Arc<Theme>>,
     time_context: TimeContext,
+    formatting_context: FormattingContext,
     param_specs: Vec<CompiledParamSpec>,
     event_bindings: Vec<ChartEventBinding>,
     selections: Vec<Selection>,
@@ -1130,6 +1150,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         subtitle,
         theme,
         time_context,
+        formatting_context,
         guide_config,
         param_specs,
         event_bindings,
@@ -1164,6 +1185,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         subtitle,
         theme,
         time_context,
+        formatting_context,
         param_specs,
         event_bindings,
         selections,
@@ -1193,6 +1215,7 @@ where
         subtitle: parts.subtitle,
         theme: parts.theme,
         time_context: parts.time_context,
+        formatting_context: parts.formatting_context,
         guide_config: None,
         param_specs: parts.param_specs,
         event_bindings: parts.event_bindings,
@@ -1923,13 +1946,14 @@ mod tests {
     use avenger_chart_core::{
         AxisGuideVisibilityPolicy, CompiledDataTransform, DataTransform,
         DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-        DefaultLogicalExprNodeExt, DomainCoordinationGroup, IntoPlotMark, MarkGroup, PlotMark,
-        RepeatContext, RepeatDomainCoordination, RepeatVariable, ResolvedRepeatVariable,
-        ResolvedSelectionClauseScope, ScaleChannelConfig, ScaleInferenceHint, ScaleTypePreference,
-        SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClause,
-        SelectionClauseUpdate, SelectionEqualityDimensionValue, SelectionPredicateSpec,
-        SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate, StoreRow, StoreUpdate,
-        SubplotDataSource, collect_repeat_placeholder_kinds, repeat, simplify_to_scalar_sync,
+        DefaultLogicalExprNodeExt, DomainCoordinationGroup, FormattingContext, IntoPlotMark,
+        MarkGroup, PlotMark, RepeatContext, RepeatDomainCoordination, RepeatVariable,
+        ResolvedRepeatVariable, ResolvedSelectionClauseScope, ScaleChannelConfig,
+        ScaleInferenceHint, ScaleTypePreference, SceneGeometryQuery, SceneQueryDatumField,
+        Selection, SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionValue,
+        SelectionPredicateSpec, SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate,
+        StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
+        simplify_to_scalar_sync,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
     use avenger_chart_parallel::{
@@ -1990,6 +2014,22 @@ mod tests {
 
     fn repeated_row_cell() -> Plot<Cartesian> {
         Plot::<Cartesian>::new().mark(Symbol::new().x(lit(1.0)).y(repeat::row()).size(64.0))
+    }
+
+    #[tokio::test]
+    async fn compile_preserves_formatting_context_number_locale() -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = Plot::<Cartesian>::new()
+            .formatting_context(FormattingContext::new().number_locale("de-DE"))
+            .mark(Symbol::new().x(lit(1.0)).y(lit(2.0)))
+            .compile(&ctx)
+            .await?;
+
+        assert_eq!(
+            compiled.formatting_context.resolved_number_locale(),
+            "de-DE"
+        );
+        Ok(())
     }
 
     fn repeated_grid_cell() -> Plot<Cartesian> {

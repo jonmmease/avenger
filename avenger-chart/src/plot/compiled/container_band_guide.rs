@@ -524,6 +524,7 @@ fn measure_text_height(
         font_style: FontStyle::Normal,
         syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
         params: avenger_text::empty_label_params(),
+        number_locale: None,
     };
     text_engine
         .measure_bounds_with_plain_fallback_or_approx(&text_config)

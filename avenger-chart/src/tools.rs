@@ -8,8 +8,8 @@ use std::{
 use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
     CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
-    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, Param, RepeatContext,
-    Scale, Selection, Store, TimeContext, resolve_repeat_placeholders,
+    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, FormattingContext,
+    Param, RepeatContext, Scale, Selection, Store, TimeContext, resolve_repeat_placeholders,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -30,6 +30,7 @@ pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
     coord_node_path: Vec<usize>,
     time_context: TimeContext,
+    formatting_context: FormattingContext,
     repeat_context: Option<RepeatContext>,
 }
 
@@ -39,6 +40,7 @@ impl ToolCompileContext {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
             coord_node_path: Vec::new(),
             time_context,
+            formatting_context: FormattingContext::default(),
             repeat_context: None,
         }
     }
@@ -54,6 +56,9 @@ impl ToolCompileContext {
             time_context: parent
                 .map(|ctx| ctx.time_context.clone())
                 .unwrap_or_default(),
+            formatting_context: parent
+                .map(|ctx| ctx.formatting_context.clone())
+                .unwrap_or_default(),
             repeat_context: parent.and_then(|ctx| ctx.repeat_context.clone()),
         }
     }
@@ -63,8 +68,17 @@ impl ToolCompileContext {
         self
     }
 
+    pub(crate) fn with_formatting_context(mut self, formatting_context: FormattingContext) -> Self {
+        self.formatting_context = formatting_context;
+        self
+    }
+
     pub(crate) fn time_context(&self) -> &TimeContext {
         &self.time_context
+    }
+
+    pub(crate) fn formatting_context(&self) -> &FormattingContext {
+        &self.formatting_context
     }
 
     pub(crate) fn repeat_context(&self) -> Option<&RepeatContext> {
@@ -84,6 +98,7 @@ impl ToolCompileContext {
             state: self.state.clone(),
             coord_node_path,
             time_context: self.time_context.clone(),
+            formatting_context: self.formatting_context.clone(),
             repeat_context: self.repeat_context.clone(),
         }
     }

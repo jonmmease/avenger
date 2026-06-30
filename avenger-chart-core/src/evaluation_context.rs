@@ -4,7 +4,7 @@ use avenger_resource::{ResourceRequest, ResourceRequestPurpose};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use crate::{Theme, ThemeContext, ThemeValue, TimeContext};
+use crate::{FormattingContext, Theme, ThemeContext, ThemeValue, TimeContext};
 
 /// Diagnostics hook used by higher-level runtime crates to observe expensive
 /// evaluation work without making lower-level crates depend on the facade.
@@ -28,6 +28,8 @@ pub struct EvaluationContext {
     pub params: IndexMap<String, ScalarValue>,
     /// Time handling defaults used by temporal transforms, scales, and guides.
     pub time_context: TimeContext,
+    /// Formatting defaults used by scales, guides, and label adapters.
+    pub formatting_context: FormattingContext,
     #[doc(hidden)]
     pub diagnostics: Option<Arc<dyn EvaluationDiagnostics>>,
     #[doc(hidden)]
@@ -45,6 +47,7 @@ impl EvaluationContext {
             session_context,
             params,
             time_context: TimeContext::default(),
+            formatting_context: FormattingContext::default(),
             diagnostics: None,
             resource_request_sink: None,
         }
@@ -70,6 +73,11 @@ impl EvaluationContext {
         &self.time_context
     }
 
+    /// Get formatting defaults.
+    pub fn formatting_context(&self) -> &FormattingContext {
+        &self.formatting_context
+    }
+
     /// Create a new context with different params, reusing other fields.
     pub fn with_params(&self, params: IndexMap<String, ScalarValue>) -> Self {
         Self {
@@ -77,6 +85,7 @@ impl EvaluationContext {
             session_context: self.session_context.clone(),
             params,
             time_context: self.time_context.clone(),
+            formatting_context: self.formatting_context.clone(),
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
         }
@@ -88,6 +97,19 @@ impl EvaluationContext {
             session_context: self.session_context.clone(),
             params: self.params.clone(),
             time_context,
+            formatting_context: self.formatting_context.clone(),
+            diagnostics: self.diagnostics.clone(),
+            resource_request_sink: self.resource_request_sink.clone(),
+        }
+    }
+
+    pub fn with_formatting_context(&self, formatting_context: FormattingContext) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            time_context: self.time_context.clone(),
+            formatting_context,
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
         }
@@ -100,6 +122,7 @@ impl EvaluationContext {
             session_context: self.session_context.clone(),
             params: self.params.clone(),
             time_context: self.time_context.clone(),
+            formatting_context: self.formatting_context.clone(),
             diagnostics: Some(diagnostics),
             resource_request_sink: self.resource_request_sink.clone(),
         }
@@ -112,6 +135,7 @@ impl EvaluationContext {
             session_context: self.session_context.clone(),
             params: self.params.clone(),
             time_context: self.time_context.clone(),
+            formatting_context: self.formatting_context.clone(),
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: Some(sink),
         }

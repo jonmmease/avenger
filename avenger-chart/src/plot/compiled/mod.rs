@@ -45,9 +45,9 @@ use avenger_chart_core::{
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
     CompiledSubplotPayload, CoordMeasurement, CoordinateDomainResolvedState,
     CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec,
-    FacetDataScope, Legend, LogicalPlanNodeExt, MarkDataMode, ScaleInferenceHint,
-    ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme, TimeContext,
-    ToolMetadata, channel::strip_trailing_numbers,
+    FacetDataScope, FormattingContext, Legend, LogicalPlanNodeExt, MarkDataMode,
+    ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme,
+    TimeContext, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
@@ -215,6 +215,10 @@ pub struct CompiledPlot {
     /// Time handling defaults for temporal transforms, scales, and guides.
     #[serde(default)]
     pub(crate) time_context: TimeContext,
+
+    /// Formatting defaults for scales, guides, and retained markup labels.
+    #[serde(default)]
+    pub(crate) formatting_context: FormattingContext,
 
     /// Mapping from scale names to coordinate channel
     pub(crate) scale_to_coord_channel: HashMap<String, String>,
@@ -598,7 +602,8 @@ impl CompiledPlot {
             self.default_params.clone(),
             Arc::new(EvaluatedFacetTree::empty()),
         )
-        .with_time_context(self.time_context.clone());
+        .with_time_context(self.time_context.clone())
+        .with_formatting_context(self.formatting_context.clone());
         let store_specs = store_specs.unwrap_or(&self.store_specs);
         if !store_specs.is_empty() {
             eval_ctx = eval_ctx
@@ -955,7 +960,8 @@ impl CompiledPlot {
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         let eval_ctx =
             CoreEvaluationContext::new(self.get_theme(), Arc::new(ctx.clone()), params.clone())
-                .with_time_context(self.time_context.clone());
+                .with_time_context(self.time_context.clone())
+                .with_formatting_context(self.formatting_context.clone());
         let scale_builder = Box::pin(scales::build_scale_builder_from_compiled_plot(
             self,
             Some(df.clone()),

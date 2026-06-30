@@ -28,8 +28,8 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     AvengerChartError, BasePlotAreaScene, EvaluationContext as CoreEvaluationContext,
-    EvaluationDiagnostics, MarkRenderContext as CoreMarkRenderContext, MarkRuntimeContext,
-    TextMeasurementService, TimeContext,
+    EvaluationDiagnostics, FormattingContext, MarkRenderContext as CoreMarkRenderContext,
+    MarkRuntimeContext, TextMeasurementService, TimeContext,
 };
 
 use crate::{
@@ -384,6 +384,12 @@ impl EvaluationContext {
     pub(crate) fn with_time_context(&self, time_context: TimeContext) -> Self {
         let mut ctx = self.clone();
         ctx.core = ctx.core.with_time_context(time_context);
+        ctx
+    }
+
+    pub(crate) fn with_formatting_context(&self, formatting_context: FormattingContext) -> Self {
+        let mut ctx = self.clone();
+        ctx.core = ctx.core.with_formatting_context(formatting_context);
         ctx
     }
 
@@ -1147,6 +1153,7 @@ impl EvaluationContext {
                 &config.font_style,
                 config.syntax_mode,
                 config.params,
+                config.number_locale,
                 TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
@@ -1191,6 +1198,7 @@ impl EvaluationContext {
                 &config.font_style,
                 config.syntax_mode,
                 config.params,
+                config.number_locale,
                 measurement_tag,
             );
             let cached = {
@@ -2086,6 +2094,7 @@ mod tests {
                 font_style: avenger_text::types::FontStyle::Normal,
                 syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                 params: avenger_text::empty_label_params(),
+                number_locale: None,
             })
             .unwrap();
 
@@ -2115,6 +2124,7 @@ mod tests {
             font_style: avenger_text::types::FontStyle::Normal,
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
             params: avenger_text::empty_label_params(),
+            number_locale: None,
         };
 
         assert!(ctx.measure_text_bounds(&config).is_err());
@@ -2165,6 +2175,7 @@ mod tests {
             font_style: avenger_text::types::FontStyle::Normal,
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
             params: &supplied_params,
+            number_locale: None,
         };
         let missing_config = avenger_text::measurement::TextMeasurementConfig {
             text: "#series",
@@ -2174,6 +2185,7 @@ mod tests {
             font_style: avenger_text::types::FontStyle::Normal,
             syntax_mode: avenger_text::types::TextSyntaxMode::TypstMarkup,
             params: avenger_text::empty_label_params(),
+            number_locale: None,
         };
 
         assert!(ctx.measure_text_bounds(&supplied_config).is_ok());

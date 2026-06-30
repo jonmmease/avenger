@@ -213,6 +213,7 @@ mod tests {
             font_style: STYLE,
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
+            number_locale: None,
         }
     }
 
@@ -227,6 +228,7 @@ mod tests {
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
+            number_locale: None,
         }
     }
 
@@ -241,6 +243,7 @@ mod tests {
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
+            number_locale: None,
         }
     }
 

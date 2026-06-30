@@ -370,9 +370,13 @@ impl CompiledGuide for CartesianGuide {
         _data_override: Option<&DataFrame>,
         sharing_context: GuideSharingContext<'_>,
         _coord_measurement: &dyn CoordMeasurement,
-        _render_context: GuideRenderContext<'_>,
+        render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut marks = Vec::new();
+        let default_number_locale = render_context
+            .eval()
+            .map(|eval| eval.formatting_context().resolved_number_locale())
+            .unwrap_or("en-US");
 
         // Render background if specified (behind everything else)
         if let Some(bg_color) = self.get_background_color(theme, params, ctx).await {
@@ -474,6 +478,7 @@ impl CompiledGuide for CartesianGuide {
                     facet_sharing_level,
                     child_frame_sharing_level,
                     self.nested_axis_levels.get(channel),
+                    default_number_locale,
                 )
                 .await?;
                 marks.push(axis_mark);

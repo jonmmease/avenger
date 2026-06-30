@@ -417,8 +417,8 @@ mod tests {
         CoordinateDomainGroupResolution, CoordinateDomainNode, CoordinateDomainProvider,
         CoordinateDomainRole, CoordinateDomainScaleState, CoordinateDomainSharedNodeKey,
         CoordinateDomainSharingPolicy, CoordinateSystemTransform, CoordinateSystemTransformCore,
-        EventDatumFieldSpec, Legend, PlotGeometry, ScaleRangeBinding, Theme, TimeContext,
-        ToolMetadata,
+        EventDatumFieldSpec, FormattingContext, Legend, PlotGeometry, ScaleRangeBinding, Theme,
+        TimeContext, ToolMetadata,
     };
     use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
     use datafusion_proto::protobuf::LogicalPlanNode;
@@ -573,6 +573,7 @@ mod tests {
             subtitle: None,
             theme: None::<Arc<Theme>>,
             time_context: TimeContext::default(),
+            formatting_context: FormattingContext::default(),
             scale_to_coord_channel: HashMap::new(),
             scale_specs: HashMap::<String, ScaleSpec>::new(),
             data: None::<LogicalPlanNode>,

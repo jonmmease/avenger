@@ -41,6 +41,7 @@ impl TextLineMeasurer {
             config.font_style,
             [0.0, 0.0, 0.0, 1.0],
             config.params,
+            config.number_locale,
         )?;
         Ok(bounds_from_metrics(
             result.label.metrics,
@@ -89,6 +90,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
                 config.font_weight,
                 config.font_style,
                 config.params,
+                config.number_locale,
             )
         })?;
         if raster_text.is_empty() {
@@ -119,6 +121,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.font_style,
             config.color,
             config.params,
+            config.number_locale,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -140,6 +143,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             scale: OrderedFloat(scale),
             markup: format!("{:?}", math),
             params: crate::math::label_params_fingerprint(config.params),
+            number_locale: config.number_locale.map(str::to_string),
         };
         let image = if cached_entries.contains_key(&cache_key) {
             None
@@ -191,6 +195,7 @@ fn measure_text_width_with_typst(
     font_weight: FontWeight,
     font_style: FontStyle,
     params: &avenger_typst_label::LabelParams,
+    number_locale: Option<&str>,
 ) -> Result<f32, AvengerTextError> {
     Ok(typeset_line(
         typst,
@@ -202,6 +207,7 @@ fn measure_text_width_with_typst(
         font_style,
         [0.0, 0.0, 0.0, 1.0],
         params,
+        number_locale,
     )
     .map(|result| result.label.metrics.width)?)
 }
@@ -221,6 +227,7 @@ pub(crate) fn typeset_line(
     font_style: FontStyle,
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
+    number_locale: Option<&str>,
 ) -> Result<TypesetLineResult, avenger_typst_label::LabelError> {
     let options = label_options(
         math,
@@ -231,6 +238,7 @@ pub(crate) fn typeset_line(
         font_style,
         color,
         params,
+        number_locale,
     );
     let label = if math.syntax_mode == crate::types::TextSyntaxMode::Plain {
         typst.compile_text(text, &options)?
@@ -264,6 +272,7 @@ pub(crate) fn label_options(
     font_style: FontStyle,
     color: [f32; 4],
     params: &avenger_typst_label::LabelParams,
+    number_locale: Option<&str>,
 ) -> avenger_typst_label::LabelOptions {
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
@@ -285,7 +294,7 @@ pub(crate) fn label_options(
         },
         math: math_style,
         params: params.clone(),
-        number_locale: None,
+        number_locale: number_locale.map(str::to_string),
         number_locale_registry: None,
         limits: limits_for_text(text, math.limits),
     }
@@ -425,6 +434,7 @@ mod tests {
             STYLE,
             [0.0, 0.0, 0.0, 1.0],
             crate::empty_label_params(),
+            None,
         );
 
         assert_eq!(options.text.font_family, "sans-serif");
@@ -469,6 +479,7 @@ mod tests {
                 font_style: STYLE,
                 syntax_mode: TextSyntaxMode::Plain,
                 params: crate::empty_label_params(),
+                number_locale: None,
             })
             .unwrap();
 
@@ -488,6 +499,23 @@ mod tests {
         assert!(metrics.descent > 0.0);
         assert_eq!(metrics.height, 16.0);
         assert!(metrics.line_height >= metrics.height);
+    }
+
+    #[test]
+    fn label_options_include_number_locale() {
+        let options = label_options(
+            &TextMarkupConfig::default(),
+            "#numfmt(value, \",.1f\")",
+            "sans-serif",
+            12.0,
+            WEIGHT,
+            STYLE,
+            [0.0, 0.0, 0.0, 1.0],
+            crate::empty_label_params(),
+            Some("de-DE"),
+        );
+
+        assert_eq!(options.number_locale.as_deref(), Some("de-DE"));
     }
 
     #[test]
@@ -511,6 +539,7 @@ mod tests {
                     limit: f32::INFINITY,
                     syntax_mode: TextSyntaxMode::Plain,
                     params: crate::empty_label_params(),
+                    number_locale: None,
                 },
                 1.0,
                 &HashMap::new(),
@@ -544,6 +573,7 @@ mod tests {
                     limit: f32::INFINITY,
                     syntax_mode: TextSyntaxMode::Plain,
                     params: crate::empty_label_params(),
+                    number_locale: None,
                 },
                 1.0,
                 &HashMap::new(),

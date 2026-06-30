@@ -34,6 +34,7 @@ pub mod facet_axis;
 pub mod facet_data_scope;
 pub mod facet_dimension;
 pub mod facet_empty_cell_policy;
+pub mod formatting_context;
 pub mod geometry;
 pub mod geometry_space;
 pub mod guide_context;
@@ -187,6 +188,7 @@ pub use facet_dimension::{
     WrapDimensionConfig,
 };
 pub use facet_empty_cell_policy::FacetEmptyCellPolicy;
+pub use formatting_context::FormattingContext;
 pub use geometry::{
     BandPosition, PaddingSpec, PlotGeometry, PointGeometry, SubplotGeometry, SubplotRect,
 };

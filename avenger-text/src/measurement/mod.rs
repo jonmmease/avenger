@@ -57,6 +57,8 @@ pub struct TextMeasurementConfig<'a> {
     pub syntax_mode: TextSyntaxMode,
     /// Read-only Typst label parameters available to markup labels.
     pub params: &'a avenger_typst_label::LabelParams,
+    /// Optional number locale id available to Typst markup functions such as `#numfmt`.
+    pub number_locale: Option<&'a str>,
 }
 
 /// Configuration needed for font-level metrics.

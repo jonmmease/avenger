@@ -20,6 +20,7 @@ fn run_text_line() {
         font_style: style,
         syntax_mode: TextSyntaxMode::TypstMarkup,
         params: empty_label_params(),
+        number_locale: None,
     };
 
     let text_engine = default_text_engine();
@@ -41,6 +42,7 @@ fn run_text_line() {
         limit: f32::INFINITY,
         syntax_mode: TextSyntaxMode::TypstMarkup,
         params: empty_label_params(),
+        number_locale: None,
     };
 
     let cached_entries = HashMap::<TextRasterCacheKey, ()>::new();

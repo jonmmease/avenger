@@ -549,6 +549,7 @@ pub async fn evaluate_cartesian_axis(
     facet_sharing_level: SharingLevel,
     child_frame_sharing_level: SharingLevel,
     nested_axis_levels: Option<&BTreeMap<usize, Box<CartesianAxis>>>,
+    default_number_locale: &str,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
         let visible_expr =
@@ -620,7 +621,7 @@ pub async fn evaluate_cartesian_axis(
                 resolve_axis_expr(locale_node.to_default_expr(ctx)?, channel, sharing_context)?;
             Some(evaluate_string_expr(&locale_expr, ctx, params).await?)
         } else {
-            None
+            Some(default_number_locale.to_string())
         };
 
     let label_angle =

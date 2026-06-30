@@ -486,6 +486,7 @@ fn truncate_labels<'a>(labels: impl IntoIterator<Item = (&'a str, f32)>) -> Vec<
                             font_style,
                             syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                             params: avenger_text::empty_label_params(),
+                            number_locale: None,
                         })
                         .width,
                 )

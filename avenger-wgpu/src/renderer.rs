@@ -741,6 +741,7 @@ mod text_raster_tests {
                     limit: f32::INFINITY,
                     syntax_mode: TextSyntaxMode::TypstMarkup,
                     params: avenger_text::empty_label_params(),
+                    number_locale: None,
                     use_nearest_filter: false,
                 },
                 CanvasDimensions {

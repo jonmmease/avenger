@@ -233,6 +233,7 @@ where
         text,
         text_syntax: TextSyntaxMode::Plain,
         text_params: avenger_text::empty_label_params().clone(),
+        number_locale: None,
         x,
         y,
         defined,
@@ -276,6 +277,7 @@ pub fn apply_text_syntax_and_params(
     mark.text_syntax = syntax_mode;
     if syntax_mode == TextSyntaxMode::Plain {
         mark.text_params = avenger_text::empty_label_params().clone();
+        mark.number_locale = None;
         return;
     }
 
@@ -284,6 +286,13 @@ pub fn apply_text_syntax_and_params(
         text_values.iter().map(String::as_str),
         syntax_mode,
         mark_context.params(),
+    );
+    mark.number_locale = Some(
+        mark_context
+            .eval()
+            .formatting_context()
+            .resolved_number_locale()
+            .to_string(),
     );
 }
 

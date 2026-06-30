@@ -604,6 +604,7 @@ impl PdfRenderer {
                 limit: *limit,
                 syntax_mode: mark.text_syntax,
                 params: &mark.text_params,
+                number_locale: mark.number_locale.as_deref(),
             })?;
 
             if *leader {

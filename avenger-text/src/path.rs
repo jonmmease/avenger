@@ -27,6 +27,7 @@ pub struct TextPathExtractionConfig<'a> {
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a avenger_typst_label::LabelParams,
+    pub number_locale: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +169,7 @@ impl TextPathExtractorImpl {
                     font_style: config.font_style,
                     syntax_mode: config.syntax_mode,
                     params: config.params,
+                    number_locale: config.number_locale,
                 };
                 self.measure_text_bounds(&measurement)
                     .map(|bounds| bounds.width)
@@ -183,6 +185,7 @@ impl TextPathExtractorImpl {
             config.font_style,
             config.color,
             config.params,
+            config.number_locale,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -452,6 +455,7 @@ mod tests {
             limit: f32::INFINITY,
             syntax_mode: TextSyntaxMode::TypstMarkup,
             params: crate::empty_label_params(),
+            number_locale: None,
         }
     }
 

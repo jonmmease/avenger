@@ -1351,6 +1351,7 @@ fn build_physical_wrap_subplot(
         subtitle: None,
         theme: compiled_subplot.theme.clone(),
         time_context: compiled_subplot.time_context.clone(),
+        formatting_context: compiled_subplot.formatting_context.clone(),
         scale_to_coord_channel: Default::default(),
         scale_specs: Default::default(),
         data: None,

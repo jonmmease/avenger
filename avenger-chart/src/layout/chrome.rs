@@ -157,6 +157,7 @@ async fn measure_text_bounds(
         font_style: FontStyle::Normal,
         syntax_mode,
         params: &text_params,
+        number_locale: Some(eval_ctx.core.formatting_context().resolved_number_locale()),
     };
     let bounds = eval_ctx.measure_text_bounds(&config)?;
 

@@ -274,7 +274,8 @@ mod tests {
                 Arc::new(ctx.clone()),
                 params.clone(),
             )
-            .with_time_context(compiled.time_context.clone()),
+            .with_time_context(compiled.time_context.clone())
+            .with_formatting_context(compiled.formatting_context.clone()),
             compiled.get_theme().as_ref(),
         )
         .await?;
@@ -337,7 +338,8 @@ mod tests {
                 Arc::new(ctx.clone()),
                 IndexMap::new(),
             )
-            .with_time_context(compiled.time_context.clone()),
+            .with_time_context(compiled.time_context.clone())
+            .with_formatting_context(compiled.formatting_context.clone()),
             compiled.get_theme().as_ref(),
         )
         .await

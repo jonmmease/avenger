@@ -25,10 +25,13 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
+    sync::Arc,
 };
 
+use avenger_scales::formatter::{DefaultFormatter, Formatters};
 use avenger_scales::scales::{
-    RangeKind, ScaleImpl, domain_solver::compute_domain_from_data_with_padding_linear,
+    ConfiguredScale, RangeKind, ScaleImpl,
+    domain_solver::compute_domain_from_data_with_padding_linear,
 };
 use datafusion::arrow::datatypes::TimeUnit;
 use datafusion::{arrow::datatypes::DataType, logical_expr::lit, prelude::SessionContext};
@@ -159,6 +162,8 @@ pub struct ScaleBuilder {
     /// Channels materialized by a coordinate-domain provider, not authored by
     /// the user as explicit-domain scales.
     pub(crate) coordinate_domain_placeholders: HashSet<String>,
+    /// Default locale id for configured scale number formatters.
+    pub(crate) number_locale: Option<String>,
 }
 
 /// Cached data for a single channel's scale
@@ -218,6 +223,20 @@ pub enum ChannelScaleData {
         /// Runtime-derived scalar expressions referenced by channel config.
         derived_scalars: DerivedScalarMap,
     },
+}
+
+fn apply_number_locale_to_configured_scale(
+    configured: &mut ConfiguredScale,
+    number_locale: Option<&str>,
+) {
+    if let Some(number_locale) = number_locale {
+        let mut formatters: Formatters = configured.config.context.formatters.clone();
+        formatters.number = Arc::new(DefaultFormatter {
+            number_locale: Some(number_locale.to_string()),
+            ..DefaultFormatter::default()
+        });
+        configured.config.context.formatters = formatters;
+    }
 }
 
 /// Cached data extents for standard scales
@@ -387,7 +406,13 @@ impl ScaleBuilder {
             default_range_channels: HashMap::new(),
             explicit_ranges: HashMap::new(),
             coordinate_domain_placeholders: HashSet::new(),
+            number_locale: None,
         }
+    }
+
+    pub fn with_number_locale(mut self, locale: impl Into<String>) -> Self {
+        self.number_locale = Some(locale.into());
+        self
     }
 
     /// Set the data type for a channel
@@ -1061,12 +1086,16 @@ impl ScaleBuilder {
                     );
 
                     // Create configured scale
-                    let configured = Box::pin(
+                    let mut configured = Box::pin(
                         scale
                             .clone()
                             .create_configured_scale(width, height, ctx, params),
                     )
                     .await?;
+                    apply_number_locale_to_configured_scale(
+                        &mut configured,
+                        self.number_locale.as_deref(),
+                    );
 
                     result.insert(
                         channel_name.clone(),
@@ -1136,12 +1165,16 @@ impl ScaleBuilder {
                                 theme,
                                 params,
                             );
-                            let configured = Box::pin(
+                            let mut configured = Box::pin(
                                 scale
                                     .clone()
                                     .create_configured_scale(width, height, ctx, params),
                             )
                             .await?;
+                            apply_number_locale_to_configured_scale(
+                                &mut configured,
+                                self.number_locale.as_deref(),
+                            );
 
                             result.insert(
                                 channel_name.clone(),
@@ -1198,12 +1231,16 @@ impl ScaleBuilder {
                     );
 
                     // Create configured scale
-                    let configured = Box::pin(
+                    let mut configured = Box::pin(
                         scale
                             .clone()
                             .create_configured_scale(width, height, ctx, params),
                     )
                     .await?;
+                    apply_number_locale_to_configured_scale(
+                        &mut configured,
+                        self.number_locale.as_deref(),
+                    );
 
                     result.insert(
                         channel_name.clone(),
@@ -1272,12 +1309,16 @@ impl ScaleBuilder {
                     );
 
                     // Create configured scale
-                    let configured = Box::pin(
+                    let mut configured = Box::pin(
                         scale
                             .clone()
                             .create_configured_scale(width, height, ctx, params),
                     )
                     .await?;
+                    apply_number_locale_to_configured_scale(
+                        &mut configured,
+                        self.number_locale.as_deref(),
+                    );
 
                     result.insert(
                         channel_name.clone(),

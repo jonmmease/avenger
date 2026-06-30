@@ -145,6 +145,7 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 limit: text.limit,
                 syntax_mode: text.syntax_mode,
                 params: text.params,
+                number_locale: text.number_locale,
             },
             dimensions.scale,
             &self.next_cache,
@@ -377,5 +378,6 @@ pub struct TextInstance<'a> {
     pub limit: f32,
     pub syntax_mode: TextSyntaxMode,
     pub params: &'a LabelParams,
+    pub number_locale: Option<&'a str>,
     pub use_nearest_filter: bool,
 }

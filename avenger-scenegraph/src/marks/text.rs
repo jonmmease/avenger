@@ -28,6 +28,8 @@ pub struct SceneTextMark {
     pub text_syntax: TextSyntaxMode,
     #[serde(default, skip_serializing_if = "text_params_is_empty")]
     pub text_params: avenger_text::LabelParams,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub number_locale: Option<String>,
     pub x: ScalarOrArray<f32>,
     pub y: ScalarOrArray<f32>,
     #[serde(default = "default_true_bool_channel")]
@@ -88,6 +90,7 @@ impl Hash for SceneTextMark {
         self.text.hash(state);
         self.text_syntax.hash(state);
         avenger_text::label_params_fingerprint(&self.text_params).hash(state);
+        self.number_locale.hash(state);
         self.x.hash(state);
         self.y.hash(state);
         self.defined.hash(state);
@@ -313,6 +316,7 @@ impl Default for SceneTextMark {
             text: ScalarOrArray::new_scalar(String::new()),
             text_syntax: TextSyntaxMode::Plain,
             text_params: avenger_text::LabelParams::default(),
+            number_locale: None,
             x: ScalarOrArray::new_scalar(0.0),
             y: ScalarOrArray::new_scalar(0.0),
             defined: ScalarOrArray::new_scalar(true),
@@ -378,5 +382,17 @@ mod tests {
 
         let value = serde_json::to_value(mark).unwrap();
         assert_eq!(value["text-syntax"], "typst-markup");
+    }
+
+    #[test]
+    fn number_locale_defaults_and_serializes_as_kebab_case() {
+        let default_value = serde_json::to_value(SceneTextMark::default()).unwrap();
+        assert!(default_value.get("number-locale").is_none());
+
+        let mut mark = SceneTextMark::default();
+        mark.number_locale = Some("de-DE".to_string());
+
+        let value = serde_json::to_value(mark).unwrap();
+        assert_eq!(value["number-locale"], "de-DE");
     }
 }

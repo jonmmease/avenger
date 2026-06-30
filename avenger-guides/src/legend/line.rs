@@ -349,6 +349,7 @@ pub fn make_line_legend_itemized(
             font_style: FontStyle::Normal,
             syntax_mode: config.title_syntax_mode,
             params: &config.title_text_params,
+            number_locale: None,
         })?;
 
         let title_mark = SceneTextMark {

@@ -106,6 +106,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
+                    number_locale: config.number_locale.as_deref(),
                 });
             let max_bounds =
                 text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
@@ -116,6 +117,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
+                    number_locale: config.number_locale.as_deref(),
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -313,6 +315,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
+                    number_locale: config.number_locale.as_deref(),
                 });
             let max_bounds =
                 text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
@@ -323,6 +326,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
+                    number_locale: config.number_locale.as_deref(),
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -512,6 +516,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                     params: avenger_text::empty_label_params(),
+                    number_locale: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -721,6 +726,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_style: FontStyle::Normal,
                     syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
                     params: avenger_text::empty_label_params(),
+                    number_locale: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
