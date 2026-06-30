@@ -9,6 +9,10 @@ use arrow::compute::kernels::cast;
 use arrow::datatypes::{DataType, TimeUnit};
 use avenger_common::types::LinearScaleAdjustment;
 use avenger_common::value::ScalarOrArray;
+use avenger_format_datetime::{
+    format_naive_datetime, format_zoned_datetime, DateTimeFormatContext, DateTimeFormatOverrides,
+    DateTimeLocaleRegistry, NaiveDateTimeInput, ResolvedDateTimeLocale,
+};
 use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Timelike, Utc};
 use chrono_tz::Tz;
 use lazy_static::lazy_static;
@@ -59,57 +63,69 @@ pub struct TimeScale;
 struct TemporalTickFormatter {
     interval: TimeInterval,
     timezone: Tz,
+    locale: ResolvedDateTimeLocale,
 }
 
 impl TemporalTickFormatter {
-    fn new(interval: TimeInterval, timezone: Tz) -> Self {
-        Self { interval, timezone }
+    fn new(interval: TimeInterval, timezone: Tz, locale: ResolvedDateTimeLocale) -> Self {
+        Self {
+            interval,
+            timezone,
+            locale,
+        }
     }
 
     /// Get format string based on interval type
     fn get_format_string(&self) -> &'static str {
         match &self.interval {
-            TimeInterval::Millisecond(_) => "%H:%M:%S%.3f",
-            TimeInterval::Second(_) => "%H:%M:%S",
-            TimeInterval::Minute(n) if *n < 60 => "%H:%M",
-            TimeInterval::Hour(n) if *n < 24 => "%H:%M",
-            TimeInterval::Day(_) => "%b %d",
-            TimeInterval::Week(_) => "%b %d",
-            TimeInterval::Month(n) if *n < 12 => "%B",
-            TimeInterval::Year(_) => "%Y",
-            _ => "%Y-%m-%d %H:%M:%S",
+            TimeInterval::Millisecond(_) => "HH:mm:ss.SSS",
+            TimeInterval::Second(_) => "HH:mm:ss",
+            TimeInterval::Minute(n) if *n < 60 => "HH:mm",
+            TimeInterval::Hour(n) if *n < 24 => "HH:mm",
+            TimeInterval::Day(_) => "MMM d",
+            TimeInterval::Week(_) => "MMM d",
+            TimeInterval::Month(n) if *n < 12 => "MMMM",
+            TimeInterval::Year(_) => "y",
+            _ => "y-MM-dd HH:mm:ss",
         }
+    }
+
+    fn context(&self) -> DateTimeFormatContext<'_> {
+        DateTimeFormatContext::new(&self.locale, self.timezone)
+    }
+
+    fn format_naive(&self, value: NaiveDateTimeInput, default: &str) -> String {
+        format_naive_datetime(
+            value,
+            Some(self.get_format_string()),
+            DateTimeFormatOverrides::default(),
+            self.context(),
+        )
+        .map(|formatted| formatted.text)
+        .unwrap_or_else(|_| default.to_string())
+    }
+
+    fn format_zoned(&self, value: DateTime<Utc>, default: &str) -> String {
+        format_zoned_datetime(
+            value,
+            Some(self.get_format_string()),
+            DateTimeFormatOverrides::default(),
+            self.context(),
+        )
+        .map(|formatted| formatted.text)
+        .unwrap_or_else(|_| default.to_string())
     }
 }
 
 impl DateFormatter for TemporalTickFormatter {
     fn format(&self, values: &[Option<NaiveDate>], default: Option<&str>) -> Vec<String> {
         let default = default.unwrap_or("");
-        let format_str = self.get_format_string();
 
         values
             .iter()
             .map(|v| {
-                v.map(|date| {
-                    // Convert to datetime at midnight in the target timezone
-                    match self
-                        .timezone
-                        .from_local_datetime(&date.and_hms_opt(0, 0, 0).unwrap())
-                    {
-                        chrono::LocalResult::Single(dt) => dt.format(format_str).to_string(),
-                        chrono::LocalResult::None => {
-                            // Handle DST gap by trying next hours
-                            self.timezone
-                                .from_local_datetime(&date.and_hms_opt(3, 0, 0).unwrap())
-                                .single()
-                                .unwrap()
-                                .format(format_str)
-                                .to_string()
-                        }
-                        chrono::LocalResult::Ambiguous(dt, _) => dt.format(format_str).to_string(),
-                    }
-                })
-                .unwrap_or_else(|| default.to_string())
+                v.map(|date| self.format_naive(NaiveDateTimeInput::Date(date), default))
+                    .unwrap_or_else(|| default.to_string())
             })
             .collect()
     }
@@ -122,17 +138,12 @@ impl TimestampFormatter for TemporalTickFormatter {
         default: Option<&str>,
     ) -> Vec<String> {
         let default = default.unwrap_or("");
-        let format_str = self.get_format_string();
 
         values
             .iter()
             .map(|v| {
-                v.map(|naive_dt| {
-                    // Convert to timezone-aware datetime
-                    let local_dt = self.timezone.from_utc_datetime(&naive_dt);
-                    local_dt.format(format_str).to_string()
-                })
-                .unwrap_or_else(|| default.to_string())
+                v.map(|naive_dt| self.format_naive(NaiveDateTimeInput::DateTime(naive_dt), default))
+                    .unwrap_or_else(|| default.to_string())
             })
             .collect()
     }
@@ -141,16 +152,12 @@ impl TimestampFormatter for TemporalTickFormatter {
 impl TimestamptzFormatter for TemporalTickFormatter {
     fn format(&self, values: &[Option<DateTime<Utc>>], default: Option<&str>) -> Vec<String> {
         let default = default.unwrap_or("");
-        let format_str = self.get_format_string();
 
         values
             .iter()
             .map(|v| {
-                v.map(|utc_dt| {
-                    let local_dt = utc_dt.with_timezone(&self.timezone);
-                    local_dt.format(format_str).to_string()
-                })
-                .unwrap_or_else(|| default.to_string())
+                v.map(|utc_dt| self.format_zoned(utc_dt, default))
+                    .unwrap_or_else(|| default.to_string())
             })
             .collect()
     }
@@ -823,7 +830,9 @@ impl ScaleImpl for TimeScale {
         let interval = select_time_interval(span, target_count);
 
         // Create custom formatter
-        let formatter = TemporalTickFormatter::new(interval, tz);
+        let datetime_locale = DateTimeLocaleRegistry::with_builtins()
+            .resolve(&config.option_string("locale", "en-US"))?;
+        let formatter = TemporalTickFormatter::new(interval, tz, datetime_locale);
         let default = config.option_string("default", "");
 
         // Format based on the input data type
@@ -1788,6 +1797,54 @@ mod tests {
     use super::*;
     use arrow::array::TimestampSecondArray;
     use avenger_common::value::ScalarOrArrayValue;
+
+    fn en_us_datetime_locale() -> ResolvedDateTimeLocale {
+        DateTimeLocaleRegistry::with_builtins()
+            .resolve("en-US")
+            .expect("en-US datetime locale")
+    }
+
+    #[test]
+    fn temporal_tick_formatter_uses_ldml_day_labels() {
+        let formatter =
+            TemporalTickFormatter::new(TimeInterval::Day(1), Tz::UTC, en_us_datetime_locale());
+        let labels = DateFormatter::format(
+            &formatter,
+            &[Some(NaiveDate::from_ymd_opt(2024, 1, 5).unwrap())],
+            None,
+        );
+
+        assert_eq!(labels, vec!["Jan 5"]);
+    }
+
+    #[test]
+    fn temporal_tick_formatter_does_not_shift_naive_timestamps() {
+        let formatter = TemporalTickFormatter::new(
+            TimeInterval::Hour(1),
+            Tz::America__New_York,
+            en_us_datetime_locale(),
+        );
+        let naive = NaiveDate::from_ymd_opt(2024, 1, 1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
+        let labels = TimestampFormatter::format(&formatter, &[Some(naive)], None);
+
+        assert_eq!(labels, vec!["00:00"]);
+    }
+
+    #[test]
+    fn temporal_tick_formatter_shifts_zoned_timestamps() {
+        let formatter = TemporalTickFormatter::new(
+            TimeInterval::Hour(1),
+            Tz::America__New_York,
+            en_us_datetime_locale(),
+        );
+        let utc = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let labels = TimestamptzFormatter::format(&formatter, &[Some(utc)], None);
+
+        assert_eq!(labels, vec!["19:00"]);
+    }
 
     #[test]
     fn test_time_scale_date32() -> Result<(), AvengerScaleError> {

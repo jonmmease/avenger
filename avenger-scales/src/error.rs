@@ -1,4 +1,5 @@
 use arrow::error::ArrowError;
+use avenger_format_datetime::DateTimeFormatError;
 use avenger_image::error::AvengerImageError;
 
 use crate::scalar::Scalar;
@@ -79,6 +80,9 @@ pub enum AvengerScaleError {
         format_str: String,
         data_type: String,
     },
+
+    #[error("Datetime format error: {0}")]
+    DateTimeFormatError(#[from] DateTimeFormatError),
 
     #[error("Avenger image error: {0}")]
     AvengerImageError(#[from] AvengerImageError),
