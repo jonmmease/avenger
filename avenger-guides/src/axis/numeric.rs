@@ -8,8 +8,9 @@ use arrow::{
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_format_number::{
-    prepare_number_tick_format, DigitSpec, ExponentMarker, FormattedNumber, NumberFormatContext,
-    NumberFormatOverrides, NumberLocaleRegistry, NumberTypesetting, PreparedNumberTickFormat,
+    prepare_number_tick_format, CurrencyDisplay, DigitSpec, ExponentMarker, FormatType,
+    FormattedNumber, NumberFormatContext, NumberFormatOverrides, NumberLocaleRegistry,
+    NumberTypesetting, PreparedNumberTickFormat, SignPolicy, Symbol,
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
@@ -437,6 +438,47 @@ mod tests {
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
         assert_eq!(labels.text.as_vec(1, None), vec!["0.9M", "1.0M", "1.1M"]);
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_accepts_named_overrides() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1234.5])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(
+                    "#numfmt(value, \"C[USD]\", currency: \"EUR\", currency_display: \"code\", fraction_digits: 0, group: false)"
+                        .to_string(),
+                ),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["EUR1234"]);
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_type_override_can_force_math_typesetting() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(
+                    "#numfmt(value, \".3f\", type: \"e\", precision: 1)".to_string(),
+                ),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["$1.2 times 10^(3)$"]);
     }
 
     fn collect_text_marks(group: &SceneGroup) -> Vec<&SceneTextMark> {
@@ -914,29 +956,104 @@ fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, Aveng
     while !rest.is_empty() {
         let Some(after_comma) = rest.strip_prefix(',') else {
             return Err(invalid_axis_label_format(
-                "axis numfmt call currently supports only value, format string, and `precision: precision`",
+                "axis numfmt options must be comma-separated named arguments",
             ));
         };
         rest = after_comma.trim_start();
-        let Some(after_name) = strip_identifier(rest, "precision") else {
+        let Some((name, after_name)) = parse_identifier(rest) else {
             return Err(invalid_axis_label_format(
-                "axis numfmt call currently supports only the `precision: precision` override",
+                "axis numfmt option must start with an identifier",
             ));
         };
         let Some(after_colon) = after_name.trim_start().strip_prefix(':') else {
-            return Err(invalid_axis_label_format(
-                "axis numfmt precision override must be written as `precision: precision`",
-            ));
+            return Err(invalid_axis_label_format(format!(
+                "axis numfmt option `{name}` must use `:`"
+            )));
         };
-        let Some(after_value) = strip_identifier(after_colon.trim_start(), "precision") else {
-            return Err(invalid_axis_label_format(
-                "axis numfmt precision override must be written as `precision: precision`",
-            ));
-        };
-        overrides.digit_spec = Some(DigitSpec::Auto);
-        rest = after_value.trim_start();
+        let value = after_colon.trim_start();
+        rest = match name {
+            "style" | "type" => {
+                let (format_type, after_value) = parse_axis_format_type_arg(value)?;
+                overrides.format_type = Some(format_type);
+                after_value
+            }
+            "precision" => {
+                let (digit_spec, after_value) = parse_axis_precision_arg(value)?;
+                overrides.digit_spec = Some(digit_spec);
+                after_value
+            }
+            "fraction_digits" => {
+                let (fraction_digits, after_value) = parse_axis_u8_arg(value, "fraction_digits")?;
+                overrides.digit_spec = Some(DigitSpec::Fraction(fraction_digits));
+                after_value
+            }
+            "significant_digits" => {
+                let (significant_digits, after_value) =
+                    parse_axis_u8_arg(value, "significant_digits")?;
+                overrides.digit_spec = Some(DigitSpec::Significant(significant_digits));
+                after_value
+            }
+            "group" => {
+                let (group, after_value) = parse_axis_bool_arg(value, "group")?;
+                overrides.group = Some(group);
+                after_value
+            }
+            "trim" => {
+                let (trim, after_value) = parse_axis_bool_arg(value, "trim")?;
+                overrides.trim = Some(trim);
+                after_value
+            }
+            "zero" => {
+                let (zero, after_value) = parse_axis_bool_arg(value, "zero")?;
+                overrides.zero = Some(zero);
+                after_value
+            }
+            "currency" => {
+                let (currency, after_value) = parse_axis_string_arg(value, "currency")?;
+                overrides.currency = Some(currency);
+                after_value
+            }
+            "currency_display" => {
+                let (display, after_value) = parse_axis_currency_display_arg(value)?;
+                overrides.currency_display = Some(display);
+                after_value
+            }
+            "sign" => {
+                let (sign, after_value) = parse_axis_sign_arg(value)?;
+                overrides.sign = Some(sign);
+                after_value
+            }
+            "symbol" => {
+                let (symbol, after_value) = parse_axis_symbol_arg(value)?;
+                overrides.symbol = Some(symbol);
+                after_value
+            }
+            _ => {
+                return Err(invalid_axis_label_format(format!(
+                    "unsupported axis numfmt option `{name}`"
+                )));
+            }
+        }
+        .trim_start();
     }
     Ok(overrides)
+}
+
+fn parse_identifier(input: &str) -> Option<(&str, &str)> {
+    let mut chars = input.char_indices();
+    let (_, first) = chars.next()?;
+    if first != '_' && !first.is_ascii_alphabetic() {
+        return None;
+    }
+    let mut end = first.len_utf8();
+    for (idx, ch) in chars {
+        if ch == '_' || ch.is_ascii_alphanumeric() {
+            end = idx + ch.len_utf8();
+        } else {
+            break;
+        }
+    }
+    Some((&input[..end], &input[end..]))
 }
 
 fn strip_identifier<'a>(input: &'a str, ident: &str) -> Option<&'a str> {
@@ -949,6 +1066,119 @@ fn strip_identifier<'a>(input: &'a str, ident: &str) -> Option<&'a str> {
         return None;
     }
     Some(rest)
+}
+
+fn parse_axis_precision_arg(raw: &str) -> Result<(DigitSpec, &str), AvengerGuidesError> {
+    if let Some(rest) = strip_identifier(raw, "precision") {
+        return Ok((DigitSpec::Auto, rest));
+    }
+    let (precision, rest) = parse_axis_u8_arg(raw, "precision")?;
+    Ok((DigitSpec::Precision(precision), rest))
+}
+
+fn parse_axis_format_type_arg(raw: &str) -> Result<(FormatType, &str), AvengerGuidesError> {
+    let (value, rest) = parse_axis_string_arg(raw, "type")?;
+    let mut chars = value.chars();
+    let Some(ch) = chars.next() else {
+        return Err(invalid_axis_label_format("unsupported axis numfmt type"));
+    };
+    if chars.next().is_some() {
+        return Err(invalid_axis_label_format("unsupported axis numfmt type"));
+    }
+    let Some(format_type) = FormatType::from_char(ch) else {
+        return Err(invalid_axis_label_format("unsupported axis numfmt type"));
+    };
+    Ok((format_type, rest))
+}
+
+fn parse_axis_currency_display_arg(
+    raw: &str,
+) -> Result<(CurrencyDisplay, &str), AvengerGuidesError> {
+    let (value, rest) = parse_axis_string_arg(raw, "currency_display")?;
+    let display = match value.as_str() {
+        "symbol" => CurrencyDisplay::Symbol,
+        "code" => CurrencyDisplay::Code,
+        "name" => CurrencyDisplay::Name,
+        "narrow-symbol" | "narrow_symbol" => CurrencyDisplay::NarrowSymbol,
+        _ => {
+            return Err(invalid_axis_label_format(
+                "unsupported axis numfmt currency_display",
+            ));
+        }
+    };
+    Ok((display, rest))
+}
+
+fn parse_axis_sign_arg(raw: &str) -> Result<(SignPolicy, &str), AvengerGuidesError> {
+    let (value, rest) = parse_axis_string_arg(raw, "sign")?;
+    let mut chars = value.chars();
+    let Some(ch) = chars.next() else {
+        return Err(invalid_axis_label_format("unsupported axis numfmt sign"));
+    };
+    if chars.next().is_some() {
+        return Err(invalid_axis_label_format("unsupported axis numfmt sign"));
+    }
+    let Some(sign) = SignPolicy::from_char(ch) else {
+        return Err(invalid_axis_label_format("unsupported axis numfmt sign"));
+    };
+    Ok((sign, rest))
+}
+
+fn parse_axis_symbol_arg(raw: &str) -> Result<(Option<Symbol>, &str), AvengerGuidesError> {
+    let (value, rest) = parse_axis_string_arg(raw, "symbol")?;
+    let symbol = match value.as_str() {
+        "$" => Some(Symbol::CurrencyCompat),
+        "#" => Some(Symbol::Alternate),
+        "none" => None,
+        _ => return Err(invalid_axis_label_format("unsupported axis numfmt symbol")),
+    };
+    Ok((symbol, rest))
+}
+
+fn parse_axis_string_arg<'a>(
+    raw: &'a str,
+    option: &str,
+) -> Result<(String, &'a str), AvengerGuidesError> {
+    parse_quoted_string(raw).map_err(|_| {
+        invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be a string literal"
+        ))
+    })
+}
+
+fn parse_axis_bool_arg<'a>(
+    raw: &'a str,
+    option: &str,
+) -> Result<(bool, &'a str), AvengerGuidesError> {
+    if let Some(rest) = strip_identifier(raw, "true") {
+        return Ok((true, rest));
+    }
+    if let Some(rest) = strip_identifier(raw, "false") {
+        return Ok((false, rest));
+    }
+    Err(invalid_axis_label_format(format!(
+        "axis numfmt option `{option}` must be true or false"
+    )))
+}
+
+fn parse_axis_u8_arg<'a>(raw: &'a str, option: &str) -> Result<(u8, &'a str), AvengerGuidesError> {
+    let end = raw
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_digit())
+        .map(|(idx, ch)| idx + ch.len_utf8())
+        .last()
+        .unwrap_or(0);
+    if end == 0 {
+        return Err(invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be an integer from 0 to 255"
+        )));
+    }
+    let value = raw[..end].parse::<u8>().map_err(|_| {
+        invalid_axis_label_format(format!(
+            "axis numfmt option `{option}` must be an integer from 0 to 255"
+        ))
+    })?;
+    Ok((value, &raw[end..]))
 }
 
 fn parse_quoted_string(raw: &str) -> Result<(String, &str), AvengerGuidesError> {
