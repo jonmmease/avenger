@@ -26,9 +26,24 @@ pub(crate) fn parse_line(source: &str) -> Result<LabelContent, LabelError> {
     parse_line_with_params(source, &Scope::default())
 }
 
+#[cfg(test)]
 pub(crate) fn parse_line_with_params(
     source: &str,
     params: &Scope,
+) -> Result<LabelContent, LabelError> {
+    parse_line_with_number_format_context(source, params, NumberFormatMarkupContext::default())
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct NumberFormatMarkupContext<'a> {
+    pub(crate) locale_id: Option<&'a str>,
+    pub(crate) registry: Option<&'a NumberLocaleRegistry>,
+}
+
+pub(crate) fn parse_line_with_number_format_context(
+    source: &str,
+    params: &Scope,
+    number_format: NumberFormatMarkupContext<'_>,
 ) -> Result<LabelContent, LabelError> {
     let mut root = crate::typst_syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
@@ -42,7 +57,7 @@ pub(crate) fn parse_line_with_params(
         })?;
 
     let mut nodes = Vec::new();
-    lower_markup(markup, source, params, &mut nodes)?;
+    lower_markup(markup, source, params, number_format, &mut nodes)?;
     Ok(LabelContent {
         source: source.to_string(),
         nodes,
@@ -53,10 +68,11 @@ fn lower_markup(
     markup: typst_ast::Markup<'_>,
     source: &str,
     params: &Scope,
+    number_format: NumberFormatMarkupContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     for expr in markup.exprs() {
-        lower_markup_expr(expr, source, params, nodes)?;
+        lower_markup_expr(expr, source, params, number_format, nodes)?;
     }
     Ok(())
 }
@@ -65,6 +81,7 @@ fn lower_markup_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     params: &Scope,
+    number_format: NumberFormatMarkupContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     match expr {
@@ -110,7 +127,7 @@ fn lower_markup_expr(
             }));
         }
         typst_ast::Expr::FuncCall(call) => {
-            lower_static_call(call, source, params, nodes)?;
+            lower_static_call(call, source, params, number_format, nodes)?;
         }
         typst_ast::Expr::Ident(ident) => {
             let range = expand_hash_range(source, ident.to_untyped().range());
@@ -130,6 +147,7 @@ fn lower_markup_expr(
                 strong.to_untyped().range(),
                 source,
                 params,
+                number_format,
                 nodes,
             )?;
         }
@@ -141,6 +159,7 @@ fn lower_markup_expr(
                 emph.to_untyped().range(),
                 source,
                 params,
+                number_format,
                 nodes,
             )?;
         }
@@ -158,6 +177,7 @@ fn lower_static_call(
     call: typst_ast::FuncCall<'_>,
     source: &str,
     params: &Scope,
+    number_format: NumberFormatMarkupContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     let range = expand_hash_range(source, call.to_untyped().range());
@@ -165,7 +185,7 @@ fn lower_static_call(
         return Err(unsupported(range.start, "unsupported static text command"));
     };
     if name == "numfmt" {
-        return lower_numfmt_call(call, source, params, nodes, range);
+        return lower_numfmt_call(call, source, params, number_format, nodes, range);
     }
     let Some(kind) = text_span_kind(&name) else {
         return Err(unsupported(range.start, "unsupported static text command"));
@@ -182,7 +202,7 @@ fn lower_static_call(
                 let body_markup = block.body();
                 let body_range = body_markup.to_untyped().range();
                 let mut body_nodes = Vec::new();
-                lower_markup(body_markup, source, params, &mut body_nodes)?;
+                lower_markup(body_markup, source, params, number_format, &mut body_nodes)?;
                 if body.replace((body_nodes, body_range)).is_some() {
                     return Err(unsupported(
                         range.start,
@@ -245,6 +265,7 @@ fn lower_numfmt_call(
     call: typst_ast::FuncCall<'_>,
     _source: &str,
     params: &Scope,
+    number_format: NumberFormatMarkupContext<'_>,
     nodes: &mut Vec<LineNode>,
     range: Range<usize>,
 ) -> Result<(), LabelError> {
@@ -282,9 +303,16 @@ fn lower_numfmt_call(
         return Err(unsupported(range.start, "numfmt expects a value argument"));
     };
     let spec = spec.unwrap_or_default();
-    let registry = NumberLocaleRegistry::with_builtins();
+    let builtin_registry;
+    let registry = if let Some(registry) = number_format.registry {
+        registry
+    } else {
+        builtin_registry = NumberLocaleRegistry::with_builtins();
+        &builtin_registry
+    };
+    let locale_id = number_format.locale_id.unwrap_or("en-US");
     let locale = registry
-        .resolve("en-US")
+        .resolve(locale_id)
         .map_err(|err| numfmt_engine_error(range.clone(), err.to_string()))?;
     let formatted = format_number(
         value,
@@ -686,11 +714,12 @@ fn lower_markup_span(
     byte_range: Range<usize>,
     source: &str,
     params: &Scope,
+    number_format: NumberFormatMarkupContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     let body_range = body_markup.to_untyped().range();
     let mut body = Vec::new();
-    lower_markup(body_markup, source, params, &mut body)?;
+    lower_markup(body_markup, source, params, number_format, &mut body)?;
     nodes.push(LineNode::TextSpan(TextMarkupSpan {
         kind,
         options,
@@ -1218,6 +1247,30 @@ mod tests {
 
         assert_eq!(line.nodes.len(), 1);
         assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Peak 1,234.5 N"));
+    }
+
+    #[test]
+    fn parses_numfmt_with_custom_locale_registry() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "label-test",
+                r#"{ "base": "en-US", "decimal": "~", "group": "_" }"#,
+            )
+            .expect("custom locale");
+        let params = scope([("value", Value::Float(1234.5))]);
+        let line = parse_line_with_number_format_context(
+            "#numfmt(value, \",.1f\")",
+            &params,
+            NumberFormatMarkupContext {
+                locale_id: Some("label-test"),
+                registry: Some(&registry),
+            },
+        )
+        .expect("line");
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "1_234~5"));
     }
 
     #[test]

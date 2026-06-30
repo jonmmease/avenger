@@ -18,9 +18,10 @@ use std::{
     sync::Arc,
 };
 
+use avenger_format_number::NumberLocaleRegistry;
 use indexmap::IndexMap;
 
-use crate::typst_eval::markup::parse_line_with_params;
+use crate::typst_eval::markup::{NumberFormatMarkupContext, parse_line_with_number_format_context};
 use crate::typst_eval::math::is_retained_math_name;
 use crate::typst_eval::math::parse_math_with_params;
 use crate::typst_layout::frame::{
@@ -144,6 +145,9 @@ pub struct LabelOptions {
     pub text: TextStyle,
     pub math: MathStyle,
     pub params: LabelParams,
+    pub number_locale: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip, default))]
+    pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
     pub limits: LabelLimits,
 }
 
@@ -153,6 +157,8 @@ impl Default for LabelOptions {
             text: TextStyle::default(),
             math: MathStyle::default(),
             params: LabelParams::default(),
+            number_locale: None,
+            number_locale_registry: None,
             limits: LabelLimits::default(),
         }
     }
@@ -213,7 +219,14 @@ impl LabelEngine {
         validate_source_limits(source, options.limits)?;
         validate_label_params(&options.params)?;
         let layout_options = line_layout_options(options);
-        let line = parse_line_with_params(source, &layout_options.params)?;
+        let line = parse_line_with_number_format_context(
+            source,
+            &layout_options.params,
+            NumberFormatMarkupContext {
+                locale_id: options.number_locale.as_deref(),
+                registry: options.number_locale_registry.as_deref(),
+            },
+        )?;
         validate_line_math(
             &line,
             options.limits,

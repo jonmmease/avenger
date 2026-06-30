@@ -285,6 +285,8 @@ pub(crate) fn label_options(
         },
         math: math_style,
         params: params.clone(),
+        number_locale: None,
+        number_locale_registry: None,
         limits: limits_for_text(text, math.limits),
     }
 }

@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct NumberLocaleRegistry {
     builtins: BTreeMap<LocaleId, NumberLocaleSpec>,
     custom: BTreeMap<LocaleId, NumberLocaleSpec>,

@@ -235,6 +235,21 @@ fn compile_errors_for_unknown_text_param() {
 }
 
 #[test]
+fn compile_numfmt_uses_number_locale_context() {
+    let mut options = LabelOptions::default();
+    options.number_locale = Some("de-DE".to_string());
+    options
+        .params
+        .insert("value".to_string(), LabelParamValue::Float(1234.5));
+
+    let label = engine()
+        .compile("#numfmt(value, \",.1f\")", &options)
+        .unwrap();
+
+    assert_eq!(label.semantic_text(), "1.234,5");
+}
+
+#[test]
 fn compile_errors_for_non_scalar_text_param() {
     let mut options = LabelOptions::default();
     options.params.insert(
