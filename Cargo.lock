@@ -1226,6 +1226,7 @@ name = "avenger-text"
 version = "0.0.8"
 dependencies = [
  "avenger-typst-label",
+ "brotli",
  "fontdb",
  "image",
  "lyon_path",

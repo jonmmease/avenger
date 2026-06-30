@@ -26,13 +26,7 @@ impl TextEngine {
     pub fn with_config(
         math: TextMarkupConfig,
     ) -> Result<Self, avenger_typst_label::LabelInitError> {
-        Self::with_config_and_font_resolution(
-            math,
-            &FontResolutionOptions {
-                load_system_fonts: true,
-                ..Default::default()
-            },
-        )
+        Self::with_config_and_font_resolution(math, &crate::fonts::default_font_resolution())
     }
 
     pub fn with_config_and_font_resolution(

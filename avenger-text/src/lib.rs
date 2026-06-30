@@ -15,4 +15,5 @@ pub use avenger_typst_label::{
 };
 pub use engine::{default_text_engine, TextEngine};
 pub use font_resolver::{FontResolutionOptions, FontResolver, MissingFontPolicy};
+pub use fonts::default_font_resolution;
 pub use math::{empty_label_params, label_params_fingerprint};

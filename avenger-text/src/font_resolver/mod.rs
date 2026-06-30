@@ -55,10 +55,7 @@ pub struct FontdbFontResolver {
 
 impl FontdbFontResolver {
     pub fn new() -> Self {
-        Self::with_font_resolution(&FontResolutionOptions {
-            load_system_fonts: true,
-            ..Default::default()
-        })
+        Self::with_font_resolution(&crate::fonts::default_font_resolution())
     }
 
     pub fn with_font_resolution(options: &FontResolutionOptions) -> Self {
@@ -178,6 +175,20 @@ mod tests {
         assert_ne!(
             resolver.select_available_font(vec!["sans-serif".to_string()]),
             "sans-serif"
+        );
+    }
+
+    #[test]
+    fn default_resolver_uses_bundled_lato_for_sans_serif() {
+        let resolver = default_font_resolver();
+
+        assert_eq!(
+            resolver.resolve_generic_family("sans-serif").as_deref(),
+            Some("Lato")
+        );
+        assert_eq!(
+            resolver.select_available_font(vec!["sans-serif".to_string()]),
+            "Lato"
         );
     }
 
