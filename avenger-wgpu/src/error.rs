@@ -39,6 +39,12 @@ pub enum AvengerWgpuError {
     #[error("Conversion error: {0}")]
     ConversionError(String),
 
+    #[error("Invalid geometry: {0}")]
+    InvalidGeometry(String),
+
+    #[error("Unsupported feature: {0}")]
+    UnsupportedFeature(String),
+
     #[error("Text support is not enabled: {0}")]
     TextNotEnabled(String),
 

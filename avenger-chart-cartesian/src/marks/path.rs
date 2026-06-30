@@ -4,9 +4,10 @@ use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
     Mark, MarkAdjustmentSpec, MarkEvaluationFrame, MarkRenderContext, MarkRuntimeContext,
-    PrimitiveMarkEffects, RenderedMarkData, ScaleTypePreference, apply_opacity_to_color_channel,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
+    PrimitiveMarkEffects, RenderedMarkData, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
+    apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    coerce_pattern_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
     coerce_stroke_join_channel_values_with_renderer, coerce_text_channel,
     default_scale_type_for_data_type, evaluate_item_assignments, impl_mark_trait_common,
     is_continuous_scale, item_bbox_column_name, item_channel_column_name, item_data_column_name,
@@ -18,7 +19,7 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
-use avenger_scenegraph::marks::{mark::SceneMark, path::ScenePathMark};
+use avenger_scenegraph::marks::{mark::SceneMark, path::ScenePathMark, pattern::PatternFill};
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float32Array, RecordBatch, StringArray},
@@ -114,6 +115,12 @@ impl CompiledMarkCore for CompiledCartesianPath {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
+                name: "fill_pattern",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
                 name: "stroke",
                 required: false,
                 default_value: None,
@@ -160,6 +167,7 @@ impl CompiledMarkCore for CompiledCartesianPath {
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
+            ("fill_pattern", _) => Some(ScaleTypePreference::Ordinal),
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(ScaleTypePreference::Point)
             }
@@ -204,6 +212,24 @@ impl CompiledMarkCore for CompiledCartesianPath {
         }
         options
     }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_impl: &dyn ScaleImpl,
+        domain: &ResolvedDomain,
+        _data_type: &DataType,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Option<ScaleRange> {
+        let range_kind = scale_impl.range_kind();
+        let cardinality = match domain {
+            ResolvedDomain::Discrete(count) => Some(*count),
+            ResolvedDomain::Interval => None,
+        };
+
+        theme.get_range_for_channel("path", channel, range_kind, cardinality, params)
+    }
 }
 
 #[typetag::serde]
@@ -245,7 +271,8 @@ impl CompiledCartesianPath {
         let position = util::transform_cartesian_point_channels(
             self, data, scalars, context, coord, "x", "y",
         )?;
-        let visual = self.coerce_path_visual_channels(&coercer, data, scalars, &mark_context)?;
+        let visual =
+            self.coerce_path_visual_channels(&coercer, data, scalars, &mark_context, context)?;
         let (x, y, visual) = self.apply_expression_adjustments(
             position.x,
             position.y,
@@ -304,6 +331,7 @@ impl CompiledCartesianPath {
                 stroke_width: Some(f32::from_bits(key.stroke_width_bits)),
                 path: visual.path.clone(),
                 fill: fill.clone(),
+                fill_pattern: visual.fill_pattern.clone(),
                 stroke: stroke.clone(),
                 transform: transform.clone(),
                 indices: indices_ref,
@@ -325,6 +353,7 @@ impl CompiledCartesianPath {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &MarkRenderContext<'_>,
+        runtime_context: &dyn MarkRuntimeContext,
     ) -> Result<PathVisualChannels, AvengerChartError> {
         let len = util::scene_len(data) as usize;
         let path = coerce_path_channel(coercer, data, scalars)?;
@@ -347,6 +376,13 @@ impl CompiledCartesianPath {
         )?;
         let opacity =
             coerce_opacity_channel_with_renderer(self, data, scalars, "opacity", context, 1.0)?;
+        let fill_pattern = coerce_pattern_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "fill_pattern",
+            runtime_context,
+        )?;
         let stroke_width = coerce_numeric_channel_with_renderer(
             self,
             None,
@@ -377,6 +413,7 @@ impl CompiledCartesianPath {
             path_transform,
             path_transform_strings: None,
             fill,
+            fill_pattern,
             stroke,
             stroke_width,
             stroke_cap_strings: util::stroke_cap_strings(&stroke_cap, len),
@@ -511,6 +548,7 @@ struct PathVisualChannels {
     path_transform: ScalarOrArray<PathTransform>,
     path_transform_strings: Option<ScalarOrArray<String>>,
     fill: ScalarOrArray<ColorOrGradient>,
+    fill_pattern: ScalarOrArray<Option<PatternFill>>,
     stroke: ScalarOrArray<ColorOrGradient>,
     stroke_width: ScalarOrArray<f32>,
     stroke_cap_strings: Vec<String>,

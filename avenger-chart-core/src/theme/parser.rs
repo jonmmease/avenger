@@ -33,6 +33,7 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
     let mut source_order = 0;
 
     let mut all_rules = Vec::new();
+    let mut parse_errors = Vec::new();
 
     for result in StyleSheetParser::new(&mut parser, &mut chart_parser) {
         match result {
@@ -54,8 +55,8 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
                     }
                 }
             }
-            Err(_) => {
-                // Ignore invalid rules
+            Err((error, context)) => {
+                parse_errors.push(format_parse_error("stylesheet", &error, context));
             }
         }
     }
@@ -73,7 +74,25 @@ pub fn parse_stylesheet(css: &str) -> Result<Vec<CompiledRule>, String> {
         ));
     }
 
+    if !parse_errors.is_empty() {
+        return Err(parse_errors.join("; "));
+    }
+
     Ok(all_rules)
+}
+
+fn format_parse_error(path: &str, error: &ParseError<'_, ()>, context: &str) -> String {
+    let location = error.location;
+    let context = context.trim();
+    let context = if context.is_empty() {
+        String::new()
+    } else {
+        format!(" near `{context}`")
+    };
+    format!(
+        "CSS parse error at {path} (line {}, column {}){}",
+        location.line, location.column, context
+    )
 }
 
 /// Enum to handle both single rules and rule collections from @media
@@ -185,12 +204,15 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
         };
 
         // Collect all declaration parsing results, propagating errors
-        let results: Result<Vec<_>, _> =
-            RuleBodyParser::new(input, &mut declaration_parser).collect();
-
-        // If there were parse errors, convert to ParseError and return
-        if let Err((err, _context)) = results {
-            return Err(err);
+        for result in RuleBodyParser::new(input, &mut declaration_parser) {
+            if let Err((err, context)) = result {
+                warn!(
+                    selector = selector_str,
+                    error = %format_parse_error("declaration", &err, context),
+                    "Failed to parse CSS declaration"
+                );
+                return Err(err);
+            }
         }
 
         // Create one rule per selector in the selector list
@@ -355,8 +377,12 @@ impl<'i, 'a> AtRuleParser<'i> for ChartStyleParser<'a> {
                         }
                     }
                 }
-                Err(_) => {
-                    // Skip invalid rules
+                Err((err, context)) => {
+                    warn!(
+                        error = %format_parse_error("@media", &err, context),
+                        "Failed to parse nested CSS rule"
+                    );
+                    return Err(err);
                 }
             }
         }
@@ -594,10 +620,72 @@ fn parse_single_value<'i, 't>(
                 }
             }
         }
+        Token::CurlyBracketBlock => parser
+            .parse_nested_block(|p| parse_object_block(p, unsupported_units))
+            .map_err(|_| parser.new_custom_error(())),
+        Token::SquareBracketBlock => parser
+            .parse_nested_block(|p| parse_array_block(p, unsupported_units))
+            .map_err(|_| parser.new_custom_error(())),
         _ => {
             token_to_theme_value(token, unsupported_units).map_err(|_| parser.new_custom_error(()))
         }
     }
+}
+
+fn parse_object_block<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    let mut values = IndexMap::new();
+
+    loop {
+        parser.skip_whitespace();
+        if parser.is_exhausted() {
+            break;
+        }
+
+        let name = parser.expect_ident()?.to_string();
+        parser.expect_colon()?;
+        let value = parse_single_value(parser, unsupported_units)?;
+
+        if values.insert(name, value).is_some() {
+            return Err(parser.new_custom_error(()));
+        }
+
+        parser.skip_whitespace();
+        if parser.is_exhausted() {
+            break;
+        }
+
+        parser.expect_semicolon()?;
+    }
+
+    Ok(ThemeValue::Object(values))
+}
+
+fn parse_array_block<'i, 't>(
+    parser: &mut Parser<'i, 't>,
+    unsupported_units: &RefCell<Vec<String>>,
+) -> Result<ThemeValue, ParseError<'i, ()>> {
+    let mut values = Vec::new();
+
+    loop {
+        parser.skip_whitespace();
+        if parser.is_exhausted() {
+            break;
+        }
+
+        values.push(parse_single_value(parser, unsupported_units)?);
+
+        parser.skip_whitespace();
+        if parser.is_exhausted() {
+            break;
+        }
+
+        parser.expect_comma()?;
+    }
+
+    Ok(ThemeValue::Array(values))
 }
 
 /// Parse function arguments for color-mix (special token-based syntax)
@@ -1928,6 +2016,171 @@ fn parse_dimension_value_tokens<'i, 't>(
 mod tests {
     use super::*;
     use crate::theme::media_query::DimensionValue;
+
+    fn declaration_value<'a>(
+        rule: &'a crate::theme::theme::CompiledRule,
+        property: &str,
+    ) -> &'a ThemeValue {
+        &rule
+            .declarations
+            .get(property)
+            .unwrap_or_else(|| panic!("missing declaration {property}"))
+            .value
+    }
+
+    #[test]
+    fn test_parse_curly_object_value_inside_declaration() {
+        let css = r#"
+            mark {
+                fill-pattern-discrete: {
+                    anchor: plot;
+                    ink: { type: auto-contrast; opacity: 13%; };
+                    layers: [
+                        { type: stripe; angle: 45deg; spacing: 16px; stroke-width: 1px; }
+                    ];
+                };
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS object value");
+        assert_eq!(rules.len(), 1);
+
+        let ThemeValue::Object(pattern) = declaration_value(&rules[0], "fill-pattern-discrete")
+        else {
+            panic!("expected pattern object");
+        };
+        assert!(
+            matches!(pattern.get("anchor"), Some(ThemeValue::String(value)) if value == "plot")
+        );
+        assert!(matches!(pattern.get("ink"), Some(ThemeValue::Object(_))));
+        assert!(matches!(pattern.get("layers"), Some(ThemeValue::Array(_))));
+    }
+
+    #[test]
+    fn test_parse_square_array_containing_object_values() {
+        let css = r#"
+            mark {
+                pattern-options: [
+                    { type: stripe; angle: 0deg; spacing: 12px; stroke-width: 1px; },
+                    { type: stripe; angle: 90deg; spacing: 16px; stroke-width: 2px; }
+                ];
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS array value");
+        assert_eq!(rules.len(), 1);
+
+        let ThemeValue::Array(values) = declaration_value(&rules[0], "pattern-options") else {
+            panic!("expected array value");
+        };
+        assert_eq!(values.len(), 2);
+        assert!(
+            values
+                .iter()
+                .all(|value| matches!(value, ThemeValue::Object(_)))
+        );
+    }
+
+    #[test]
+    fn test_semicolons_inside_object_block_do_not_end_outer_declaration() {
+        let css = r#"
+            mark {
+                fill-pattern-discrete: {
+                    ink: { type: solid; color: black; opacity: 0.2; };
+                    layers: [
+                        { type: stripe; angle: 45deg; spacing: 12px; stroke-width: 1px; }
+                    ];
+                };
+                fill: red;
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS object value");
+        assert_eq!(rules.len(), 1);
+        assert!(matches!(
+            declaration_value(&rules[0], "fill-pattern-discrete"),
+            ThemeValue::Object(_)
+        ));
+        assert!(matches!(
+            declaration_value(&rules[0], "fill"),
+            ThemeValue::Color(CssRgba {
+                red: 255,
+                green: 0,
+                blue: 0,
+                alpha: 255
+            })
+        ));
+    }
+
+    #[test]
+    fn test_existing_fill_discrete_list_parses_as_before() {
+        let css = r#"
+            mark {
+                fill-discrete: #ff0000, #00ff00, #0000ff;
+            }
+        "#;
+
+        let rules = parse_stylesheet(css).expect("Failed to parse CSS list");
+        assert_eq!(rules.len(), 1);
+
+        let ThemeValue::List(values) = declaration_value(&rules[0], "fill-discrete") else {
+            panic!("expected fill-discrete list");
+        };
+        assert_eq!(values.len(), 3);
+        assert!(matches!(
+            values.as_slice(),
+            [
+                ThemeValue::Color(CssRgba {
+                    red: 255,
+                    green: 0,
+                    blue: 0,
+                    alpha: 255
+                }),
+                ThemeValue::Color(CssRgba {
+                    red: 0,
+                    green: 255,
+                    blue: 0,
+                    alpha: 255
+                }),
+                ThemeValue::Color(CssRgba {
+                    red: 0,
+                    green: 0,
+                    blue: 255,
+                    alpha: 255
+                }),
+            ]
+        ));
+    }
+
+    #[test]
+    fn test_parse_error_reports_stylesheet_context() {
+        let css = r#"
+            mark {
+                fill-pattern-discrete: {
+                    anchor: plot
+                    layers: [
+                        { type: stripe; angle: 45deg; spacing: 16px; stroke-width: 1px; }
+                    ];
+                };
+            }
+        "#;
+
+        let err = parse_stylesheet(css).expect_err("invalid CSS should report an error");
+
+        assert!(
+            err.contains("CSS parse error at stylesheet"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("line") && err.contains("column"),
+            "unexpected error: {err}"
+        );
+        assert!(
+            err.contains("fill-pattern-discrete"),
+            "unexpected error: {err}"
+        );
+        assert!(err.contains("anchor"), "unexpected error: {err}");
+    }
 
     #[test]
     fn test_parse_media_query_modern_syntax() {

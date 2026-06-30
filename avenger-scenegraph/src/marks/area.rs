@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     mark::{default_interactive, SceneMark},
+    pattern::PatternFill,
     stroke_dash::dash_paths,
 };
 
@@ -29,6 +30,8 @@ pub struct SceneAreaMark {
     pub y2: ScalarOrArray<f32>,
     pub defined: ScalarOrArray<bool>,
     pub fill: ColorOrGradient,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_pattern: Option<PatternFill>,
     pub stroke: ColorOrGradient,
     pub stroke_width: f32,
     pub stroke_cap: StrokeCap,
@@ -51,6 +54,7 @@ impl std::hash::Hash for SceneAreaMark {
         self.y2.hash(state);
         self.defined.hash(state);
         self.fill.hash(state);
+        self.fill_pattern.hash(state);
         self.stroke.hash(state);
         self.stroke_cap.hash(state);
         self.stroke_join.hash(state);
@@ -175,6 +179,7 @@ impl Default for SceneAreaMark {
             y2: ScalarOrArray::new_scalar(0.0),
             defined: ScalarOrArray::new_scalar(true),
             fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
+            fill_pattern: None,
             stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
             stroke_width: 1.0,
             stroke_cap: Default::default(),
@@ -195,6 +200,23 @@ impl From<SceneAreaMark> for SceneMark {
 mod tests {
     use super::*;
     use lyon_path::Event;
+
+    #[test]
+    fn default_fill_pattern_is_skipped_when_serializing() {
+        let value = serde_json::to_value(SceneAreaMark::default()).unwrap();
+
+        assert!(value.get("fill-pattern").is_none());
+    }
+
+    #[test]
+    fn missing_fill_pattern_deserializes_as_no_overlay() {
+        let mut value = serde_json::to_value(SceneAreaMark::default()).unwrap();
+        value.as_object_mut().unwrap().remove("fill-pattern");
+
+        let mark: SceneAreaMark = serde_json::from_value(value).unwrap();
+
+        assert!(mark.fill_pattern.is_none());
+    }
 
     #[test]
     fn transformed_stroke_path_applies_dash_pattern() {

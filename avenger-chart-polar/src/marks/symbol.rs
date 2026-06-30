@@ -10,7 +10,9 @@ use avenger_chart_core::{
 use avenger_chart_marks::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
-use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::default_no_fill_pattern, symbol::SceneSymbolMark,
+};
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::DataType as ArrowDataType},
     common::ScalarValue,
@@ -330,6 +332,7 @@ impl CompiledMark for CompiledPolarSymbol {
             x,
             y,
             fill,
+            fill_pattern: default_no_fill_pattern(),
             size,
             stroke,
             angle,

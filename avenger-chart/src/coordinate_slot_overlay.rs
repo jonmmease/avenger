@@ -17,7 +17,7 @@ use crate::{
         ChildFrameDataSelection, ChildFrameRuntime, CompiledPlot, ComponentsMeasurement,
         PreparedChildFramePlot, compiled_subplot_payload_child_plot,
     },
-    render::RenderContext,
+    render::{RenderContext, context::plot_area_pattern_reference_frame},
     scales::{ConfiguredScaleWithSpec, Linear, Scale, ScaleRangeBinding},
 };
 
@@ -350,6 +350,10 @@ pub(crate) async fn render_coordinate_slot_overlay_with_context(
 
         let data_marks_group = SceneGroup {
             origin: [0.0, 0.0],
+            pattern_reference_frame: plot_area_pattern_reference_frame(
+                components.plot_bounds.width,
+                components.plot_bounds.height,
+            ),
             marks: components.data_marks,
             clip: components.clip,
             zindex: Some(0),
@@ -378,6 +382,7 @@ pub(crate) async fn render_coordinate_slot_overlay_with_context(
         marks.push(SceneMark::Group(SceneGroup {
             name: child.group_name(),
             origin: child.origin,
+            pattern_reference_frame: None,
             clip,
             marks: all_marks,
             gradients: Vec::new(),

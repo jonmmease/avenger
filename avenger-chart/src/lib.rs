@@ -145,6 +145,10 @@ pub use avenger_chart_core::{
     define_common_mark_channels, define_position_channels, impl_mark_base, impl_mark_trait_common,
     impl_supported_channels,
 };
+pub use avenger_scenegraph::marks::pattern::{
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame, PatternSymbol,
+    StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+};
 
 #[cfg(test)]
 mod serialization_tests {

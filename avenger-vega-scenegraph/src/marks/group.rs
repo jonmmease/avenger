@@ -154,6 +154,7 @@ impl VegaMarkContainer<VegaGroupItem> {
                 interactive: self.interactive,
                 zindex: self.zindex,
                 origin: [group_item.x.unwrap_or(0.0), group_item.y.unwrap_or(0.0)],
+                pattern_reference_frame: None,
                 clip,
                 marks,
                 gradients,

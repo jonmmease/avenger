@@ -53,6 +53,30 @@ impl NumericCoercer for CastNumericCoercer {
         value: &ArrayRef,
         default_value: Option<f32>,
     ) -> Result<ScalarOrArray<f32>, AvengerScaleError> {
+        if matches!(value.data_type(), DataType::Dictionary(_, _)) {
+            let dict_array = value.as_any_dictionary();
+            let coerced_values = self.coerce(dict_array.values(), default_value)?;
+            let keys = dict_array.normalized_keys();
+            let default_value = default_value.unwrap_or(f32::NAN);
+
+            return match coerced_values.value() {
+                ScalarOrArrayValue::Array(unique_values) => {
+                    let mut result = Vec::with_capacity(value.len());
+                    for (i, key) in keys.into_iter().enumerate() {
+                        if dict_array.is_null(i) {
+                            result.push(default_value);
+                        } else {
+                            result.push(unique_values.get(key).copied().unwrap_or(default_value));
+                        }
+                    }
+                    Ok(ScalarOrArray::new_array(result))
+                }
+                ScalarOrArrayValue::Scalar(scalar_value) => {
+                    Ok(ScalarOrArray::new_array(vec![*scalar_value; value.len()]))
+                }
+            };
+        }
+
         let cast_array = cast(value, &DataType::Float32)?;
         let result = cast_array.as_primitive::<Float32Type>();
 

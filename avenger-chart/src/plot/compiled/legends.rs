@@ -636,6 +636,7 @@ fn retarget_legend_group_scales(
     for channel in &mut group.channels {
         if let Some(scale) = configured_scales.get(&channel.name) {
             channel.scale = scale.configured().clone();
+            channel.pattern_range = scale.pattern_range().map(|range| range.to_vec());
         }
 
         for (related_name, related_channel) in &mut channel.related_channels {
@@ -643,11 +644,13 @@ fn retarget_legend_group_scales(
                 Some(scale),
                 ChannelInfo::Scaled {
                     scale: related_scale,
+                    pattern_range,
                     ..
                 },
             ) = (configured_scales.get(related_name), related_channel)
             {
                 *related_scale = scale.configured().clone();
+                *pattern_range = scale.pattern_range().map(|range| range.to_vec());
             }
         }
     }
@@ -1005,6 +1008,7 @@ impl CompiledPlot {
                     ChannelInfo::Scaled {
                         expr: other_value.expr(ctx),
                         scale: other_scale.configured().clone(),
+                        pattern_range: other_scale.pattern_range().map(|range| range.to_vec()),
                     }
                 } else if let Some(expr) = other_value
                     .expr(ctx)
@@ -1053,6 +1057,7 @@ impl CompiledPlot {
             sharing_level: channel_value.get_domain_scope().map(|mode| mode.to_level()),
             mark_type,
             mark_index,
+            pattern_range: scale.pattern_range().map(|range| range.to_vec()),
             related_channels,
         }
     }
@@ -1807,6 +1812,7 @@ impl CompiledPlot {
 mod tests {
     use super::*;
     use avenger_scales::scales::{ConfiguredScale, band::BandScale};
+    use avenger_scenegraph::marks::pattern::{PatternFill, PatternLayer, StripePatternLayer};
     use datafusion::logical_expr::Expr;
     use indexmap::IndexMap;
     use std::collections::HashMap;
@@ -1816,6 +1822,8 @@ mod tests {
         facet::FacetDirection,
         facet::evaluated_facet_tree::PartitionNode,
     };
+    use avenger_chart_core::ScaleRange;
+    use avenger_chart_legend::CompiledRectLegend;
 
     fn s(value: &str) -> ScalarValue {
         ScalarValue::Utf8(Some(value.to_string()))
@@ -1835,8 +1843,101 @@ mod tests {
             sharing_level: None,
             mark_type: "symbol".to_string(),
             mark_index: 0,
+            pattern_range: None,
             related_channels: HashMap::new(),
         }
+    }
+
+    fn stripe_pattern(angle: f32) -> PatternFill {
+        PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                angle, 16.0, 2.0,
+            ))],
+            ..Default::default()
+        }
+    }
+
+    fn configured_pattern_scale(patterns: Vec<Option<PatternFill>>) -> ConfiguredScaleWithSpec {
+        ConfiguredScaleWithSpec::new(
+            Scale::<Auto>::new().range(ScaleRange::new_pattern(patterns)),
+            make_simple_scale(),
+        )
+    }
+
+    #[test]
+    fn fill_and_fill_pattern_channels_share_merge_key() {
+        let expr = datafusion::prelude::col("category");
+        let mut fill = make_legend_channel("fill");
+        fill.expression = Some(expr.clone());
+        fill.mark_type = "rect".to_string();
+
+        let mut fill_pattern = make_legend_channel("fill_pattern");
+        fill_pattern.expression = Some(expr);
+        fill_pattern.mark_type = "rect".to_string();
+
+        assert!(MergeKey::is_mergeable(&fill, &fill_pattern));
+    }
+
+    #[test]
+    fn fill_and_fill_pattern_channels_with_different_expressions_do_not_share_merge_key() {
+        let mut fill = make_legend_channel("fill");
+        fill.expression = Some(datafusion::prelude::col("category"));
+        fill.mark_type = "rect".to_string();
+
+        let mut fill_pattern = make_legend_channel("fill_pattern");
+        fill_pattern.expression = Some(datafusion::prelude::col("pattern_category"));
+        fill_pattern.mark_type = "rect".to_string();
+
+        assert!(!MergeKey::is_mergeable(&fill, &fill_pattern));
+    }
+
+    #[test]
+    fn retarget_legend_scales_preserves_primary_and_related_pattern_ranges() {
+        let patterns = vec![Some(stripe_pattern(0.0)), None];
+
+        let mut primary_pattern_channel = make_legend_channel("fill_pattern");
+        primary_pattern_channel.pattern_range = None;
+
+        let mut fill_channel = make_legend_channel("fill");
+        fill_channel.related_channels.insert(
+            "fill_pattern".to_string(),
+            ChannelInfo::Scaled {
+                expr: Some(datafusion::prelude::col("category")),
+                scale: make_simple_scale(),
+                pattern_range: None,
+            },
+        );
+
+        let mut group = PreparedLegendGroup {
+            layout_key: "rect:fill".to_string(),
+            primary_channel: "fill".to_string(),
+            channels: vec![primary_pattern_channel, fill_channel],
+            legend: Arc::new(Legend::new()),
+            renderer: Arc::new(CompiledRectLegend::new()),
+        };
+
+        let configured_scales = HashMap::from([
+            (
+                "fill_pattern".to_string(),
+                configured_pattern_scale(patterns.clone()),
+            ),
+            (
+                "fill".to_string(),
+                ConfiguredScaleWithSpec::new(Scale::<Auto>::new(), make_simple_scale()),
+            ),
+        ]);
+
+        retarget_legend_group_scales(&mut group, &configured_scales);
+
+        assert_eq!(group.channels[0].pattern_range, Some(patterns.clone()));
+        let Some(ChannelInfo::Scaled {
+            pattern_range: Some(related_range),
+            ..
+        }) = group.channels[1].related_channels.get("fill_pattern")
+        else {
+            panic!("related fill_pattern range should be retargeted");
+        };
+        assert_eq!(related_range, &patterns);
     }
 
     fn make_two_level_column_tree_with_sharing(levels: HashMap<String, u8>) -> EvaluatedFacetTree {

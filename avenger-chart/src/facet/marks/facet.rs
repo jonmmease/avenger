@@ -15,7 +15,9 @@ use crate::plot::compiled::{
     ChildFrameRegion, ComponentsMeasurement, PlotComponents, compiled_subplot_payload_child_plot,
     compiled_subplot_payload_child_plot_arc,
 };
-use crate::render::{EvaluationContext, EvaluationMetrics, RenderContext};
+use crate::render::{
+    EvaluationContext, EvaluationMetrics, RenderContext, context::plot_area_pattern_reference_frame,
+};
 use avenger_chart_core::{
     AvengerChartError, AxisGuideVisibilityConfig, ChannelDescriptor, ChannelValue,
     ColumnDimensionConfig, CompileContext, CompiledDataContext, CompiledMark, CompiledMarkCore,
@@ -521,6 +523,7 @@ async fn render_facet_band_with_current_geometry(
                 let empty_group = SceneGroup {
                     name: ops.group_name(idx, true),
                     origin: subplot_origin,
+                    pattern_reference_frame: None,
                     clip: avenger_scenegraph::marks::group::Clip::None,
                     marks: Vec::new(),
                     gradients: Vec::new(),
@@ -583,6 +586,10 @@ async fn render_facet_band_with_current_geometry(
 
                 let data_marks_group = SceneGroup {
                     origin: [0.0, 0.0],
+                    pattern_reference_frame: plot_area_pattern_reference_frame(
+                        components.plot_bounds.width,
+                        components.plot_bounds.height,
+                    ),
                     marks: components.data_marks,
                     clip: components.clip,
                     zindex: Some(0),
@@ -598,6 +605,7 @@ async fn render_facet_band_with_current_geometry(
                 let subplot_group = SceneGroup {
                     name: ops.group_name(idx, false),
                     origin: subplot_origin,
+                    pattern_reference_frame: None,
                     clip: avenger_scenegraph::marks::group::Clip::None,
                     marks: all_marks,
                     gradients: Vec::new(),

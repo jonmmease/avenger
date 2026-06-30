@@ -36,6 +36,7 @@ use crate::{
     },
     render::{
         EvaluatedChildFrameKind, EvaluatedChildFrameSegment, EvaluationContext, RenderContext,
+        context::plot_area_pattern_reference_frame,
     },
     theme::Theme,
     tools::ToolCompileContext,
@@ -583,6 +584,10 @@ impl CompiledConcatSubplot {
 
             let data_marks_group = SceneGroup {
                 origin: [0.0, 0.0],
+                pattern_reference_frame: plot_area_pattern_reference_frame(
+                    components.plot_bounds.width,
+                    components.plot_bounds.height,
+                ),
                 marks: components.data_marks,
                 clip: components.clip,
                 zindex: Some(0),
@@ -598,6 +603,7 @@ impl CompiledConcatSubplot {
             Ok(vec![SceneMark::Group(SceneGroup {
                 name: self.group_name(),
                 origin: child_frame_region.plot_origin(),
+                pattern_reference_frame: None,
                 clip: avenger_scenegraph::marks::group::Clip::None,
                 marks: all_marks,
                 gradients: Vec::new(),

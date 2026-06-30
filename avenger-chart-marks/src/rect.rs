@@ -2,8 +2,8 @@ use datafusion_common::ScalarValue;
 
 use avenger_chart_core::{
     AdjustItem, ColorChannelConfig, MarkAdjustmentCompileContext, MarkAdjustmentSpec,
-    MarkAdjustmentTransform, MarkState, OpacityChannelConfig, PrimitiveMarkEffects,
-    RectGeometryItem, StrokeWidthChannelConfig, TransformMarkAdjustmentSpec,
+    MarkAdjustmentTransform, MarkState, OpacityChannelConfig, PatternChannelValue,
+    PrimitiveMarkEffects, RectGeometryItem, StrokeWidthChannelConfig, TransformMarkAdjustmentSpec,
     define_common_mark_channels, extract_adjustment_assignments, impl_mark_base_with_extra_fields,
 };
 
@@ -72,6 +72,11 @@ impl<C> Rect<C> {
     #[doc(hidden)]
     pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
         &self.effects
+    }
+
+    /// Set the structured fill pattern channel.
+    pub fn fill_pattern<V: Into<PatternChannelValue>>(self, value: V) -> Self {
+        self.with_pattern_channel_value("fill_pattern", value.into())
     }
 }
 

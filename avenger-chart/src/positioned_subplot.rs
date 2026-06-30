@@ -32,7 +32,7 @@ use crate::{
         compiled_subplot_payload_child_plot, container_path_without_facet_segments,
         coordinated_child_frame_domain_extents, prepare_mark_data_runtime,
     },
-    render::{EvaluationContext, RenderContext},
+    render::{EvaluationContext, RenderContext, context::plot_area_pattern_reference_frame},
     scales::ConfiguredScaleWithSpec,
 };
 
@@ -153,6 +153,10 @@ pub(crate) async fn render_positioned_subplot_with_context(
 
         let data_marks_group = SceneGroup {
             origin: [0.0, 0.0],
+            pattern_reference_frame: plot_area_pattern_reference_frame(
+                components.plot_bounds.width,
+                components.plot_bounds.height,
+            ),
             marks: components.data_marks,
             clip: components.clip,
             zindex: Some(0),
@@ -168,6 +172,7 @@ pub(crate) async fn render_positioned_subplot_with_context(
         marks.push(SceneMark::Group(SceneGroup {
             name: child.group_name(),
             origin: render_placement.origin,
+            pattern_reference_frame: None,
             clip: avenger_scenegraph::marks::group::Clip::None,
             marks: all_marks,
             gradients: Vec::new(),

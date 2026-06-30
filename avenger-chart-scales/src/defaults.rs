@@ -5,7 +5,10 @@ use datafusion::prelude::lit;
 use datafusion_common::ScalarValue;
 use palette::Srgba;
 
-use avenger_chart_core::{ScaleRange, SerializableScalar, theme::DEFAULT_CATEGORICAL_COLORS};
+use avenger_chart_core::{
+    PatternFill, PatternLayer, ScaleRange, SerializableScalar, StripePatternLayer,
+    theme::DEFAULT_CATEGORICAL_COLORS,
+};
 
 /// Returns the default discrete color range using the Okabe-Ito palette
 ///
@@ -107,6 +110,38 @@ pub fn default_shape_range_discrete(domain_cardinality: Option<usize>) -> ScaleR
     ScaleRange::Discrete(scalars)
 }
 
+/// Returns the default discrete fill-pattern range.
+///
+/// The defaults intentionally use stripe-only overlays. Pattern ink remains
+/// `AutoContrast`, so pattern color stays independent from fill color.
+pub fn default_pattern_range_discrete(domain_cardinality: Option<usize>) -> ScaleRange {
+    let layers = [
+        (45.0, 16.0, 1.15),
+        (135.0, 16.0, 1.15),
+        (45.0, 10.0, 1.0),
+        (135.0, 10.0, 1.0),
+        (0.0, 14.0, 1.05),
+        (90.0, 14.0, 1.05),
+        (45.0, 22.0, 1.25),
+        (135.0, 22.0, 1.25),
+    ];
+    let patterns = layers
+        .iter()
+        .take(domain_cardinality.unwrap_or(layers.len()))
+        .map(|(angle, spacing, stroke_width)| {
+            Some(PatternFill {
+                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                    *angle,
+                    *spacing,
+                    *stroke_width,
+                ))],
+                ..Default::default()
+            })
+        })
+        .collect();
+    ScaleRange::new_pattern(patterns)
+}
+
 /// Returns a generic default discrete range with a single value (1.0)
 pub fn default_generic_range_discrete() -> ScaleRange {
     ScaleRange::Discrete(vec![SerializableScalar::new(ScalarValue::Float32(Some(
@@ -141,6 +176,9 @@ pub fn default_range_for_channel(channel: &str, range_kind: RangeKind) -> ScaleR
         // Shape channel (always discrete)
         ("shape", _) => default_shape_range_discrete(None),
 
+        // Pattern fill channel (always discrete)
+        ("fill_pattern", _) => default_pattern_range_discrete(None),
+
         // Angle channel (always continuous, in degrees)
         ("angle", _) => ScaleRange::new_interval(lit(0.0), lit(360.0)),
 
@@ -149,5 +187,22 @@ pub fn default_range_for_channel(channel: &str, range_kind: RangeKind) -> ScaleR
             RangeKind::Discrete => default_generic_range_discrete(),
             RangeKind::Continuous => default_generic_range_continuous(),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_scales::scales::RangeKind;
+
+    use super::*;
+
+    #[test]
+    fn fill_pattern_default_range_is_structured_patterns() {
+        let range = default_range_for_channel("fill_pattern", RangeKind::Discrete);
+        let ScaleRange::Pattern(patterns) = range else {
+            panic!("expected pattern range");
+        };
+        assert_eq!(patterns.len(), 8);
+        assert!(patterns.iter().all(Option::is_some));
     }
 }

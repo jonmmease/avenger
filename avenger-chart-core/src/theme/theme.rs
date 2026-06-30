@@ -3,6 +3,7 @@
 use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use tracing::warn;
 
 use crate::theme::{ThemeContext, ThemeValue, parser, select_available_font};
 
@@ -472,6 +473,22 @@ impl Theme {
 
             // For List values, recursively resolve each element
             ThemeValue::List(values) => ThemeValue::List(
+                values
+                    .into_iter()
+                    .map(|v| self.resolve_theme_value(v, params, depth + 1))
+                    .collect(),
+            ),
+
+            // For Object values, recursively resolve each property value
+            ThemeValue::Object(values) => ThemeValue::Object(
+                values
+                    .into_iter()
+                    .map(|(key, value)| (key, self.resolve_theme_value(value, params, depth + 1)))
+                    .collect(),
+            ),
+
+            // For Array values, recursively resolve each element
+            ThemeValue::Array(values) => ThemeValue::Array(
                 values
                     .into_iter()
                     .map(|v| self.resolve_theme_value(v, params, depth + 1))
@@ -1092,6 +1109,31 @@ impl Theme {
         domain_cardinality: Option<usize>,
     ) -> Option<crate::ScaleRange> {
         let range_value = self.query(context, property);
+
+        if channel == "fill_pattern"
+            && matches!(range_kind, avenger_scales::scales::RangeKind::Discrete)
+        {
+            if let Some(range_value) = range_value {
+                let base_font_size = self.get_base_font_size(&context.params);
+                return match crate::theme::pattern::pattern_range_from_theme_value(
+                    range_value,
+                    &context.params,
+                    base_font_size,
+                ) {
+                    Ok(range) => Some(range),
+                    Err(error) => {
+                        warn!(
+                            property,
+                            error = %error,
+                            "Failed to parse pattern theme range"
+                        );
+                        None
+                    }
+                };
+            }
+
+            return None;
+        }
 
         // Parse the range value into appropriate ScaleRange
         if let Some(ThemeValue::List(values)) = range_value {
@@ -1854,6 +1896,162 @@ mod tests {
     }
 
     #[test]
+    fn test_fill_pattern_discrete_css_range() {
+        use crate::{PatternInk, PatternLayer, ScaleRange};
+        use avenger_scales::scales::RangeKind;
+
+        let css = r#"
+            mark[type="rect"] {
+                fill-pattern-discrete:
+                    {
+                        anchor: plot;
+                        ink: { type: auto-contrast; opacity: 13%; };
+                        layers: [
+                            { type: stripe; angle: 45deg; spacing: 16px; stroke-width: 1.25px; },
+                            { type: stripe; angle: 135deg; spacing: 16px; stroke-width: 1.25px; }
+                        ];
+                    },
+                    none,
+                    {
+                        anchor: mark;
+                        ink: { type: solid; color: #111827; opacity: 0.2; };
+                        layers: [
+                            {
+                                type: symbol;
+                                lattice: { u-spacing: 12px; u-angle: 0deg; v-spacing: 12px; v-angle: 90deg; };
+                                symbol: { shape: circle; size: 5px; rotation: 0deg; };
+                                paint: { type: open; stroke-width: 1px; };
+                            }
+                        ];
+                    };
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+        let range = theme
+            .get_range_for_channel(
+                "rect",
+                "fill_pattern",
+                RangeKind::Discrete,
+                Some(3),
+                &IndexMap::new(),
+            )
+            .expect("pattern range");
+
+        let ScaleRange::Pattern(patterns) = range else {
+            panic!("expected pattern range");
+        };
+        assert_eq!(patterns.len(), 3);
+        assert!(patterns[1].is_none());
+
+        let first = patterns[0].as_ref().unwrap();
+        assert_eq!(first.layers.len(), 2);
+        assert!(matches!(
+            &first.ink,
+            PatternInk::AutoContrast { opacity } if (opacity - 0.13).abs() < 0.0001
+        ));
+        let PatternLayer::Stripe(stripe) = &first.layers[0] else {
+            panic!("expected stripe layer");
+        };
+        assert_eq!(stripe.angle, 45.0);
+        assert_eq!(stripe.spacing, 16.0);
+        assert_eq!(stripe.stroke_width, 1.25);
+
+        let third = patterns[2].as_ref().unwrap();
+        assert!(matches!(&third.layers[0], PatternLayer::Symbol(_)));
+    }
+
+    #[test]
+    fn test_fill_pattern_discrete_css_variables_inside_objects() {
+        use crate::{PatternLayer, ScaleRange};
+        use avenger_scales::scales::RangeKind;
+
+        let css = r#"
+            :root {
+                --pattern-opacity: 0.25;
+                --pattern-spacing: 10px;
+            }
+
+            mark[type="rect"] {
+                fill-pattern-discrete:
+                    {
+                        ink: { type: auto-contrast; opacity: var(--pattern-opacity); };
+                        layers: [
+                            { type: stripe; angle: 90deg; spacing: var(--pattern-spacing); stroke-width: 2px; }
+                        ];
+                    };
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+        let range = theme
+            .get_range_for_channel(
+                "rect",
+                "fill_pattern",
+                RangeKind::Discrete,
+                Some(1),
+                &IndexMap::new(),
+            )
+            .expect("pattern range");
+
+        let ScaleRange::Pattern(patterns) = range else {
+            panic!("expected pattern range");
+        };
+        let pattern = patterns[0].as_ref().unwrap();
+        let PatternLayer::Stripe(stripe) = &pattern.layers[0] else {
+            panic!("expected stripe layer");
+        };
+        assert_eq!(stripe.angle, 90.0);
+        assert_eq!(stripe.spacing, 10.0);
+    }
+
+    #[test]
+    fn test_fill_pattern_discrete_css_matches_pattern_builder() {
+        use crate::{
+            PatternAnchor, PatternFill, PatternInk, PatternLayer, ScaleRange, StripePatternLayer,
+        };
+        use avenger_scales::scales::RangeKind;
+
+        let css = r#"
+            mark[type="rect"] {
+                fill-pattern-discrete: {
+                    anchor: plot;
+                    ink: { type: auto-contrast; opacity: 0.25; };
+                    layers: [
+                        { type: stripe; angle: 45deg; spacing: 16px; stroke-width: 1.25px; }
+                    ];
+                };
+            }
+        "#;
+
+        let theme = Theme::from_css(css).unwrap();
+        let range = theme
+            .get_range_for_channel(
+                "rect",
+                "fill_pattern",
+                RangeKind::Discrete,
+                Some(1),
+                &IndexMap::new(),
+            )
+            .expect("pattern range");
+
+        let ScaleRange::Pattern(patterns) = range else {
+            panic!("expected pattern range");
+        };
+
+        assert_eq!(
+            patterns,
+            vec![Some(PatternFill {
+                anchor: PatternAnchor::Plot,
+                ink: PatternInk::AutoContrast { opacity: 0.25 },
+                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                    45.0, 16.0, 1.25,
+                ))],
+            })]
+        );
+    }
+
+    #[test]
     fn test_builtin_themes_base_font_size() {
         let light = Theme::light();
         assert_eq!(
@@ -1868,6 +2066,16 @@ mod tests {
             12.0,
             "Dark theme should have 12px base"
         );
+    }
+
+    #[test]
+    fn test_builtin_themes_default_to_lato_font_family() {
+        let context = ThemeContext::new("mark", IndexMap::new());
+        assert_eq!(
+            Theme::light().font_family(&context).as_deref(),
+            Some("Lato")
+        );
+        assert_eq!(Theme::dark().font_family(&context).as_deref(), Some("Lato"));
     }
 
     #[test]

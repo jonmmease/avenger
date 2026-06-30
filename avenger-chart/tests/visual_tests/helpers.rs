@@ -430,10 +430,12 @@ fn save_image_to_path(image: &RgbaImage, path: &Path) -> Result<(), String> {
 }
 
 fn rasterize_svg(svg: &str) -> Result<RgbaImage, String> {
-    let mut options = usvg::Options::default();
-    options.fontdb = std::sync::Arc::new(avenger_text::fonts::build_fontdb(
-        &svg_visual_font_resolution(),
-    ));
+    let options = usvg::Options {
+        fontdb: std::sync::Arc::new(avenger_text::fonts::build_fontdb(
+            &svg_visual_font_resolution(),
+        )),
+        ..Default::default()
+    };
     let tree = usvg::Tree::from_str(svg, &options)
         .map_err(|e| format!("Failed to parse generated SVG: {e}"))?;
     let width = (tree.size().width() * DEFAULT_SCALE).ceil() as u32;
@@ -704,7 +706,7 @@ fn append_pdf_score_report(
 }
 
 fn csv_field(value: &str) -> String {
-    if value.contains(|c| matches!(c, ',' | '"' | '\n' | '\r')) {
+    if value.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
@@ -876,16 +878,15 @@ fn render_scene_graph_pdf(scene_graph: &SceneGraph) -> Result<Vec<u8>, String> {
 
 fn svg_visual_font_resolution() -> FontResolutionOptions {
     FontResolutionOptions {
-        load_system_fonts: true,
         missing_font: MissingFontPolicy::Fallback,
-        ..Default::default()
+        ..avenger_chart::fonts::default_font_resolution()
     }
 }
 
 fn pdf_visual_font_resolution() -> FontResolutionOptions {
     FontResolutionOptions {
         missing_font: MissingFontPolicy::Fallback,
-        ..Default::default()
+        ..avenger_chart::fonts::default_font_resolution()
     }
 }
 
@@ -897,7 +898,8 @@ fn visual_canvas_config() -> CanvasConfig {
     visual_canvas_config_from(CanvasConfig::default())
 }
 
-fn visual_canvas_config_from(config: CanvasConfig) -> CanvasConfig {
+fn visual_canvas_config_from(mut config: CanvasConfig) -> CanvasConfig {
+    config.font_resolution = avenger_chart::fonts::default_font_resolution();
     config
 }
 

@@ -12,6 +12,7 @@ use avenger_scenegraph::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
+        pattern::{PatternFill, PatternReferenceFrame},
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -21,6 +22,9 @@ use avenger_scenegraph::{
             TextLeaderGeometryInput, TextLeaderPath,
         },
         trail::SceneTrailMark,
+    },
+    pattern_geometry::{
+        build_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -72,16 +76,31 @@ impl SvgRenderer {
             .body
             .push_str("<g fill=\"none\" stroke-miterlimit=\"10\">\n");
         self.write_background(&mut document, scene_graph.width, scene_graph.height)?;
+        let chart_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
 
         for item in display_list.ordered_items() {
             let clip_id = document.defs.clip_id(&item.clip, precision)?;
 
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => {
-                    self.write_path_mark(&mut document, mark, item.origin, clip_id.as_deref())?;
+                    self.write_path_mark(
+                        &mut document,
+                        mark,
+                        item.origin,
+                        clip_id.as_deref(),
+                        item.pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneDisplayMark::Borrowed(mark) => {
-                    self.write_scene_mark(&mut document, mark, item.origin, clip_id.as_deref())?;
+                    self.write_scene_mark(
+                        &mut document,
+                        mark,
+                        item.origin,
+                        clip_id.as_deref(),
+                        item.pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
             }
         }
@@ -141,15 +160,52 @@ impl SvgRenderer {
         mark: &SceneMark,
         origin: [f32; 2],
         clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
         match mark {
-            SceneMark::Rect(mark) => self.write_rect_mark(document, mark, origin, clip_id),
-            SceneMark::Path(mark) => self.write_path_mark(document, mark, origin, clip_id),
+            SceneMark::Rect(mark) => self.write_rect_mark(
+                document,
+                mark,
+                origin,
+                clip_id,
+                pattern_reference_frame,
+                chart_bounds,
+            ),
+            SceneMark::Path(mark) => self.write_path_mark(
+                document,
+                mark,
+                origin,
+                clip_id,
+                pattern_reference_frame,
+                chart_bounds,
+            ),
             SceneMark::Rule(mark) => self.write_rule_mark(document, mark, origin, clip_id),
             SceneMark::Line(mark) => self.write_line_mark(document, mark, origin, clip_id),
-            SceneMark::Area(mark) => self.write_area_mark(document, mark, origin, clip_id),
-            SceneMark::Symbol(mark) => self.write_symbol_mark(document, mark, origin, clip_id),
-            SceneMark::Arc(mark) => self.write_arc_mark(document, mark, origin, clip_id),
+            SceneMark::Area(mark) => self.write_area_mark(
+                document,
+                mark,
+                origin,
+                clip_id,
+                pattern_reference_frame,
+                chart_bounds,
+            ),
+            SceneMark::Symbol(mark) => self.write_symbol_mark(
+                document,
+                mark,
+                origin,
+                clip_id,
+                pattern_reference_frame,
+                chart_bounds,
+            ),
+            SceneMark::Arc(mark) => self.write_arc_mark(
+                document,
+                mark,
+                origin,
+                clip_id,
+                pattern_reference_frame,
+                chart_bounds,
+            ),
             SceneMark::Trail(mark) => self.write_trail_mark(document, mark, origin, clip_id),
             SceneMark::Text(mark) => self.write_text_mark(document, mark, origin, clip_id),
             SceneMark::Image(mark) => self.write_image_mark(document, mark, origin, clip_id),
@@ -163,18 +219,23 @@ impl SvgRenderer {
         mark: &SceneRectMark,
         origin: [f32; 2],
         clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
-        for (path, fill, stroke, stroke_width) in izip!(
+        for (path, fill, fill_pattern, stroke, stroke_width) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter()
         ) {
-            self.write_path_element(
+            self.write_filled_path_with_optional_pattern(
                 document,
-                &lyon_path_to_svg_d(&path, self.options.precision)?,
+                &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
                     stroke_cap: None,
@@ -183,6 +244,8 @@ impl SvgRenderer {
                     gradients: &mark.gradients,
                 },
                 clip_id,
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -195,17 +258,22 @@ impl SvgRenderer {
         mark: &ScenePathMark,
         origin: [f32; 2],
         clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
-        for (path, fill, stroke) in izip!(
+        for (path, fill, fill_pattern, stroke) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter()
         ) {
-            self.write_path_element(
+            self.write_filled_path_with_optional_pattern(
                 document,
-                &lyon_path_to_svg_d(&path, self.options.precision)?,
+                &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
                     stroke_cap: Some(mark.stroke_cap),
@@ -214,6 +282,8 @@ impl SvgRenderer {
                     gradients: &mark.gradients,
                 },
                 clip_id,
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -226,17 +296,22 @@ impl SvgRenderer {
         mark: &SceneSymbolMark,
         origin: [f32; 2],
         clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
-        for (path, fill, stroke) in izip!(
+        for (path, fill, fill_pattern, stroke) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter()
         ) {
-            self.write_path_element(
+            self.write_filled_path_with_optional_pattern(
                 document,
-                &lyon_path_to_svg_d(&path, self.options.precision)?,
+                &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
                     stroke_cap: None,
@@ -245,6 +320,8 @@ impl SvgRenderer {
                     gradients: &mark.gradients,
                 },
                 clip_id,
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -836,18 +913,23 @@ impl SvgRenderer {
         mark: &SceneArcMark,
         origin: [f32; 2],
         clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
-        for (path, fill, stroke, stroke_width) in izip!(
+        for (path, fill, fill_pattern, stroke, stroke_width) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter()
         ) {
-            self.write_path_element(
+            self.write_filled_path_with_optional_pattern(
                 document,
-                &lyon_path_to_svg_d(&path, self.options.precision)?,
+                &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
                     stroke_cap: None,
@@ -856,6 +938,8 @@ impl SvgRenderer {
                     gradients: &mark.gradients,
                 },
                 clip_id,
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -868,13 +952,17 @@ impl SvgRenderer {
         mark: &SceneAreaMark,
         origin: [f32; 2],
         clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerSvgError> {
         let path = mark.transformed_path(origin);
-        self.write_path_element(
+        self.write_filled_path_with_optional_pattern(
             document,
-            &lyon_path_to_svg_d(&path, self.options.precision)?,
+            &path,
+            &mark.fill,
+            mark.fill_pattern.as_ref(),
             PathStyle {
-                fill: Some(&mark.fill),
+                fill: None,
                 stroke: Some(&mark.stroke),
                 stroke_width: Some(mark.stroke_width),
                 stroke_cap: Some(mark.stroke_cap),
@@ -883,6 +971,8 @@ impl SvgRenderer {
                 gradients: &mark.gradients,
             },
             clip_id,
+            pattern_reference_frame,
+            chart_bounds,
         )
     }
 
@@ -962,6 +1052,142 @@ impl SvgRenderer {
             )?;
             push_clip_attr(body, clip_id);
             body.push_str("/>\n");
+        }
+
+        Ok(())
+    }
+
+    fn write_filled_path_with_optional_pattern(
+        &self,
+        document: &mut SvgDocument,
+        path: &lyon_path::Path,
+        fill: &ColorOrGradient,
+        fill_pattern: Option<&PatternFill>,
+        stroke_style: PathStyle<'_>,
+        clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
+    ) -> Result<(), AvengerSvgError> {
+        let d = lyon_path_to_svg_d(path, self.options.precision)?;
+        if d.is_empty() {
+            return Ok(());
+        }
+
+        let Some(fill_pattern) = fill_pattern else {
+            return self.write_path_element(
+                document,
+                &d,
+                PathStyle {
+                    fill: Some(fill),
+                    ..stroke_style
+                },
+                clip_id,
+            );
+        };
+
+        self.write_path_element(
+            document,
+            &d,
+            PathStyle {
+                fill: Some(fill),
+                stroke: None,
+                stroke_width: None,
+                stroke_cap: None,
+                stroke_join: None,
+                stroke_dash: None,
+                gradients: stroke_style.gradients,
+            },
+            clip_id,
+        )?;
+
+        self.write_pattern_overlay(
+            document,
+            path,
+            fill,
+            fill_pattern,
+            stroke_style.gradients,
+            clip_id,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
+
+        self.write_path_element(
+            document,
+            &d,
+            PathStyle {
+                fill: None,
+                ..stroke_style
+            },
+            clip_id,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_pattern_overlay(
+        &self,
+        document: &mut SvgDocument,
+        host_path: &lyon_path::Path,
+        host_fill: &ColorOrGradient,
+        fill_pattern: &PatternFill,
+        gradients: &[Gradient],
+        parent_clip_id: Option<&str>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
+    ) -> Result<(), AvengerSvgError> {
+        let bbox = bounding_box(host_path);
+        let host_bounds = PatternRect::new(
+            bbox.min.x,
+            bbox.min.y,
+            bbox.max.x - bbox.min.x,
+            bbox.max.y - bbox.min.y,
+        );
+        let plot_bounds = pattern_reference_frame
+            .map(|frame| PatternRect::new(frame.x, frame.y, frame.width, frame.height));
+        let pattern_context = PatternRenderContext {
+            chart_bounds,
+            plot_bounds,
+            host_bounds,
+            host_fill,
+            gradients,
+        };
+        let Some(geometry) = build_pattern_geometry(fill_pattern, &pattern_context)
+            .map_err(pattern_geometry_error_to_svg_error)?
+        else {
+            return Ok(());
+        };
+
+        let host_clip_id = document
+            .defs
+            .clip_id(&Clip::Path(host_path.clone()), self.options.precision)?;
+        let coverage_d = lyon_path_to_svg_d(&geometry.coverage_path, self.options.precision)?;
+        if coverage_d.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(parent_clip_id) = parent_clip_id {
+            document.body.push_str("<g");
+            push_clip_attr(&mut document.body, Some(parent_clip_id));
+            document.body.push_str(">\n");
+        }
+
+        let pattern_fill = ColorOrGradient::Color(geometry.ink);
+        self.write_path_element(
+            document,
+            &coverage_d,
+            PathStyle {
+                fill: Some(&pattern_fill),
+                stroke: None,
+                stroke_width: None,
+                stroke_cap: None,
+                stroke_join: None,
+                stroke_dash: None,
+                gradients,
+            },
+            host_clip_id.as_deref(),
+        )?;
+
+        if parent_clip_id.is_some() {
+            document.body.push_str("</g>\n");
         }
 
         Ok(())
@@ -1245,6 +1471,17 @@ fn push_gradient_unit(
     push_number(output, value, precision)
 }
 
+fn pattern_geometry_error_to_svg_error(error: PatternGeometryError) -> AvengerSvgError {
+    match error {
+        PatternGeometryError::InvalidPattern => {
+            AvengerSvgError::InvalidGeometry("invalid pattern fill".to_string())
+        }
+        PatternGeometryError::MissingPlotReferenceFrame => AvengerSvgError::InvalidGeometry(
+            "pattern plot anchor requires an active pattern reference frame".to_string(),
+        ),
+    }
+}
+
 fn rgba_image_to_png_data_uri(image: &RgbaImage) -> Result<String, AvengerSvgError> {
     let Some(rgba_image) = image.to_image() else {
         return Err(AvengerSvgError::ImageEncoding(
@@ -1335,6 +1572,7 @@ fn truncate_text_to_limit(
     .unwrap_or_else(|_| text.to_string())
 }
 
+#[derive(Clone, Copy)]
 struct PathStyle<'a> {
     fill: Option<&'a ColorOrGradient>,
     stroke: Option<&'a ColorOrGradient>,
@@ -1613,6 +1851,11 @@ mod tests {
             arc::SceneArcMark,
             group::{Clip, SceneGroup},
             image::{SceneImageMark, SceneImageSource},
+            pattern::{
+                PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame,
+                PatternSymbol, StripePatternLayer, SymbolLattice2d, SymbolPaint,
+                SymbolPatternLayer,
+            },
             rect::SceneRectMark,
             rule::SceneRuleMark,
             symbol::SceneSymbolMark,
@@ -1711,6 +1954,156 @@ mod tests {
 
         assert!(svg.starts_with(r#"<svg xmlns="http://www.w3.org/2000/svg""#));
         assert!(svg.contains(r##"fill="#ff0000""##));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_rect_fill_pattern_overlay() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.25,
+            },
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                stroke_width: ScalarOrArray::new_scalar(1.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains(r##"fill="#ccccff""##));
+        assert!(svg.contains(r##"fill="#000000" fill-opacity="0.25""##));
+        assert!(svg.contains("<clipPath"));
+        assert_eq!(svg.matches(r##"fill="#000000""##).count(), 1);
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn plot_anchored_fill_pattern_requires_reference_frame() {
+        let pattern = PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let err = test_renderer()
+            .render_scene_graph(&scene_graph)
+            .unwrap_err();
+
+        assert!(matches!(err, AvengerSvgError::InvalidGeometry(_)));
+        assert!(err.to_string().contains("pattern plot anchor"));
+    }
+
+    #[test]
+    fn plot_anchored_fill_pattern_uses_group_reference_frame() {
+        let pattern = PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                pattern_reference_frame: Some(PatternReferenceFrame {
+                    x: 4.0,
+                    y: 4.0,
+                    width: 24.0,
+                    height: 16.0,
+                }),
+                marks: vec![SceneRectMark {
+                    len: 1,
+                    x: ScalarOrArray::new_scalar(4.0),
+                    y: ScalarOrArray::new_scalar(4.0),
+                    width: Some(ScalarOrArray::new_scalar(24.0)),
+                    height: Some(ScalarOrArray::new_scalar(16.0)),
+                    fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<clipPath"));
+        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+    }
+
+    #[test]
+    fn renders_symbol_pattern_layer_overlay() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
+                lattice: SymbolLattice2d {
+                    u_spacing: 8.0,
+                    u_angle: 0.0,
+                    v_spacing: 8.0,
+                    v_angle: 90.0,
+                    u_phase: 0.0,
+                    v_phase: 0.0,
+                },
+                symbol: PatternSymbol {
+                    shape: "circle".to_string(),
+                    size: 4.0,
+                    rotation: 0.0,
+                },
+                paint: SymbolPaint::Filled,
+            })],
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let svg = test_renderer().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(svg.contains("<clipPath"));
         assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
     }
 

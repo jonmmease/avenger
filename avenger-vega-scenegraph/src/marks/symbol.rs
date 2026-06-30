@@ -94,6 +94,7 @@ impl VegaMarkContainer<VegaSymbolItem> {
                 name: "symbol_line_legend".to_string(),
                 interactive: self.interactive,
                 origin: [0.0, 0.0],
+                pattern_reference_frame: None,
                 clip: Clip::None,
                 marks: line_marks,
                 gradients: vec![],

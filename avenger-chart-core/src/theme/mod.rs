@@ -252,6 +252,7 @@ pub(crate) mod element;
 pub(crate) mod lab_color;
 pub(crate) mod media_query;
 pub(crate) mod parser;
+pub(crate) mod pattern;
 pub(crate) mod selector_impl;
 #[allow(clippy::module_inception)]
 mod theme;
@@ -274,6 +275,26 @@ pub use theme::{
 /// Select the first available font from a list of font families
 /// Checks against the fonts available in the system using avenger-text
 pub(crate) fn select_available_font(fonts: Vec<String>) -> String {
+    for font in &fonts {
+        if chart_registered_font_family(font) {
+            return font.clone();
+        }
+    }
+
     let resolver = default_font_resolver();
     resolver.select_available_font(fonts)
+}
+
+fn chart_registered_font_family(font: &str) -> bool {
+    matches!(font.trim(), "Lato" | "DejaVu Sans Mono" | "Lete Sans Math")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::select_available_font;
+
+    #[test]
+    fn select_available_font_preserves_chart_registered_family() {
+        assert_eq!(select_available_font(vec!["Lato".to_string()]), "Lato");
+    }
 }

@@ -81,6 +81,7 @@ pub mod test_nested_grid_equivalent;
 pub mod test_nested_position;
 pub mod test_parallel;
 pub mod test_param_fill_color;
+pub mod test_pattern_fill;
 pub mod test_plot_background;
 pub mod test_plot_level_config;
 pub mod test_polar_line;

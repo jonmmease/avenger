@@ -14,7 +14,12 @@ use avenger_text::types::{FontStyle, FontWeight, FontWeightNameSpec, TextAlign, 
 use datafusion::arrow::{array::ArrayRef, record_batch::RecordBatch};
 use datafusion_common::ScalarValue;
 
-use crate::{AvengerChartError, CompiledMarkCore, MarkRenderContext, ScalarValueHelpers};
+use avenger_scenegraph::marks::pattern::{PatternFill, default_no_fill_pattern};
+
+use crate::{
+    AvengerChartError, CompiledMarkCore, MarkRenderContext, MarkRuntimeContext,
+    PatternChannelValue, ScalarValueHelpers,
+};
 
 /// Coerce a channel from either data or scalar batch using the provided coercion function
 ///
@@ -110,6 +115,60 @@ pub fn coerce_bool_channel(
     default: bool,
 ) -> Result<ScalarOrArray<bool>, AvengerChartError> {
     coerce_channel(data, scalars, channel, |c, a| c.to_boolean(a), default)
+}
+
+/// Get pattern channel values from the structured pattern sidecar or from
+/// prepared pattern-scale index columns.
+pub fn coerce_pattern_channel_with_renderer<M>(
+    mark: &M,
+    data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
+    channel: &str,
+    runtime_context: &dyn MarkRuntimeContext,
+) -> Result<ScalarOrArray<Option<PatternFill>>, AvengerChartError>
+where
+    M: CompiledMarkCore + ?Sized,
+{
+    if data
+        .and_then(|batch| batch.column_by_name(channel))
+        .is_some()
+        || scalars.column_by_name(channel).is_some()
+    {
+        let scale_key = mark
+            .data_context()
+            .pattern_channel(channel)
+            .and_then(|value| value.get_scale_name(channel))
+            .unwrap_or_else(|| channel.to_string());
+        let range = runtime_context
+            .pattern_scale_range(&scale_key)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Pattern scale range '{}' not found for channel '{}'",
+                    scale_key, channel
+                ))
+            })?;
+        let indices = coerce_numeric_channel(data, scalars, channel, 0.0)?;
+        return Ok(indices.map(|index| {
+            if !index.is_finite() || *index < 0.0 {
+                return None;
+            }
+            let index = index.round() as usize;
+            range.get(index).cloned().unwrap_or(None)
+        }));
+    }
+
+    match mark.data_context().pattern_channel(channel) {
+        Some(PatternChannelValue::Value { pattern }) => {
+            Ok(ScalarOrArray::new_scalar(pattern.clone()))
+        }
+        Some(PatternChannelValue::Scaled { .. } | PatternChannelValue::Conditional { .. }) => {
+            Err(AvengerChartError::InternalError(format!(
+                "Scaled pattern channel '{}' was not prepared into a runtime index column",
+                channel
+            )))
+        }
+        None => Ok(default_no_fill_pattern()),
+    }
 }
 
 /// Get stroke cap channel value using Coercer

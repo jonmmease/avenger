@@ -9,7 +9,8 @@ use avenger_color::ColorOrGradient;
 use avenger_common::{types::StrokeCap, value::ScalarOrArray};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
-    arc::SceneArcMark, mark::SceneMark, rule::SceneRuleMark, text::SceneTextMark,
+    arc::SceneArcMark, mark::SceneMark, pattern::default_no_fill_pattern, rule::SceneRuleMark,
+    text::SceneTextMark,
 };
 use avenger_text::types::{FontStyle, FontWeight, TextAlign, TextBaseline};
 use datafusion::{
@@ -498,6 +499,7 @@ impl PolarAxisEvaluateExt for PolarAxis {
                         }
                         color
                     })),
+                    fill_pattern: default_no_fill_pattern(),
                     stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                     stroke_width: ScalarOrArray::new_scalar(0.0),
                     indices: None,

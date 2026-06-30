@@ -64,7 +64,7 @@ async fn test_hsl_color_wheel() {
 
     let css_theme = r#"
         mark {
-            fill-discrete: hsl(0, 80%, 60%), hsl(60, 80%, 60%), hsl(120, 80%, 60%), hsl(180, 80%, 60%), hsl(240, 80%, 60%), hsl(300, 80%, 60%)
+            fill-discrete: hsl(0, 80%, 60%), hsl(60, 80%, 60%), hsl(120, 80%, 60%), hsl(180, 80%, 60%), hsl(240, 80%, 60%), hsl(300, 80%, 60%);
             stroke: hsl(0, 0%, 20%);
             stroke-width: 1px;
         }

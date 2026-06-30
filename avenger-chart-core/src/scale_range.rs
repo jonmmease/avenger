@@ -1,3 +1,4 @@
+use avenger_scenegraph::marks::pattern::PatternFill;
 use datafusion::logical_expr::Expr;
 use datafusion_common::ScalarValue;
 use datafusion_proto::logical_plan::{DefaultLogicalExtensionCodec, to_proto::serialize_expr};
@@ -18,6 +19,7 @@ pub enum ScaleRange {
     ),
     Discrete(Vec<SerializableScalar>),
     Color(Vec<[f32; 4]>),
+    Pattern(Vec<Option<PatternFill>>),
 }
 
 impl ScaleRange {
@@ -36,6 +38,10 @@ impl ScaleRange {
                 .map(|c| [c.red, c.green, c.blue, c.alpha])
                 .collect(),
         )
+    }
+
+    pub fn new_pattern(patterns: Vec<Option<PatternFill>>) -> Self {
+        Self::Pattern(patterns)
     }
 
     pub fn new_discrete<T: Into<ScalarValue>>(values: Vec<T>) -> Self {

@@ -15,7 +15,9 @@ use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{group::Clip, mark::SceneMark, rect::SceneRectMark};
+use avenger_scenegraph::marks::{
+    group::Clip, mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark,
+};
 use datafusion::{
     common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
 };
@@ -386,6 +388,7 @@ impl CompiledGuide for CartesianGuide {
                 x2: None,
                 y2: None,
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color(bg_color)),
+                fill_pattern: default_no_fill_pattern(),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                 stroke_width: ScalarOrArray::new_scalar(0.0),
                 corner_radius: ScalarOrArray::new_scalar(0.0),

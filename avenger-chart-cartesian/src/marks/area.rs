@@ -4,13 +4,14 @@ use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
     Mark, MarkAdjustmentSpec, MarkEvaluationFrame, MarkRenderContext, MarkRuntimeContext,
-    PrimitiveMarkEffects, RenderedMarkData, ScaleTypePreference, apply_opacity_to_color,
-    coerce_area_orientation_channel, coerce_bool_channel_with_renderer,
+    PrimitiveMarkEffects, RenderedMarkData, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
+    apply_opacity_to_color, coerce_area_orientation_channel, coerce_bool_channel_with_renderer,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
-    coerce_stroke_dash_channel, coerce_stroke_join_channel_values_with_renderer,
-    default_scale_type_for_data_type, evaluate_item_assignments, impl_mark_trait_common,
-    is_continuous_scale, item_bbox_column_name, item_channel_column_name, item_data_column_name,
+    coerce_opacity_channel_with_renderer, coerce_pattern_channel_with_renderer,
+    coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_dash_channel,
+    coerce_stroke_join_channel_values_with_renderer, default_scale_type_for_data_type,
+    evaluate_item_assignments, impl_mark_trait_common, is_continuous_scale, item_bbox_column_name,
+    item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_marks::{Area, area_channel_defaults};
 use avenger_color::ColorOrGradient;
@@ -19,7 +20,7 @@ use avenger_common::{
     value::ScalarOrArray,
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use avenger_scenegraph::marks::{area::SceneAreaMark, mark::SceneMark};
+use avenger_scenegraph::marks::{area::SceneAreaMark, mark::SceneMark, pattern::PatternFill};
 use datafusion::{
     arrow::{
         array::{ArrayRef, BooleanArray, Float32Array, RecordBatch, StringArray},
@@ -64,6 +65,7 @@ struct AreaRenderPartitionKey {
     details: Vec<ScalarValue>,
     orientation: String,
     fill: String,
+    fill_pattern: Option<String>,
     stroke: String,
     stroke_width_bits: u32,
     stroke_dash: String,
@@ -123,6 +125,12 @@ impl CompiledMarkCore for CompiledCartesianArea {
             },
             ChannelDescriptor {
                 name: "fill",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: "fill_pattern",
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
@@ -200,6 +208,7 @@ impl CompiledMarkCore for CompiledCartesianArea {
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
+            ("fill_pattern", _) => Some(ScaleTypePreference::Ordinal),
             (
                 "x" | "x2" | "y" | "y2",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
@@ -244,6 +253,24 @@ impl CompiledMarkCore for CompiledCartesianArea {
             options.insert("nice".to_string(), lit(true));
         }
         options
+    }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_impl: &dyn ScaleImpl,
+        domain: &ResolvedDomain,
+        _data_type: &DataType,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Option<ScaleRange> {
+        let range_kind = scale_impl.range_kind();
+        let cardinality = match domain {
+            ResolvedDomain::Discrete(count) => Some(*count),
+            ResolvedDomain::Interval => None,
+        };
+
+        theme.get_range_for_channel("area", channel, range_kind, cardinality, params)
     }
 }
 
@@ -303,7 +330,8 @@ impl CompiledMark for CompiledCartesianArea {
             &mark_context,
             0.0,
         )?;
-        let visual = self.coerce_area_visual_channels(Some(data), scalars, &mark_context, len)?;
+        let visual =
+            self.coerce_area_visual_channels(Some(data), scalars, &mark_context, context, len)?;
         let (x, y, x2, y2, visual) = self.apply_expression_adjustments(
             start.x.clone(),
             start.y.clone(),
@@ -322,6 +350,7 @@ impl CompiledMark for CompiledCartesianArea {
         let detail_columns = DetailColumns::from_mark_data(self, data)?;
         let mut groups: IndexMap<AreaRenderPartitionKey, Vec<usize>> = IndexMap::new();
         let fill_values = visual.fill.as_vec(len, None);
+        let fill_pattern_values = visual.fill_pattern.as_vec(len, None);
         let fill_strings = util::color_channel_strings(&visual.fill, len);
         let stroke_values = visual.stroke.as_vec(len, None);
         let stroke_strings = util::color_channel_strings(&visual.stroke, len);
@@ -332,6 +361,7 @@ impl CompiledMark for CompiledCartesianArea {
                 details: detail_columns.key_for_row(i)?,
                 orientation: visual.orientation_strings[i].clone(),
                 fill: fill_strings[i].clone(),
+                fill_pattern: pattern_partition_key(&fill_pattern_values[i])?,
                 stroke: stroke_strings[i].clone(),
                 stroke_width_bits: stroke_width_values[i].to_bits(),
                 stroke_dash: visual.stroke_dash_strings[i].clone(),
@@ -351,6 +381,7 @@ impl CompiledMark for CompiledCartesianArea {
             let orientation = area_orientation_from_name(&key.orientation)?;
             let opacity = f32::from_bits(key.opacity_bits);
             let fill = fill_values[first_index].clone();
+            let fill_pattern = fill_pattern_values[first_index].clone();
             let stroke = stroke_values[first_index].clone();
             let stroke_dash = stroke_dash_from_name(&key.stroke_dash)?;
             let stroke_cap = util::coerce_stroke_cap_strings(
@@ -380,6 +411,7 @@ impl CompiledMark for CompiledCartesianArea {
                 y2: util::gather_by_indices(&y2, len, &indices),
                 defined: util::gather_by_indices(&visual.defined, len, &indices),
                 fill: apply_opacity_to_color(&fill, opacity),
+                fill_pattern,
                 stroke: apply_opacity_to_color(&stroke, opacity),
                 stroke_width: f32::from_bits(key.stroke_width_bits),
                 stroke_cap,
@@ -404,6 +436,7 @@ impl CompiledCartesianArea {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         context: &MarkRenderContext<'_>,
+        runtime_context: &dyn MarkRuntimeContext,
         len: usize,
     ) -> Result<AreaVisualChannels, AvengerChartError> {
         let orientation = coerce_area_orientation_channel(
@@ -430,6 +463,13 @@ impl CompiledCartesianArea {
         )?;
         let opacity =
             coerce_opacity_channel_with_renderer(self, data, scalars, "opacity", context, 1.0)?;
+        let fill_pattern = coerce_pattern_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "fill_pattern",
+            runtime_context,
+        )?;
         let defined =
             coerce_bool_channel_with_renderer(self, data, scalars, "defined", context, true)?;
         let stroke_dash =
@@ -453,6 +493,7 @@ impl CompiledCartesianArea {
         Ok(AreaVisualChannels {
             orientation_strings: area_orientation_strings(&orientation, len),
             fill,
+            fill_pattern,
             stroke,
             stroke_width: ScalarOrArray::new_scalar(0.0),
             stroke_dash_strings: util::stroke_dash_strings(&stroke_dash, len),
@@ -563,6 +604,7 @@ impl CompiledCartesianArea {
 struct AreaVisualChannels {
     orientation_strings: Vec<String>,
     fill: ScalarOrArray<ColorOrGradient>,
+    fill_pattern: ScalarOrArray<Option<PatternFill>>,
     stroke: ScalarOrArray<ColorOrGradient>,
     stroke_width: ScalarOrArray<f32>,
     stroke_dash_strings: Vec<String>,
@@ -570,6 +612,12 @@ struct AreaVisualChannels {
     stroke_join_strings: Vec<String>,
     opacity: ScalarOrArray<f32>,
     defined: ScalarOrArray<bool>,
+}
+
+fn pattern_partition_key(
+    pattern: &Option<PatternFill>,
+) -> Result<Option<String>, AvengerChartError> {
+    Ok(pattern.as_ref().map(|pattern| format!("{pattern:?}")))
 }
 
 fn build_area_item_frame(

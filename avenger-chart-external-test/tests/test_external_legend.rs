@@ -35,6 +35,7 @@ async fn custom_legend_renderer_uses_core_contracts() {
         sharing_level: None,
         mark_type: "hexbin".to_string(),
         mark_index: 0,
+        pattern_range: None,
         related_channels: std::collections::HashMap::<String, ChannelInfo>::new(),
     };
 

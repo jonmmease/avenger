@@ -11,6 +11,7 @@ use avenger_scenegraph::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
+        pattern::{is_no_fill_pattern, PatternReferenceFrame},
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -18,6 +19,7 @@ use avenger_scenegraph::{
         text_leader::{compute_text_leader_geometry, TextLeaderGeometryInput},
         trail::SceneTrailMark,
     },
+    pattern_geometry::PatternRect,
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
 };
@@ -115,6 +117,7 @@ pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
     pub font_resolution: FontResolutionOptions,
     pub image_resource_config: WgpuImageResourceConfig,
+    pub sample_count: Option<u32>,
 }
 
 pub trait Canvas {
@@ -156,9 +159,16 @@ pub trait Canvas {
         mark: &SceneArcMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_arc_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_arc_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -167,9 +177,16 @@ pub trait Canvas {
         mark: &ScenePathMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_path_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_path_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -200,9 +217,16 @@ pub trait Canvas {
         mark: &SceneAreaMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_area_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_area_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -211,6 +235,8 @@ pub trait Canvas {
         mark: &SceneSymbolMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
         if symbol_mark_is_instanced_eligible(mark, group_clip) {
             // Check if compatible renderer already exists
@@ -258,8 +284,13 @@ pub trait Canvas {
                 mark.y_adjustment,
             );
         } else {
-            self.get_multi_renderer()
-                .add_symbol_mark(mark, origin, group_clip)?;
+            self.get_multi_renderer().add_symbol_mark(
+                mark,
+                origin,
+                group_clip,
+                pattern_reference_frame,
+                chart_bounds,
+            )?;
         }
 
         Ok(())
@@ -270,9 +301,16 @@ pub trait Canvas {
         mark: &SceneRectMark,
         origin: [f32; 2],
         group_clip: &Clip,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
-        self.get_multi_renderer()
-            .add_rect_mark(mark, origin, group_clip)?;
+        self.get_multi_renderer().add_rect_mark(
+            mark,
+            origin,
+            group_clip,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
         Ok(())
     }
 
@@ -470,6 +508,8 @@ pub trait Canvas {
         group: &SceneGroup,
         parent_origin: [f32; 2],
         parent_clip: &Clip,
+        parent_pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerWgpuError> {
         // Save parent z-index
         let saved_zindex = self.get_current_zindex();
@@ -478,16 +518,27 @@ pub trait Canvas {
         let group_zindex = group.zindex.unwrap_or(saved_zindex);
         self.set_current_zindex(group_zindex);
 
-        // Maybe add rect around group boundary
-        if let Some(rect) = group.make_path_mark() {
-            self.add_path_mark(&rect, parent_origin, &group.clip)?;
-        }
-
         // Compute new origin
         let origin = [
             parent_origin[0] + group.origin[0],
             parent_origin[1] + group.origin[1],
         ];
+        let pattern_reference_frame = group
+            .pattern_reference_frame
+            .as_ref()
+            .map(|frame| frame.translated(origin[0], origin[1]))
+            .or_else(|| parent_pattern_reference_frame.cloned());
+
+        // Maybe add rect around group boundary
+        if let Some(rect) = group.make_path_mark() {
+            self.add_path_mark(
+                &rect,
+                parent_origin,
+                &group.clip,
+                pattern_reference_frame.as_ref(),
+                chart_bounds,
+            )?;
+        }
 
         // Compute new clip
         let clip = if let Clip::None = group.clip {
@@ -505,19 +556,43 @@ pub trait Canvas {
 
             match mark {
                 SceneMark::Arc(mark) => {
-                    self.add_arc_mark(mark, origin, &clip)?;
+                    self.add_arc_mark(
+                        mark,
+                        origin,
+                        &clip,
+                        pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneMark::Symbol(mark) => {
-                    self.add_symbol_mark(mark, origin, &clip)?;
+                    self.add_symbol_mark(
+                        mark,
+                        origin,
+                        &clip,
+                        pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneMark::Rect(mark) => {
-                    self.add_rect_mark(mark, origin, &clip)?;
+                    self.add_rect_mark(
+                        mark,
+                        origin,
+                        &clip,
+                        pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneMark::Rule(mark) => {
                     self.add_rule_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Path(mark) => {
-                    self.add_path_mark(mark, origin, &clip)?;
+                    self.add_path_mark(
+                        mark,
+                        origin,
+                        &clip,
+                        pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneMark::Line(mark) => {
                     self.add_line_mark(mark, origin, &clip)?;
@@ -526,7 +601,13 @@ pub trait Canvas {
                     self.add_trail_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Area(mark) => {
-                    self.add_area_mark(mark, origin, &clip)?;
+                    self.add_area_mark(
+                        mark,
+                        origin,
+                        &clip,
+                        pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneMark::Text(mark) => {
                     self.add_text_mark(mark, origin, &clip)?;
@@ -535,7 +616,13 @@ pub trait Canvas {
                     self.add_image_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Group(group) => {
-                    self.add_group_mark(group, origin, &clip)?;
+                    self.add_group_mark(
+                        group,
+                        origin,
+                        &clip,
+                        pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
             }
         }
@@ -553,29 +640,60 @@ pub trait Canvas {
         self.set_current_zindex(0);
 
         // Process display items in document order. Z-index sorting happens during rendering.
+        let chart_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
         let item_count = display_list.items.len();
         for item in &display_list.items {
             self.set_current_zindex(item.zindex);
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => {
-                    self.add_path_mark(mark, item.origin, &item.clip)?;
+                    self.add_path_mark(
+                        mark,
+                        item.origin,
+                        &item.clip,
+                        item.pattern_reference_frame.as_ref(),
+                        chart_bounds,
+                    )?;
                 }
                 SceneDisplayMark::Borrowed(mark) => match mark {
                     SceneMark::Arc(mark) => {
-                        self.add_arc_mark(mark, item.origin, &item.clip)?;
+                        self.add_arc_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Symbol(mark) => {
-                        self.add_symbol_mark(mark, item.origin, &item.clip)?;
+                        self.add_symbol_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Rect(mark) => {
-                        self.add_rect_mark(mark, item.origin, &item.clip)?;
+                        self.add_rect_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Rule(mark) => {
                         self.add_rule_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Path(mark) => {
-                        self.add_path_mark(mark, item.origin, &item.clip)?;
+                        self.add_path_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Line(mark) => {
                         self.add_line_mark(mark, item.origin, &item.clip)?;
@@ -584,7 +702,13 @@ pub trait Canvas {
                         self.add_trail_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Area(mark) => {
-                        self.add_area_mark(mark, item.origin, &item.clip)?;
+                        self.add_area_mark(
+                            mark,
+                            item.origin,
+                            &item.clip,
+                            item.pattern_reference_frame.as_ref(),
+                            chart_bounds,
+                        )?;
                     }
                     SceneMark::Text(mark) => {
                         self.add_text_mark(mark, item.origin, &item.clip)?;
@@ -613,13 +737,19 @@ pub trait Canvas {
 fn symbol_mark_is_instanced_eligible(mark: &SceneSymbolMark, group_clip: &Clip) -> bool {
     mark.len >= 100
         && mark.gradients.is_empty()
+        && is_no_fill_pattern(&mark.fill_pattern)
         && matches!(group_clip, Clip::None | Clip::Rect { .. })
 }
 
 #[cfg(test)]
 mod tests {
     use avenger_color::{Gradient, GradientStop, LinearGradient};
-    use avenger_scenegraph::marks::{group::Clip, symbol::SceneSymbolMark};
+    use avenger_common::value::ScalarOrArray;
+    use avenger_scenegraph::marks::{
+        group::Clip,
+        pattern::{PatternAnchor, PatternFill, PatternLayer, StripePatternLayer},
+        symbol::SceneSymbolMark,
+    };
 
     use super::symbol_mark_is_instanced_eligible;
 
@@ -679,6 +809,20 @@ mod tests {
             &large_symbol_mark(),
             &Clip::Path(lyon::path::Path::default()),
         ));
+    }
+
+    #[test]
+    fn patterned_symbol_mark_is_not_instanced_eligible() {
+        let mark = SceneSymbolMark {
+            fill_pattern: ScalarOrArray::new_scalar(Some(PatternFill {
+                anchor: PatternAnchor::Mark,
+                layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+                ..Default::default()
+            })),
+            ..large_symbol_mark()
+        };
+
+        assert!(!symbol_mark_is_instanced_eligible(&mark, &Clip::None));
     }
 }
 
@@ -777,6 +921,22 @@ pub(crate) fn get_supported_sample_count(sample_flags: TextureFormatFeatureFlags
     }
 }
 
+pub(crate) fn select_sample_count(
+    sample_flags: TextureFormatFeatureFlags,
+    requested: Option<u32>,
+    default_sample_count: u32,
+) -> u32 {
+    let supported = get_supported_sample_count(sample_flags);
+    let requested = requested.unwrap_or(default_sample_count).max(1);
+    if requested >= 4 && supported >= 4 {
+        4
+    } else if requested >= 2 && supported >= 2 {
+        2
+    } else {
+        1
+    }
+}
+
 pub struct WindowCanvas<'window> {
     surface_config: SurfaceConfiguration,
     renderer: AvengerRendererCore,
@@ -836,7 +996,8 @@ impl WindowCanvas<'_> {
         };
         surface.configure(&device, &surface_config);
 
-        let sample_count = 1;
+        let format_flags = adapter.get_texture_format_features(surface_format).flags;
+        let sample_count = select_sample_count(format_flags, config.sample_count, 1);
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
             surface_config.width,
@@ -1105,7 +1266,11 @@ impl PngCanvas {
         let (device, queue) = request_wgpu_device(&adapter).await?;
         let texture_format = TextureFormat::Rgba8Unorm;
         let format_flags = adapter.get_texture_format_features(texture_format).flags;
-        let sample_count = get_supported_sample_count(format_flags);
+        let sample_count = select_sample_count(
+            format_flags,
+            config.sample_count,
+            get_supported_sample_count(format_flags),
+        );
         let output_target_descriptor = OffscreenTargetDescriptor::new(dimensions, texture_format)
             .with_usage(TextureUsages::COPY_SRC | TextureUsages::RENDER_ATTACHMENT)
             .with_label("PngCanvas output texture");

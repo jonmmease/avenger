@@ -4,10 +4,10 @@ use avenger_chart_core::{
     AdjustItem, ColorChannelConfig, FillAdjustmentChannel, MarkAdjustmentCompileContext,
     MarkAdjustmentSpec, MarkAdjustmentTransform, MarkState, OpacityAdjustmentChannel,
     OpacityChannelConfig, PathAdjustmentChannels, PathChannelConfig, PathTransformChannelConfig,
-    PointGeometryItem, PrimitiveMarkEffects, StrokeAdjustmentChannel, StrokeCapAdjustmentChannel,
-    StrokeJoinAdjustmentChannel, StrokeWidthAdjustmentChannel, StrokeWidthChannelConfig,
-    TransformMarkAdjustmentSpec, define_common_mark_channels, extract_adjustment_assignments,
-    impl_mark_base_with_extra_fields,
+    PatternChannelValue, PointGeometryItem, PrimitiveMarkEffects, StrokeAdjustmentChannel,
+    StrokeCapAdjustmentChannel, StrokeJoinAdjustmentChannel, StrokeWidthAdjustmentChannel,
+    StrokeWidthChannelConfig, TransformMarkAdjustmentSpec, define_common_mark_channels,
+    extract_adjustment_assignments, impl_mark_base_with_extra_fields,
 };
 
 pub struct PathMark<C> {
@@ -76,6 +76,11 @@ impl<C> PathMark<C> {
     #[doc(hidden)]
     pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
         &self.effects
+    }
+
+    /// Set the structured fill pattern channel.
+    pub fn fill_pattern<V: Into<PatternChannelValue>>(self, value: V) -> Self {
+        self.with_pattern_channel_value("fill_pattern", value.into())
     }
 }
 

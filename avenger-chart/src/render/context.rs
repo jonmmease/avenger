@@ -12,7 +12,10 @@ use std::{
     time::Duration,
 };
 
-use avenger_scenegraph::marks::group::Clip;
+use avenger_scenegraph::marks::{
+    group::Clip,
+    pattern::{PatternFill, PatternReferenceFrame},
+};
 use avenger_text::{
     LabelParams,
     measurement::{TextBounds, TextMeasurementConfig},
@@ -55,6 +58,22 @@ use crate::{
 pub use avenger_chart_core::{
     AXIS_OWNER_IGNORE_EMPTY_CELLS_PARAM, INVALID_FACET_PATH_AXIS_FALLBACK_HIDDEN_PARAM,
 };
+
+pub(crate) fn plot_area_pattern_reference_frame(
+    width: f32,
+    height: f32,
+) -> Option<PatternReferenceFrame> {
+    if width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0 {
+        Some(PatternReferenceFrame {
+            x: 0.0,
+            y: 0.0,
+            width,
+            height,
+        })
+    } else {
+        None
+    }
+}
 
 pub(crate) const TEXT_MEASUREMENT_CACHE_TAG: &str = "typst-text";
 pub(crate) const TEXT_MARK_MEASUREMENT_CACHE_TAG: &str = "typst-text-mark-fallback";
@@ -1989,6 +2008,13 @@ impl MarkRuntimeContext for RenderContext<'_> {
 
     fn plot_area_origin(&self) -> [f32; 2] {
         self.plot_area_origin
+    }
+
+    fn pattern_scale_range(&self, scale_key: &str) -> Option<&[Option<PatternFill>]> {
+        self.state
+            .scales
+            .get(scale_key)
+            .and_then(|scale| scale.pattern_range())
     }
 }
 

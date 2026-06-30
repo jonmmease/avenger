@@ -4,7 +4,8 @@ use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
 use crate::{
     AvengerChartError, ChannelValue, CompiledDataTransform, CoordinationScope, DataTransformStage,
-    RepeatContext, StoreData, resolve_repeat_channel_value, resolve_repeat_placeholders,
+    PatternChannelValue, RepeatContext, StoreData, resolve_repeat_channel_value,
+    resolve_repeat_pattern_channel_value, resolve_repeat_placeholders,
 };
 
 /// Stores a mark's data source and channel-to-expression mappings during construction
@@ -16,6 +17,42 @@ pub struct DataContext {
     store_data: Option<StoreData>,
     transforms: Vec<DataTransformStage>,
     channels: IndexMap<String, ChannelValue>,
+    pattern_channels: IndexMap<String, PatternChannelValue>,
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_scenegraph::marks::pattern::{PatternFill, PatternLayer, StripePatternLayer};
+    use datafusion::prelude::col;
+
+    use crate::{DataContext, PatternChannelValue};
+
+    fn stripe_pattern() -> PatternFill {
+        PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                45.0, 16.0, 1.0,
+            ))],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn literal_pattern_channel_stays_sidecar_only() {
+        let context = DataContext::default()
+            .with_pattern_channel_value("fill_pattern", stripe_pattern().into());
+
+        assert!(context.channel("fill_pattern").is_none());
+        assert!(context.pattern_channel("fill_pattern").is_some());
+    }
+
+    #[test]
+    fn scaled_pattern_channel_adds_regular_surrogate() {
+        let context = DataContext::default()
+            .with_pattern_channel_value("fill_pattern", PatternChannelValue::from(col("category")));
+
+        assert!(context.channel("fill_pattern").is_some());
+        assert!(context.pattern_channel("fill_pattern").is_some());
+    }
 }
 
 impl Default for DataContext {
@@ -25,6 +62,7 @@ impl Default for DataContext {
             store_data: None,
             transforms: Vec::new(),
             channels: IndexMap::new(),
+            pattern_channels: IndexMap::new(),
         }
     }
 }
@@ -36,6 +74,7 @@ impl DataContext {
             store_data: None,
             transforms: Vec::new(),
             channels: IndexMap::new(),
+            pattern_channels: IndexMap::new(),
         }
     }
 
@@ -45,6 +84,7 @@ impl DataContext {
             store_data: Some(data),
             transforms: Vec::new(),
             channels: IndexMap::new(),
+            pattern_channels: IndexMap::new(),
         }
     }
 
@@ -78,9 +118,28 @@ impl DataContext {
         self
     }
 
+    pub fn with_pattern_channel_value(mut self, channel: &str, value: PatternChannelValue) -> Self {
+        if let Some(surrogate) = value.scaled_channel_surrogate() {
+            self.channels.insert(channel.to_string(), surrogate);
+        } else {
+            self.channels.shift_remove(channel);
+        }
+        self.pattern_channels.insert(channel.to_string(), value);
+        self
+    }
+
     #[doc(hidden)]
     pub fn with_channels(mut self, channels: IndexMap<String, ChannelValue>) -> Self {
         self.channels = channels;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_pattern_channels(
+        mut self,
+        pattern_channels: IndexMap<String, PatternChannelValue>,
+    ) -> Self {
+        self.pattern_channels = pattern_channels;
         self
     }
 
@@ -104,8 +163,16 @@ impl DataContext {
         self.channels.get(channel)
     }
 
+    pub fn pattern_channel(&self, channel: &str) -> Option<&PatternChannelValue> {
+        self.pattern_channels.get(channel)
+    }
+
     pub fn channels(&self) -> &IndexMap<String, ChannelValue> {
         &self.channels
+    }
+
+    pub fn pattern_channels(&self) -> &IndexMap<String, PatternChannelValue> {
+        &self.pattern_channels
     }
 
     pub fn transforms(&self) -> &[DataTransformStage] {
@@ -128,6 +195,16 @@ impl DataContext {
                     Ok((
                         channel.clone(),
                         resolve_repeat_channel_value(value.clone(), ctx)?,
+                    ))
+                })
+                .collect::<Result<_, AvengerChartError>>()?,
+            pattern_channels: self
+                .pattern_channels
+                .iter()
+                .map(|(channel, value)| {
+                    Ok((
+                        channel.clone(),
+                        resolve_repeat_pattern_channel_value(value.clone(), ctx)?,
                     ))
                 })
                 .collect::<Result<_, AvengerChartError>>()?,

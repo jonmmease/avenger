@@ -535,6 +535,7 @@ mod tests {
                 sharing_level: None,
                 mark_type: "symbol".to_string(),
                 mark_index: 0,
+                pattern_range: None,
                 related_channels: HashMap::new(),
             };
             let config = Legend::new()

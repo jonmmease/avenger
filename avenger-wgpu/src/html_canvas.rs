@@ -10,7 +10,7 @@ use wgpu::{
 use crate::{
     canvas::{
         create_multisampled_framebuffer, get_supported_sample_count, make_wgpu_adapter,
-        request_wgpu_device, Canvas, CanvasConfig, CanvasDimensionUtils,
+        request_wgpu_device, select_sample_count, Canvas, CanvasConfig, CanvasDimensionUtils,
     },
     error::AvengerWgpuError,
     image_resources::WgpuImageResourceStatus,
@@ -73,7 +73,11 @@ impl<'window> HtmlCanvasCanvas<'window> {
         surface.configure(&device, &surface_config);
 
         let format_flags = adapter.get_texture_format_features(surface_format).flags;
-        let sample_count = get_supported_sample_count(format_flags);
+        let sample_count = select_sample_count(
+            format_flags,
+            config.sample_count,
+            get_supported_sample_count(format_flags),
+        );
         let multisampled_framebuffer = create_multisampled_framebuffer(
             &device,
             surface_config.width,

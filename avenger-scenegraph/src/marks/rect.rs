@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use avenger_color::{ColorOrGradient, Gradient};
 use avenger_common::value::ScalarOrArray;
@@ -7,9 +10,14 @@ use lyon_extra::euclid::Point2D;
 use lyon_path::{builder::BorderRadii, geom::Box2D, Path, Winding};
 use serde::{Deserialize, Serialize};
 
-use super::mark::{default_interactive, SceneMark};
+use super::{
+    mark::{default_interactive, SceneMark},
+    pattern::{
+        default_no_fill_pattern, hash_fill_pattern_scalar_or_array, is_no_fill_pattern, PatternFill,
+    },
+};
 
-#[derive(Debug, Clone, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct SceneRectMark {
     pub name: String,
@@ -25,11 +33,39 @@ pub struct SceneRectMark {
     pub x2: Option<ScalarOrArray<f32>>,
     pub y2: Option<ScalarOrArray<f32>>,
     pub fill: ScalarOrArray<ColorOrGradient>,
+    #[serde(
+        default = "default_no_fill_pattern",
+        skip_serializing_if = "is_no_fill_pattern"
+    )]
+    pub fill_pattern: ScalarOrArray<Option<PatternFill>>,
     pub stroke: ScalarOrArray<ColorOrGradient>,
     pub stroke_width: ScalarOrArray<f32>,
     pub corner_radius: ScalarOrArray<f32>,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+}
+
+impl Hash for SceneRectMark {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.interactive.hash(state);
+        self.clip.hash(state);
+        self.len.hash(state);
+        self.gradients.hash(state);
+        self.x.hash(state);
+        self.y.hash(state);
+        self.width.hash(state);
+        self.height.hash(state);
+        self.x2.hash(state);
+        self.y2.hash(state);
+        self.fill.hash(state);
+        hash_fill_pattern_scalar_or_array(&self.fill_pattern, state);
+        self.stroke.hash(state);
+        self.stroke_width.hash(state);
+        self.corner_radius.hash(state);
+        self.indices.hash(state);
+        self.zindex.hash(state);
+    }
 }
 
 impl SceneRectMark {
@@ -141,6 +177,16 @@ impl SceneRectMark {
         self.fill.as_vec(self.len as usize, self.indices.as_ref())
     }
 
+    pub fn fill_pattern_iter(&self) -> Box<dyn Iterator<Item = &Option<PatternFill>> + '_> {
+        self.fill_pattern
+            .as_iter(self.len as usize, self.indices.as_ref())
+    }
+
+    pub fn fill_pattern_vec(&self) -> Vec<Option<PatternFill>> {
+        self.fill_pattern
+            .as_vec(self.len as usize, self.indices.as_ref())
+    }
+
     pub fn stroke_iter(&self) -> Box<dyn Iterator<Item = &ColorOrGradient> + '_> {
         self.stroke
             .as_iter(self.len as usize, self.indices.as_ref())
@@ -234,6 +280,7 @@ impl Default for SceneRectMark {
             x2: None,
             y2: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),
@@ -246,5 +293,27 @@ impl Default for SceneRectMark {
 impl From<SceneRectMark> for SceneMark {
     fn from(mark: SceneRectMark) -> Self {
         SceneMark::Rect(mark)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_fill_pattern_is_skipped_when_serializing() {
+        let value = serde_json::to_value(SceneRectMark::default()).unwrap();
+
+        assert!(value.get("fill-pattern").is_none());
+    }
+
+    #[test]
+    fn missing_fill_pattern_deserializes_as_no_overlay() {
+        let mut value = serde_json::to_value(SceneRectMark::default()).unwrap();
+        value.as_object_mut().unwrap().remove("fill-pattern");
+
+        let mark: SceneRectMark = serde_json::from_value(value).unwrap();
+
+        assert!(is_no_fill_pattern(&mark.fill_pattern));
     }
 }

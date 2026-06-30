@@ -2177,7 +2177,7 @@ fn legend_channel_signature(channel: &LegendChannel) -> String {
 
 fn channel_info_signature(info: &ChannelInfo) -> String {
     match info {
-        ChannelInfo::Scaled { expr, scale } => {
+        ChannelInfo::Scaled { expr, scale, .. } => {
             format!(
                 "scaled:expr={expr:?};scale={}",
                 configured_scale_runtime_signature(scale)

@@ -1,6 +1,7 @@
 //! Theme value types and color utilities
 
 use datafusion_common::ScalarValue;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use avenger_color::{AbsoluteColor, ColorSpace};
@@ -34,6 +35,12 @@ pub enum ThemeValue {
 
     /// Multiple values (for padding, margin, etc.)
     List(Vec<ThemeValue>),
+
+    /// Structured declaration block value.
+    Object(IndexMap<String, ThemeValue>),
+
+    /// Ordered bracket-list value.
+    Array(Vec<ThemeValue>),
 
     /// CSS variable reference
     Variable(String),
@@ -208,6 +215,22 @@ impl ThemeValue {
     pub fn as_list(&self) -> Option<&[ThemeValue]> {
         match self {
             ThemeValue::List(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Try to get as object
+    pub fn as_object(&self) -> Option<&IndexMap<String, ThemeValue>> {
+        match self {
+            ThemeValue::Object(object) => Some(object),
+            _ => None,
+        }
+    }
+
+    /// Try to get as array
+    pub fn as_array(&self) -> Option<&[ThemeValue]> {
+        match self {
+            ThemeValue::Array(values) => Some(values),
             _ => None,
         }
     }

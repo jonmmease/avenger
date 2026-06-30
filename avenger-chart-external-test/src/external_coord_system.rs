@@ -15,7 +15,9 @@ use avenger_chart_core::{
 use avenger_chart_core::{Auto, Scale, ScaleChannelValue};
 use avenger_color::ColorOrGradient;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
-use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark,
+};
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -787,6 +789,7 @@ impl CompiledMark for CompiledMeasuredRect {
             x2: None,
             y2: None,
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.2, 0.4, 0.8, 1.0])),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
             stroke_width: ScalarOrArray::new_scalar(1.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),

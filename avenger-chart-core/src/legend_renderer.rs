@@ -8,7 +8,7 @@ use std::{
 
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::group::SceneGroup;
+use avenger_scenegraph::marks::{group::SceneGroup, pattern::PatternFill};
 use datafusion::{common::ScalarValue, logical_expr::Expr, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -210,6 +210,7 @@ pub enum ChannelInfo {
     Scaled {
         expr: Option<Expr>,
         scale: ConfiguredScale,
+        pattern_range: Option<Vec<Option<PatternFill>>>,
     },
     /// Channel with a constant value (no scale needed)
     Constant { expr: Expr },
@@ -225,6 +226,7 @@ pub struct LegendChannel {
     pub sharing_level: Option<u8>, // Scale sharing level (0=Free, N=Level(N), 255=Shared)
     pub mark_type: String,         // "point", "line", "rect", etc.
     pub mark_index: usize,         // Index of the mark in the plot's marks array
+    pub pattern_range: Option<Vec<Option<PatternFill>>>, // Structured pattern range, if any
     pub related_channels: HashMap<String, ChannelInfo>, // Other channels from same mark
 }
 

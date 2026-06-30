@@ -10,16 +10,19 @@ use avenger_chart_core::{
     ItemChannelAssignment, LegendRendererKind, LegendRendererSelection, Mark, MarkAdjustmentSpec,
     MarkEvaluationFrame, MarkRenderContext, MarkRuntimeContext, PhysicalScalarExpressionSpec,
     PhysicalScalarProgramOptions, PointGeometry, PrimitiveMarkEffects, RenderedMarkData,
-    ScaleTypePreference, apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
+    ResolvedDomain, ScaleRange, ScaleTypePreference, Theme, apply_opacity_to_color_channel,
+    coerce_color_channel_with_renderer, coerce_numeric_channel,
     coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
-    item_bbox_column_name, item_channel_column_name, item_data_column_name,
+    coerce_pattern_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
+    is_continuous_scale, item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_marks::{Rect, rect_channel_defaults};
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark,
+};
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float32Array, RecordBatch, StringArray},
@@ -28,6 +31,7 @@ use datafusion::{
     common::ScalarValue,
     prelude::SessionContext,
 };
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{Cartesian, marks::util};
@@ -108,6 +112,12 @@ impl CompiledMarkCore for CompiledCartesianRect {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
+                name: "fill_pattern",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
                 name: "stroke",
                 required: false,
                 default_value: None,
@@ -148,6 +158,7 @@ impl CompiledMarkCore for CompiledCartesianRect {
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
+            ("fill_pattern", _) => Some(ScaleTypePreference::Ordinal),
             // Rect marks use band scales for categorical position data
             (
                 "x" | "x2" | "y" | "y2",
@@ -186,6 +197,24 @@ impl CompiledMarkCore for CompiledCartesianRect {
             // For any other channel, default to rect legend rendering.
             _ => Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect)),
         }
+    }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_impl: &dyn ScaleImpl,
+        domain: &ResolvedDomain,
+        _data_type: &DataType,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Option<ScaleRange> {
+        let range_kind = scale_impl.range_kind();
+        let cardinality = match domain {
+            ResolvedDomain::Discrete(count) => Some(*count),
+            ResolvedDomain::Interval => None,
+        };
+
+        theme.get_range_for_channel("rect", channel, range_kind, cardinality, params)
     }
 }
 
@@ -298,6 +327,7 @@ impl CompiledCartesianRect {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         mark_context: &MarkRenderContext<'_>,
+        runtime_context: Option<&dyn MarkRuntimeContext>,
     ) -> Result<RectVisualChannels, AvengerChartError> {
         let fill = coerce_color_channel_with_renderer(
             self,
@@ -331,8 +361,20 @@ impl CompiledCartesianRect {
             mark_context,
             1.0,
         )?;
+        let fill_pattern = if let Some(runtime_context) = runtime_context {
+            coerce_pattern_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "fill_pattern",
+                runtime_context,
+            )?
+        } else {
+            default_no_fill_pattern()
+        };
         Ok(RectVisualChannels {
             fill,
+            fill_pattern,
             stroke,
             stroke_width,
             opacity,
@@ -420,7 +462,8 @@ impl CompiledCartesianRect {
             &mark_context,
             0.0,
         )?;
-        let visual = self.coerce_rect_visual_channels(data, scalars, &mark_context)?;
+        let visual =
+            self.coerce_rect_visual_channels(data, scalars, &mark_context, Some(context))?;
         let (x, y, x2, y2, corner_radius, visual) = self.apply_expression_adjustments(
             x,
             y,
@@ -429,6 +472,7 @@ impl CompiledCartesianRect {
             corner_radius,
             visual,
             data,
+            scalars,
             len,
             context,
             &mark_context,
@@ -443,6 +487,7 @@ impl CompiledCartesianRect {
                 &corner_radius,
                 &visual,
                 data,
+                scalars,
                 len,
             )?)
         } else {
@@ -489,6 +534,7 @@ impl CompiledCartesianRect {
             x2: Some(x2),
             y2: Some(y2),
             fill,
+            fill_pattern: visual.fill_pattern,
             stroke,
             stroke_width: visual.stroke_width,
             corner_radius,
@@ -507,6 +553,7 @@ impl CompiledCartesianRect {
         mut corner_radius: ScalarOrArray<f32>,
         mut visual: RectVisualChannels,
         data: Option<&RecordBatch>,
+        scalars: &RecordBatch,
         len: usize,
         runtime_context: &dyn MarkRuntimeContext,
         context: &MarkRenderContext<'_>,
@@ -526,8 +573,17 @@ impl CompiledCartesianRect {
         }
 
         for adjustment in &self.effects.adjustments {
-            let mut frame =
-                build_rect_item_frame(&x, &y, &x2, &y2, &corner_radius, &visual, data, len)?;
+            let mut frame = build_rect_item_frame(
+                &x,
+                &y,
+                &x2,
+                &y2,
+                &corner_radius,
+                &visual,
+                data,
+                scalars,
+                len,
+            )?;
             let assignments = match adjustment {
                 MarkAdjustmentSpec::Expr(spec) => &spec.assignments,
                 MarkAdjustmentSpec::Transform(spec) => {
@@ -642,7 +698,8 @@ impl CompiledCartesianRect {
             &mark_context,
             0.0,
         )?;
-        let visual = self.coerce_rect_visual_channels(None, &derived_scalars, &mark_context)?;
+        let visual =
+            self.coerce_rect_visual_channels(None, &derived_scalars, &mark_context, Some(context))?;
         Ok(SceneMark::Rect(self.build_scene_rect_mark(
             x,
             y,
@@ -659,6 +716,7 @@ impl CompiledCartesianRect {
 #[derive(Clone)]
 struct RectVisualChannels {
     fill: ScalarOrArray<ColorOrGradient>,
+    fill_pattern: ScalarOrArray<Option<avenger_scenegraph::marks::pattern::PatternFill>>,
     stroke: ScalarOrArray<ColorOrGradient>,
     stroke_width: ScalarOrArray<f32>,
     opacity: ScalarOrArray<f32>,
@@ -672,6 +730,7 @@ fn build_rect_item_frame(
     corner_radius: &ScalarOrArray<f32>,
     visual: &RectVisualChannels,
     data: Option<&RecordBatch>,
+    scalars: &RecordBatch,
     len: usize,
 ) -> Result<MarkEvaluationFrame, AvengerChartError> {
     let x_values = x.as_vec(len, None);
@@ -761,6 +820,22 @@ fn build_rect_item_frame(
             Arc::new(Float32Array::from(bottom)) as ArrayRef,
         ),
     ];
+    if data
+        .and_then(|batch| batch.column_by_name("fill_pattern"))
+        .is_some()
+        || scalars.column_by_name("fill_pattern").is_some()
+    {
+        let fill_pattern_indices =
+            coerce_numeric_channel(data, scalars, "fill_pattern", 0.0)?.as_vec(len, None);
+        columns.push((
+            Field::new(
+                item_channel_column_name("fill_pattern"),
+                DataType::Float32,
+                true,
+            ),
+            Arc::new(Float32Array::from(fill_pattern_indices)) as ArrayRef,
+        ));
+    }
     if let Some(data) = data {
         if data.num_rows() != len {
             return Err(AvengerChartError::InternalError(format!(

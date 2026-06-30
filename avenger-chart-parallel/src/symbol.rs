@@ -17,7 +17,9 @@ use avenger_common::{
     value::{ScalarOrArray, ScalarOrArrayValue},
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
-use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::default_no_fill_pattern, symbol::SceneSymbolMark,
+};
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float64Array, Int64Array, StringArray},
@@ -458,6 +460,7 @@ impl CompiledMark for CompiledParallelSymbol {
                 x: ScalarOrArray::new_scalar(x),
                 y: ScalarOrArray::from(y),
                 fill: gather_color(&fill, &source_rows),
+                fill_pattern: default_no_fill_pattern(),
                 size: gather_f32(&size, &source_rows),
                 stroke: gather_color(&stroke, &source_rows),
                 angle: gather_f32(&angle, &source_rows),

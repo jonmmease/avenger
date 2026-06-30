@@ -15,7 +15,7 @@ pub mod value;
 pub use avenger_chart_core::{
     AngleChannelConfig, BaseChannelName, ChannelConfig, ChannelDefault, ChannelDescriptor,
     ChannelValue, ColorChannelConfig, ConditionalValue, GenericPositionConfig,
-    OpacityChannelConfig, PositionConfig, ShapeChannelConfig, SizeChannelConfig,
-    StrokeDashChannelConfig, StrokeWidthChannelConfig,
+    OpacityChannelConfig, PatternChannelValue, PositionConfig, ShapeChannelConfig,
+    SizeChannelConfig, StrokeDashChannelConfig, StrokeWidthChannelConfig,
 };
 pub use avenger_chart_legend::LegendableChannel;

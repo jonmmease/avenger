@@ -4,20 +4,22 @@ use avenger_chart_core::{
     AvengerChartError, ChannelDescriptor, CompiledDataContext, CompiledMark, CompiledMarkCore,
     CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind, LegendRendererSelection,
     Mark, MarkRenderContext, MarkRuntimeContext, PointGeometry, PrimitiveMarkEffects,
-    RenderedMarkData, ScaleTypePreference, apply_opacity_to_color_channel,
-    coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
+    RenderedMarkData, ResolvedDomain, ScaleRange, ScaleTypePreference, Theme,
+    apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
+    coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
+    coerce_pattern_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
     is_continuous_scale,
 };
 use avenger_chart_marks::{Rect, rect_channel_defaults};
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
-use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
+use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
+use avenger_scenegraph::marks::{mark::SceneMark, pattern::PatternFill, rect::SceneRectMark};
 use datafusion::{
     arrow::{datatypes::DataType, record_batch::RecordBatch},
     common::ScalarValue,
 };
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::WebMercator;
@@ -95,6 +97,12 @@ impl CompiledMarkCore for CompiledWebMercatorRect {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
+                name: "fill_pattern",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
                 name: "stroke",
                 required: false,
                 default_value: None,
@@ -135,6 +143,7 @@ impl CompiledMarkCore for CompiledWebMercatorRect {
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
+            ("fill_pattern", _) => Some(ScaleTypePreference::Ordinal),
             (
                 "fill" | "stroke" | "color",
                 DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View,
@@ -153,11 +162,29 @@ impl CompiledMarkCore for CompiledWebMercatorRect {
             "fill" | "stroke" | "color" if is_continuous => Some(LegendRendererSelection::BuiltIn(
                 LegendRendererKind::Colorbar,
             )),
-            "fill" | "stroke" | "color" | "opacity" | "stroke_width" => {
+            "fill" | "fill_pattern" | "stroke" | "color" | "opacity" | "stroke_width" => {
                 Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect))
             }
             _ => None,
         }
+    }
+
+    fn default_channel_range(
+        &self,
+        channel: &str,
+        scale_impl: &dyn ScaleImpl,
+        domain: &ResolvedDomain,
+        _data_type: &DataType,
+        theme: &Theme,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Option<ScaleRange> {
+        let range_kind = scale_impl.range_kind();
+        let cardinality = match domain {
+            ResolvedDomain::Discrete(count) => Some(*count),
+            ResolvedDomain::Interval => None,
+        };
+
+        theme.get_range_for_channel("rect", channel, range_kind, cardinality, params)
     }
 }
 
@@ -217,7 +244,7 @@ impl CompiledWebMercatorRect {
 
         let point1 = transform_rect_corner(coord, context, x_raw, y_raw)?;
         let point2 = transform_rect_corner(coord, context, x2_raw, y2_raw)?;
-        let visual = self.coerce_rect_visual_channels(data, scalars, &mark_context)?;
+        let visual = self.coerce_rect_visual_channels(data, scalars, &mark_context, context)?;
         let fill = apply_opacity_to_color_channel(visual.fill, &visual.opacity, len);
         let stroke = apply_opacity_to_color_channel(visual.stroke, &visual.opacity, len);
         let corner_radius = coerce_numeric_channel_with_renderer(
@@ -242,6 +269,7 @@ impl CompiledWebMercatorRect {
             x2: Some(point2.x),
             y2: Some(point2.y),
             fill,
+            fill_pattern: visual.fill_pattern,
             stroke,
             stroke_width: visual.stroke_width,
             corner_radius,
@@ -255,6 +283,7 @@ impl CompiledWebMercatorRect {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         mark_context: &MarkRenderContext<'_>,
+        runtime_context: &dyn MarkRuntimeContext,
     ) -> Result<RectVisualChannels, AvengerChartError> {
         let fill = coerce_color_channel_with_renderer(
             self,
@@ -288,8 +317,16 @@ impl CompiledWebMercatorRect {
             mark_context,
             1.0,
         )?;
+        let fill_pattern = coerce_pattern_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "fill_pattern",
+            runtime_context,
+        )?;
         Ok(RectVisualChannels {
             fill,
+            fill_pattern,
             stroke,
             stroke_width,
             opacity,
@@ -327,6 +364,7 @@ fn transform_rect_corner(
 #[derive(Clone)]
 struct RectVisualChannels {
     fill: ScalarOrArray<ColorOrGradient>,
+    fill_pattern: ScalarOrArray<Option<PatternFill>>,
     stroke: ScalarOrArray<ColorOrGradient>,
     stroke_width: ScalarOrArray<f32>,
     opacity: ScalarOrArray<f32>,

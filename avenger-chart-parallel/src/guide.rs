@@ -18,7 +18,8 @@ use avenger_guides::axis::{
 };
 use avenger_scales::scales::{ConfiguredScale, DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{
-    group::Clip, mark::SceneMark, rect::SceneRectMark, text::SceneTextMark,
+    group::Clip, mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark,
+    text::SceneTextMark,
 };
 use avenger_text::{
     TextEngine, default_text_engine,
@@ -358,6 +359,7 @@ impl CompiledGuide for CompiledParallelGuide {
             )),
             y2: Some(ScalarOrArray::new_scalar(plot_bounds.y + 2.0)),
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
             stroke_width: ScalarOrArray::new_scalar(0.0),
             corner_radius: ScalarOrArray::new_scalar(0.0),

@@ -76,6 +76,7 @@ use crate::{
     render::context::{
         EvaluationMetricsDiagnostics, FacetDimensionSizing, FacetRuntimeSizingMode,
         FacetRuntimeSizingPolicy, FacetSubtreeSnapshotCapture, TEXT_MEASUREMENT_CACHE_TAG,
+        plot_area_pattern_reference_frame,
     },
     render::{
         CoordinationCheckpoint, EvaluatedEventDatumRows, EvaluatedEventDatumState,
@@ -5658,6 +5659,10 @@ impl CompiledPlot {
 
         let data_marks_group = SceneGroup {
             origin: [plot_bounds.x, plot_bounds.y],
+            pattern_reference_frame: plot_area_pattern_reference_frame(
+                plot_bounds.width,
+                plot_bounds.height,
+            ),
             marks: components.data_marks,
             clip: components.clip,
             zindex: Some(0),

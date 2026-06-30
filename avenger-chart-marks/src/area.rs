@@ -3,7 +3,7 @@ use datafusion_common::ScalarValue;
 use avenger_chart_core::{
     AdjustItem, AreaGeometryItem, ColorChannelConfig, MarkAdjustmentCompileContext,
     MarkAdjustmentSpec, MarkAdjustmentTransform, MarkState, OpacityChannelConfig,
-    PrimitiveMarkEffects, StrokeDashChannelConfig, StrokeWidthChannelConfig,
+    PatternChannelValue, PrimitiveMarkEffects, StrokeDashChannelConfig, StrokeWidthChannelConfig,
     TransformMarkAdjustmentSpec, define_common_mark_channels, extract_adjustment_assignments,
     impl_mark_base_with_extra_fields,
 };
@@ -60,6 +60,11 @@ impl<C> Area<C> {
     #[doc(hidden)]
     pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
         &self.effects
+    }
+
+    /// Set the structured fill pattern channel.
+    pub fn fill_pattern<V: Into<PatternChannelValue>>(self, value: V) -> Self {
+        self.with_pattern_channel_value("fill_pattern", value.into())
     }
 }
 

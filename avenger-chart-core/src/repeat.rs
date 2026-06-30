@@ -14,8 +14,8 @@ use serde_with::{FromInto, serde_as};
 use crate::{
     AvengerChartError, Axis, ChannelExpr, ChannelValue, ConditionalValue, CoordinationScope,
     DefaultLogicalExprNodeExt, DomainCoordination, IntoExpr, Legend, Maybe, NestedBandSpec,
-    PositionBoundary, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain,
-    ScaleOrderingSpec, ScaleRange, SerializableExpr, scale_domain::DomainExpr,
+    PatternChannelValue, PositionBoundary, RadiusExpression, ScaleConfigSpec, ScaleDefaultDomain,
+    ScaleDomain, ScaleOrderingSpec, ScaleRange, SerializableExpr, scale_domain::DomainExpr,
     simplify_to_scalar_sync,
 };
 
@@ -608,6 +608,63 @@ pub fn resolve_repeat_channel_value(
     apply_repeat_domain_coordination_to_channel_value(resolved, origin, ctx)
 }
 
+pub fn resolve_repeat_pattern_channel_value(
+    value: PatternChannelValue,
+    ctx: &RepeatContext,
+) -> Result<PatternChannelValue, AvengerChartError> {
+    let origin = repeat_domain_origin_pattern_channel_value(&value)?;
+    let resolved = match value {
+        PatternChannelValue::Scaled {
+            expr,
+            scale_name,
+            scale_config,
+            legend_config,
+            domain_coordination,
+            transform_scope,
+        } => PatternChannelValue::Scaled {
+            expr: resolve_expr_node(expr, ctx)?,
+            scale_name,
+            scale_config: resolve_scale_config(scale_config, ctx)?,
+            legend_config: resolve_legend_config(legend_config, ctx)?,
+            domain_coordination,
+            transform_scope,
+        },
+        PatternChannelValue::Conditional {
+            conditions,
+            otherwise,
+            scale_config,
+            legend_config,
+            domain_coordination,
+            transform_scope,
+        } => {
+            let proto = |expr: Expr| LogicalExprNode::from_default_expr(expr);
+            let conditions = conditions
+                .into_iter()
+                .map(|(condition, value)| {
+                    Ok((
+                        proto(resolve_repeat_placeholders(
+                            condition.to_default_expr(&session_context())?,
+                            ctx,
+                        )?)?,
+                        resolve_repeat_conditional_value(value, ctx)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, AvengerChartError>>()?;
+            let otherwise = resolve_repeat_conditional_value(otherwise, ctx)?;
+            PatternChannelValue::Conditional {
+                conditions,
+                otherwise,
+                scale_config: resolve_scale_config(scale_config, ctx)?,
+                legend_config: resolve_legend_config(legend_config, ctx)?,
+                domain_coordination,
+                transform_scope,
+            }
+        }
+        PatternChannelValue::Value { pattern } => PatternChannelValue::Value { pattern },
+    };
+    apply_repeat_domain_coordination_to_pattern_channel_value(resolved, origin, ctx)
+}
+
 fn resolve_position_boundary(
     boundary: Option<PositionBoundary>,
     ctx: &RepeatContext,
@@ -661,6 +718,38 @@ fn repeat_domain_origin_channel_value(
     }
 }
 
+fn repeat_domain_origin_pattern_channel_value(
+    value: &PatternChannelValue,
+) -> Result<Option<RepeatDomainOrigin>, AvengerChartError> {
+    let ctx = session_context();
+    match value {
+        PatternChannelValue::Scaled { expr, .. } => {
+            repeat_domain_origin(&expr.to_default_expr(&ctx)?)
+        }
+        PatternChannelValue::Conditional {
+            conditions,
+            otherwise,
+            ..
+        } => {
+            let mut origins = BTreeSet::new();
+            for (_, value) in conditions {
+                if let Some(origin) = repeat_domain_origin_conditional_value(value)? {
+                    origins.insert(origin);
+                }
+            }
+            if let Some(origin) = repeat_domain_origin_conditional_value(otherwise)? {
+                origins.insert(origin);
+            }
+            Ok(if origins.len() == 1 {
+                origins.iter().next().copied()
+            } else {
+                None
+            })
+        }
+        PatternChannelValue::Value { .. } => Ok(None),
+    }
+}
+
 fn repeat_domain_origin_conditional_value(
     value: &ConditionalValue,
 ) -> Result<Option<RepeatDomainOrigin>, AvengerChartError> {
@@ -679,6 +768,51 @@ fn apply_repeat_domain_coordination_to_channel_value(
 ) -> Result<ChannelValue, AvengerChartError> {
     let value = ChannelExpr::new(lit(0), value);
     apply_repeat_domain_coordination(value, origin, ctx).map(ChannelExpr::into_channel_value)
+}
+
+fn apply_repeat_domain_coordination_to_pattern_channel_value(
+    value: PatternChannelValue,
+    origin: Option<RepeatDomainOrigin>,
+    ctx: &RepeatContext,
+) -> Result<PatternChannelValue, AvengerChartError> {
+    let Some(origin) = origin else {
+        return Ok(value);
+    };
+    let RepeatDomainCoordination::ByVariable { scope } = ctx.domain_coordination else {
+        return Ok(value);
+    };
+    let group = match origin {
+        RepeatDomainOrigin::Row => ctx
+            .row
+            .as_ref()
+            .map(|variable| variable.id.as_str())
+            .ok_or_else(|| missing_repeat_variable_error("row"))?,
+        RepeatDomainOrigin::Column => ctx
+            .column
+            .as_ref()
+            .map(|variable| variable.id.as_str())
+            .ok_or_else(|| missing_repeat_variable_error("column"))?,
+        RepeatDomainOrigin::Item => ctx
+            .item
+            .as_ref()
+            .map(|variable| variable.id.as_str())
+            .ok_or_else(|| missing_repeat_variable_error("item"))?,
+    };
+    let generated = DomainCoordination::named(scope, group)?;
+    let existing = value.get_domain_coordination().cloned();
+    let Some(existing) = existing else {
+        return Ok(value.with_domain_coordination(generated));
+    };
+
+    if existing.group == generated.group && existing.scope.to_level() <= generated.scope.to_level()
+    {
+        return Ok(value);
+    }
+
+    Err(AvengerChartError::InvalidArgument(format!(
+        "Repeat-generated domain coordination target {:?} conflicts with authored pattern channel domain coordination {:?}",
+        generated, existing
+    )))
 }
 
 pub fn evaluate_repeat_predicate(
@@ -866,6 +1000,7 @@ fn resolve_scale_range(
         ),
         ScaleRange::Discrete(values) => ScaleRange::Discrete(values),
         ScaleRange::Color(colors) => ScaleRange::Color(colors),
+        ScaleRange::Pattern(patterns) => ScaleRange::Pattern(patterns),
     })
 }
 
@@ -1344,6 +1479,35 @@ mod tests {
             transform_scope: None,
         };
         let resolved = resolve_repeat_channel_value(value, &context()).expect("resolve channel");
+        let expr = resolved
+            .scale_input_expr(&session_context())
+            .expect("scale input");
+        assert!(expr.to_string().contains("CASE"), "{expr}");
+        assert!(expr.to_string().contains("a"), "{expr}");
+    }
+
+    #[test]
+    fn resolve_repeat_pattern_channel_value_resolves_conditional_branches() {
+        let value = PatternChannelValue::Conditional {
+            conditions: vec![(
+                LogicalExprNode::from_default_expr(row_index().eq(lit(1_i64)))
+                    .expect("condition serializes"),
+                ConditionalValue::Value {
+                    expr: LogicalExprNode::from_default_expr(column().into_data_expr())
+                        .expect("branch serializes"),
+                },
+            )],
+            otherwise: ConditionalValue::Scaled {
+                expr: LogicalExprNode::from_default_expr(row().into_data_expr())
+                    .expect("otherwise serializes"),
+            },
+            scale_config: None,
+            legend_config: None,
+            domain_coordination: None,
+            transform_scope: None,
+        };
+        let resolved =
+            resolve_repeat_pattern_channel_value(value, &context()).expect("resolve pattern");
         let expr = resolved
             .scale_input_expr(&session_context())
             .expect("scale input");

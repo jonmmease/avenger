@@ -19,7 +19,9 @@ use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::value::ScalarOrArray;
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
-use avenger_scenegraph::marks::{arc::SceneArcMark, group::Clip, mark::SceneMark};
+use avenger_scenegraph::marks::{
+    arc::SceneArcMark, group::Clip, mark::SceneMark, pattern::default_no_fill_pattern,
+};
 
 use crate::axis::{PolarAxis, PolarAxisEvaluateExt, PolarAxisType};
 
@@ -304,6 +306,7 @@ impl CompiledGuide for PolarGuide {
                 pad_angle: ScalarOrArray::new_scalar(0.0),
                 corner_radius: ScalarOrArray::new_scalar(0.0),
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color(bg_color)),
+                fill_pattern: default_no_fill_pattern(),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0])),
                 stroke_width: ScalarOrArray::new_scalar(0.0),
                 indices: None,

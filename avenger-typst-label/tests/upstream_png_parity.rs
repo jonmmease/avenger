@@ -47,8 +47,7 @@ fn upstream_png_parity() {
     let engine = LabelEngine::new(EngineOptions {
         fonts: FontOptions {
             load_system_fonts: false,
-            extra_font_dirs: Vec::new(),
-            extra_font_families: Vec::new(),
+            ..FontOptions::default()
         },
         ..EngineOptions::default()
     })

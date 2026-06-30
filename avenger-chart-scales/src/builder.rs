@@ -150,6 +150,12 @@ pub struct ScaleBuilder {
     pub(crate) channel_scale_data: HashMap<String, ChannelScaleData>,
     /// Data type for each channel (needed for default_channel_range())
     pub(crate) channel_data_types: HashMap<String, DataType>,
+    /// Authored visual channel to use for theme/default range lookup when a
+    /// scale has a custom runtime name.
+    pub(crate) default_range_channels: HashMap<String, String>,
+    /// Authored scale ranges that must be preserved instead of applying
+    /// theme/default channel ranges during final scale construction.
+    pub(crate) explicit_ranges: HashMap<String, ScaleRange>,
     /// Channels materialized by a coordinate-domain provider, not authored by
     /// the user as explicit-domain scales.
     pub(crate) coordinate_domain_placeholders: HashSet<String>,
@@ -378,6 +384,8 @@ impl ScaleBuilder {
         Self {
             channel_scale_data: HashMap::new(),
             channel_data_types: HashMap::new(),
+            default_range_channels: HashMap::new(),
+            explicit_ranges: HashMap::new(),
             coordinate_domain_placeholders: HashSet::new(),
         }
     }
@@ -385,6 +393,20 @@ impl ScaleBuilder {
     /// Set the data type for a channel
     pub fn set_channel_data_type(&mut self, channel_name: String, data_type: DataType) {
         self.channel_data_types.insert(channel_name, data_type);
+    }
+
+    /// Set the authored visual channel used to resolve this scale's default
+    /// range. This lets custom scale names like `hatch` still use the
+    /// `fill_pattern` theme/default range.
+    pub fn set_default_range_channel(&mut self, scale_name: String, range_channel_name: String) {
+        self.default_range_channels
+            .insert(scale_name, range_channel_name);
+    }
+
+    /// Remember an authored range for a scale so default/theme ranges do not
+    /// replace it when the configured scale is rebuilt from cached domain data.
+    pub fn set_explicit_range(&mut self, scale_name: String, range: ScaleRange) {
+        self.explicit_ranges.insert(scale_name, range);
     }
 
     /// Add a standard scale channel
@@ -878,11 +900,21 @@ impl ScaleBuilder {
             return scale;
         }
 
+        if let Some(range) = self.explicit_ranges.get(channel_name) {
+            return scale.range(range.clone());
+        }
+
+        let range_channel_name = self
+            .default_range_channels
+            .get(channel_name)
+            .map(String::as_str)
+            .unwrap_or(channel_name);
+
         if let Some(data_type) = self.channel_data_types.get(channel_name)
             && let (Some(scale_impl), Some(domain)) = (scale.get_scale_impl(), scale.get_domain())
             && let Ok(resolved_domain) = domain.to_resolved()
             && let Some(mark_range) = default_range_resolver(
-                channel_name,
+                range_channel_name,
                 scale_impl.as_ref(),
                 &resolved_domain,
                 data_type,
@@ -900,8 +932,10 @@ impl ScaleBuilder {
                 .unwrap_or(RangeKind::Continuous);
 
             let range = theme
-                .get_range_for_channel("mark", channel_name, range_kind, None, params)
-                .unwrap_or_else(|| crate::default_range_for_channel(channel_name, range_kind));
+                .get_range_for_channel("mark", range_channel_name, range_kind, None, params)
+                .unwrap_or_else(|| {
+                    crate::default_range_for_channel(range_channel_name, range_kind)
+                });
 
             scale = scale.range(range);
         }

@@ -4,6 +4,8 @@ use thiserror::Error;
 pub enum AvengerPdfError {
     #[error("invalid PDF page size {width}x{height}")]
     InvalidPageSize { width: f32, height: f32 },
+    #[error("invalid geometry: {0}")]
+    InvalidGeometry(String),
     #[error("PDF render error: {0}")]
     Render(#[from] krilla::error::KrillaError),
     #[error("font embedding error: {0}")]

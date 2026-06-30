@@ -1188,6 +1188,7 @@ dependencies = [
  "lyon_algorithms",
  "lyon_extra",
  "lyon_path",
+ "lyon_tessellation",
  "ordered-float 5.0.0",
  "pyo3",
  "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",

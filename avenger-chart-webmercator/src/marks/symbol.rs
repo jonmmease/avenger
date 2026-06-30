@@ -13,10 +13,10 @@ use avenger_chart_core::{
     RadiusExpression, RenderedMarkData, ScalarValueHelpers, ScaleRange, ScaleTypePreference,
     apply_opacity_to_color_channel, coerce_color_channel_with_renderer,
     coerce_numeric_channel_with_renderer, coerce_opacity_channel_with_renderer,
-    coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_dash_channel,
-    coerce_text_channel, default_scale_type_for_data_type, evaluate_item_assignments,
-    impl_mark_trait_common, is_continuous_scale, item_bbox_column_name, item_channel_column_name,
-    item_data_column_name,
+    coerce_pattern_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
+    coerce_stroke_dash_channel, coerce_text_channel, default_scale_type_for_data_type,
+    evaluate_item_assignments, impl_mark_trait_common, is_continuous_scale, item_bbox_column_name,
+    item_channel_column_name, item_data_column_name,
     serialization::DefaultLogicalExprNodeExt,
     stroke_rendering,
     text_rendering::{apply_text_adjustments, build_scene_text_mark},
@@ -30,7 +30,9 @@ use avenger_common::{
     value::ScalarOrArray,
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
-use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::PatternFill, rule::SceneRuleMark, symbol::SceneSymbolMark,
+};
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float32Array, RecordBatch, StringArray},
@@ -112,6 +114,12 @@ impl CompiledMarkCore for CompiledWebMercatorSymbol {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
+                name: "fill_pattern",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
                 name: "stroke",
                 required: false,
                 default_value: None,
@@ -186,6 +194,7 @@ impl CompiledMarkCore for CompiledWebMercatorSymbol {
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
+            ("fill_pattern", _) => Some(ScaleTypePreference::Ordinal),
             (
                 "size",
                 DataType::Float32
@@ -431,7 +440,7 @@ impl CompiledWebMercatorSymbol {
             coerce_numeric_channel_with_renderer(self, data, scalars, "size", &mark_context, 64.0)?;
         let angle =
             coerce_numeric_channel_with_renderer(self, data, scalars, "angle", &mark_context, 0.0)?;
-        let visual = self.coerce_symbol_visual_channels(data, scalars, &mark_context)?;
+        let visual = self.coerce_symbol_visual_channels(data, scalars, &mark_context, context)?;
 
         let len = data.map_or_else(
             || infer_symbol_item_len(&x, &y, &size, &angle),
@@ -485,6 +494,7 @@ impl CompiledWebMercatorSymbol {
             x,
             y,
             fill,
+            fill_pattern: visual.fill_pattern,
             size,
             stroke,
             angle,
@@ -501,6 +511,7 @@ impl CompiledWebMercatorSymbol {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         mark_context: &MarkRenderContext<'_>,
+        runtime_context: &dyn MarkRuntimeContext,
     ) -> Result<SymbolVisualChannels, AvengerChartError> {
         let opacity = coerce_opacity_channel_with_renderer(
             self,
@@ -525,6 +536,13 @@ impl CompiledWebMercatorSymbol {
             "stroke",
             &mark_context,
             [0.0, 0.0, 0.0, 1.0],
+        )?;
+        let fill_pattern = coerce_pattern_channel_with_renderer(
+            self,
+            data,
+            scalars,
+            "fill_pattern",
+            runtime_context,
         )?;
 
         let coercer = Coercer::default();
@@ -560,6 +578,7 @@ impl CompiledWebMercatorSymbol {
 
         Ok(SymbolVisualChannels {
             fill,
+            fill_pattern,
             stroke,
             opacity,
             shape_names,
@@ -615,7 +634,8 @@ impl CompiledWebMercatorSymbol {
             &mark_context,
             0.0,
         )?;
-        let visual = self.coerce_symbol_visual_channels(None, &derived_scalars, &mark_context)?;
+        let visual =
+            self.coerce_symbol_visual_channels(None, &derived_scalars, &mark_context, context)?;
         Ok(SceneMark::Symbol(self.build_scene_symbol_mark(
             x,
             y,
@@ -935,6 +955,7 @@ impl CompiledWebMercatorSymbol {
 #[derive(Clone)]
 struct SymbolVisualChannels {
     fill: ScalarOrArray<ColorOrGradient>,
+    fill_pattern: ScalarOrArray<Option<PatternFill>>,
     stroke: ScalarOrArray<ColorOrGradient>,
     opacity: ScalarOrArray<f32>,
     shape_names: ScalarOrArray<String>,

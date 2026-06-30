@@ -268,6 +268,8 @@ pub(crate) fn variant_name(value: &ThemeValue) -> &'static str {
         ThemeValue::Color(_) => "Color",
         ThemeValue::Function(_, _) => "Function",
         ThemeValue::List(_) => "List",
+        ThemeValue::Object(_) => "Object",
+        ThemeValue::Array(_) => "Array",
         ThemeValue::Variable(_) => "Variable",
         ThemeValue::LightDark(_, _) => "LightDark",
         ThemeValue::Calc(_) => "Calc",

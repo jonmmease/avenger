@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use avenger_chart::{event as ev, prelude::*};
+use avenger_chart::{event as ev, parallel::event as parallel_ev, prelude::*};
 use avenger_chart_app::chart_avenger_app;
 use datafusion::{
     logical_expr::when,
@@ -96,7 +96,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 }
 
 fn cursor_binding(cursor: &Param) -> ChartEventBinding {
-    let over_header = ev::parallel_dimension_id().is_not_null();
+    let over_header = parallel_ev::parallel_dimension_id().is_not_null();
     let cursor_expr = when(over_header, ev::cursor(CursorStyle::Grab))
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("cursor conditional");
@@ -108,10 +108,10 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
 fn start_drag_binding(cursor: &Param) -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::MouseDown)
         .filter(ev::button().eq(lit("left")))
-        .filter(ev::parallel_dimension_id().is_not_null())
-        .set_param(DRAG_DIMENSION_PARAM, ev::parallel_dimension_id())
-        .set_param(DRAG_START_X_PARAM, ev::parallel_display_x())
-        .set_param(DRAG_DISPLAY_X_PARAM, ev::parallel_display_x())
+        .filter(parallel_ev::parallel_dimension_id().is_not_null())
+        .set_param(DRAG_DIMENSION_PARAM, parallel_ev::parallel_dimension_id())
+        .set_param(DRAG_START_X_PARAM, parallel_ev::parallel_display_x())
+        .set_param(DRAG_DISPLAY_X_PARAM, parallel_ev::parallel_display_x())
         .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
         .preview()
 }

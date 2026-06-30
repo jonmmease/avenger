@@ -10,12 +10,15 @@ use avenger_chart_core::{ConfiguredScaleLegendExt, DefaultLogicalExprNodeExt, Do
 use avenger_color::{ColorOrGradient, parse_color_string_strict};
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_guides::legend::symbol::{SymbolLegendConfig, make_symbol_legend_itemized};
+use avenger_scenegraph::marks::pattern::{
+    PatternAnchor, PatternFill, PatternLayer, default_no_fill_pattern,
+};
 use avenger_text::types::FontWeight;
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use super::{LegendChannel, LegendRenderer, helpers, parse_color_or_gradient_strict};
+use super::{ChannelInfo, LegendChannel, LegendRenderer, helpers, parse_color_or_gradient_strict};
 
 /// Rectangle legend renderer for rect/bar marks
 #[derive(Default, Serialize, Deserialize)]
@@ -29,8 +32,10 @@ impl CompiledRectLegend {
     const DEFAULT_SIZE: f32 = 64.0;
     const DEFAULT_ANGLE: f32 = 0.0;
     const DEFAULT_FILL: &'static str = "#4682b4"; // Steelblue
+    const DEFAULT_PATTERN_FILL: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
     const DEFAULT_STROKE: &'static str = "#000000"; // Black
     const DEFAULT_STROKE_WIDTH: f32 = 1.0;
+    const DEFAULT_PATTERN_LEGEND_SIDE: f32 = 32.0;
     const INNER_HEIGHT: f32 = 100.0;
     const TEXT_PADDING: f32 = 2.0;
 
@@ -51,15 +56,22 @@ impl LegendRenderer for CompiledRectLegend {
         channels.iter().all(|c| {
             matches!(
                 c.channel_type.as_str(),
-                "fill" | "stroke" | "color" | "opacity" | "stroke_width"
+                "fill" | "fill_pattern" | "stroke" | "color" | "opacity" | "stroke_width"
             )
         })
     }
 
     fn supported_merge_channels(&self) -> std::collections::HashSet<&'static str> {
-        ["fill", "stroke", "color", "opacity", "stroke_width"]
-            .into_iter()
-            .collect()
+        [
+            "fill",
+            "fill_pattern",
+            "stroke",
+            "color",
+            "opacity",
+            "stroke_width",
+        ]
+        .into_iter()
+        .collect()
     }
 
     async fn evaluate(
@@ -96,6 +108,8 @@ impl LegendRenderer for CompiledRectLegend {
 
         // Get channel name
         let channel_name = &primary_channel.channel_type;
+        let pattern_range = pattern_range_for_channels(channels);
+        let has_pattern_range = pattern_range.is_some();
 
         // Get size value - use constant from mark if available, or use default
         let default_size_value = helpers::get_constant_f32(
@@ -132,11 +146,21 @@ impl LegendRenderer for CompiledRectLegend {
             } else {
                 // Query from theme legend context
                 let legend_ctx = theme.legend_context_with_params(Some("rect"), params.clone());
-                theme
-                    .query(&legend_ctx, "symbol-size")
-                    .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
-                    .unwrap_or(default_size_value)
+                if has_pattern_range {
+                    let base_font_size = theme.get_base_font_size(params);
+                    let side = theme
+                        .query(&legend_ctx, "pattern-legend-size")
+                        .and_then(|v| v.as_font_size(params, base_font_size))
+                        .unwrap_or(Self::DEFAULT_PATTERN_LEGEND_SIDE);
+                    side * side
+                } else {
+                    theme
+                        .query(&legend_ctx, "symbol-size")
+                        .and_then(|v| v.as_font_size(params, theme.get_base_font_size(params)))
+                        .unwrap_or(default_size_value)
+                }
             };
+        let sample_side = symbol_size.sqrt();
 
         // Create legend configuration
         let mut legend_config = SymbolLegendConfig {
@@ -152,6 +176,7 @@ impl LegendRenderer for CompiledRectLegend {
             size: ScalarOrArray::new_scalar(symbol_size),
             angle: ScalarOrArray::new_scalar(Self::DEFAULT_ANGLE),
             fill: ScalarOrArray::new_scalar(parse_color_or_gradient_strict(Self::DEFAULT_FILL)?),
+            fill_pattern: default_no_fill_pattern(),
             stroke: ScalarOrArray::new_scalar(parse_color_or_gradient_strict(
                 Self::DEFAULT_STROKE,
             )?),
@@ -315,6 +340,16 @@ impl LegendRenderer for CompiledRectLegend {
                     colors.into_iter().map(ColorOrGradient::Color).collect(),
                 );
             }
+            "fill_pattern" => {
+                if !channels
+                    .iter()
+                    .any(|channel| matches!(channel.channel_type.as_str(), "fill" | "color"))
+                {
+                    legend_config.fill = ScalarOrArray::new_scalar(ColorOrGradient::Color(
+                        Self::DEFAULT_PATTERN_FILL,
+                    ));
+                }
+            }
             "stroke" => {
                 // Same as fill/color - always use range colors
                 let colors = primary_channel.scale.range_colors()?;
@@ -329,6 +364,20 @@ impl LegendRenderer for CompiledRectLegend {
                 legend_config.stroke_width = Some(widths[0]); // Single width for rect legend
             }
             _ => {}
+        }
+
+        if let Some(pattern_range) = pattern_range {
+            if !pattern_range.is_empty() {
+                legend_config.fill_pattern = ScalarOrArray::new_array(
+                    (0..domain_values.len())
+                        .map(|index| {
+                            pattern_range[index % pattern_range.len()]
+                                .as_ref()
+                                .map(|pattern| centered_legend_pattern(pattern, sample_side))
+                        })
+                        .collect(),
+                );
+            }
         }
 
         // Create text labels for legend entries
@@ -387,6 +436,50 @@ impl LegendRenderer for CompiledRectLegend {
     }
 }
 
+fn pattern_range_for_channels(channels: &[LegendChannel]) -> Option<&[Option<PatternFill>]> {
+    for channel in channels {
+        if channel.channel_type == "fill_pattern"
+            && let Some(range) = channel.pattern_range.as_deref()
+        {
+            return Some(range);
+        }
+    }
+
+    for channel in channels {
+        if let Some(ChannelInfo::Scaled {
+            pattern_range: Some(range),
+            ..
+        }) = channel.related_channels.get("fill_pattern")
+        {
+            return Some(range);
+        }
+    }
+
+    None
+}
+
+fn centered_legend_pattern(pattern: &PatternFill, sample_side: f32) -> PatternFill {
+    let mut pattern = pattern.clone();
+    pattern.anchor = PatternAnchor::Mark;
+    let center = [sample_side / 2.0, sample_side / 2.0];
+
+    for layer in &mut pattern.layers {
+        match layer {
+            PatternLayer::Stripe(stripe) => {
+                let theta = stripe.angle.to_radians();
+                let normal = [-theta.sin(), theta.cos()];
+                stripe.phase += normal[0] * center[0] + normal[1] * center[1];
+            }
+            PatternLayer::Symbol(symbol) => {
+                symbol.lattice.u_phase += center[0];
+                symbol.lattice.v_phase += center[1];
+            }
+        }
+    }
+
+    pattern
+}
+
 fn format_scalar_value(value: &ScalarValue) -> String {
     match value {
         ScalarValue::Utf8(Some(s))
@@ -415,5 +508,237 @@ fn format_scalar_value(value: &ScalarValue) -> String {
         ScalarValue::UInt16(Some(i)) => i.to_string(),
         ScalarValue::UInt8(Some(i)) => i.to_string(),
         _ => format!("{value:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use avenger_chart_core::LegendRenderer;
+    use avenger_common::value::ScalarOrArrayValue;
+    use avenger_scales::scales::{ConfiguredScale, band::BandScale, ordinal::OrdinalScale};
+    use avenger_scenegraph::marks::{mark::SceneMark, pattern::StripePatternLayer};
+    use datafusion::common::ScalarValue;
+    use datafusion::prelude::SessionContext;
+
+    use super::*;
+
+    fn s(value: &str) -> ScalarValue {
+        ScalarValue::Utf8(Some(value.to_string()))
+    }
+
+    fn make_simple_scale() -> ConfiguredScale {
+        let domain = ScalarValue::iter_to_array(vec![s("A"), s("B")]).unwrap();
+        BandScale::configured(domain, (0.0, 100.0))
+    }
+
+    fn make_color_scale() -> ConfiguredScale {
+        let domain = ScalarValue::iter_to_array(vec![s("A"), s("B")]).unwrap();
+        let range = ScalarValue::iter_to_array(vec![s("#000000"), s("#ffffff")]).unwrap();
+        OrdinalScale::configured(domain).with_range(range)
+    }
+
+    fn stripe_pattern() -> PatternFill {
+        PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                0.0, 16.0, 2.0,
+            ))],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rect_legend_renders_centered_pattern_samples() {
+        futures::executor::block_on(async {
+            let pattern = stripe_pattern();
+            let channel = LegendChannel {
+                name: "fill_pattern".to_string(),
+                expression: None,
+                scale: make_simple_scale(),
+                channel_type: "fill_pattern".to_string(),
+                sharing_level: None,
+                mark_type: "rect".to_string(),
+                mark_index: 0,
+                pattern_range: Some(vec![Some(pattern), None]),
+                related_channels: HashMap::new(),
+            };
+            let theme = Theme::from_css(
+                r#"
+                    legend[type="rect"] {
+                        pattern-legend-size: 24px;
+                    }
+                "#,
+            )
+            .unwrap();
+            let output = CompiledRectLegend::new()
+                .evaluate(
+                    &[channel],
+                    &Legend::new(),
+                    0.0,
+                    0.0,
+                    100.0,
+                    100.0,
+                    &theme,
+                    &IndexMap::new(),
+                    &SessionContext::new(),
+                )
+                .await
+                .unwrap()
+                .expect("legend output");
+
+            let SceneMark::Group(first_item) = &output.group.marks[1] else {
+                panic!("first legend item should be a group");
+            };
+            let SceneMark::Symbol(symbol) = &first_item.marks[1] else {
+                panic!("first legend item should contain a symbol mark");
+            };
+
+            assert_eq!(symbol.size_vec(), vec![24.0 * 24.0]);
+            assert_eq!(
+                symbol.fill_vec(),
+                vec![ColorOrGradient::Color(
+                    CompiledRectLegend::DEFAULT_PATTERN_FILL
+                )]
+            );
+            let patterns = symbol.fill_pattern_vec();
+            let pattern = patterns[0].as_ref().expect("first item has pattern");
+            assert_eq!(pattern.anchor, PatternAnchor::Mark);
+            let PatternLayer::Stripe(stripe) = &pattern.layers[0] else {
+                panic!("expected centered stripe layer");
+            };
+            assert_eq!(stripe.phase, 12.0);
+
+            let SceneMark::Group(second_item) = &output.group.marks[2] else {
+                panic!("second legend item should be a group");
+            };
+            let SceneMark::Symbol(symbol) = &second_item.marks[1] else {
+                panic!("second legend item should contain a symbol mark");
+            };
+            assert!(matches!(
+                symbol.fill_pattern.value(),
+                ScalarOrArrayValue::Array(values) if values[1].is_none()
+            ));
+        });
+    }
+
+    #[test]
+    fn rect_legend_can_merge_fill_and_fill_pattern_channels() {
+        let renderer = CompiledRectLegend::new();
+        let channels = vec![
+            LegendChannel {
+                name: "fill".to_string(),
+                expression: None,
+                scale: make_simple_scale(),
+                channel_type: "fill".to_string(),
+                sharing_level: None,
+                mark_type: "rect".to_string(),
+                mark_index: 0,
+                pattern_range: None,
+                related_channels: HashMap::new(),
+            },
+            LegendChannel {
+                name: "fill_pattern".to_string(),
+                expression: None,
+                scale: make_simple_scale(),
+                channel_type: "fill_pattern".to_string(),
+                sharing_level: None,
+                mark_type: "rect".to_string(),
+                mark_index: 0,
+                pattern_range: Some(vec![Some(stripe_pattern())]),
+                related_channels: HashMap::new(),
+            },
+        ];
+
+        assert!(renderer.can_evaluate(&channels));
+        assert!(renderer.supports_merge(&channels));
+    }
+
+    #[test]
+    fn rect_legend_renders_merged_fill_and_pattern_samples() {
+        futures::executor::block_on(async {
+            let pattern = stripe_pattern();
+            let channels = vec![
+                LegendChannel {
+                    name: "fill".to_string(),
+                    expression: None,
+                    scale: make_color_scale(),
+                    channel_type: "fill".to_string(),
+                    sharing_level: None,
+                    mark_type: "rect".to_string(),
+                    mark_index: 0,
+                    pattern_range: None,
+                    related_channels: HashMap::new(),
+                },
+                LegendChannel {
+                    name: "fill_pattern".to_string(),
+                    expression: None,
+                    scale: make_simple_scale(),
+                    channel_type: "fill_pattern".to_string(),
+                    sharing_level: None,
+                    mark_type: "rect".to_string(),
+                    mark_index: 0,
+                    pattern_range: Some(vec![Some(pattern), None]),
+                    related_channels: HashMap::new(),
+                },
+            ];
+
+            let output = CompiledRectLegend::new()
+                .evaluate(
+                    &channels,
+                    &Legend::new(),
+                    0.0,
+                    0.0,
+                    100.0,
+                    100.0,
+                    &Theme::light(),
+                    &IndexMap::new(),
+                    &SessionContext::new(),
+                )
+                .await
+                .unwrap()
+                .expect("legend output");
+
+            let SceneMark::Group(first_item) = &output.group.marks[1] else {
+                panic!("first legend item should be a group");
+            };
+            let SceneMark::Symbol(symbol) = &first_item.marks[1] else {
+                panic!("first legend item should contain a symbol mark");
+            };
+
+            assert_eq!(
+                symbol.fill_vec(),
+                vec![ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])]
+            );
+            assert_eq!(
+                symbol.size_vec(),
+                vec![CompiledRectLegend::DEFAULT_PATTERN_LEGEND_SIDE.powi(2)]
+            );
+            let patterns = symbol.fill_pattern_vec();
+            let pattern = patterns[0].as_ref().expect("first item has pattern");
+            assert_eq!(pattern.anchor, PatternAnchor::Mark);
+            let PatternLayer::Stripe(stripe) = &pattern.layers[0] else {
+                panic!("expected centered stripe layer");
+            };
+            assert_eq!(
+                stripe.phase,
+                CompiledRectLegend::DEFAULT_PATTERN_LEGEND_SIDE / 2.0
+            );
+
+            let SceneMark::Group(second_item) = &output.group.marks[2] else {
+                panic!("second legend item should be a group");
+            };
+            let SceneMark::Symbol(symbol) = &second_item.marks[1] else {
+                panic!("second legend item should contain a symbol mark");
+            };
+            assert_eq!(
+                symbol.fill_vec(),
+                vec![ColorOrGradient::Color([1.0, 1.0, 1.0, 1.0])]
+            );
+            assert!(matches!(
+                symbol.fill_pattern.value(),
+                ScalarOrArrayValue::Array(values) if values[1].is_none()
+            ));
+        });
     }
 }

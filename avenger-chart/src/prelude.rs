@@ -112,7 +112,12 @@ pub use avenger_chart_core::{
 };
 pub use avenger_chart_core::{
     ChannelExpr, ChannelValue, ConditionalValue, DataTransform, DataTransformCompileContext,
-    FacetDataScope, GeometrySpace, Mark, MarkState, RadiusExpression, derived_scalar,
+    FacetDataScope, GeometrySpace, Mark, MarkState, PatternChannelValue, RadiusExpression,
+    derived_scalar,
+};
+pub use avenger_scenegraph::marks::pattern::{
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternSymbol, StripeDash,
+    StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
 };
 
 // Re-export channel config traits - ESSENTIAL for using channel methods

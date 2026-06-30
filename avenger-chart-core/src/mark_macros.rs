@@ -274,6 +274,17 @@ macro_rules! impl_mark_base {
                 self.state.data = self.state.data.with_channel_value(name, value);
                 self
             }
+
+            /// Set a structured pattern channel value.
+            #[doc(hidden)]
+            pub fn with_pattern_channel_value(
+                mut self,
+                name: &str,
+                value: $crate::PatternChannelValue,
+            ) -> Self {
+                self.state.data = self.state.data.with_pattern_channel_value(name, value);
+                self
+            }
         }
 
         impl<C> $crate::IntoPlotMark<C> for $mark_type<C>

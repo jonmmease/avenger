@@ -113,6 +113,14 @@ impl ConfiguredScaleWithSpec {
         self.range_binding
     }
 
+    /// Access the structured pattern range, if this scale uses one.
+    pub fn pattern_range(&self) -> Option<&[Option<avenger_chart_core::PatternFill>]> {
+        match self.scale.get_range() {
+            Some(crate::ScaleRange::Pattern(patterns)) => Some(patterns.as_slice()),
+            _ => None,
+        }
+    }
+
     /// Replace the configured scale while preserving its specification and range binding.
     pub fn set_configured(&mut self, configured: ConfiguredScale) {
         self.configured = configured;

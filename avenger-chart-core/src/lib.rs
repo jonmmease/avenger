@@ -58,6 +58,7 @@ pub mod nested_band;
 pub mod no_guide;
 pub mod overflow;
 pub mod param;
+pub mod pattern_channel_value;
 pub mod position_config;
 pub mod radius_expression;
 pub mod repeat;
@@ -97,6 +98,10 @@ pub mod __private {
 }
 
 pub use avenger_common::cursor::CursorStyle;
+pub use avenger_scenegraph::marks::pattern::{
+    PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame, PatternSymbol,
+    StripeDash, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+};
 pub use axis::Axis;
 pub use axis_position::AxisPosition;
 pub use axis_spec::AxisSpec;
@@ -215,10 +220,10 @@ pub use mark_channel_coercion::{
     coerce_color_channel_with_renderer, coerce_font_style_channel, coerce_font_weight_channel,
     coerce_image_align_channel, coerce_image_baseline_channel, coerce_numeric_channel,
     coerce_numeric_channel_with_renderer, coerce_opacity_channel,
-    coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel,
-    coerce_stroke_cap_channel_values, coerce_stroke_cap_channel_values_with_renderer,
-    coerce_stroke_cap_channel_with_renderer, coerce_stroke_dash_channel,
-    coerce_stroke_join_channel, coerce_stroke_join_channel_values,
+    coerce_opacity_channel_with_renderer, coerce_pattern_channel_with_renderer,
+    coerce_stroke_cap_channel, coerce_stroke_cap_channel_values,
+    coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_cap_channel_with_renderer,
+    coerce_stroke_dash_channel, coerce_stroke_join_channel, coerce_stroke_join_channel_values,
     coerce_stroke_join_channel_values_with_renderer, coerce_stroke_join_channel_with_renderer,
     coerce_text_align_channel, coerce_text_baseline_channel, coerce_text_channel,
 };
@@ -255,6 +260,7 @@ pub use nested_band::{
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
 pub use param::{CompiledParamSpec, Param};
+pub use pattern_channel_value::PatternChannelValue;
 pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
 pub use repeat::{
@@ -263,8 +269,8 @@ pub use repeat::{
     column_index, column_name, column_title, current_cell_predicate, evaluate_repeat_predicate,
     item, item_id, item_index, item_name, item_title, repeat_placeholder_id,
     repeat_placeholder_kind_from_id, resolve_repeat_channel_expr, resolve_repeat_channel_value,
-    resolve_repeat_name_placeholders, resolve_repeat_placeholders, row, row_id, row_index,
-    row_name, row_title,
+    resolve_repeat_name_placeholders, resolve_repeat_pattern_channel_value,
+    resolve_repeat_placeholders, row, row_id, row_index, row_name, row_title,
 };
 pub use resolved_domain::ResolvedDomain;
 pub use scalar_cmp::scalar_total_cmp;

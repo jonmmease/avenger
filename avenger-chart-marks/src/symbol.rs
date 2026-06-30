@@ -7,11 +7,12 @@ use avenger_chart_core::{
     DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec,
     DerivedTextMarkSpec, FillAdjustmentChannel, ItemChannelAssignment, LegendRendererKind,
     MarkAdjustmentCompileContext, MarkAdjustmentSpec, MarkAdjustmentTransform, MarkState,
-    OpacityAdjustmentChannel, OpacityChannelConfig, PointGeometryItem, PrimitiveMarkEffects,
-    ShapeAdjustmentChannel, ShapeChannelConfig, SizeAdjustmentChannel, SizeChannelConfig,
-    StrokeAdjustmentChannel, StrokeWidthAdjustmentChannel, StrokeWidthChannelConfig,
-    TransformMarkAdjustmentSpec, define_common_mark_channels, extract_adjustment_assignments,
-    impl_mark_base_with_extra_fields, is_continuous_scale, is_item_frame_column_name,
+    OpacityAdjustmentChannel, OpacityChannelConfig, PatternChannelValue, PointGeometryItem,
+    PrimitiveMarkEffects, ShapeAdjustmentChannel, ShapeChannelConfig, SizeAdjustmentChannel,
+    SizeChannelConfig, StrokeAdjustmentChannel, StrokeWidthAdjustmentChannel,
+    StrokeWidthChannelConfig, TransformMarkAdjustmentSpec, define_common_mark_channels,
+    extract_adjustment_assignments, impl_mark_base_with_extra_fields, is_continuous_scale,
+    is_item_frame_column_name,
 };
 
 use crate::{Rect, Rule, Text};
@@ -93,6 +94,11 @@ impl<C> Symbol<C> {
     #[doc(hidden)]
     pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
         &self.effects
+    }
+
+    /// Set the structured fill pattern channel.
+    pub fn fill_pattern<V: Into<PatternChannelValue>>(self, value: V) -> Self {
+        self.with_pattern_channel_value("fill_pattern", value.into())
     }
 
     #[doc(hidden)]

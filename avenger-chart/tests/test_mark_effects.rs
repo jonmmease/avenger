@@ -12,10 +12,19 @@ use avenger_common::types::{
 };
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scenegraph::marks::{
-    area::SceneAreaMark, image::SceneImageMark, line::SceneLineMark, mark::SceneMark,
-    path::ScenePathMark, rect::SceneRectMark, rule::SceneRuleMark, symbol::SceneSymbolMark,
-    text::SceneTextMark, trail::SceneTrailMark,
+    area::SceneAreaMark,
+    image::SceneImageMark,
+    line::SceneLineMark,
+    mark::SceneMark,
+    path::ScenePathMark,
+    pattern::{PatternFill, PatternLayer, StripePatternLayer},
+    rect::SceneRectMark,
+    rule::SceneRuleMark,
+    symbol::SceneSymbolMark,
+    text::SceneTextMark,
+    trail::SceneTrailMark,
 };
+use avenger_scenegraph::render_order::{SceneDisplayList, SceneDisplayMark};
 use avenger_text::types::{
     FontStyle, FontWeight, FontWeightNameSpec, TextAlign, TextBaseline, TextSyntaxMode,
 };
@@ -1030,6 +1039,67 @@ async fn symbol_transform_receives_facet_plot_area_info() -> Result<(), AvengerC
     }
 
     assert_eq!(symbols.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn facet_cells_export_plot_pattern_reference_frames() -> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("facet", DataType::Utf8, false),
+            Field::new("x", DataType::Float32, false),
+            Field::new("x2", DataType::Float32, false),
+            Field::new("value", DataType::Float32, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec!["A", "B"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![10.0, 20.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![40.0, 50.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![30.0, 40.0])) as ArrayRef,
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+    let pattern = PatternFill {
+        layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+            45.0, 12.0, 1.5,
+        ))],
+        ..Default::default()
+    };
+    let child = Plot::<Cartesian>::new().mark(
+        Rect::new()
+            .x(col("x"))
+            .x2(col("x2"))
+            .y(0.0)
+            .y2(col("value"))
+            .fill_pattern(pattern),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .data(df)
+        .plot_size(220.0, 140.0)
+        .mark(Subplot::new(child).column(col("facet")));
+
+    let evaluated = plot.compile(&ctx).await?.evaluate(&ctx, None).await?;
+    let display_list = SceneDisplayList::from_scene_graph(&evaluated.scene_graph);
+    let rect_frames = display_list
+        .items
+        .iter()
+        .filter_map(|item| match &item.mark {
+            SceneDisplayMark::Borrowed(SceneMark::Rect(rect)) if rect.name == "rect" => {
+                item.pattern_reference_frame.clone()
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(rect_frames.len(), 2);
+    assert!(rect_frames.iter().all(|frame| {
+        frame.width.is_finite()
+            && frame.height.is_finite()
+            && frame.width > 0.0
+            && frame.height > 0.0
+    }));
+    assert_ne!(rect_frames[0], rect_frames[1]);
     Ok(())
 }
 
@@ -2303,6 +2373,137 @@ async fn rect_derive_consumes_adjusted_source_geometry() -> Result<(), AvengerCh
 }
 
 #[tokio::test]
+async fn rect_derive_scaled_fill_pattern_passes_runtime_pattern_index()
+-> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("series", DataType::Utf8, false),
+            Field::new("x", DataType::Float32, false),
+            Field::new("x2", DataType::Float32, false),
+            Field::new("value", DataType::Float32, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![10.0, 40.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![30.0, 60.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![25.0, 55.0])) as ArrayRef,
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        Rect::new()
+            .data(df)
+            .x(col("x"))
+            .x2(col("x2"))
+            .y(0.0)
+            .y2(col("value"))
+            .fill_pattern(col("series"))
+            .derive(|rect| {
+                Rect::new()
+                    .x(rect.bbox().left())
+                    .x2(rect.bbox().right())
+                    .y(rect.bbox().bottom() + lit(2.0))
+                    .y2(rect.bbox().bottom() + lit(8.0))
+                    .fill("transparent")
+                    .stroke("#111827")
+                    .fill_pattern(rect.channel("fill_pattern"))
+            }),
+    );
+
+    let compiled = plot.compile(&ctx).await?;
+    let decoded = roundtrip_compiled_plot(&compiled)?;
+    let evaluated = decoded.evaluate(&ctx, None).await?;
+    let mut rects = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_rects(mark, &mut rects);
+    }
+
+    assert_eq!(rects.len(), 2);
+    let base_patterns: Vec<Option<PatternFill>> =
+        rects[0].fill_pattern.as_vec(rects[0].len as usize, None);
+    let derived_patterns: Vec<Option<PatternFill>> =
+        rects[1].fill_pattern.as_vec(rects[1].len as usize, None);
+    assert_eq!(base_patterns, derived_patterns);
+    assert!(derived_patterns.iter().all(Option::is_some));
+    Ok(())
+}
+
+#[tokio::test]
+async fn rect_scaled_fill_pattern_respects_custom_scale_name() -> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("series", DataType::Utf8, false),
+            Field::new("x", DataType::Float32, false),
+            Field::new("x2", DataType::Float32, false),
+            Field::new("value", DataType::Float32, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![10.0, 40.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![30.0, 60.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![25.0, 55.0])) as ArrayRef,
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        Rect::new()
+            .data(df)
+            .x(col("x"))
+            .x2(col("x2"))
+            .y(0.0)
+            .y2(col("value"))
+            .fill_pattern(PatternChannelValue::from(col("series")).with_scale_name("hatch")),
+    );
+
+    let compiled = plot.compile(&ctx).await?;
+    let evaluated = compiled.evaluate(&ctx, None).await?;
+    let mut rects = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_rects(mark, &mut rects);
+    }
+
+    assert_eq!(rects.len(), 1);
+    let patterns: Vec<Option<PatternFill>> =
+        rects[0].fill_pattern.as_vec(rects[0].len as usize, None);
+    assert_eq!(patterns.len(), 2);
+    assert!(patterns.iter().all(Option::is_some));
+    assert_ne!(patterns[0], patterns[1]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn rect_expression_adjustment_rejects_fill_pattern_assignment()
+-> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        Rect::new()
+            .unit_data()
+            .x(10.0)
+            .x2(30.0)
+            .y(20.0)
+            .y2(50.0)
+            .adjust(|rect| {
+                rect.set_channel("fill_pattern", lit(0.0))
+                    .expect("serialize fill_pattern adjustment")
+            }),
+    );
+
+    let result = plot.compile(&ctx).await?.evaluate(&ctx, None).await;
+    let err = match result {
+        Ok(_) => panic!("fill_pattern adjustment should be rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string()
+            .contains("Rect<Cartesian> adjustment channel 'fill_pattern' is not implemented yet"),
+        "unexpected error: {err}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn rect_expression_adjustment_updates_corner_radius() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
     let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
@@ -3065,6 +3266,48 @@ async fn path_expression_adjustment_updates_path_and_style_channels()
 }
 
 #[tokio::test]
+async fn path_scaled_fill_pattern_preserves_indexed_pattern_values() -> Result<(), AvengerChartError>
+{
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("series", DataType::Utf8, false),
+            Field::new("x", DataType::Float32, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![10.0, 30.0])) as ArrayRef,
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        PathMark::new()
+            .data(df)
+            .x(col("x"))
+            .y(20.0)
+            .path("M 0 0 L 10 0 L 10 10 Z")
+            .fill("#dbeafe")
+            .fill_pattern(col("series")),
+    );
+
+    let compiled = plot.compile(&ctx).await?;
+    let decoded = roundtrip_compiled_plot(&compiled)?;
+    let evaluated = decoded.evaluate(&ctx, None).await?;
+    let mut paths = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_paths(mark, &mut paths);
+    }
+
+    assert_eq!(paths.len(), 1);
+    let patterns: Vec<Option<PatternFill>> =
+        paths[0].fill_pattern.as_vec(paths[0].len as usize, None);
+    assert_eq!(patterns.len(), 2);
+    assert!(patterns.iter().all(Option::is_some));
+    assert_ne!(patterns[0], patterns[1]);
+    Ok(())
+}
+
+#[tokio::test]
 async fn line_expression_adjustment_uses_post_scale_vertices_source_data_and_bbox()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
@@ -3665,6 +3908,54 @@ async fn area_transform_adjustment_updates_vertex_channels() -> Result<(), Aveng
     assert_eq!(area.x2.as_vec(area.len as usize, None), vec![13.0, 13.0]);
     assert_eq!(area.y2.as_vec(area.len as usize, None), vec![9.0, 9.0]);
     assert_eq!(area.stroke_width, 3.5);
+    Ok(())
+}
+
+#[tokio::test]
+async fn area_scaled_fill_pattern_partitions_geometry_by_pattern_index()
+-> Result<(), AvengerChartError> {
+    let ctx = SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("series", DataType::Utf8, false),
+            Field::new("x", DataType::Float32, false),
+            Field::new("y", DataType::Float32, false),
+            Field::new("y2", DataType::Float32, false),
+        ])),
+        vec![
+            Arc::new(StringArray::from(vec!["a", "b", "a", "b"])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![1.0, 2.0, 3.0, 4.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![10.0, 20.0, 30.0, 40.0])) as ArrayRef,
+            Arc::new(Float32Array::from(vec![0.0, 0.0, 0.0, 0.0])) as ArrayRef,
+        ],
+    )?;
+    let df = ctx.read_batch(batch)?;
+    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        Area::new()
+            .data(df)
+            .x(col("x"))
+            .x2(col("x"))
+            .y(col("y"))
+            .y2(col("y2"))
+            .fill("#dbeafe")
+            .fill_pattern(col("series")),
+    );
+
+    let compiled = plot.compile(&ctx).await?;
+    let decoded = roundtrip_compiled_plot(&compiled)?;
+    let evaluated = decoded.evaluate(&ctx, None).await?;
+    let mut areas = Vec::new();
+    for mark in evaluated.scene_graph.children() {
+        collect_areas(mark, &mut areas);
+    }
+
+    assert_eq!(areas.len(), 2);
+    assert_eq!(
+        areas.iter().map(|area| area.len).collect::<Vec<_>>(),
+        vec![2, 2]
+    );
+    assert!(areas.iter().all(|area| area.fill_pattern.is_some()));
+    assert_ne!(areas[0].fill_pattern, areas[1].fill_pattern);
     Ok(())
 }
 

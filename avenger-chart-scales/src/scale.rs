@@ -262,6 +262,11 @@ impl<S: ScaleSpec> ScaleRuntimeExt for Scale<S> {
 
                 Arc::new(list_builder.finish()) as ArrayRef
             }
+            Maybe::Set(ScaleRange::Pattern(patterns)) => Arc::new(Float32Array::from(
+                (0..patterns.len())
+                    .map(|index| index as f32)
+                    .collect::<Vec<_>>(),
+            )) as ArrayRef,
             Maybe::Unset => Arc::new(Float32Array::from(vec![0.0_f32, 1.0_f32])) as ArrayRef,
         };
 
@@ -608,9 +613,24 @@ impl TimeScaleExt for Scale<Time> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_chart_core::Param;
-    use datafusion::{functions_array::expr_fn::make_array, prelude::SessionContext};
+    use avenger_chart_core::{Param, PatternFill, PatternLayer, StripePatternLayer};
+    use avenger_scales::scales::coerce::Coercer;
+    use datafusion::arrow::{
+        array::{ArrayRef, Float32Array, StringArray},
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    };
+    use datafusion::{
+        functions_array::expr_fn::make_array,
+        prelude::{SessionContext, col},
+    };
     use datafusion_common::ScalarValue;
+    use std::sync::Arc;
+
+    use crate::{
+        ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec, Ordinal, Quantile, Quantize,
+        Threshold,
+    };
 
     fn assert_interval(actual: (f32, f32), expected: (f32, f32)) {
         assert!(
@@ -625,6 +645,42 @@ mod tests {
             expected.1,
             actual.1
         );
+    }
+
+    fn pattern_range(count: usize) -> ScaleRange {
+        ScaleRange::new_pattern(
+            (0..count)
+                .map(|index| {
+                    Some(PatternFill {
+                        layers: vec![PatternLayer::Stripe(StripePatternLayer::new(
+                            if index % 2 == 0 { 45.0 } else { 135.0 },
+                            10.0 + index as f32,
+                            1.0 + index as f32 * 0.1,
+                        ))],
+                        ..Default::default()
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    fn numeric_values(values: Vec<f32>) -> ArrayRef {
+        Arc::new(Float32Array::from(values)) as ArrayRef
+    }
+
+    fn string_values(values: Vec<&str>) -> ArrayRef {
+        Arc::new(StringArray::from(values)) as ArrayRef
+    }
+
+    fn scaled_indices(
+        scale: &avenger_scales::scales::ConfiguredScale,
+        values: Vec<f32>,
+    ) -> Vec<f32> {
+        let input = numeric_values(values);
+        scale
+            .scale_to_numeric(&input)
+            .expect("scale pattern indices")
+            .as_vec(input.len(), None)
     }
 
     #[tokio::test]
@@ -773,5 +829,182 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn ordinal_scale_preserves_and_emits_pattern_range_indices() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Ordinal>::new()
+            .domain_discrete(vec![lit("a"), lit("b"), lit("c")])
+            .range(pattern_range(3))
+            .into_auto();
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+        let wrapped = ConfiguredScaleWithSpec::new(scale, configured.clone());
+        let input = string_values(vec!["b", "a", "c"]);
+        let indices = configured
+            .scale_to_numeric(&input)
+            .expect("scale pattern indices")
+            .as_vec(input.len(), None);
+
+        assert_eq!(wrapped.pattern_range().expect("pattern range").len(), 3);
+        assert_eq!(indices, vec![1.0, 0.0, 2.0]);
+    }
+
+    #[tokio::test]
+    async fn pattern_range_datafusion_udf_emits_dictionary_numeric_indices() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Ordinal>::new()
+            .domain_discrete(vec![lit("a"), lit("b"), lit("c")])
+            .range(pattern_range(3))
+            .into_auto();
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+        let wrapped = ConfiguredScaleWithSpec::new(scale, configured);
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "category",
+            DataType::Utf8,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![Arc::new(StringArray::from(vec!["b", "a", "c", "b"])) as ArrayRef],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+        let batches = df
+            .clone()
+            .select(vec![
+                wrapped
+                    .to_expr(col("category"))
+                    .unwrap()
+                    .alias("pattern_index"),
+            ])
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+
+        assert_eq!(batches.len(), 1);
+        let pattern_index = batches[0].column_by_name("pattern_index").unwrap();
+        assert!(
+            matches!(
+                pattern_index.data_type(),
+                DataType::Dictionary(_, value_type)
+                    if value_type.as_ref() == &DataType::Float32
+            ),
+            "expected dictionary-backed Float32 pattern indices, got {:?}",
+            pattern_index.data_type()
+        );
+
+        let decoded = Coercer::default()
+            .to_numeric(pattern_index, None)
+            .expect("decode dictionary pattern indices");
+        assert_eq!(
+            decoded.as_vec(pattern_index.len(), None),
+            vec![1.0, 0.0, 2.0, 1.0]
+        );
+
+        let scalar_batches = df
+            .select(vec![
+                wrapped.to_expr(lit("c")).unwrap().alias("pattern_index"),
+            ])
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+        let scalar_pattern_index = scalar_batches[0].column_by_name("pattern_index").unwrap();
+        let decoded_scalar = Coercer::default()
+            .to_numeric(scalar_pattern_index, None)
+            .expect("decode scalar pattern index");
+        assert_eq!(
+            decoded_scalar.as_vec(scalar_pattern_index.len(), None),
+            vec![2.0, 2.0, 2.0, 2.0]
+        );
+    }
+
+    #[tokio::test]
+    async fn threshold_scale_preserves_and_emits_pattern_range_indices() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Threshold>::new()
+            .domain_discrete(vec![lit(10.0), lit(20.0)])
+            .range(pattern_range(3))
+            .into_auto();
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+        let wrapped = ConfiguredScaleWithSpec::new(scale, configured.clone());
+
+        assert_eq!(wrapped.pattern_range().expect("pattern range").len(), 3);
+        assert_eq!(
+            scaled_indices(&configured, vec![5.0, 10.0, 19.0, 20.0, 30.0]),
+            vec![0.0, 1.0, 1.0, 2.0, 2.0]
+        );
+    }
+
+    #[tokio::test]
+    async fn quantize_scale_preserves_and_emits_pattern_range_indices() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Quantize>::new()
+            .domain_interval(lit(0.0), lit(100.0))
+            .range(pattern_range(4))
+            .into_auto();
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+        let wrapped = ConfiguredScaleWithSpec::new(scale, configured.clone());
+
+        assert_eq!(wrapped.pattern_range().expect("pattern range").len(), 4);
+        assert_eq!(
+            scaled_indices(&configured, vec![0.0, 24.0, 25.0, 50.0, 99.0, 100.0]),
+            vec![0.0, 0.0, 1.0, 2.0, 3.0, 3.0]
+        );
+    }
+
+    #[tokio::test]
+    async fn quantile_scale_preserves_and_emits_pattern_range_indices() {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let scale = Scale::<Quantile>::new()
+            .domain_discrete(vec![
+                lit(1.0),
+                lit(1.0),
+                lit(2.0),
+                lit(3.0),
+                lit(3.0),
+                lit(3.0),
+                lit(4.0),
+                lit(4.0),
+                lit(5.0),
+            ])
+            .range(pattern_range(3))
+            .into_auto();
+
+        let configured = scale
+            .create_configured_scale(400.0, 300.0, &ctx, &params)
+            .await
+            .unwrap();
+        let wrapped = ConfiguredScaleWithSpec::new(scale, configured.clone());
+
+        assert_eq!(wrapped.pattern_range().expect("pattern range").len(), 3);
+        assert_eq!(
+            scaled_indices(&configured, vec![1.5, 3.0, 4.5]),
+            vec![0.0, 1.0, 2.0]
+        );
     }
 }

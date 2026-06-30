@@ -13,10 +13,11 @@ use avenger_chart_core::{
     PrimitiveMarkEffects, RadiusExpression, RenderedMarkData, ResolvedDomain, ScalarValueHelpers,
     ScaleRange, ScaleTypePreference, Theme, apply_opacity_to_color_channel,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
-    coerce_opacity_channel_with_renderer, coerce_stroke_cap_channel_values_with_renderer,
-    coerce_stroke_dash_channel, coerce_text_channel, default_scale_type_for_data_type,
-    evaluate_item_assignments, impl_mark_trait_common, is_continuous_scale, item_bbox_column_name,
-    item_channel_column_name, item_data_column_name,
+    coerce_opacity_channel_with_renderer, coerce_pattern_channel_with_renderer,
+    coerce_stroke_cap_channel_values_with_renderer, coerce_stroke_dash_channel,
+    coerce_text_channel, default_scale_type_for_data_type, evaluate_item_assignments,
+    impl_mark_trait_common, is_continuous_scale, item_bbox_column_name, item_channel_column_name,
+    item_data_column_name,
     serialization::DefaultLogicalExprNodeExt,
     text_rendering::{apply_text_adjustments, build_scene_text_mark},
 };
@@ -27,7 +28,12 @@ use avenger_common::{
     value::ScalarOrArray,
 };
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl, coerce::Coercer};
-use avenger_scenegraph::marks::{mark::SceneMark, rule::SceneRuleMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{
+    mark::SceneMark,
+    pattern::{PatternFill, default_no_fill_pattern},
+    rule::SceneRuleMark,
+    symbol::SceneSymbolMark,
+};
 use datafusion::{
     arrow::{
         array::{ArrayRef, Float32Array, RecordBatch, StringArray},
@@ -115,6 +121,12 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
                 allow_column_ref: true,
             },
             ChannelDescriptor {
+                name: "fill_pattern",
+                required: false,
+                default_value: None,
+                allow_column_ref: true,
+            },
+            ChannelDescriptor {
                 name: "stroke",
                 required: false,
                 default_value: None,
@@ -197,6 +209,7 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
         data_type: &DataType,
     ) -> Option<ScaleTypePreference> {
         match (channel, data_type) {
+            ("fill_pattern", _) => Some(ScaleTypePreference::Ordinal),
             // Symbol marks use point scales for categorical position data
             ("x" | "y", DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View) => {
                 Some(ScaleTypePreference::Point)
@@ -465,7 +478,8 @@ impl CompiledCartesianSymbol {
             coerce_numeric_channel_with_renderer(self, data, scalars, "size", &mark_context, 64.0)?;
         let angle =
             coerce_numeric_channel_with_renderer(self, data, scalars, "angle", &mark_context, 0.0)?;
-        let visual = self.coerce_symbol_visual_channels(data, scalars, &mark_context)?;
+        let visual =
+            self.coerce_symbol_visual_channels(data, scalars, &mark_context, Some(context))?;
         let x = geometry.x.clone();
         let y = geometry.y.clone();
         let len = data.map_or_else(
@@ -522,6 +536,7 @@ impl CompiledCartesianSymbol {
             x,
             y,
             fill,
+            fill_pattern: visual.fill_pattern,
             size,
             stroke,
             angle,
@@ -538,6 +553,7 @@ impl CompiledCartesianSymbol {
         data: Option<&RecordBatch>,
         scalars: &RecordBatch,
         mark_context: &MarkRenderContext<'_>,
+        runtime_context: Option<&dyn MarkRuntimeContext>,
     ) -> Result<SymbolVisualChannels, AvengerChartError> {
         let fill = coerce_color_channel_with_renderer(
             self,
@@ -563,6 +579,17 @@ impl CompiledCartesianSymbol {
             mark_context,
             1.0,
         )?;
+        let fill_pattern = if let Some(runtime_context) = runtime_context {
+            coerce_pattern_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "fill_pattern",
+                runtime_context,
+            )?
+        } else {
+            default_no_fill_pattern()
+        };
 
         let coercer = Coercer::default();
         let shape_default = self
@@ -602,6 +629,7 @@ impl CompiledCartesianSymbol {
 
         Ok(SymbolVisualChannels {
             fill,
+            fill_pattern,
             stroke,
             opacity,
             shape_names,
@@ -657,7 +685,8 @@ impl CompiledCartesianSymbol {
             &mark_context,
             0.0,
         )?;
-        let visual = self.coerce_symbol_visual_channels(None, &derived_scalars, &mark_context)?;
+        let visual =
+            self.coerce_symbol_visual_channels(None, &derived_scalars, &mark_context, None)?;
         Ok(SceneMark::Symbol(self.build_scene_symbol_mark(
             x,
             y,
@@ -977,6 +1006,7 @@ impl CompiledCartesianSymbol {
 #[derive(Clone)]
 struct SymbolVisualChannels {
     fill: ScalarOrArray<ColorOrGradient>,
+    fill_pattern: ScalarOrArray<Option<PatternFill>>,
     stroke: ScalarOrArray<ColorOrGradient>,
     opacity: ScalarOrArray<f32>,
     shape_names: ScalarOrArray<String>,

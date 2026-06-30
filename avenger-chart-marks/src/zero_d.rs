@@ -14,7 +14,9 @@ use avenger_chart_core::{
 };
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
 use avenger_scales::scales::{ConfiguredScale, coerce::Coercer};
-use avenger_scenegraph::marks::{mark::SceneMark, symbol::SceneSymbolMark};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::default_no_fill_pattern, symbol::SceneSymbolMark,
+};
 use datafusion::{arrow::array::RecordBatch, common::ScalarValue, prelude::SessionContext};
 use serde::{Deserialize, Serialize};
 
@@ -225,6 +227,7 @@ impl CompiledMark for CompiledZeroDSymbol {
             x,
             y,
             fill,
+            fill_pattern: default_no_fill_pattern(),
             size,
             stroke,
             angle,

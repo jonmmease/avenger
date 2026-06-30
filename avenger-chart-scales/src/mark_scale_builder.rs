@@ -346,6 +346,7 @@ where
 
     // Collect channels needing scales from marks
     let mut channels_with_scales = HashSet::new();
+    let mut default_range_channels: HashMap<String, String> = HashMap::new();
     for prepared in prepared_marks {
         let encodings = &prepared.channels;
         let resolved =
@@ -354,6 +355,9 @@ where
             if coord_transform.channel_uses_scale(&channel_name)
                 && let Some(scale_name) = channel_value.get_scale_name(&channel_name)
             {
+                default_range_channels
+                    .entry(scale_name.clone())
+                    .or_insert(channel_name);
                 channels_with_scales.insert(scale_name);
             }
         }
@@ -363,6 +367,9 @@ where
     for channel in scale_specs.keys() {
         if coord_transform.channel_uses_scale(channel) {
             channels_with_scales.insert(channel.clone());
+            default_range_channels
+                .entry(channel.clone())
+                .or_insert(channel.clone());
         }
     }
 
@@ -378,6 +385,13 @@ where
         .filter(|&&ch| coord_transform.channel_uses_scale(ch))
     {
         channels_with_scales.insert((*channel).to_string());
+        default_range_channels
+            .entry((*channel).to_string())
+            .or_insert((*channel).to_string());
+    }
+
+    for (scale_name, range_channel_name) in default_range_channels {
+        builder.set_default_range_channel(scale_name, range_channel_name);
     }
 
     // Determine positional vs non-positional channels
@@ -396,7 +410,7 @@ where
     // PHASE 1: Build non-positional scale builders
     // We build non‑positional scales first so their configured scales can be used to construct radius‑aware positional expressions
     for channel in &non_positional_channels {
-        if let Some((spec, dt, options, _has_explicit_domain, domain_opt, ordering)) =
+        if let Some((spec, dt, options, _has_explicit_domain, domain_opt, ordering, range_opt)) =
             Box::pin(build_scale_for_channel(
                 channel,
                 prepared_marks,
@@ -420,6 +434,7 @@ where
                 options,
                 domain_opt,
                 ordering,
+                range_opt,
                 prepared_marks,
                 coord_transform,
                 eval_ctx,
@@ -439,9 +454,14 @@ where
 
     // Extract non‑positional channel builders from the main builder
     for (channel_name, channel_builder) in builder.channel_builders() {
+        let range_channel_name = builder
+            .default_range_channels
+            .get(channel_name)
+            .map(String::as_str)
+            .unwrap_or(channel_name);
         if let Some(configured) = Box::pin(build_temp_configured_scale(
             channel_builder,
-            channel_name,
+            range_channel_name,
             400.0, // dummy width
             300.0, // dummy height
             ctx,
@@ -456,7 +476,7 @@ where
 
     // PHASE 2: Build positional scales with scale-aware radius expressions
     for channel in &positional_channels {
-        if let Some((spec, dt, options, has_explicit_domain, domain_opt, ordering)) =
+        if let Some((spec, dt, options, has_explicit_domain, domain_opt, ordering, range_opt)) =
             Box::pin(build_scale_for_channel(
                 channel,
                 prepared_marks,
@@ -496,6 +516,7 @@ where
                 options,
                 domain_opt,
                 ordering,
+                range_opt,
                 prepared_marks,
                 coord_transform,
                 eval_ctx,
@@ -596,6 +617,7 @@ async fn build_scale_for_channel<C>(
         bool,
         Option<ScaleDomain>,
         Option<ScaleOrderingSpec>,
+        Option<ScaleRange>,
     )>,
     AvengerChartError,
 >
@@ -708,7 +730,7 @@ where
             user_selected_scale_type = true;
         } else if let Some(range) = user_scale.get_range() {
             // If no explicit scale type but discrete range is set, infer ordinal scale
-            if matches!(range, ScaleRange::Discrete(_)) {
+            if matches!(range, ScaleRange::Discrete(_) | ScaleRange::Pattern(_)) {
                 chosen_spec = Some(Box::new(Ordinal));
                 user_selected_scale_type = true;
             }
@@ -753,6 +775,11 @@ where
         && let Some(ordering) = channel_scale.get_ordering()
     {
         scale.config_mut().ordering = Maybe::Set(ordering.clone());
+    }
+    if let Some(channel_scale) = &chosen_scale_config
+        && let Some(range) = channel_scale.get_range()
+    {
+        scale = scale.range(range.clone());
     }
 
     // Check if domain is explicitly set by user on the channel
@@ -841,6 +868,7 @@ where
     let options = scale.get_options().clone();
     let domain_opt = scale.get_domain().cloned();
     let ordering = scale.get_ordering().cloned();
+    let range_opt = scale.get_range().cloned();
 
     Ok(Some((
         scale_spec,
@@ -849,6 +877,7 @@ where
         has_explicit_domain,
         domain_opt,
         ordering,
+        range_opt,
     )))
 }
 
@@ -1143,6 +1172,7 @@ async fn cache_domain_data<C>(
     options: HashMap<String, datafusion_proto::protobuf::LogicalExprNode>,
     domain_opt: Option<ScaleDomain>,
     ordering: Option<ScaleOrderingSpec>,
+    range_opt: Option<ScaleRange>,
     prepared_marks: &[PreparedScaleMark],
     coord_transform: &C,
     eval_ctx: &CoreEvaluationContext,
@@ -1158,6 +1188,9 @@ where
 {
     let derived_scalars =
         collect_channel_derived_scalars(channel, prepared_marks, coord_transform, ctx)?;
+    if let Some(range) = range_opt {
+        builder.set_explicit_range(channel.to_string(), range);
+    }
 
     // Build a scale with domain and options to inspect domain (including any DomainExprs)
     let mut scale = Scale::<Auto>::from_spec(spec.clone_box());
@@ -1492,7 +1525,7 @@ where
 /// Build temporary ConfiguredScale used to construct radius‑aware positional expressions
 async fn build_temp_configured_scale(
     channel_builder: &ChannelScaleData,
-    channel_name: &str,
+    range_channel_name: &str,
     width: f32,
     height: f32,
     ctx: &SessionContext,
@@ -1526,11 +1559,11 @@ async fn build_temp_configured_scale(
                 None => return Ok(None), // Can't build temp scale if impl creation fails
             };
             let range = if let Some(theme_range) =
-                theme.get_range_for_channel("mark", channel_name, range_kind, None, params)
+                theme.get_range_for_channel("mark", range_channel_name, range_kind, None, params)
             {
                 theme_range
             } else {
-                default_range_for_channel(channel_name, range_kind)
+                default_range_for_channel(range_channel_name, range_kind)
             };
             scale = scale.range(range);
 
@@ -1569,11 +1602,11 @@ async fn build_temp_configured_scale(
                 None => return Ok(None),
             };
             let range = if let Some(theme_range) =
-                theme.get_range_for_channel("mark", channel_name, range_kind, None, params)
+                theme.get_range_for_channel("mark", range_channel_name, range_kind, None, params)
             {
                 theme_range
             } else {
-                default_range_for_channel(channel_name, range_kind)
+                default_range_for_channel(range_channel_name, range_kind)
             };
             scale = scale.range(range);
 
@@ -3123,13 +3156,15 @@ mod tests {
     use crate::{Band, Linear, NestedBand, Point};
     use avenger_chart_core::{
         ChannelDescriptor, ChannelExpr, CompiledDataContext, CompiledMarkCore, CompiledMarkState,
-        MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PlotGeometry, RepeatContext,
-        ResolvedDomain, ResolvedRepeatVariable, ScaleChannelValue, ScaleInferenceHint, ScaleRange,
-        ScaleRangeBinding, ScaleTypePreference, SubplotGeometry, default_scale_type_for_data_type,
-        nested, repeat::column_name, resolve_repeat_channel_expr,
+        ConfiguredScaleLegendExt, CoordinationScope, DomainCoordinationGroup, DomainValues,
+        MarkDataMode, MarkRuntimeContext, NestedBandLevelSpec, PatternChannelValue, PlotGeometry,
+        RepeatContext, ResolvedDomain, ResolvedRepeatVariable, ScaleChannelValue,
+        ScaleInferenceHint, ScaleRange, ScaleRangeBinding, ScaleTypePreference, SubplotGeometry,
+        default_scale_type_for_data_type, nested, repeat::column_name, resolve_repeat_channel_expr,
     };
     use avenger_common::value::ScalarOrArray;
     use avenger_scenegraph::marks::mark::SceneMark;
+    use avenger_scenegraph::marks::pattern::PatternFill;
 
     struct TestCoordTransform;
 
@@ -3357,6 +3392,13 @@ mod tests {
             .collect()
     }
 
+    fn discrete_domain(scale: &ConfiguredScaleWithSpec) -> Vec<ScalarValue> {
+        match scale.domain_values().expect("domain values") {
+            DomainValues::Discrete(values) => values,
+            other => panic!("expected discrete domain, got {other:?}"),
+        }
+    }
+
     fn nested_component_display_label(value: &ScalarValue, field_name: &str) -> String {
         let ScalarValue::Struct(path) = value else {
             panic!("expected nested struct path");
@@ -3538,6 +3580,136 @@ mod tests {
         assert!(names.contains("x"));
         assert!(names.contains("y"));
         assert_eq!(names.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn redundant_fill_and_fill_pattern_domains_share_order() -> Result<(), AvengerChartError>
+    {
+        let ctx = SessionContext::new();
+        let data = df(
+            &ctx,
+            vec!["b", "a", "c", "a", "b"],
+            vec![1.0, 2.0, 3.0, 4.0, 5.0],
+        )?;
+        let mut channels = IndexMap::new();
+        channels.insert("fill".to_string(), ChannelValue::from(col("category")));
+        let pattern_channel = PatternChannelValue::from(col("category"));
+        channels.insert(
+            "fill_pattern".to_string(),
+            pattern_channel
+                .scaled_channel_surrogate()
+                .expect("scaled pattern channel surrogate"),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new()).await?;
+        let fill_domain = discrete_domain(scales.get("fill").expect("fill scale"));
+        let pattern_domain =
+            discrete_domain(scales.get("fill_pattern").expect("fill_pattern scale"));
+
+        assert_eq!(fill_domain, vec![s("a"), s("b"), s("c")]);
+        assert_eq!(pattern_domain, fill_domain);
+        assert!(
+            scales
+                .get("fill_pattern")
+                .and_then(ConfiguredScaleWithSpec::pattern_range)
+                .is_some(),
+            "fill_pattern should keep its structured pattern range"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn separate_fill_and_fill_pattern_expressions_keep_separate_domains()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("category", DataType::Utf8, false),
+            Field::new("pattern_category", DataType::Utf8, false),
+            Field::new("value", DataType::Float64, false),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(StringArray::from(vec!["b", "a", "c", "a", "b"])) as ArrayRef,
+                Arc::new(StringArray::from(vec![
+                    "stripe", "dot", "dash", "dot", "stripe",
+                ])) as ArrayRef,
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0])) as ArrayRef,
+            ],
+        )?;
+        let data = ctx.read_batch(batch)?;
+        let mut channels = IndexMap::new();
+        channels.insert("fill".to_string(), ChannelValue::from(col("category")));
+        let pattern_channel = PatternChannelValue::from(col("pattern_category"));
+        channels.insert(
+            "fill_pattern".to_string(),
+            pattern_channel
+                .scaled_channel_surrogate()
+                .expect("scaled pattern channel surrogate"),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new()).await?;
+        let fill_domain = discrete_domain(scales.get("fill").expect("fill scale"));
+        let pattern_domain =
+            discrete_domain(scales.get("fill_pattern").expect("fill_pattern scale"));
+
+        assert_eq!(fill_domain, vec![s("a"), s("b"), s("c")]);
+        assert_eq!(pattern_domain, vec![s("dash"), s("dot"), s("stripe")]);
+        assert_ne!(pattern_domain, fill_domain);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_pattern_range_infers_ordinal_scale_without_scale_type()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec!["A", "B"], vec![1.0, 2.0])?;
+        let pattern_range = ScaleRange::new_pattern(vec![Some(PatternFill::default()), None]);
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "fill_pattern".to_string(),
+            ChannelValue::from(col("category"))
+                .scale(move |scale| scale.range(pattern_range.clone())),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new()).await?;
+        let scale = scales
+            .get("fill_pattern")
+            .expect("fill_pattern scale should be configured");
+
+        assert_eq!(scale.configured().scale_impl.scale_type(), "ordinal");
+        assert_eq!(scale.pattern_range().expect("pattern range").len(), 2);
+        assert_eq!(discrete_domain(scale), vec![s("A"), s("B")]);
+        Ok(())
+    }
+
+    #[test]
+    fn pattern_channel_surrogate_preserves_domain_group() {
+        let fill_channel = ChannelValue::from(col("category")).with_domain_group("semantic-style");
+        let pattern_channel =
+            PatternChannelValue::from(col("category")).with_domain_group("semantic-style");
+        let surrogate = pattern_channel
+            .scaled_channel_surrogate()
+            .expect("scaled pattern channel surrogate");
+        let coordination = surrogate
+            .get_domain_coordination()
+            .expect("domain coordination");
+
+        assert_eq!(coordination.scope, CoordinationScope::Free.to_normalized());
+        assert_eq!(
+            coordination.group,
+            DomainCoordinationGroup::Named("semantic-style".to_string())
+        );
+        assert_eq!(fill_channel.get_domain_coordination(), Some(coordination));
     }
 
     #[tokio::test]
@@ -4465,6 +4637,7 @@ mod tests {
             HashMap::new(),
             Some(ScaleDomain::new_discrete(vec![lit("B"), lit("A")])),
             Some(ordering),
+            None,
             &[],
             &coord_transform,
             &eval_ctx(&ctx),
@@ -4525,6 +4698,7 @@ mod tests {
                 Arc::new(data),
                 nested_expr,
             )])),
+            None,
             None,
             &[],
             &coord_transform,
@@ -5090,6 +5264,7 @@ mod tests {
             HashMap::new(),
             None,
             Some(ordering),
+            None,
             &[],
             &coord_transform,
             &eval_ctx(&ctx),

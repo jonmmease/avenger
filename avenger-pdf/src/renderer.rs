@@ -11,6 +11,7 @@ use avenger_scenegraph::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
+        pattern::{PatternFill, PatternReferenceFrame},
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -20,6 +21,9 @@ use avenger_scenegraph::{
             TextLeaderGeometryInput, TextLeaderPath,
         },
         trail::SceneTrailMark,
+    },
+    pattern_geometry::{
+        build_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
     },
     render_order::{SceneDisplayList, SceneDisplayMark},
     scene_graph::SceneGraph,
@@ -158,6 +162,7 @@ impl PdfRenderer {
         font_cache: &mut PdfFontCache,
     ) -> Result<(), AvengerPdfError> {
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        let chart_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
 
         for item in display_list.ordered_items() {
             let clip_path = clip_to_krilla_path(&item.clip)?;
@@ -166,12 +171,22 @@ impl PdfRenderer {
             }
 
             let result = match &item.mark {
-                SceneDisplayMark::OwnedGroupPath(mark) => {
-                    self.draw_path_mark(surface, mark, item.origin)
-                }
-                SceneDisplayMark::Borrowed(mark) => {
-                    self.draw_scene_mark(surface, mark, item.origin, text_engine, font_cache)
-                }
+                SceneDisplayMark::OwnedGroupPath(mark) => self.draw_path_mark(
+                    surface,
+                    mark,
+                    item.origin,
+                    item.pattern_reference_frame.as_ref(),
+                    chart_bounds,
+                ),
+                SceneDisplayMark::Borrowed(mark) => self.draw_scene_mark(
+                    surface,
+                    mark,
+                    item.origin,
+                    item.pattern_reference_frame.as_ref(),
+                    chart_bounds,
+                    text_engine,
+                    font_cache,
+                ),
             };
 
             if clip_path.is_some() {
@@ -189,17 +204,29 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneMark,
         origin: [f32; 2],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
         text_engine: &TextEngine,
         font_cache: &mut PdfFontCache,
     ) -> Result<(), AvengerPdfError> {
         match mark {
-            SceneMark::Rect(mark) => self.draw_rect_mark(surface, mark, origin),
-            SceneMark::Path(mark) => self.draw_path_mark(surface, mark, origin),
+            SceneMark::Rect(mark) => {
+                self.draw_rect_mark(surface, mark, origin, pattern_reference_frame, chart_bounds)
+            }
+            SceneMark::Path(mark) => {
+                self.draw_path_mark(surface, mark, origin, pattern_reference_frame, chart_bounds)
+            }
             SceneMark::Rule(mark) => self.draw_rule_mark(surface, mark, origin),
             SceneMark::Line(mark) => self.draw_line_mark(surface, mark, origin),
-            SceneMark::Area(mark) => self.draw_area_mark(surface, mark, origin),
-            SceneMark::Symbol(mark) => self.draw_symbol_mark(surface, mark, origin),
-            SceneMark::Arc(mark) => self.draw_arc_mark(surface, mark, origin),
+            SceneMark::Area(mark) => {
+                self.draw_area_mark(surface, mark, origin, pattern_reference_frame, chart_bounds)
+            }
+            SceneMark::Symbol(mark) => {
+                self.draw_symbol_mark(surface, mark, origin, pattern_reference_frame, chart_bounds)
+            }
+            SceneMark::Arc(mark) => {
+                self.draw_arc_mark(surface, mark, origin, pattern_reference_frame, chart_bounds)
+            }
             SceneMark::Trail(mark) => self.draw_trail_mark(surface, mark, origin),
             SceneMark::Image(mark) => self.draw_image_mark(surface, mark, origin),
             SceneMark::Text(mark) => {
@@ -214,18 +241,23 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneRectMark,
         origin: [f32; 2],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerPdfError> {
-        for (path, fill, stroke, stroke_width) in izip!(
+        for (path, fill, fill_pattern, stroke, stroke_width) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter()
         ) {
-            self.draw_path_with_style(
+            self.draw_filled_path_with_optional_pattern(
                 surface,
                 &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
                     stroke_cap: None,
@@ -235,6 +267,8 @@ impl PdfRenderer {
                     stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -246,17 +280,22 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &ScenePathMark,
         origin: [f32; 2],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerPdfError> {
-        for (path, fill, stroke) in izip!(
+        for (path, fill, fill_pattern, stroke) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter()
         ) {
-            self.draw_path_with_style(
+            self.draw_filled_path_with_optional_pattern(
                 surface,
                 &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
                     stroke_cap: Some(mark.stroke_cap),
@@ -266,6 +305,8 @@ impl PdfRenderer {
                     stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -277,17 +318,22 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneSymbolMark,
         origin: [f32; 2],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerPdfError> {
-        for (path, fill, stroke) in izip!(
+        for (path, fill, fill_pattern, stroke) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter()
         ) {
-            self.draw_path_with_style(
+            self.draw_filled_path_with_optional_pattern(
                 surface,
                 &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: mark.stroke_width,
                     stroke_cap: None,
@@ -297,6 +343,8 @@ impl PdfRenderer {
                     stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -308,18 +356,23 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneArcMark,
         origin: [f32; 2],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerPdfError> {
-        for (path, fill, stroke, stroke_width) in izip!(
+        for (path, fill, fill_pattern, stroke, stroke_width) in izip!(
             mark.transformed_path_iter(origin),
             mark.fill_iter(),
+            mark.fill_pattern_iter(),
             mark.stroke_iter(),
             mark.stroke_width_iter()
         ) {
-            self.draw_path_with_style(
+            self.draw_filled_path_with_optional_pattern(
                 surface,
                 &path,
+                fill,
+                fill_pattern.as_ref(),
                 PathStyle {
-                    fill: Some(fill),
+                    fill: None,
                     stroke: Some(stroke),
                     stroke_width: Some(*stroke_width),
                     stroke_cap: None,
@@ -329,6 +382,8 @@ impl PdfRenderer {
                     stroke_miter_limit: None,
                     gradients: &mark.gradients,
                 },
+                pattern_reference_frame,
+                chart_bounds,
             )?;
         }
 
@@ -340,12 +395,16 @@ impl PdfRenderer {
         surface: &mut Surface<'_>,
         mark: &SceneAreaMark,
         origin: [f32; 2],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
     ) -> Result<(), AvengerPdfError> {
-        self.draw_path_with_style(
+        self.draw_filled_path_with_optional_pattern(
             surface,
             &mark.transformed_path(origin),
+            &mark.fill,
+            mark.fill_pattern.as_ref(),
             PathStyle {
-                fill: Some(&mark.fill),
+                fill: None,
                 stroke: Some(&mark.stroke),
                 stroke_width: Some(mark.stroke_width),
                 stroke_cap: Some(mark.stroke_cap),
@@ -355,6 +414,8 @@ impl PdfRenderer {
                 stroke_miter_limit: None,
                 gradients: &mark.gradients,
             },
+            pattern_reference_frame,
+            chart_bounds,
         )
     }
 
@@ -826,6 +887,116 @@ impl PdfRenderer {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn draw_filled_path_with_optional_pattern(
+        &self,
+        surface: &mut Surface<'_>,
+        path: &LyonPath,
+        fill: &ColorOrGradient,
+        fill_pattern: Option<&PatternFill>,
+        stroke_style: PathStyle<'_>,
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
+    ) -> Result<(), AvengerPdfError> {
+        let Some(fill_pattern) = fill_pattern else {
+            return self.draw_path_with_style(
+                surface,
+                path,
+                PathStyle {
+                    fill: Some(fill),
+                    ..stroke_style
+                },
+            );
+        };
+
+        self.draw_path_with_style(
+            surface,
+            path,
+            PathStyle {
+                fill: Some(fill),
+                stroke: None,
+                stroke_width: None,
+                stroke_cap: None,
+                stroke_join: None,
+                stroke_dash: None,
+                stroke_dash_offset: 0.0,
+                stroke_miter_limit: None,
+                gradients: stroke_style.gradients,
+            },
+        )?;
+
+        self.draw_pattern_overlay(
+            surface,
+            path,
+            fill,
+            fill_pattern,
+            stroke_style.gradients,
+            pattern_reference_frame,
+            chart_bounds,
+        )?;
+
+        self.draw_path_with_style(
+            surface,
+            path,
+            PathStyle {
+                fill: None,
+                ..stroke_style
+            },
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_pattern_overlay(
+        &self,
+        surface: &mut Surface<'_>,
+        host_path: &LyonPath,
+        host_fill: &ColorOrGradient,
+        fill_pattern: &PatternFill,
+        gradients: &[Gradient],
+        pattern_reference_frame: Option<&PatternReferenceFrame>,
+        chart_bounds: PatternRect,
+    ) -> Result<(), AvengerPdfError> {
+        let Some(host_clip_path) = lyon_path_to_krilla(host_path) else {
+            return Ok(());
+        };
+
+        let bbox = bounding_box(host_path);
+        let host_bounds = PatternRect::new(
+            bbox.min.x,
+            bbox.min.y,
+            bbox.max.x - bbox.min.x,
+            bbox.max.y - bbox.min.y,
+        );
+        let plot_bounds = pattern_reference_frame
+            .map(|frame| PatternRect::new(frame.x, frame.y, frame.width, frame.height));
+        let pattern_context = PatternRenderContext {
+            chart_bounds,
+            plot_bounds,
+            host_bounds,
+            host_fill,
+            gradients,
+        };
+        let Some(geometry) = build_pattern_geometry(fill_pattern, &pattern_context)
+            .map_err(pattern_geometry_error_to_pdf_error)?
+        else {
+            return Ok(());
+        };
+
+        let Some(fill) = color_fill(geometry.ink) else {
+            return Ok(());
+        };
+        let Some(coverage_path) = lyon_path_to_krilla(&geometry.coverage_path) else {
+            return Ok(());
+        };
+
+        surface.push_clip_path(&host_clip_path, &FillRule::NonZero);
+        surface.set_fill(Some(fill));
+        surface.set_stroke(None);
+        surface.draw_path(&coverage_path);
+        surface.pop();
+        Ok(())
+    }
+
     fn draw_path_with_style(
         &self,
         surface: &mut Surface<'_>,
@@ -873,6 +1044,18 @@ fn color_channel(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
 
+fn pattern_geometry_error_to_pdf_error(error: PatternGeometryError) -> AvengerPdfError {
+    match error {
+        PatternGeometryError::InvalidPattern => {
+            AvengerPdfError::InvalidGeometry("invalid pattern fill".to_string())
+        }
+        PatternGeometryError::MissingPlotReferenceFrame => AvengerPdfError::InvalidGeometry(
+            "pattern plot anchor requires an active pattern reference frame".to_string(),
+        ),
+    }
+}
+
+#[derive(Clone, Copy)]
 struct PathStyle<'a> {
     fill: Option<&'a ColorOrGradient>,
     stroke: Option<&'a ColorOrGradient>,
@@ -1628,6 +1811,10 @@ mod tests {
     use avenger_scenegraph::marks::{
         group::{Clip, SceneGroup},
         image::{SceneImageMark, SceneImageSource},
+        pattern::{
+            PatternAnchor, PatternFill, PatternInk, PatternLayer, PatternReferenceFrame,
+            PatternSymbol, StripePatternLayer, SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
+        },
         rect::SceneRectMark,
         text::SceneTextMark,
         trail::SceneTrailMark,
@@ -1787,6 +1974,153 @@ mod tests {
                 fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([1.0, 0.0, 0.0, 0.8])),
                 stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
                 stroke_width: ScalarOrArray::new_scalar(2.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.len() > 1000);
+    }
+
+    #[test]
+    fn renders_rect_fill_pattern_overlay() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            ink: PatternInk::Solid {
+                color: [0.0, 0.0, 0.0, 1.0],
+                opacity: 0.25,
+            },
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.0, 0.0, 0.0, 1.0])),
+                stroke_width: ScalarOrArray::new_scalar(1.0),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.len() > 1000);
+    }
+
+    #[test]
+    fn plot_anchored_fill_pattern_requires_reference_frame() {
+        let pattern = PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let err = PdfRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .unwrap_err();
+
+        assert!(matches!(err, AvengerPdfError::InvalidGeometry(_)));
+        assert!(err.to_string().contains("pattern plot anchor"));
+    }
+
+    #[test]
+    fn plot_anchored_fill_pattern_uses_group_reference_frame() {
+        let pattern = PatternFill {
+            layers: vec![PatternLayer::Stripe(StripePatternLayer::new(0.0, 8.0, 2.0))],
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneGroup {
+                pattern_reference_frame: Some(PatternReferenceFrame {
+                    x: 4.0,
+                    y: 4.0,
+                    width: 24.0,
+                    height: 16.0,
+                }),
+                marks: vec![SceneRectMark {
+                    len: 1,
+                    x: ScalarOrArray::new_scalar(4.0),
+                    y: ScalarOrArray::new_scalar(4.0),
+                    width: Some(ScalarOrArray::new_scalar(24.0)),
+                    height: Some(ScalarOrArray::new_scalar(16.0)),
+                    fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
+                    ..Default::default()
+                }
+                .into()],
+                ..Default::default()
+            }
+            .into()],
+        };
+
+        let pdf = PdfRenderer::new().render_scene_graph(&scene_graph).unwrap();
+
+        assert!(pdf.starts_with(b"%PDF-"));
+        assert!(pdf.len() > 1000);
+    }
+
+    #[test]
+    fn renders_symbol_pattern_layer_overlay() {
+        let pattern = PatternFill {
+            anchor: PatternAnchor::Mark,
+            layers: vec![PatternLayer::Symbol(SymbolPatternLayer {
+                lattice: SymbolLattice2d {
+                    u_spacing: 8.0,
+                    u_angle: 0.0,
+                    v_spacing: 8.0,
+                    v_angle: 90.0,
+                    u_phase: 0.0,
+                    v_phase: 0.0,
+                },
+                symbol: PatternSymbol {
+                    shape: "circle".to_string(),
+                    size: 4.0,
+                    rotation: 0.0,
+                },
+                paint: SymbolPaint::Filled,
+            })],
+            ..Default::default()
+        };
+        let scene_graph = SceneGraph {
+            width: 40.0,
+            height: 30.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneRectMark {
+                len: 1,
+                x: ScalarOrArray::new_scalar(4.0),
+                y: ScalarOrArray::new_scalar(4.0),
+                width: Some(ScalarOrArray::new_scalar(24.0)),
+                height: Some(ScalarOrArray::new_scalar(16.0)),
+                fill_pattern: ScalarOrArray::new_scalar(Some(pattern)),
                 ..Default::default()
             }
             .into()],

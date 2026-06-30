@@ -6,6 +6,7 @@ use crate::{
         line::SceneLineMark,
         mark::SceneMark,
         path::ScenePathMark,
+        pattern::PatternReferenceFrame,
         rect::SceneRectMark,
         rule::SceneRuleMark,
         symbol::SceneSymbolMark,
@@ -30,6 +31,7 @@ pub struct SceneDisplayItem<'a> {
     pub zindex: i32,
     pub origin: [f32; 2],
     pub clip: Clip,
+    pub pattern_reference_frame: Option<PatternReferenceFrame>,
     pub mark_path: Vec<usize>,
 }
 
@@ -50,7 +52,7 @@ impl<'a> SceneDisplayList<'a> {
         };
 
         for (index, mark) in scene_graph.children().iter().enumerate() {
-            list.push_mark(mark, scene_graph.origin, &Clip::None, 0, vec![index]);
+            list.push_mark(mark, scene_graph.origin, &Clip::None, None, 0, vec![index]);
         }
 
         list
@@ -86,12 +88,20 @@ impl<'a> SceneDisplayList<'a> {
         mark: &'a SceneMark,
         parent_origin: [f32; 2],
         parent_clip: &Clip,
+        parent_pattern_reference_frame: Option<&PatternReferenceFrame>,
         parent_zindex: i32,
         mark_path: Vec<usize>,
     ) {
         match mark {
             SceneMark::Group(group) => {
-                self.push_group(group, parent_origin, parent_clip, parent_zindex, mark_path);
+                self.push_group(
+                    group,
+                    parent_origin,
+                    parent_clip,
+                    parent_pattern_reference_frame,
+                    parent_zindex,
+                    mark_path,
+                );
             }
             _ => {
                 let zindex = mark.zindex().unwrap_or(parent_zindex);
@@ -100,6 +110,7 @@ impl<'a> SceneDisplayList<'a> {
                     zindex,
                     origin: parent_origin,
                     clip: parent_clip.maybe_clip(mark_clip_enabled(mark)),
+                    pattern_reference_frame: parent_pattern_reference_frame.cloned(),
                     mark_path,
                 });
             }
@@ -111,10 +122,20 @@ impl<'a> SceneDisplayList<'a> {
         group: &'a SceneGroup,
         parent_origin: [f32; 2],
         parent_clip: &Clip,
+        parent_pattern_reference_frame: Option<&PatternReferenceFrame>,
         parent_zindex: i32,
         mark_path: Vec<usize>,
     ) {
         let group_zindex = group.zindex.unwrap_or(parent_zindex);
+        let origin = [
+            parent_origin[0] + group.origin[0],
+            parent_origin[1] + group.origin[1],
+        ];
+        let pattern_reference_frame = group
+            .pattern_reference_frame
+            .as_ref()
+            .map(|frame| frame.translated(origin[0], origin[1]))
+            .or_else(|| parent_pattern_reference_frame.cloned());
 
         if let Some(path_mark) = group.make_path_mark() {
             self.items.push(SceneDisplayItem {
@@ -122,14 +143,10 @@ impl<'a> SceneDisplayList<'a> {
                 zindex: group_zindex,
                 origin: parent_origin,
                 clip: Clip::None,
+                pattern_reference_frame: pattern_reference_frame.clone(),
                 mark_path: mark_path.clone(),
             });
         }
-
-        let origin = [
-            parent_origin[0] + group.origin[0],
-            parent_origin[1] + group.origin[1],
-        ];
 
         let clip = if matches!(&group.clip, Clip::None) {
             parent_clip.clone()
@@ -140,7 +157,14 @@ impl<'a> SceneDisplayList<'a> {
         for (index, mark) in group.marks.iter().enumerate() {
             let mut child_path = mark_path.clone();
             child_path.push(index);
-            self.push_mark(mark, origin, &clip, group_zindex, child_path);
+            self.push_mark(
+                mark,
+                origin,
+                &clip,
+                pattern_reference_frame.as_ref(),
+                group_zindex,
+                child_path,
+            );
         }
     }
 }
@@ -457,6 +481,47 @@ mod tests {
                 width: 5.0,
                 height: 6.0,
             }
+        );
+    }
+
+    #[test]
+    fn display_list_inherits_pattern_reference_frame() {
+        let reference_frame = PatternReferenceFrame {
+            x: 10.0,
+            y: 20.0,
+            width: 30.0,
+            height: 40.0,
+        };
+        let graph = scene_graph(vec![group(
+            "outer",
+            [5.0, 7.0],
+            Clip::None,
+            None,
+            vec![group(
+                "inner",
+                [2.0, 3.0],
+                Clip::None,
+                None,
+                vec![rect("child", None, true)],
+            )],
+        )]);
+        let SceneMark::Group(mut outer) = graph.marks[0].clone() else {
+            panic!("expected group");
+        };
+        outer.pattern_reference_frame = Some(reference_frame.clone());
+        let graph = scene_graph(vec![outer.into()]);
+
+        let list = SceneDisplayList::from_scene_graph(&graph);
+
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(
+            list.items[0].pattern_reference_frame,
+            Some(PatternReferenceFrame {
+                x: 25.0,
+                y: 47.0,
+                width: reference_frame.width,
+                height: reference_frame.height,
+            })
         );
     }
 

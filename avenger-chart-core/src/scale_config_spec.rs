@@ -169,6 +169,6 @@ fn scale_range_exprs(range: &ScaleRange, ctx: &SessionContext) -> Vec<Expr> {
             .into_iter()
             .filter_map(|node| node.to_default_expr(ctx).ok())
             .collect(),
-        ScaleRange::Discrete(_) | ScaleRange::Color(_) => Vec::new(),
+        ScaleRange::Discrete(_) | ScaleRange::Color(_) | ScaleRange::Pattern(_) => Vec::new(),
     }
 }
