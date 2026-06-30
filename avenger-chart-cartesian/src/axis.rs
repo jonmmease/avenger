@@ -161,6 +161,10 @@ impl CartesianAxis {
         self
     }
 
+    pub fn tick_label(self, label: impl IntoExpr) -> Self {
+        self.format(label)
+    }
+
     pub fn title_font_family(mut self, font: impl IntoExpr) -> Self {
         let expr = font.into_expr();
         self.title_font_family = Maybe::Set(Some(
