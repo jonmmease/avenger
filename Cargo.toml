@@ -5,6 +5,7 @@ members = [
     "avenger-wgpu",
     "avenger-scales",
     "avenger-format-number",
+    "avenger-format-datetime",
     "avenger-color",
     "avenger-guides",
     "avenger-common",
