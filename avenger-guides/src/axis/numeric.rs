@@ -547,6 +547,40 @@ mod tests {
     }
 
     #[test]
+    fn datefmt_tick_fragment_uses_configured_locale_specs() {
+        let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
+        let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0));
+        let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
+        let mut datetime_locale_specs = avenger_text::DateTimeLocaleSpecs::default();
+        datetime_locale_specs.insert(
+            "tick-date".to_string(),
+            avenger_text::DateTimeLocaleSpec {
+                date_patterns: Some(avenger_text::LengthsSpec {
+                    long: Some("y'~'MM'~'dd".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                tick_label: Some("#datefmt(value, \"{date:long}\")".to_string()),
+                datetime_locale: Some("tick-date".to_string()),
+                datetime_locale_specs,
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["2024~01~05"]);
+    }
+
+    #[test]
     fn datefmt_tick_fragment_does_not_shift_naive_timestamps() {
         let start = Arc::new(TimestampMillisecondArray::from(vec![1_704_067_200_000])) as ArrayRef;
         let end = Arc::new(TimestampMillisecondArray::from(vec![1_704_070_800_000])) as ArrayRef;
@@ -967,7 +1001,7 @@ pub(crate) fn make_tick_label_text(
             return format_numfmt_tick_fragment(template, &nums, format_env.context());
         }
         if let Some(values) = temporal_tick_values(ticks)? {
-            let format_env = DateTimeFormatEnvironment::from_scale(scale)?;
+            let format_env = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
             return format_datefmt_tick_fragment(template, &values, format_env.context());
         }
         return Err(AvengerGuidesError::InvalidAxisLabelFormat(
@@ -985,7 +1019,7 @@ pub(crate) fn make_tick_label_text(
     if !ticks.data_type().is_numeric() {
         if pattern.contains("#datefmt") {
             if let Some(values) = temporal_tick_values(ticks)? {
-                let format_env = DateTimeFormatEnvironment::from_scale(scale)?;
+                let format_env = DateTimeFormatEnvironment::from_axis_config(config, scale)?;
                 return format_datefmt_tick_fragment(pattern, &values, format_env.context());
             }
         }
@@ -1042,13 +1076,39 @@ struct DateTimeFormatEnvironment {
 }
 
 impl DateTimeFormatEnvironment {
-    fn from_scale(scale: &ConfiguredScale) -> Result<Self, AvengerGuidesError> {
-        let registry = Arc::new(DateTimeLocaleRegistry::with_builtins());
-        let locale_id = scale.option_string("locale", "en-US");
+    fn from_axis_config(
+        config: &AxisConfig,
+        scale: &ConfiguredScale,
+    ) -> Result<Self, AvengerGuidesError> {
+        let registry = if let Some(registry) = &config.datetime_locale_registry {
+            registry.clone()
+        } else {
+            avenger_text::datetime_locale_registry_from_specs(Some(&config.datetime_locale_specs))
+                .map_err(AvengerGuidesError::InvalidAxisLabelFormat)?
+                .unwrap_or_else(|| Arc::new(DateTimeLocaleRegistry::with_builtins()))
+        };
+        let scale_locale = scale.option_string("locale", "en-US");
+        let locale_id = if scale_locale == "en-US" {
+            config
+                .datetime_locale
+                .clone()
+                .unwrap_or_else(|| scale_locale.clone())
+        } else {
+            scale_locale
+        };
         let locale = registry
             .resolve(&locale_id)
             .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-        let timezone = parse_datetime_timezone(&scale.option_string("timezone", "UTC"))
+        let scale_timezone = scale.option_string("timezone", "UTC");
+        let timezone_id = if scale_timezone == "UTC" {
+            config
+                .datetime_timezone
+                .clone()
+                .unwrap_or_else(|| scale_timezone.clone())
+        } else {
+            scale_timezone
+        };
+        let timezone = parse_datetime_timezone(&timezone_id)
             .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
         Ok(Self {
             registry,
