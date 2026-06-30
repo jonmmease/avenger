@@ -1411,8 +1411,8 @@ mod tests {
         let values = vec![Some(1234.0), Some(0.00123), None, Some(0.0)];
         let result = formatter.format(&values, Some("--"));
 
-        // format_num correctly produces scientific notation
-        assert_eq!(result, vec!["1.23e+03", "1.23e-03", "--", "0.00e+00"]);
+        // The shared formatter follows d3 exponent spelling without zero-padded exponents.
+        assert_eq!(result, vec!["1.23e+3", "1.23e-3", "--", "0.00e+0"]);
     }
 
     #[test]

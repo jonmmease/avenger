@@ -6,6 +6,9 @@ use arrow::{
     datatypes::{DataType, Date32Type, Float32Type, TimeUnit, TimestampMillisecondType},
 };
 use avenger_common::value::ScalarOrArray;
+use avenger_format_number::{
+    format_number, NumberFormatContext, NumberFormatOverrides, ResolvedNumberLocale,
+};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use chrono_tz::Tz;
 
@@ -38,14 +41,21 @@ impl NumberFormatter for DefaultFormatter {
     fn format(&self, value: &[Option<f32>], default: Option<&str>) -> Vec<String> {
         let default = default.unwrap_or("");
         if let Some(format_str) = &self.format_str {
-            // Use format_num for d3-style formatting
+            let locale = ResolvedNumberLocale::en_us();
+            let context = NumberFormatContext::new(&locale);
             let formatter = NumberFormat::new();
             value
                 .iter()
                 .map(|&v| {
                     v.map(|v| {
-                        // Use format_num for d3-style formatting
-                        formatter.format(format_str, v)
+                        format_number(
+                            v as f64,
+                            Some(format_str),
+                            NumberFormatOverrides::default(),
+                            context,
+                        )
+                        .map(|formatted| formatted.text)
+                        .unwrap_or_else(|_| formatter.format(format_str, v))
                     })
                     .unwrap_or_else(|| default.to_string())
                 })
