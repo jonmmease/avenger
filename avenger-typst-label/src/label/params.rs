@@ -96,6 +96,10 @@ fn collect_static_call(
     let Some(name) = code_expr_name(call.callee()) else {
         return Err(unsupported(range.start, "unsupported static text command"));
     };
+    if name == "numfmt" {
+        collect_numfmt_call(call, names);
+        return Ok(());
+    }
     let Some(kind) = text_span_kind(&name) else {
         return Err(unsupported(range.start, "unsupported static text command"));
     };
@@ -132,6 +136,16 @@ fn collect_static_call(
         }
     }
     Ok(())
+}
+
+fn collect_numfmt_call(call: typst_ast::FuncCall<'_>, names: &mut IndexSet<String>) {
+    for arg in call.args().items() {
+        match arg {
+            typst_ast::Arg::Pos(expr) => collect_unknown_code_idents(expr, names),
+            typst_ast::Arg::Named(named) => collect_unknown_code_idents(named.expr(), names),
+            typst_ast::Arg::Spread(spread) => collect_unknown_code_idents(spread.expr(), names),
+        }
+    }
 }
 
 fn collect_math_source(
@@ -433,5 +447,14 @@ mod tests {
         )
         .unwrap();
         assert!(names.is_empty());
+    }
+
+    #[test]
+    fn extracts_numfmt_params() {
+        let names = referenced_params(
+            "Peak #numfmt(value, \".3f\", precision: precision, currency: currency_code)",
+        )
+        .unwrap();
+        assert_eq!(names, vec!["value", "precision", "currency_code"]);
     }
 }

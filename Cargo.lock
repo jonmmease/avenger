@@ -1253,6 +1253,7 @@ dependencies = [
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
+ "avenger-format-number",
  "brotli",
  "ecow",
  "fontdb",

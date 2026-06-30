@@ -29,6 +29,7 @@ path = "src/bin/upstream_typst_math_svg_probe.rs"
 required-features = ["upstream-typst-probe"]
 
 [dependencies]
+avenger-format-number = { path = "../avenger-format-number" }
 thiserror = { workspace = true }
 serde = { workspace = true }
 fontdb = { workspace = true }

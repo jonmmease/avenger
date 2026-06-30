@@ -1,8 +1,13 @@
 use std::ops::Range;
 
+use avenger_format_number::{
+    CurrencyDisplay, DigitSpec, FormatType, NumberFormatContext, NumberFormatOverrides,
+    NumberLocaleRegistry, NumberTypesetting, SignPolicy, Symbol, format_number,
+};
+
 use crate::label::LabelError;
 use crate::typst_eval::delimiter::{DelimiterDisplayHint, DelimiterInfo};
-use crate::typst_library::foundations::Scope;
+use crate::typst_library::foundations::{Scope, Value};
 use crate::typst_library::symbols::{named_emoji, named_symbol};
 use crate::typst_library::text::call::{parse_text_markup_option, text_span_kind};
 use crate::typst_library::text::content::{
@@ -159,6 +164,9 @@ fn lower_static_call(
     let Some(name) = code_expr_name(call.callee()) else {
         return Err(unsupported(range.start, "unsupported static text command"));
     };
+    if name == "numfmt" {
+        return lower_numfmt_call(call, source, params, nodes, range);
+    }
     let Some(kind) = text_span_kind(&name) else {
         return Err(unsupported(range.start, "unsupported static text command"));
     };
@@ -231,6 +239,273 @@ fn lower_static_call(
         body_range,
     }));
     Ok(())
+}
+
+fn lower_numfmt_call(
+    call: typst_ast::FuncCall<'_>,
+    _source: &str,
+    params: &Scope,
+    nodes: &mut Vec<LineNode>,
+    range: Range<usize>,
+) -> Result<(), LabelError> {
+    let mut value = None;
+    let mut spec = None;
+    let mut overrides = NumberFormatOverrides::default();
+
+    for arg in call.args().items() {
+        match arg {
+            typst_ast::Arg::Pos(expr) => {
+                if value.is_none() {
+                    value = Some(parse_numfmt_number(expr, params, range.start)?);
+                } else if spec.is_none() {
+                    spec = Some(parse_numfmt_string(expr, params, range.start)?);
+                } else {
+                    return Err(unsupported(
+                        range.start,
+                        "numfmt expects value and format string",
+                    ));
+                }
+            }
+            typst_ast::Arg::Named(named) => {
+                parse_numfmt_named_arg(named, params, &mut overrides)?;
+            }
+            typst_ast::Arg::Spread(_) => {
+                return Err(unsupported(
+                    range.start,
+                    "numfmt does not support spread arguments",
+                ));
+            }
+        }
+    }
+
+    let Some(value) = value else {
+        return Err(unsupported(range.start, "numfmt expects a value argument"));
+    };
+    let spec = spec.unwrap_or_default();
+    let registry = NumberLocaleRegistry::with_builtins();
+    let locale = registry
+        .resolve("en-US")
+        .map_err(|err| numfmt_engine_error(range.clone(), err.to_string()))?;
+    let formatted = format_number(
+        value,
+        Some(&spec),
+        overrides,
+        NumberFormatContext::new(&locale).with_registry(&registry),
+    )
+    .map_err(|err| numfmt_engine_error(range.clone(), err.to_string()))?;
+
+    match formatted.typesetting {
+        NumberTypesetting::Plain => push_plain(nodes, &formatted.text, range),
+        NumberTypesetting::Exponent {
+            mantissa, exponent, ..
+        } => {
+            let source = format!("{mantissa} times 10^({exponent})");
+            nodes.push(LineNode::Math(MathSpan {
+                source,
+                source_range: range.clone(),
+                delimiter: DelimiterInfo {
+                    opening_range: range.start..range.start,
+                    closing_range: range.end..range.end,
+                    full_range: range,
+                    display_hint: DelimiterDisplayHint::Inline,
+                },
+            }));
+        }
+    }
+    Ok(())
+}
+
+fn parse_numfmt_named_arg(
+    named: typst_ast::Named<'_>,
+    params: &Scope,
+    overrides: &mut NumberFormatOverrides,
+) -> Result<(), LabelError> {
+    let position = named.name().to_untyped().range().start;
+    match named.name().as_str() {
+        "style" | "type" => {
+            let value = parse_numfmt_string(named.expr(), params, position)?;
+            let mut chars = value.chars();
+            let Some(ch) = chars.next() else {
+                return Err(unsupported(position, "unsupported numfmt style"));
+            };
+            if chars.next().is_some() {
+                return Err(unsupported(position, "unsupported numfmt style"));
+            }
+            overrides.format_type = FormatType::from_char(ch);
+            if overrides.format_type.is_none() {
+                return Err(unsupported(position, "unsupported numfmt style"));
+            }
+        }
+        "precision" => {
+            overrides.digit_spec = Some(DigitSpec::Precision(parse_numfmt_u8(
+                named.expr(),
+                params,
+                position,
+                "unsupported numfmt precision",
+            )?));
+        }
+        "fraction_digits" => {
+            overrides.digit_spec = Some(DigitSpec::Fraction(parse_numfmt_u8(
+                named.expr(),
+                params,
+                position,
+                "unsupported numfmt fraction_digits",
+            )?));
+        }
+        "significant_digits" => {
+            overrides.digit_spec = Some(DigitSpec::Significant(parse_numfmt_u8(
+                named.expr(),
+                params,
+                position,
+                "unsupported numfmt significant_digits",
+            )?));
+        }
+        "group" => {
+            overrides.group = Some(parse_numfmt_bool(named.expr(), params, position)?);
+        }
+        "trim" => {
+            overrides.trim = Some(parse_numfmt_bool(named.expr(), params, position)?);
+        }
+        "zero" => {
+            overrides.zero = Some(parse_numfmt_bool(named.expr(), params, position)?);
+        }
+        "currency" => {
+            overrides.currency = Some(parse_numfmt_string(named.expr(), params, position)?);
+        }
+        "currency_display" => {
+            let display = parse_numfmt_string(named.expr(), params, position)?;
+            overrides.currency_display = Some(match display.as_str() {
+                "symbol" => CurrencyDisplay::Symbol,
+                "code" => CurrencyDisplay::Code,
+                "name" => CurrencyDisplay::Name,
+                "narrow-symbol" | "narrow_symbol" => CurrencyDisplay::NarrowSymbol,
+                _ => return Err(unsupported(position, "unsupported numfmt currency_display")),
+            });
+        }
+        "sign" => {
+            let value = parse_numfmt_string(named.expr(), params, position)?;
+            let mut chars = value.chars();
+            let Some(ch) = chars.next() else {
+                return Err(unsupported(position, "unsupported numfmt sign"));
+            };
+            if chars.next().is_some() {
+                return Err(unsupported(position, "unsupported numfmt sign"));
+            }
+            overrides.sign = SignPolicy::from_char(ch);
+            if overrides.sign.is_none() {
+                return Err(unsupported(position, "unsupported numfmt sign"));
+            }
+        }
+        "symbol" => {
+            let value = parse_numfmt_string(named.expr(), params, position)?;
+            overrides.symbol = Some(match value.as_str() {
+                "$" => Some(Symbol::CurrencyCompat),
+                "#" => Some(Symbol::Alternate),
+                "none" => None,
+                _ => return Err(unsupported(position, "unsupported numfmt symbol")),
+            });
+        }
+        _ => return Err(unsupported(position, "unsupported numfmt option")),
+    }
+    Ok(())
+}
+
+fn parse_numfmt_number(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<f64, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return match value {
+            Value::Int(value) => Ok(*value as f64),
+            Value::Float(value) if value.is_finite() => Ok(*value),
+            _ => Err(unsupported(position, "numfmt value must be numeric")),
+        };
+    }
+    match expr {
+        typst_ast::Expr::Int(value) => Ok(value.get() as f64),
+        typst_ast::Expr::Float(value) => Ok(value.get()),
+        typst_ast::Expr::Unary(unary) => {
+            let sign = match unary.op() {
+                typst_ast::UnOp::Pos => 1.0,
+                typst_ast::UnOp::Neg => -1.0,
+                typst_ast::UnOp::Not => {
+                    return Err(unsupported(position, "numfmt value must be numeric"));
+                }
+            };
+            parse_numfmt_number(unary.expr(), params, position).map(|value| sign * value)
+        }
+        _ => Err(unsupported(position, "numfmt value must be numeric")),
+    }
+}
+
+fn parse_numfmt_string(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<String, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return match value {
+            Value::Str(value) => Ok(value.clone()),
+            _ => Err(unsupported(position, "numfmt argument must be a string")),
+        };
+    }
+    match expr {
+        typst_ast::Expr::Str(value) => Ok(value.get().to_string()),
+        _ => Err(unsupported(position, "numfmt argument must be a string")),
+    }
+}
+
+fn parse_numfmt_bool(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<bool, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return match value {
+            Value::Bool(value) => Ok(*value),
+            _ => Err(unsupported(position, "numfmt argument must be a boolean")),
+        };
+    }
+    match expr {
+        typst_ast::Expr::Bool(value) => Ok(value.get()),
+        _ => Err(unsupported(position, "numfmt argument must be a boolean")),
+    }
+}
+
+fn parse_numfmt_u8(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+    message: &'static str,
+) -> Result<u8, LabelError> {
+    let value = if let Some(value) = param_value_for_ident(expr, params) {
+        match value {
+            Value::Int(value) => *value,
+            _ => return Err(unsupported(position, message)),
+        }
+    } else {
+        match expr {
+            typst_ast::Expr::Int(value) => value.get(),
+            _ => return Err(unsupported(position, message)),
+        }
+    };
+    u8::try_from(value).map_err(|_| unsupported(position, message))
+}
+
+fn param_value_for_ident<'a>(expr: typst_ast::Expr<'_>, params: &'a Scope) -> Option<&'a Value> {
+    let typst_ast::Expr::Ident(ident) = expr else {
+        return None;
+    };
+    params.get(ident.as_str())
+}
+
+fn numfmt_engine_error(range: Range<usize>, message: String) -> LabelError {
+    LabelError::Engine {
+        start: range.start,
+        end: range.end,
+        message,
+    }
 }
 
 fn lower_raw_markup(raw: typst_ast::Raw<'_>, nodes: &mut Vec<LineNode>) -> Result<(), LabelError> {
@@ -802,6 +1077,35 @@ mod tests {
             if span.kind == TextMarkupKind::Strong
                 && span.options.strong.delta == 150
         ));
+    }
+
+    #[test]
+    fn parses_numfmt_plain_output() {
+        let params = scope([("value", Value::Float(1234.5))]);
+        let line = parse_with_params("Peak #numfmt(value, \",.1f\") N", &params);
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Peak 1,234.5 N"));
+    }
+
+    #[test]
+    fn parses_numfmt_exponent_as_math() {
+        let params = scope([("value", Value::Float(1200.0))]);
+        let line = parse_with_params("#numfmt(value, \".1e\")", &params);
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(
+            matches!(&line.nodes[0], LineNode::Math(math) if math.source == "1.2 times 10^(3)")
+        );
+    }
+
+    #[test]
+    fn parses_numfmt_named_override_params() {
+        let params = scope([("value", Value::Float(1.234)), ("precision", Value::Int(1))]);
+        let line = parse_with_params("#numfmt(value, \".3f\", precision: precision)", &params);
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "1.2"));
     }
 
     #[test]
