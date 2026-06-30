@@ -17,4 +17,7 @@ pub enum AvengerGuidesError {
 
     #[error("Invalid axis ticks: {0}")]
     InvalidAxisTicks(String),
+
+    #[error("Invalid axis label format: {0}")]
+    InvalidAxisLabelFormat(String),
 }

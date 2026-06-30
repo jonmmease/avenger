@@ -1075,6 +1075,7 @@ dependencies = [
  "arrow",
  "avenger-color",
  "avenger-common",
+ "avenger-format-number",
  "avenger-geometry",
  "avenger-scales",
  "avenger-scenegraph",

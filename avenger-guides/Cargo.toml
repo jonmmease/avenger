@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+avenger-format-number = { path = "../avenger-format-number" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }

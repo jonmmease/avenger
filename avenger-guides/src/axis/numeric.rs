@@ -3,16 +3,21 @@ use std::sync::Arc;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array},
     compute::cast,
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float32Type, Float64Type},
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
+use avenger_format_number::{
+    format_number, ExponentMarker, FormattedNumber, NumberFormatContext, NumberFormatOverrides,
+    NumberLocaleRegistry, NumberTypesetting,
+};
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::SceneGroup, rule::SceneRuleMark, text::SceneTextMark};
 use avenger_text::{
     default_text_engine,
     measurement::{FontMetricsConfig, TextMeasurementConfig},
+    types::TextSyntaxMode,
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
     TextEngine,
 };
@@ -289,6 +294,7 @@ fn vertical_min_tick_spacing_px(config: &AxisConfig, text_engine: &TextEngine) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow::array::Float64Array;
     use avenger_scales::scales::linear::LinearScale;
 
     fn values(array: &ArrayRef) -> Vec<f32> {
@@ -348,6 +354,45 @@ mod tests {
             .find(|mark| mark.text.as_vec(1, None)[0] == "#series")
             .expect("title text mark");
         assert_eq!(title_mark.text_params, title_text_params);
+    }
+
+    #[test]
+    fn bare_exponent_tick_format_uses_typst_markup() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some(".1e".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["$1.2 times 10^(3)$"]);
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_uses_value_context() {
+        let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some("v=#numfmt(value, \".1e\") m/s^2".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(
+            labels.text.as_vec(1, None),
+            vec!["v=$1.2 times 10^(3)$ m/s^2"]
+        );
     }
 
     fn collect_text_marks(group: &SceneGroup) -> Vec<&SceneTextMark> {
@@ -512,28 +557,7 @@ fn make_tick_labels(
     scale: &ConfiguredScale,
     config: &AxisConfig,
 ) -> Result<SceneTextMark, AvengerGuidesError> {
-    // If a numeric format string is provided, override the scale's number formatter
-    let tick_text = if let Some(ref pattern) = config.format_number {
-        use arrow::array::AsArray;
-        use arrow::compute::kernels::cast;
-        use arrow::datatypes::DataType;
-        if ticks.data_type().is_numeric() {
-            let values = cast(ticks, &DataType::Float32)
-                .map_err(|e| AvengerGuidesError::InvalidScale(e.into()))?;
-            let values = values.as_primitive::<arrow::datatypes::Float32Type>();
-            let nums: Vec<Option<f32>> = values.iter().collect();
-            let formatter = avenger_scales::format_num::NumberFormat::new();
-            let labels: Vec<String> = nums
-                .iter()
-                .map(|v| v.map(|v| formatter.format(pattern, v)).unwrap_or_default())
-                .collect();
-            ScalarOrArray::new_array(labels)
-        } else {
-            scale.format(ticks)?
-        }
-    } else {
-        scale.format(ticks)?
-    };
+    let tick_labels = make_tick_label_text(ticks, scale, config)?;
     let scaled_values = scale.scale_to_numeric(ticks)?;
 
     // Adjust y position slightly for font metrics
@@ -580,7 +604,7 @@ fn make_tick_labels(
     Ok(SceneTextMark {
         clip: false,
         len: ticks.len() as u32,
-        text: tick_text,
+        text: tick_labels.text,
         x,
         y,
         align: align.into(),
@@ -594,8 +618,258 @@ fn make_tick_labels(
             .clone()
             .unwrap_or_else(|| "sans-serif".to_string())
             .into(),
+        text_syntax: tick_labels.syntax_mode,
         ..Default::default()
     })
+}
+
+struct TickLabelText {
+    text: ScalarOrArray<String>,
+    syntax_mode: TextSyntaxMode,
+}
+
+fn make_tick_label_text(
+    ticks: &ArrayRef,
+    scale: &ConfiguredScale,
+    config: &AxisConfig,
+) -> Result<TickLabelText, AvengerGuidesError> {
+    let Some(pattern) = config.format_number.as_ref() else {
+        return Ok(TickLabelText {
+            text: scale.format(ticks)?,
+            syntax_mode: TextSyntaxMode::Plain,
+        });
+    };
+
+    if !ticks.data_type().is_numeric() {
+        return Ok(TickLabelText {
+            text: scale.format(ticks)?,
+            syntax_mode: TextSyntaxMode::Plain,
+        });
+    }
+
+    let values = cast(ticks, &DataType::Float64)
+        .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
+    let values = values.as_primitive::<Float64Type>();
+    let nums: Vec<Option<f64>> = values.iter().collect();
+
+    if pattern.contains("#numfmt") {
+        format_numfmt_tick_fragment(pattern, &nums)
+    } else {
+        format_bare_number_ticks(pattern, &nums)
+    }
+}
+
+fn format_bare_number_ticks(
+    spec: &str,
+    values: &[Option<f64>],
+) -> Result<TickLabelText, AvengerGuidesError> {
+    let registry = NumberLocaleRegistry::with_builtins();
+    let locale = registry
+        .resolve("en-US")
+        .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+    let context = NumberFormatContext::new(&locale).with_registry(&registry);
+    let labels = values
+        .iter()
+        .map(|value| match value {
+            Some(value) => format_number(
+                *value,
+                Some(spec),
+                NumberFormatOverrides::default(),
+                context,
+            )
+            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string())),
+            None => Ok(FormattedNumber::plain("")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let use_typst = labels
+        .iter()
+        .any(|label| !matches!(label.typesetting, NumberTypesetting::Plain));
+    let text = labels
+        .iter()
+        .map(|label| {
+            if use_typst {
+                formatted_number_to_typst(label)
+            } else {
+                label.text.clone()
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(TickLabelText {
+        text: ScalarOrArray::new_array(text),
+        syntax_mode: if use_typst {
+            TextSyntaxMode::TypstMarkup
+        } else {
+            TextSyntaxMode::Plain
+        },
+    })
+}
+
+fn format_numfmt_tick_fragment(
+    template: &str,
+    values: &[Option<f64>],
+) -> Result<TickLabelText, AvengerGuidesError> {
+    let registry = NumberLocaleRegistry::with_builtins();
+    let locale = registry
+        .resolve("en-US")
+        .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+    let context = NumberFormatContext::new(&locale).with_registry(&registry);
+    let text = values
+        .iter()
+        .map(|value| match value {
+            Some(value) => format_numfmt_tick_fragment_value(template, *value, context),
+            None => Ok(String::new()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(TickLabelText {
+        text: ScalarOrArray::new_array(text),
+        syntax_mode: TextSyntaxMode::TypstMarkup,
+    })
+}
+
+fn format_numfmt_tick_fragment_value(
+    template: &str,
+    value: f64,
+    context: NumberFormatContext<'_>,
+) -> Result<String, AvengerGuidesError> {
+    let mut output = String::new();
+    let mut cursor = 0;
+    while let Some(relative) = template[cursor..].find("#numfmt") {
+        let start = cursor + relative;
+        output.push_str(&escape_typst_markup_text(&template[cursor..start]));
+        let (end, spec) = parse_numfmt_tick_call(template, start)?;
+        let formatted = format_number(
+            value,
+            Some(&spec),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+        output.push_str(&formatted_number_to_typst(&formatted));
+        cursor = end;
+    }
+    output.push_str(&escape_typst_markup_text(&template[cursor..]));
+    Ok(output)
+}
+
+fn parse_numfmt_tick_call(
+    template: &str,
+    start: usize,
+) -> Result<(usize, String), AvengerGuidesError> {
+    let after_name = start + "#numfmt".len();
+    let rest = &template[after_name..];
+    let open_offset = rest
+        .find('(')
+        .ok_or_else(|| invalid_axis_label_format("numfmt call must include arguments"))?;
+    if !rest[..open_offset].trim().is_empty() {
+        return Err(invalid_axis_label_format(
+            "numfmt call must be written as #numfmt(...)",
+        ));
+    }
+    let open = after_name + open_offset;
+    let close = find_call_close(template, open)?;
+    let args = &template[open + 1..close];
+    let spec = parse_numfmt_tick_args(args)?;
+    Ok((close + 1, spec))
+}
+
+fn find_call_close(template: &str, open: usize) -> Result<usize, AvengerGuidesError> {
+    let mut in_string = false;
+    let mut escaped = false;
+    for (idx, ch) in template[open + 1..].char_indices() {
+        let absolute = open + 1 + idx;
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            in_string = !in_string;
+            continue;
+        }
+        if ch == ')' && !in_string {
+            return Ok(absolute);
+        }
+    }
+    Err(invalid_axis_label_format("unterminated numfmt call"))
+}
+
+fn parse_numfmt_tick_args(args: &str) -> Result<String, AvengerGuidesError> {
+    let Some(rest) = args.trim_start().strip_prefix("value") else {
+        return Err(invalid_axis_label_format(
+            "axis numfmt call first argument must be `value`",
+        ));
+    };
+    let Some(rest) = rest.trim_start().strip_prefix(',') else {
+        return Err(invalid_axis_label_format(
+            "axis numfmt call requires a format string argument",
+        ));
+    };
+    parse_quoted_string(rest.trim_start())
+}
+
+fn parse_quoted_string(raw: &str) -> Result<String, AvengerGuidesError> {
+    let Some(stripped) = raw.strip_prefix('"') else {
+        return Err(invalid_axis_label_format(
+            "axis numfmt format argument must be a string literal",
+        ));
+    };
+    let mut output = String::new();
+    let mut escaped = false;
+    for (idx, ch) in stripped.char_indices() {
+        if escaped {
+            output.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == '"' {
+            if !stripped[idx + 1..].trim().is_empty() {
+                return Err(invalid_axis_label_format(
+                    "axis numfmt call currently supports only value and format string",
+                ));
+            }
+            return Ok(output);
+        }
+        output.push(ch);
+    }
+    Err(invalid_axis_label_format(
+        "unterminated axis numfmt format string",
+    ))
+}
+
+fn formatted_number_to_typst(formatted: &FormattedNumber) -> String {
+    match &formatted.typesetting {
+        NumberTypesetting::Plain => escape_typst_markup_text(&formatted.text),
+        NumberTypesetting::Exponent {
+            mantissa,
+            exponent,
+            marker: ExponentMarker::LowerE,
+        } => format!("${} times 10^({})$", mantissa, exponent),
+    }
+}
+
+fn escape_typst_markup_text(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' | '$' | '#' | '[' | ']' => {
+                output.push('\\');
+                output.push(ch);
+            }
+            _ => output.push(ch),
+        }
+    }
+    output
+}
+
+fn invalid_axis_label_format(message: impl Into<String>) -> AvengerGuidesError {
+    AvengerGuidesError::InvalidAxisLabelFormat(message.into())
 }
 
 fn make_title(
