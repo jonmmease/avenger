@@ -667,12 +667,12 @@ fn make_tick_labels(
     })
 }
 
-struct TickLabelText {
-    text: ScalarOrArray<String>,
-    syntax_mode: TextSyntaxMode,
+pub(crate) struct TickLabelText {
+    pub(crate) text: ScalarOrArray<String>,
+    pub(crate) syntax_mode: TextSyntaxMode,
 }
 
-fn make_tick_label_text(
+pub(crate) fn make_tick_label_text(
     ticks: &ArrayRef,
     scale: &ConfiguredScale,
     config: &AxisConfig,

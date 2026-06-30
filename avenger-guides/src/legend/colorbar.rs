@@ -1,3 +1,6 @@
+use std::sync::Arc;
+
+use arrow::array::{ArrayRef, Float64Array};
 use avenger_color::{ColorOrGradient, Gradient, LinearGradient};
 use avenger_geometry::marks::MarkGeometryUtils;
 use avenger_scales::scales::ConfiguredScale;
@@ -11,7 +14,7 @@ use avenger_text::{
 
 use crate::{
     axis::{
-        numeric::make_numeric_axis_marks,
+        numeric::{make_numeric_axis_marks, make_tick_label_text},
         opts::{AxisConfig, AxisOrientation},
     },
     error::AvengerGuidesError,
@@ -40,6 +43,28 @@ pub fn make_colorbar_marks_with_surfaces(
     make_colorbar_marks_with_surfaces_with_text_engine(scale, title, _origin, config, &text_engine)
 }
 
+fn colorbar_domain_label_text(
+    scale: &ConfiguredScale,
+    config: &ColorbarConfig,
+) -> Result<(String, String, TextSyntaxMode), AvengerGuidesError> {
+    let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
+    let ticks = Arc::new(Float64Array::from(vec![
+        domain_min as f64,
+        domain_max as f64,
+    ])) as ArrayRef;
+    let axis_config = AxisConfig {
+        format_number: config.format_number.clone(),
+        ..Default::default()
+    };
+    let tick_labels = make_tick_label_text(&ticks, scale, &axis_config)?;
+    let labels = tick_labels.text.as_vec(2, None);
+    Ok((
+        labels.first().cloned().unwrap_or_default(),
+        labels.get(1).cloned().unwrap_or_default(),
+        tick_labels.syntax_mode,
+    ))
+}
+
 fn make_colorbar_marks_with_surfaces_with_text_engine(
     scale: &ConfiguredScale,
     title: &str,
@@ -65,21 +90,8 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
-            // Get the domain min and max values to measure their formatted width
-            let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
-
-            // Format the min and max values using the format spec if provided
-            let formatter = avenger_scales::format_num::NumberFormat::new();
-            let min_label = if let Some(format_spec) = &config.format_number {
-                formatter.format(format_spec, domain_min as f64)
-            } else {
-                domain_min.to_string()
-            };
-            let max_label = if let Some(format_spec) = &config.format_number {
-                formatter.format(format_spec, domain_max as f64)
-            } else {
-                domain_max.to_string()
-            };
+            let (min_label, max_label, label_syntax_mode) =
+                colorbar_domain_label_text(scale, config)?;
 
             // Measure both labels and take the maximum width
             let min_bounds =
@@ -89,7 +101,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_size: label_font_size,
                     font_weight: *label_font_weight,
                     font_style: FontStyle::Normal,
-                    syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
+                    syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                 });
             let max_bounds =
@@ -99,7 +111,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_size: label_font_size,
                     font_weight: *label_font_weight,
                     font_style: FontStyle::Normal,
-                    syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
+                    syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                 });
 
@@ -283,21 +295,8 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 .unwrap_or(&FontWeight::Number(400.0));
             let label_font_family = config.label_font_family.as_deref().unwrap_or("sans-serif");
 
-            // Get the domain min and max values to measure their formatted width
-            let (domain_min, domain_max) = scale.config.numeric_interval_domain()?;
-
-            // Format the min and max values using the format spec if provided
-            let formatter = avenger_scales::format_num::NumberFormat::new();
-            let min_label = if let Some(format_spec) = &config.format_number {
-                formatter.format(format_spec, domain_min as f64)
-            } else {
-                domain_min.to_string()
-            };
-            let max_label = if let Some(format_spec) = &config.format_number {
-                formatter.format(format_spec, domain_max as f64)
-            } else {
-                domain_max.to_string()
-            };
+            let (min_label, max_label, label_syntax_mode) =
+                colorbar_domain_label_text(scale, config)?;
 
             // Measure both labels and take the maximum width
             let min_bounds =
@@ -307,7 +306,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_size: label_font_size,
                     font_weight: *label_font_weight,
                     font_style: FontStyle::Normal,
-                    syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
+                    syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                 });
             let max_bounds =
@@ -317,7 +316,7 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     font_size: label_font_size,
                     font_weight: *label_font_weight,
                     font_style: FontStyle::Normal,
-                    syntax_mode: avenger_text::types::TextSyntaxMode::Plain,
+                    syntax_mode: label_syntax_mode,
                     params: avenger_text::empty_label_params(),
                 });
 
@@ -1055,6 +1054,20 @@ mod tests {
             panic!("interior path segment should be a group");
         };
         mark_at_path(&group.marks, rest)
+    }
+
+    #[test]
+    fn colorbar_domain_measurement_labels_use_shared_number_formatter() {
+        let scale = LinearScale::configured_color((900_000.0, 1_100_000.0), ["#440154", "#fde725"]);
+        let mut config = test_config(ColorbarOrientation::Top);
+        config.format_number = Some("s".to_string());
+
+        let (min_label, max_label, syntax_mode) =
+            colorbar_domain_label_text(&scale, &config).expect("domain labels");
+
+        assert_eq!(syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(min_label, "0.9M");
+        assert_eq!(max_label, "1.1M");
     }
 
     #[test]
