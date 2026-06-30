@@ -67,7 +67,9 @@ pub fn prepare_number_tick_format(
     context: NumberFormatContext<'_>,
 ) -> Result<PreparedNumberTickFormat, FormatError> {
     let parsed = parse_number_spec(spec.unwrap_or(""))?;
-    let has_explicit_digits = parsed.precision.is_some() || overrides.digit_spec.is_some();
+    let force_inferred_digits = overrides.digit_spec == Some(DigitSpec::Auto);
+    let has_explicit_digits =
+        !force_inferred_digits && (parsed.precision.is_some() || overrides.digit_spec.is_some());
     let mut tick_overrides = overrides;
     let mut resolved = resolve_number_format(parsed, tick_overrides.clone())?;
     let effective_type = effective_format_type(&resolved);
@@ -364,6 +366,27 @@ mod tests {
         .unwrap();
 
         assert_eq!(prepared.format(0.25, context(&locale)).unwrap().text, "0.2");
+    }
+
+    #[test]
+    fn digit_auto_override_requests_inferred_tick_precision() {
+        let locale = ResolvedNumberLocale::en_us();
+        let overrides = NumberFormatOverrides {
+            digit_spec: Some(crate::DigitSpec::Auto),
+            ..Default::default()
+        };
+        let prepared = prepare_number_tick_format(
+            &[900_000.0, 1_000_000.0, 1_100_000.0],
+            Some(".3s"),
+            overrides,
+            context(&locale),
+        )
+        .unwrap();
+
+        assert_eq!(
+            prepared.format(900_000.0, context(&locale)).unwrap().text,
+            "0.9M"
+        );
     }
 
     #[test]

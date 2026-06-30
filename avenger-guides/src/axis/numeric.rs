@@ -8,8 +8,8 @@ use arrow::{
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
 use avenger_format_number::{
-    format_number, ExponentMarker, FormattedNumber, NumberFormatContext, NumberFormatOverrides,
-    NumberLocaleRegistry, NumberTypesetting,
+    prepare_number_tick_format, DigitSpec, ExponentMarker, FormattedNumber, NumberFormatContext,
+    NumberFormatOverrides, NumberLocaleRegistry, NumberTypesetting, PreparedNumberTickFormat,
 };
 use avenger_geometry::{marks::MarkGeometryUtils, rtree::EnvelopeUtils};
 use avenger_scales::scales::ConfiguredScale;
@@ -375,6 +375,28 @@ mod tests {
     }
 
     #[test]
+    fn bare_si_tick_format_locks_prefix_across_ticks() {
+        let scale = LinearScale::configured((0.0, 2_000_000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![
+            900_000.0,
+            1_000_000.0,
+            1_100_000.0,
+        ])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some("s".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::Plain);
+        assert_eq!(labels.text.as_vec(1, None), vec!["0.9M", "1.0M", "1.1M"]);
+    }
+
+    #[test]
     fn numfmt_tick_fragment_uses_value_context() {
         let scale = LinearScale::configured((0.0, 2000.0), (0.0, 100.0));
         let ticks = Arc::new(Float64Array::from(vec![1200.0])) as ArrayRef;
@@ -393,6 +415,28 @@ mod tests {
             labels.text.as_vec(1, None),
             vec!["v=$1.2 times 10^(3)$ m/s^2"]
         );
+    }
+
+    #[test]
+    fn numfmt_tick_fragment_can_bind_set_precision() {
+        let scale = LinearScale::configured((0.0, 2_000_000.0), (0.0, 100.0));
+        let ticks = Arc::new(Float64Array::from(vec![
+            900_000.0,
+            1_000_000.0,
+            1_100_000.0,
+        ])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                format_number: Some("#numfmt(value, \".3s\", precision: precision)".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["0.9M", "1.0M", "1.1M"]);
     }
 
     fn collect_text_marks(group: &SceneGroup) -> Vec<&SceneTextMark> {
@@ -668,16 +712,24 @@ fn format_bare_number_ticks(
         .resolve("en-US")
         .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
     let context = NumberFormatContext::new(&locale).with_registry(&registry);
+    let finite_values: Vec<f64> = values
+        .iter()
+        .filter_map(|value| *value)
+        .filter(|value| value.is_finite())
+        .collect();
+    let prepared = prepare_number_tick_format(
+        &finite_values,
+        Some(spec),
+        NumberFormatOverrides::default(),
+        context,
+    )
+    .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
     let labels = values
         .iter()
         .map(|value| match value {
-            Some(value) => format_number(
-                *value,
-                Some(spec),
-                NumberFormatOverrides::default(),
-                context,
-            )
-            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string())),
+            Some(value) => prepared
+                .format(*value, context)
+                .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string())),
             None => Ok(FormattedNumber::plain("")),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -713,10 +765,16 @@ fn format_numfmt_tick_fragment(
         .resolve("en-US")
         .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
     let context = NumberFormatContext::new(&locale).with_registry(&registry);
+    let finite_values: Vec<f64> = values
+        .iter()
+        .filter_map(|value| *value)
+        .filter(|value| value.is_finite())
+        .collect();
+    let parsed_template = parse_numfmt_tick_template(template, &finite_values, context)?;
     let text = values
         .iter()
         .map(|value| match value {
-            Some(value) => format_numfmt_tick_fragment_value(template, *value, context),
+            Some(value) => format_numfmt_tick_fragment_value(&parsed_template, *value, context),
             None => Ok(String::new()),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -726,35 +784,73 @@ fn format_numfmt_tick_fragment(
     })
 }
 
-fn format_numfmt_tick_fragment_value(
+struct NumfmtTickTemplate {
+    pieces: Vec<NumfmtTickPiece>,
+}
+
+enum NumfmtTickPiece {
+    Literal(String),
+    Call(PreparedNumberTickFormat),
+}
+
+struct NumfmtTickCall {
+    spec: String,
+    overrides: NumberFormatOverrides,
+}
+
+fn parse_numfmt_tick_template(
     template: &str,
+    values: &[f64],
+    context: NumberFormatContext<'_>,
+) -> Result<NumfmtTickTemplate, AvengerGuidesError> {
+    let mut pieces = Vec::new();
+    let mut cursor = 0;
+    while let Some(relative) = template[cursor..].find("#numfmt") {
+        let start = cursor + relative;
+        if start > cursor {
+            pieces.push(NumfmtTickPiece::Literal(escape_typst_markup_text(
+                &template[cursor..start],
+            )));
+        }
+        let (end, call) = parse_numfmt_tick_call(template, start)?;
+        let prepared =
+            prepare_number_tick_format(values, Some(&call.spec), call.overrides, context)
+                .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+        pieces.push(NumfmtTickPiece::Call(prepared));
+        cursor = end;
+    }
+    if cursor < template.len() {
+        pieces.push(NumfmtTickPiece::Literal(escape_typst_markup_text(
+            &template[cursor..],
+        )));
+    }
+    Ok(NumfmtTickTemplate { pieces })
+}
+
+fn format_numfmt_tick_fragment_value(
+    template: &NumfmtTickTemplate,
     value: f64,
     context: NumberFormatContext<'_>,
 ) -> Result<String, AvengerGuidesError> {
     let mut output = String::new();
-    let mut cursor = 0;
-    while let Some(relative) = template[cursor..].find("#numfmt") {
-        let start = cursor + relative;
-        output.push_str(&escape_typst_markup_text(&template[cursor..start]));
-        let (end, spec) = parse_numfmt_tick_call(template, start)?;
-        let formatted = format_number(
-            value,
-            Some(&spec),
-            NumberFormatOverrides::default(),
-            context,
-        )
-        .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
-        output.push_str(&formatted_number_to_typst(&formatted));
-        cursor = end;
+    for piece in &template.pieces {
+        match piece {
+            NumfmtTickPiece::Literal(text) => output.push_str(text),
+            NumfmtTickPiece::Call(prepared) => {
+                let formatted = prepared
+                    .format(value, context)
+                    .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+                output.push_str(&formatted_number_to_typst(&formatted));
+            }
+        }
     }
-    output.push_str(&escape_typst_markup_text(&template[cursor..]));
     Ok(output)
 }
 
 fn parse_numfmt_tick_call(
     template: &str,
     start: usize,
-) -> Result<(usize, String), AvengerGuidesError> {
+) -> Result<(usize, NumfmtTickCall), AvengerGuidesError> {
     let after_name = start + "#numfmt".len();
     let rest = &template[after_name..];
     let open_offset = rest
@@ -768,8 +864,8 @@ fn parse_numfmt_tick_call(
     let open = after_name + open_offset;
     let close = find_call_close(template, open)?;
     let args = &template[open + 1..close];
-    let spec = parse_numfmt_tick_args(args)?;
-    Ok((close + 1, spec))
+    let call = parse_numfmt_tick_args(args)?;
+    Ok((close + 1, call))
 }
 
 fn find_call_close(template: &str, open: usize) -> Result<usize, AvengerGuidesError> {
@@ -796,7 +892,7 @@ fn find_call_close(template: &str, open: usize) -> Result<usize, AvengerGuidesEr
     Err(invalid_axis_label_format("unterminated numfmt call"))
 }
 
-fn parse_numfmt_tick_args(args: &str) -> Result<String, AvengerGuidesError> {
+fn parse_numfmt_tick_args(args: &str) -> Result<NumfmtTickCall, AvengerGuidesError> {
     let Some(rest) = args.trim_start().strip_prefix("value") else {
         return Err(invalid_axis_label_format(
             "axis numfmt call first argument must be `value`",
@@ -807,10 +903,55 @@ fn parse_numfmt_tick_args(args: &str) -> Result<String, AvengerGuidesError> {
             "axis numfmt call requires a format string argument",
         ));
     };
-    parse_quoted_string(rest.trim_start())
+    let (spec, rest) = parse_quoted_string(rest.trim_start())?;
+    let overrides = parse_numfmt_tick_overrides(rest)?;
+    Ok(NumfmtTickCall { spec, overrides })
 }
 
-fn parse_quoted_string(raw: &str) -> Result<String, AvengerGuidesError> {
+fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, AvengerGuidesError> {
+    let mut rest = raw.trim();
+    let mut overrides = NumberFormatOverrides::default();
+    while !rest.is_empty() {
+        let Some(after_comma) = rest.strip_prefix(',') else {
+            return Err(invalid_axis_label_format(
+                "axis numfmt call currently supports only value, format string, and `precision: precision`",
+            ));
+        };
+        rest = after_comma.trim_start();
+        let Some(after_name) = strip_identifier(rest, "precision") else {
+            return Err(invalid_axis_label_format(
+                "axis numfmt call currently supports only the `precision: precision` override",
+            ));
+        };
+        let Some(after_colon) = after_name.trim_start().strip_prefix(':') else {
+            return Err(invalid_axis_label_format(
+                "axis numfmt precision override must be written as `precision: precision`",
+            ));
+        };
+        let Some(after_value) = strip_identifier(after_colon.trim_start(), "precision") else {
+            return Err(invalid_axis_label_format(
+                "axis numfmt precision override must be written as `precision: precision`",
+            ));
+        };
+        overrides.digit_spec = Some(DigitSpec::Auto);
+        rest = after_value.trim_start();
+    }
+    Ok(overrides)
+}
+
+fn strip_identifier<'a>(input: &'a str, ident: &str) -> Option<&'a str> {
+    let rest = input.strip_prefix(ident)?;
+    let next = rest.chars().next();
+    if next
+        .map(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    Some(rest)
+}
+
+fn parse_quoted_string(raw: &str) -> Result<(String, &str), AvengerGuidesError> {
     let Some(stripped) = raw.strip_prefix('"') else {
         return Err(invalid_axis_label_format(
             "axis numfmt format argument must be a string literal",
@@ -829,12 +970,7 @@ fn parse_quoted_string(raw: &str) -> Result<String, AvengerGuidesError> {
             continue;
         }
         if ch == '"' {
-            if !stripped[idx + 1..].trim().is_empty() {
-                return Err(invalid_axis_label_format(
-                    "axis numfmt call currently supports only value and format string",
-                ));
-            }
-            return Ok(output);
+            return Ok((output, &stripped[idx + 1..]));
         }
         output.push(ch);
     }
