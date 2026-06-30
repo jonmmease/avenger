@@ -1,3 +1,7 @@
+use std::collections::BTreeMap;
+
+use crate::compact::CompactTier;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -72,6 +76,13 @@ pub struct CurrencyFormat {
     pub accounting: CurrencyPattern,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CurrencyDisplayNames {
+    pub symbol: Option<String>,
+    pub narrow_symbol: Option<String>,
+    pub name: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CurrencyDisplay {
     #[default]
@@ -97,6 +108,9 @@ pub struct NumberLocaleSpec {
     pub decimal_pattern: Option<DecimalPattern>,
     pub percent_pattern: Option<DecimalPattern>,
     pub currency: Option<CurrencyFormat>,
+    pub currency_names: Option<BTreeMap<String, CurrencyDisplayNames>>,
+    pub compact_short: Option<Vec<CompactTier>>,
+    pub compact_long: Option<Vec<CompactTier>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,6 +129,9 @@ pub struct ResolvedNumberLocale {
     pub decimal_pattern: DecimalPattern,
     pub percent_pattern: DecimalPattern,
     pub currency: CurrencyFormat,
+    pub currency_names: BTreeMap<String, CurrencyDisplayNames>,
+    pub compact_short: Vec<CompactTier>,
+    pub compact_long: Vec<CompactTier>,
 }
 
 impl ResolvedNumberLocale {
@@ -152,6 +169,76 @@ impl ResolvedNumberLocale {
                     negative_suffix: ")".to_string(),
                 },
             },
+            currency_names: BTreeMap::from([
+                (
+                    "USD".to_string(),
+                    CurrencyDisplayNames {
+                        symbol: Some("$".to_string()),
+                        narrow_symbol: Some("$".to_string()),
+                        name: Some("US dollars".to_string()),
+                    },
+                ),
+                (
+                    "EUR".to_string(),
+                    CurrencyDisplayNames {
+                        symbol: Some("\u{20ac}".to_string()),
+                        narrow_symbol: Some("\u{20ac}".to_string()),
+                        name: Some("euros".to_string()),
+                    },
+                ),
+                (
+                    "JPY".to_string(),
+                    CurrencyDisplayNames {
+                        symbol: Some("\u{00a5}".to_string()),
+                        narrow_symbol: Some("\u{00a5}".to_string()),
+                        name: Some("Japanese yen".to_string()),
+                    },
+                ),
+            ]),
+            compact_short: vec![
+                CompactTier {
+                    exponent: 3,
+                    one: Some("{0}K".to_string()),
+                    other: "{0}K".to_string(),
+                },
+                CompactTier {
+                    exponent: 6,
+                    one: Some("{0}M".to_string()),
+                    other: "{0}M".to_string(),
+                },
+                CompactTier {
+                    exponent: 9,
+                    one: Some("{0}B".to_string()),
+                    other: "{0}B".to_string(),
+                },
+                CompactTier {
+                    exponent: 12,
+                    one: Some("{0}T".to_string()),
+                    other: "{0}T".to_string(),
+                },
+            ],
+            compact_long: vec![
+                CompactTier {
+                    exponent: 3,
+                    one: Some("{0} thousand".to_string()),
+                    other: "{0} thousand".to_string(),
+                },
+                CompactTier {
+                    exponent: 6,
+                    one: Some("{0} million".to_string()),
+                    other: "{0} million".to_string(),
+                },
+                CompactTier {
+                    exponent: 9,
+                    one: Some("{0} billion".to_string()),
+                    other: "{0} billion".to_string(),
+                },
+                CompactTier {
+                    exponent: 12,
+                    one: Some("{0} trillion".to_string()),
+                    other: "{0} trillion".to_string(),
+                },
+            ],
         }
     }
 }

@@ -1,4 +1,6 @@
 use crate::{
+    compact::CompactTier,
+    currency::{currency_display_text, currency_metadata, validate_currency_code},
     digits::substitute_digits,
     error::FormatError,
     locale::{CurrencyDisplay, ResolvedNumberLocale},
@@ -164,16 +166,36 @@ pub fn resolve_number_format(
 }
 
 fn validate_resolved_format(format: &ResolvedNumberFormat) -> Result<(), FormatError> {
-    match format.format_type {
-        Some(FormatType::CompactShort | FormatType::CompactLong) => {
-            return Err(FormatError::UnsupportedExtension(
-                format.format_type.unwrap().as_char().to_string(),
-            ));
+    if format.currency.is_some() && format.format_type != Some(FormatType::Currency) {
+        return Err(FormatError::InvalidFormat(
+            "currency override is only valid with currency type `C`".to_string(),
+        ));
+    }
+
+    if matches!(format.format_type, Some(FormatType::Currency)) {
+        if format.currency.is_none() {
+            return Err(FormatError::MissingCurrencyCode);
         }
-        Some(FormatType::Currency) => {
-            return Err(FormatError::UnsupportedExtension("C".to_string()));
+        if let Some(symbol) = format.symbol {
+            return Err(FormatError::InvalidFormat(format!(
+                "symbol `{}` cannot be combined with currency type `C`",
+                match symbol {
+                    Symbol::CurrencyCompat => "$",
+                    Symbol::Alternate => "#",
+                }
+            )));
         }
-        _ => {}
+        validate_currency_code(format.currency.as_ref().unwrap())?;
+    }
+
+    if matches!(
+        format.format_type,
+        Some(FormatType::CompactShort | FormatType::CompactLong)
+    ) && format.symbol == Some(Symbol::Alternate)
+    {
+        return Err(FormatError::InvalidFormat(
+            "`#` cannot be combined with compact extension types".to_string(),
+        ));
     }
 
     Ok(())
@@ -195,6 +217,10 @@ fn format_resolved_number(
     }
 
     let effective_type = effective_format_type(format);
+    if effective_type == FormatType::Currency {
+        return format_currency_number(value, format, context);
+    }
+
     let mut scaled_value = value.abs();
     let mut suffix = String::new();
     let mut prefix = String::new();
@@ -254,15 +280,26 @@ fn format_resolved_number(
             suffix.push_str(si_prefix);
             text
         }
+        FormatType::CompactShort | FormatType::CompactLong => {
+            let precision = significant_digits(format, 6);
+            let (text, compact_prefix, compact_suffix) = format_compact(
+                scaled_value,
+                effective_type,
+                precision,
+                format,
+                context.locale,
+            )?;
+            prefix.push_str(&compact_prefix);
+            suffix.push_str(&compact_suffix);
+            text
+        }
         FormatType::Binary => format_integer_radix(scaled_value, 2, false),
         FormatType::Octal => format_integer_radix(scaled_value, 8, false),
         FormatType::DecimalInteger => format!("{:.0}", scaled_value),
         FormatType::HexLower => format_integer_radix(scaled_value, 16, false),
         FormatType::HexUpper => format_integer_radix(scaled_value, 16, true),
         FormatType::Character => trim_number_text(&scaled_value.to_string()),
-        FormatType::CompactShort | FormatType::CompactLong | FormatType::Currency => {
-            unreachable!("extension types should be rejected during validation")
-        }
+        FormatType::Currency => unreachable!("currency returns before scalar formatting"),
     };
 
     if format.trim
@@ -311,6 +348,138 @@ fn format_resolved_number(
     }
 
     Ok(FormattedNumber { text, typesetting })
+}
+
+fn format_currency_number(
+    value: f64,
+    format: &ResolvedNumberFormat,
+    context: NumberFormatContext<'_>,
+) -> Result<FormattedNumber, FormatError> {
+    let currency = format
+        .currency
+        .as_ref()
+        .ok_or(FormatError::MissingCurrencyCode)?;
+    let metadata = currency_metadata(currency)
+        .ok_or_else(|| FormatError::InvalidCurrencyCode(currency.clone()))?;
+    let precision = match format.digit_spec {
+        DigitSpec::Auto => metadata.default_fraction_digits as usize,
+        DigitSpec::Precision(value) | DigitSpec::Fraction(value) => value as usize,
+        DigitSpec::Significant(value) => value as usize,
+    };
+    let mut raw_body = format_fixed(value.abs(), precision);
+    if format.trim {
+        raw_body = trim_number_text(&raw_body);
+    }
+    let body = localize_number_body(&raw_body, format, context.locale);
+    let currency_display = currency_display_text(context.locale, currency, format.currency_display);
+    let is_negative = value.is_sign_negative() && !rounds_to_zero(&body, context.locale);
+    let pattern = if is_negative && format.sign == SignPolicy::Parentheses {
+        &context.locale.currency.accounting
+    } else {
+        &context.locale.currency.standard
+    };
+    let (pattern_prefix, pattern_suffix) = if is_negative {
+        (&pattern.negative_prefix, &pattern.negative_suffix)
+    } else {
+        (&pattern.positive_prefix, &pattern.positive_suffix)
+    };
+    let mut prefix_template = pattern_prefix.clone();
+    if !is_negative {
+        match format.sign {
+            SignPolicy::Plus => {
+                prefix_template = format!("{}{}", context.locale.plus, prefix_template)
+            }
+            SignPolicy::Space => prefix_template = format!(" {prefix_template}"),
+            _ => {}
+        }
+    }
+
+    let prefix = prefix_template.replace('\u{00a4}', &currency_display);
+    let suffix = pattern_suffix.replace('\u{00a4}', &currency_display);
+    let text = format!("{prefix}{body}{suffix}");
+    let text = apply_padding_to_content(text, format);
+    Ok(FormattedNumber::plain(substitute_digits(
+        &text,
+        context.locale,
+    )))
+}
+
+fn format_compact(
+    value: f64,
+    format_type: FormatType,
+    precision: usize,
+    format: &ResolvedNumberFormat,
+    locale: &ResolvedNumberLocale,
+) -> Result<(String, String, String), FormatError> {
+    if value == 0.0 {
+        let mut text = format_significant_fixed(value, precision);
+        if format.trim {
+            text = trim_number_text(&text);
+        }
+        return Ok((text, String::new(), String::new()));
+    }
+
+    let tiers = match format_type {
+        FormatType::CompactShort => &locale.compact_short,
+        FormatType::CompactLong => &locale.compact_long,
+        _ => unreachable!("compact formatter called with non-compact type"),
+    };
+    let tier = select_compact_tier(value, tiers).ok_or_else(|| {
+        FormatError::UnsupportedExtension(format!(
+            "{} requires compact locale data",
+            format_type.as_char()
+        ))
+    })?;
+
+    let scaled = value / 10_f64.powi(tier.exponent);
+    let mut text = format_significant_fixed(scaled, precision);
+    if format.trim {
+        text = trim_number_text(&text);
+    }
+    let pattern = tier.pattern_for_value(&text);
+    let (prefix, suffix) = split_compact_pattern(pattern)?;
+    Ok((text, prefix.to_string(), suffix.to_string()))
+}
+
+fn select_compact_tier<'a>(value: f64, tiers: &'a [CompactTier]) -> Option<&'a CompactTier> {
+    let exponent = value.abs().log10().floor() as i32;
+    tiers
+        .iter()
+        .filter(|tier| tier.exponent <= exponent)
+        .max_by_key(|tier| tier.exponent)
+}
+
+fn split_compact_pattern(pattern: &str) -> Result<(&str, &str), FormatError> {
+    let Some((prefix, suffix)) = pattern.split_once("{0}") else {
+        return Err(FormatError::InvalidLocaleData(format!(
+            "compact pattern `{pattern}` must contain `{{0}}`"
+        )));
+    };
+    Ok((prefix, suffix))
+}
+
+fn apply_padding_to_content(content: String, format: &ResolvedNumberFormat) -> String {
+    let Some(width) = format.width else {
+        return content;
+    };
+    let len = content.chars().count();
+    if len >= width {
+        return content;
+    }
+
+    let padding_len = width - len;
+    let padding: String = std::iter::repeat(format.fill).take(padding_len).collect();
+    match format.align {
+        Align::Left => format!("{content}{padding}"),
+        Align::Center => {
+            let left = padding_len / 2;
+            let right = padding_len - left;
+            let left_padding: String = std::iter::repeat(format.fill).take(left).collect();
+            let right_padding: String = std::iter::repeat(format.fill).take(right).collect();
+            format!("{left_padding}{content}{right_padding}")
+        }
+        Align::AfterSign | Align::Right => format!("{padding}{content}"),
+    }
 }
 
 fn effective_format_type(format: &ResolvedNumberFormat) -> FormatType {
@@ -763,5 +932,92 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.text, "42.0..");
+    }
+
+    #[test]
+    fn formats_currency_extensions() {
+        let locale = en_us();
+        let context = NumberFormatContext::new(&locale);
+
+        let out = format_number(
+            1234.5,
+            Some(",C[USD]"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "$1,234.50");
+
+        let out = format_number(
+            1234.5,
+            Some(",C[JPY]"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "\u{00a5}1,234");
+
+        let out = format_number(
+            -1234.5,
+            Some("(,.1C[USD]"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "($1,234.5)");
+
+        let out = format_number(
+            1234.5,
+            Some(",.2C[EUR]"),
+            NumberFormatOverrides {
+                currency_display: Some(crate::locale::CurrencyDisplay::Code),
+                ..Default::default()
+            },
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "EUR1,234.50");
+    }
+
+    #[test]
+    fn formats_compact_extensions() {
+        let locale = en_us();
+        let context = NumberFormatContext::new(&locale);
+
+        let out = format_number(
+            1_200_000.0,
+            Some(".2S"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "1.2M");
+
+        let out = format_number(
+            1_200_000.0,
+            Some(".2L"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .unwrap();
+        assert_eq!(out.text, "1.2 million");
+    }
+
+    #[test]
+    fn rejects_invalid_extension_combinations() {
+        let locale = en_us();
+        let context = NumberFormatContext::new(&locale);
+
+        assert!(format_number(1.0, Some("C"), NumberFormatOverrides::default(), context,).is_err());
+        assert!(format_number(
+            1.0,
+            Some("$C[USD]"),
+            NumberFormatOverrides::default(),
+            context,
+        )
+        .is_err());
+        assert!(
+            format_number(1.0, Some("#S"), NumberFormatOverrides::default(), context,).is_err()
+        );
     }
 }

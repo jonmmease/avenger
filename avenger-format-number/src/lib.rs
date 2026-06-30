@@ -18,14 +18,15 @@ pub mod spec;
 pub mod ticks;
 pub mod typesetting;
 
+pub use compact::CompactTier;
 pub use error::{FormatError, ParseError};
 pub use format::{
     format_number, CompatibilityPolicy, NumberFormatContext, NumberFormatOverrides,
     ResolvedNumberFormat,
 };
 pub use locale::{
-    CurrencyDisplay, CurrencyFormat, CurrencyPattern, DecimalPattern, GroupingSpec, LocaleId,
-    NumberLocaleSpec, ResolvedNumberLocale,
+    CurrencyDisplay, CurrencyDisplayNames, CurrencyFormat, CurrencyPattern, DecimalPattern,
+    GroupingSpec, LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
 };
 pub use parser::parse_number_spec;
 pub use registry::NumberLocaleRegistry;

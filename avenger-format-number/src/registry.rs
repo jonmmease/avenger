@@ -146,6 +146,15 @@ impl NumberLocaleRegistry {
         if let Some(value) = spec.currency {
             locale.currency = value;
         }
+        if let Some(value) = spec.currency_names {
+            locale.currency_names.extend(value);
+        }
+        if let Some(value) = spec.compact_short {
+            locale.compact_short = value;
+        }
+        if let Some(value) = spec.compact_long {
+            locale.compact_long = value;
+        }
 
         Ok(locale)
     }
@@ -190,5 +199,14 @@ fn merge_spec(base: &mut NumberLocaleSpec, override_spec: NumberLocaleSpec) {
     }
     if override_spec.currency.is_some() {
         base.currency = override_spec.currency;
+    }
+    if override_spec.currency_names.is_some() {
+        base.currency_names = override_spec.currency_names;
+    }
+    if override_spec.compact_short.is_some() {
+        base.compact_short = override_spec.compact_short;
+    }
+    if override_spec.compact_long.is_some() {
+        base.compact_long = override_spec.compact_long;
     }
 }
