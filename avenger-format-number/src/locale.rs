@@ -63,6 +63,19 @@ impl Default for DecimalPattern {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DecimalPatternSpec {
+    Normalized(DecimalPattern),
+    Cldr(String),
+}
+
+impl From<DecimalPattern> for DecimalPatternSpec {
+    fn from(value: DecimalPattern) -> Self {
+        Self::Normalized(value)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CurrencyPattern {
     pub positive_prefix: String,
     pub positive_suffix: String,
@@ -105,8 +118,8 @@ pub struct NumberLocaleSpec {
     pub nan: Option<String>,
     pub infinity: Option<String>,
     pub digits: Option<[String; 10]>,
-    pub decimal_pattern: Option<DecimalPattern>,
-    pub percent_pattern: Option<DecimalPattern>,
+    pub decimal_pattern: Option<DecimalPatternSpec>,
+    pub percent_pattern: Option<DecimalPatternSpec>,
     pub currency: Option<CurrencyFormat>,
     pub currency_names: Option<BTreeMap<String, CurrencyDisplayNames>>,
     pub compact_short: Option<Vec<CompactTier>>,

@@ -1,8 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
+    cldr_pattern::normalize_number_pattern,
+    compact::CompactTier,
+    currency::validate_currency_code,
     error::FormatError,
-    locale::{LocaleId, NumberLocaleSpec, ResolvedNumberLocale},
+    format::split_compact_pattern,
+    locale::{
+        CurrencyDisplayNames, CurrencyFormat, CurrencyPattern, DecimalPattern, DecimalPatternSpec,
+        LocaleId, NumberLocaleSpec, ResolvedNumberLocale,
+    },
 };
 
 #[derive(Debug, Clone, Default)]
@@ -38,9 +45,18 @@ impl NumberLocaleRegistry {
         spec: NumberLocaleSpec,
     ) -> Result<(), FormatError> {
         let id = LocaleId::new(id);
-        self.custom.insert(id.clone(), spec);
-        self.resolve(&id.0)?;
-        Ok(())
+        let previous = self.custom.insert(id.clone(), spec);
+        match self.resolve(&id.0) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                if let Some(previous) = previous {
+                    self.custom.insert(id, previous);
+                } else {
+                    self.custom.remove(&id);
+                }
+                Err(err)
+            }
+        }
     }
 
     pub fn register_custom_locale_json(
@@ -138,26 +154,136 @@ impl NumberLocaleRegistry {
             locale.digits = Some(value);
         }
         if let Some(value) = spec.decimal_pattern {
-            locale.decimal_pattern = value;
+            locale.decimal_pattern = resolve_decimal_pattern(value)?;
         }
         if let Some(value) = spec.percent_pattern {
-            locale.percent_pattern = value;
+            locale.percent_pattern = resolve_decimal_pattern(value)?;
         }
         if let Some(value) = spec.currency {
+            validate_currency_format(&value)?;
             locale.currency = value;
         }
         if let Some(value) = spec.currency_names {
+            validate_currency_names(&value)?;
             locale.currency_names.extend(value);
         }
         if let Some(value) = spec.compact_short {
+            validate_compact_tiers(&value)?;
             locale.compact_short = value;
         }
         if let Some(value) = spec.compact_long {
+            validate_compact_tiers(&value)?;
             locale.compact_long = value;
         }
 
         Ok(locale)
     }
+}
+
+fn resolve_decimal_pattern(pattern: DecimalPatternSpec) -> Result<DecimalPattern, FormatError> {
+    match pattern {
+        DecimalPatternSpec::Normalized(pattern) => {
+            validate_decimal_pattern(&pattern)?;
+            Ok(pattern)
+        }
+        DecimalPatternSpec::Cldr(pattern) => {
+            let pattern = normalize_number_pattern(&pattern)?;
+            Ok(DecimalPattern {
+                positive_prefix: pattern.positive_prefix,
+                positive_suffix: pattern.positive_suffix,
+                negative_prefix: pattern.negative_prefix,
+                negative_suffix: pattern.negative_suffix,
+            })
+        }
+    }
+}
+
+fn validate_decimal_pattern(pattern: &DecimalPattern) -> Result<(), FormatError> {
+    validate_affix("positive decimal prefix", &pattern.positive_prefix)?;
+    validate_affix("positive decimal suffix", &pattern.positive_suffix)?;
+    validate_affix("negative decimal prefix", &pattern.negative_prefix)?;
+    validate_affix("negative decimal suffix", &pattern.negative_suffix)
+}
+
+fn validate_currency_format(format: &CurrencyFormat) -> Result<(), FormatError> {
+    validate_currency_pattern("standard positive", &format.standard)?;
+    validate_currency_pattern("accounting positive", &format.accounting)
+}
+
+fn validate_currency_pattern(name: &str, pattern: &CurrencyPattern) -> Result<(), FormatError> {
+    validate_affix(
+        &format!("{name} currency positive prefix"),
+        &pattern.positive_prefix,
+    )?;
+    validate_affix(
+        &format!("{name} currency positive suffix"),
+        &pattern.positive_suffix,
+    )?;
+    validate_affix(
+        &format!("{name} currency negative prefix"),
+        &pattern.negative_prefix,
+    )?;
+    validate_affix(
+        &format!("{name} currency negative suffix"),
+        &pattern.negative_suffix,
+    )?;
+    if !pattern.positive_prefix.contains('\u{00a4}')
+        && !pattern.positive_suffix.contains('\u{00a4}')
+        && !pattern.negative_prefix.contains('\u{00a4}')
+        && !pattern.negative_suffix.contains('\u{00a4}')
+    {
+        return Err(FormatError::InvalidLocaleData(
+            "currency patterns must contain a currency sign".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_currency_names(
+    names: &BTreeMap<String, CurrencyDisplayNames>,
+) -> Result<(), FormatError> {
+    for (code, display) in names {
+        validate_currency_code(code)?;
+        if display
+            .symbol
+            .as_ref()
+            .or(display.narrow_symbol.as_ref())
+            .or(display.name.as_ref())
+            .map(|value| value.is_empty())
+            .unwrap_or(true)
+        {
+            return Err(FormatError::InvalidLocaleData(format!(
+                "currency display names for `{code}` must include a nonempty display string"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_compact_tiers(tiers: &[CompactTier]) -> Result<(), FormatError> {
+    let mut seen = BTreeSet::new();
+    for tier in tiers {
+        if !seen.insert(tier.exponent) {
+            return Err(FormatError::InvalidLocaleData(format!(
+                "duplicate compact tier exponent `{}`",
+                tier.exponent
+            )));
+        }
+        split_compact_pattern(&tier.other)?;
+        if let Some(one) = &tier.one {
+            split_compact_pattern(one)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_affix(name: &str, value: &str) -> Result<(), FormatError> {
+    if value.contains('*') {
+        return Err(FormatError::InvalidLocaleData(format!(
+            "{name} contains unsupported CLDR padding escape"
+        )));
+    }
+    Ok(())
 }
 
 fn merge_spec(base: &mut NumberLocaleSpec, override_spec: NumberLocaleSpec) {
@@ -208,5 +334,152 @@ fn merge_spec(base: &mut NumberLocaleSpec, override_spec: NumberLocaleSpec) {
     }
     if override_spec.compact_long.is_some() {
         base.compact_long = override_spec.compact_long;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NumberLocaleRegistry;
+    use crate::{
+        compact::CompactTier,
+        format::{format_number, NumberFormatContext, NumberFormatOverrides},
+        locale::{LocaleId, NumberLocaleSpec},
+    };
+
+    #[test]
+    fn resolves_builtin_en_us() {
+        let registry = NumberLocaleRegistry::with_builtins();
+        let locale = registry.resolve("en-US").unwrap();
+        assert_eq!(locale.decimal, ".");
+        assert_eq!(locale.group, ",");
+    }
+
+    #[test]
+    fn registers_partial_custom_locale_with_base() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "comma",
+                r#"{
+                    "base": "en-US",
+                    "decimal": ",",
+                    "group": ".",
+                    "grouping": { "primary": 3, "secondary": 2, "min_grouping_digits": 1 }
+                }"#,
+            )
+            .unwrap();
+
+        let locale = registry.resolve("comma").unwrap();
+        let formatted = format_number(
+            1234567.5,
+            Some(",.1f"),
+            NumberFormatOverrides::default(),
+            NumberFormatContext::new(&locale),
+        )
+        .unwrap();
+        assert_eq!(formatted.text, "12.34.567,5");
+    }
+
+    #[test]
+    fn normalizes_json_cldr_patterns() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "patterns",
+                r##"{
+                    "base": "en-US",
+                    "decimal_pattern": "'~'#,##0 'items';('~'#,##0 'items')",
+                    "percent_pattern": "#,##0 percent"
+                }"##,
+            )
+            .unwrap();
+
+        let locale = registry.resolve("patterns").unwrap();
+        assert_eq!(locale.decimal_pattern.positive_prefix, "~");
+        assert_eq!(locale.decimal_pattern.positive_suffix, " items");
+        assert_eq!(locale.decimal_pattern.negative_prefix, "(~");
+        assert_eq!(locale.decimal_pattern.negative_suffix, " items)");
+        assert_eq!(locale.percent_pattern.positive_suffix, " percent");
+    }
+
+    #[test]
+    fn rejects_missing_base_and_base_cycles() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        let err = registry
+            .register_custom_locale(
+                "missing",
+                NumberLocaleSpec {
+                    base: Some(LocaleId::new("does-not-exist")),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("does-not-exist"));
+
+        registry
+            .register_custom_locale(
+                "a",
+                NumberLocaleSpec {
+                    base: Some(LocaleId::new("en-US")),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        registry
+            .register_custom_locale(
+                "b",
+                NumberLocaleSpec {
+                    base: Some(LocaleId::new("a")),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let err = registry
+            .register_custom_locale(
+                "a",
+                NumberLocaleSpec {
+                    base: Some(LocaleId::new("b")),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("cycle"));
+        assert!(registry.resolve("a").is_ok());
+    }
+
+    #[test]
+    fn invalid_registration_rolls_back_previous_locale() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json("custom", r#"{ "base": "en-US", "decimal": "," }"#)
+            .unwrap();
+        assert_eq!(registry.resolve("custom").unwrap().decimal, ",");
+
+        assert!(registry
+            .register_custom_locale_json(
+                "custom",
+                r#"{ "base": "en-US", "grouping": { "primary": 0 } }"#,
+            )
+            .is_err());
+        assert_eq!(registry.resolve("custom").unwrap().decimal, ",");
+    }
+
+    #[test]
+    fn validates_compact_tier_patterns() {
+        let mut registry = NumberLocaleRegistry::with_builtins();
+        let err = registry
+            .register_custom_locale(
+                "bad-compact",
+                NumberLocaleSpec {
+                    compact_short: Some(vec![CompactTier {
+                        exponent: 3,
+                        one: None,
+                        other: "K".to_string(),
+                    }]),
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(err.to_string().contains("{0}"));
     }
 }
