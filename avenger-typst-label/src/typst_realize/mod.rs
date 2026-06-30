@@ -307,6 +307,9 @@ fn scope_value_to_text(value: &Value, position: usize) -> Result<String, LabelEr
             message: "non-finite label parameter is not supported",
         }),
         Value::Str(value) => Ok(value.clone()),
+        Value::Date(value) => Ok(value.to_string()),
+        Value::DateTime(value) => Ok(value.to_string()),
+        Value::UtcDateTime(value) => Ok(value.to_rfc3339()),
         Value::Array(_) | Value::Dict(_) => Err(LabelError::UnsupportedSyntax {
             position,
             message: "label parameter value cannot be rendered as text",

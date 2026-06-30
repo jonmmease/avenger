@@ -16,6 +16,9 @@ pub(crate) enum Value {
     Int(i64),
     Float(f64),
     Str(String),
+    Date(chrono::NaiveDate),
+    DateTime(chrono::NaiveDateTime),
+    UtcDateTime(chrono::DateTime<chrono::Utc>),
     Array(Vec<Value>),
     Dict(Dict),
 }

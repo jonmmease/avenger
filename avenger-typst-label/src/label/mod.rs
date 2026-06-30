@@ -18,10 +18,14 @@ use std::{
     sync::Arc,
 };
 
+use avenger_format_datetime::DateTimeLocaleRegistry;
 use avenger_format_number::NumberLocaleRegistry;
 use indexmap::IndexMap;
 
-use crate::typst_eval::markup::{NumberFormatMarkupContext, parse_line_with_number_format_context};
+use crate::typst_eval::markup::{
+    DateTimeFormatMarkupContext, MarkupFormatContext, NumberFormatMarkupContext,
+    parse_line_with_format_context,
+};
 use crate::typst_eval::math::is_retained_math_name;
 use crate::typst_eval::math::parse_math_with_params;
 use crate::typst_layout::frame::{
@@ -148,6 +152,10 @@ pub struct LabelOptions {
     pub number_locale: Option<String>,
     #[cfg_attr(feature = "serde", serde(skip, default))]
     pub number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
+    pub datetime_locale: Option<String>,
+    pub datetime_timezone: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip, default))]
+    pub datetime_locale_registry: Option<Arc<DateTimeLocaleRegistry>>,
     pub limits: LabelLimits,
 }
 
@@ -159,6 +167,9 @@ impl Default for LabelOptions {
             params: LabelParams::default(),
             number_locale: None,
             number_locale_registry: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_registry: None,
             limits: LabelLimits::default(),
         }
     }
@@ -174,6 +185,9 @@ pub enum LabelParamValue {
     Int(i64),
     Float(f64),
     Str(String),
+    Date(chrono::NaiveDate),
+    DateTime(chrono::NaiveDateTime),
+    UtcDateTime(chrono::DateTime<chrono::Utc>),
     Array(Vec<LabelParamValue>),
     Dict(IndexMap<String, LabelParamValue>),
 }
@@ -187,6 +201,9 @@ impl Hash for LabelParamValue {
             Self::Int(value) => value.hash(state),
             Self::Float(value) => value.to_bits().hash(state),
             Self::Str(value) => value.hash(state),
+            Self::Date(value) => value.hash(state),
+            Self::DateTime(value) => value.hash(state),
+            Self::UtcDateTime(value) => value.hash(state),
             Self::Array(values) => values.hash(state),
             Self::Dict(values) => {
                 values.len().hash(state);
@@ -219,12 +236,19 @@ impl LabelEngine {
         validate_source_limits(source, options.limits)?;
         validate_label_params(&options.params)?;
         let layout_options = line_layout_options(options);
-        let line = parse_line_with_number_format_context(
+        let line = parse_line_with_format_context(
             source,
             &layout_options.params,
-            NumberFormatMarkupContext {
-                locale_id: options.number_locale.as_deref(),
-                registry: options.number_locale_registry.as_deref(),
+            MarkupFormatContext {
+                number: NumberFormatMarkupContext {
+                    locale_id: options.number_locale.as_deref(),
+                    registry: options.number_locale_registry.as_deref(),
+                },
+                datetime: DateTimeFormatMarkupContext {
+                    locale_id: options.datetime_locale.as_deref(),
+                    timezone: options.datetime_timezone.as_deref(),
+                    registry: options.datetime_locale_registry.as_deref(),
+                },
             },
         )?;
         validate_line_math(
@@ -948,6 +972,9 @@ fn value_from_label_param(value: &LabelParamValue) -> Value {
         LabelParamValue::Int(value) => Value::Int(*value),
         LabelParamValue::Float(value) => Value::Float(*value),
         LabelParamValue::Str(value) => Value::Str(value.clone()),
+        LabelParamValue::Date(value) => Value::Date(*value),
+        LabelParamValue::DateTime(value) => Value::DateTime(*value),
+        LabelParamValue::UtcDateTime(value) => Value::UtcDateTime(*value),
         LabelParamValue::Array(values) => {
             Value::Array(values.iter().map(value_from_label_param).collect())
         }

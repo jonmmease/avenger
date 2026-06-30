@@ -65,6 +65,24 @@ pub fn label_params_fingerprint(params: &avenger_typst_label::LabelParams) -> St
                 out.push(':');
                 out.push_str(value);
             }
+            avenger_typst_label::LabelParamValue::Date(value) => {
+                out.push_str("date:");
+                out.push_str(&value.to_string());
+            }
+            avenger_typst_label::LabelParamValue::DateTime(value) => {
+                out.push_str("datetime:");
+                out.push_str(
+                    &value
+                        .and_utc()
+                        .timestamp_nanos_opt()
+                        .unwrap_or_default()
+                        .to_string(),
+                );
+            }
+            avenger_typst_label::LabelParamValue::UtcDateTime(value) => {
+                out.push_str("utc-datetime:");
+                out.push_str(&value.timestamp_nanos_opt().unwrap_or_default().to_string());
+            }
             avenger_typst_label::LabelParamValue::Array(values) => {
                 out.push_str("array:[");
                 for value in values {

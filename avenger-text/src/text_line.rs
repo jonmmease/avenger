@@ -316,6 +316,9 @@ pub(crate) fn label_options(
         params: params.clone(),
         number_locale: number_locale.map(str::to_string),
         number_locale_registry,
+        datetime_locale: None,
+        datetime_timezone: None,
+        datetime_locale_registry: None,
         limits: limits_for_text(text, math.limits),
     }
 }

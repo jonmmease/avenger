@@ -366,6 +366,21 @@ fn scope_value_to_math_nodes(
             },
             byte_range,
         )]),
+        Value::Date(value) => Ok(vec![math_text(
+            value.to_string(),
+            MathTextKind::Grapheme,
+            byte_range,
+        )]),
+        Value::DateTime(value) => Ok(vec![math_text(
+            value.to_string(),
+            MathTextKind::Grapheme,
+            byte_range,
+        )]),
+        Value::UtcDateTime(value) => Ok(vec![math_text(
+            value.to_rfc3339(),
+            MathTextKind::Grapheme,
+            byte_range,
+        )]),
         Value::Array(_) | Value::Dict(_) => Err(LabelError::UnsupportedSyntax {
             position: byte_range.start,
             message: "label parameter value cannot be rendered as math",

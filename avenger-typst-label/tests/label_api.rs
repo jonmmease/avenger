@@ -250,6 +250,21 @@ fn compile_numfmt_uses_number_locale_context() {
 }
 
 #[test]
+fn compile_datefmt_formats_temporal_param() {
+    let mut options = LabelOptions::default();
+    options.params.insert(
+        "report_date".to_string(),
+        LabelParamValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+    );
+
+    let label = engine()
+        .compile("Report #datefmt(report_date, \"{date:long}\")", &options)
+        .unwrap();
+
+    assert_eq!(label.semantic_text(), "Report January 5, 2024");
+}
+
+#[test]
 fn compile_errors_for_non_scalar_text_param() {
     let mut options = LabelOptions::default();
     options.params.insert(

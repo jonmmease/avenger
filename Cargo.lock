@@ -1272,8 +1272,11 @@ dependencies = [
 name = "avenger-typst-label"
 version = "0.1.0"
 dependencies = [
+ "avenger-format-datetime",
  "avenger-format-number",
  "brotli",
+ "chrono",
+ "chrono-tz",
  "ecow",
  "fontdb",
  "indexmap 2.14.0",

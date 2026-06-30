@@ -29,9 +29,12 @@ path = "src/bin/upstream_typst_math_svg_probe.rs"
 required-features = ["upstream-typst-probe"]
 
 [dependencies]
+avenger-format-datetime = { path = "../avenger-format-datetime" }
 avenger-format-number = { path = "../avenger-format-number" }
 thiserror = { workspace = true }
 serde = { workspace = true }
+chrono = { workspace = true, features = ["serde"] }
+chrono-tz = { workspace = true }
 fontdb = { workspace = true }
 indexmap = { workspace = true }
 png = { workspace = true, optional = true }

@@ -1,5 +1,9 @@
 use std::ops::Range;
 
+use avenger_format_datetime::{
+    DateTimeFormatContext, DateTimeFormatOverrides, DateTimeLocaleRegistry, DateTimeStyleLength,
+    NaiveDateTimeInput, format_naive_datetime, format_zoned_datetime, parse_datetime_timezone,
+};
 use avenger_format_number::{
     Align, CurrencyDisplay, DigitSpec, FormatType, NumberFormatContext, NumberFormatOverrides,
     NumberLocaleRegistry, NumberTypesetting, SignPolicy, Symbol, format_number,
@@ -31,7 +35,7 @@ pub(crate) fn parse_line_with_params(
     source: &str,
     params: &Scope,
 ) -> Result<LabelContent, LabelError> {
-    parse_line_with_number_format_context(source, params, NumberFormatMarkupContext::default())
+    parse_line_with_format_context(source, params, MarkupFormatContext::default())
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -40,10 +44,39 @@ pub(crate) struct NumberFormatMarkupContext<'a> {
     pub(crate) registry: Option<&'a NumberLocaleRegistry>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct DateTimeFormatMarkupContext<'a> {
+    pub(crate) locale_id: Option<&'a str>,
+    pub(crate) timezone: Option<&'a str>,
+    pub(crate) registry: Option<&'a DateTimeLocaleRegistry>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct MarkupFormatContext<'a> {
+    pub(crate) number: NumberFormatMarkupContext<'a>,
+    pub(crate) datetime: DateTimeFormatMarkupContext<'a>,
+}
+
+#[cfg(test)]
 pub(crate) fn parse_line_with_number_format_context(
     source: &str,
     params: &Scope,
     number_format: NumberFormatMarkupContext<'_>,
+) -> Result<LabelContent, LabelError> {
+    parse_line_with_format_context(
+        source,
+        params,
+        MarkupFormatContext {
+            number: number_format,
+            datetime: DateTimeFormatMarkupContext::default(),
+        },
+    )
+}
+
+pub(crate) fn parse_line_with_format_context(
+    source: &str,
+    params: &Scope,
+    format_context: MarkupFormatContext<'_>,
 ) -> Result<LabelContent, LabelError> {
     let mut root = crate::typst_syntax::parse(source);
     synthesize_ranges(&mut root, source.len())?;
@@ -57,7 +90,7 @@ pub(crate) fn parse_line_with_number_format_context(
         })?;
 
     let mut nodes = Vec::new();
-    lower_markup(markup, source, params, number_format, &mut nodes)?;
+    lower_markup(markup, source, params, format_context, &mut nodes)?;
     Ok(LabelContent {
         source: source.to_string(),
         nodes,
@@ -68,11 +101,11 @@ fn lower_markup(
     markup: typst_ast::Markup<'_>,
     source: &str,
     params: &Scope,
-    number_format: NumberFormatMarkupContext<'_>,
+    format_context: MarkupFormatContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     for expr in markup.exprs() {
-        lower_markup_expr(expr, source, params, number_format, nodes)?;
+        lower_markup_expr(expr, source, params, format_context, nodes)?;
     }
     Ok(())
 }
@@ -81,7 +114,7 @@ fn lower_markup_expr(
     expr: typst_ast::Expr<'_>,
     source: &str,
     params: &Scope,
-    number_format: NumberFormatMarkupContext<'_>,
+    format_context: MarkupFormatContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     match expr {
@@ -127,7 +160,7 @@ fn lower_markup_expr(
             }));
         }
         typst_ast::Expr::FuncCall(call) => {
-            lower_static_call(call, source, params, number_format, nodes)?;
+            lower_static_call(call, source, params, format_context, nodes)?;
         }
         typst_ast::Expr::Ident(ident) => {
             let range = expand_hash_range(source, ident.to_untyped().range());
@@ -147,7 +180,7 @@ fn lower_markup_expr(
                 strong.to_untyped().range(),
                 source,
                 params,
-                number_format,
+                format_context,
                 nodes,
             )?;
         }
@@ -159,7 +192,7 @@ fn lower_markup_expr(
                 emph.to_untyped().range(),
                 source,
                 params,
-                number_format,
+                format_context,
                 nodes,
             )?;
         }
@@ -177,7 +210,7 @@ fn lower_static_call(
     call: typst_ast::FuncCall<'_>,
     source: &str,
     params: &Scope,
-    number_format: NumberFormatMarkupContext<'_>,
+    format_context: MarkupFormatContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     let range = expand_hash_range(source, call.to_untyped().range());
@@ -185,7 +218,10 @@ fn lower_static_call(
         return Err(unsupported(range.start, "unsupported static text command"));
     };
     if name == "numfmt" {
-        return lower_numfmt_call(call, source, params, number_format, nodes, range);
+        return lower_numfmt_call(call, source, params, format_context.number, nodes, range);
+    }
+    if name == "datefmt" {
+        return lower_datefmt_call(call, params, format_context.datetime, nodes, range);
     }
     let Some(kind) = text_span_kind(&name) else {
         return Err(unsupported(range.start, "unsupported static text command"));
@@ -202,7 +238,7 @@ fn lower_static_call(
                 let body_markup = block.body();
                 let body_range = body_markup.to_untyped().range();
                 let mut body_nodes = Vec::new();
-                lower_markup(body_markup, source, params, number_format, &mut body_nodes)?;
+                lower_markup(body_markup, source, params, format_context, &mut body_nodes)?;
                 if body.replace((body_nodes, body_range)).is_some() {
                     return Err(unsupported(
                         range.start,
@@ -340,6 +376,94 @@ fn lower_numfmt_call(
             }));
         }
     }
+    Ok(())
+}
+
+enum DatefmtValue {
+    Date(chrono::NaiveDate),
+    DateTime(chrono::NaiveDateTime),
+    UtcDateTime(chrono::DateTime<chrono::Utc>),
+}
+
+fn lower_datefmt_call(
+    call: typst_ast::FuncCall<'_>,
+    params: &Scope,
+    datetime_format: DateTimeFormatMarkupContext<'_>,
+    nodes: &mut Vec<LineNode>,
+    range: Range<usize>,
+) -> Result<(), LabelError> {
+    let mut value = None;
+    let mut spec = None;
+    let mut overrides = DateTimeFormatOverrides::default();
+
+    for arg in call.args().items() {
+        match arg {
+            typst_ast::Arg::Pos(expr) => {
+                if value.is_none() {
+                    value = Some(parse_datefmt_value(expr, params, range.start)?);
+                } else if spec.is_none() {
+                    spec = Some(parse_datefmt_string(expr, params, range.start)?);
+                } else {
+                    return Err(unsupported(
+                        range.start,
+                        "datefmt expects value and format string",
+                    ));
+                }
+            }
+            typst_ast::Arg::Named(named) => {
+                parse_datefmt_named_arg(named, params, &mut overrides)?;
+            }
+            typst_ast::Arg::Spread(_) => {
+                return Err(unsupported(
+                    range.start,
+                    "datefmt does not support spread arguments",
+                ));
+            }
+        }
+    }
+
+    let Some(value) = value else {
+        return Err(unsupported(range.start, "datefmt expects a value argument"));
+    };
+    let Some(spec) = spec else {
+        return Err(unsupported(range.start, "datefmt expects a format string"));
+    };
+
+    let builtin_registry;
+    let registry = if let Some(registry) = datetime_format.registry {
+        registry
+    } else {
+        builtin_registry = DateTimeLocaleRegistry::with_builtins();
+        &builtin_registry
+    };
+    let locale_id = datetime_format.locale_id.unwrap_or("en-US");
+    let locale = registry
+        .resolve(locale_id)
+        .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
+    let timezone = parse_datetime_timezone(datetime_format.timezone.unwrap_or("UTC"))
+        .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
+    let context = DateTimeFormatContext::new(&locale, timezone).with_registry(registry);
+
+    let formatted = match value {
+        DatefmtValue::Date(value) => format_naive_datetime(
+            NaiveDateTimeInput::Date(value),
+            Some(&spec),
+            overrides,
+            context,
+        ),
+        DatefmtValue::DateTime(value) => format_naive_datetime(
+            NaiveDateTimeInput::DateTime(value),
+            Some(&spec),
+            overrides,
+            context,
+        ),
+        DatefmtValue::UtcDateTime(value) => {
+            format_zoned_datetime(value, Some(&spec), overrides, context)
+        }
+    }
+    .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
+
+    push_plain(nodes, &formatted.text, range);
     Ok(())
 }
 
@@ -482,6 +606,76 @@ fn set_numfmt_digit_spec(
     }
     overrides.digit_spec = Some(digit_spec);
     Ok(())
+}
+
+fn parse_datefmt_named_arg(
+    named: typst_ast::Named<'_>,
+    params: &Scope,
+    overrides: &mut DateTimeFormatOverrides,
+) -> Result<(), LabelError> {
+    let position = named.name().to_untyped().range().start;
+    match named.name().as_str() {
+        "timezone" => {
+            overrides.timezone = Some(parse_datefmt_string(named.expr(), params, position)?);
+        }
+        "date_style" => {
+            overrides.date_style =
+                Some(parse_datefmt_style_length(named.expr(), params, position)?);
+        }
+        "time_style" => {
+            overrides.time_style =
+                Some(parse_datefmt_style_length(named.expr(), params, position)?);
+        }
+        "datetime_style" => {
+            overrides.datetime_style =
+                Some(parse_datefmt_style_length(named.expr(), params, position)?);
+        }
+        _ => return Err(unsupported(position, "unsupported datefmt option")),
+    }
+    Ok(())
+}
+
+fn parse_datefmt_value(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<DatefmtValue, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return match value {
+            Value::Date(value) => Ok(DatefmtValue::Date(*value)),
+            Value::DateTime(value) => Ok(DatefmtValue::DateTime(*value)),
+            Value::UtcDateTime(value) => Ok(DatefmtValue::UtcDateTime(*value)),
+            _ => Err(unsupported(position, "datefmt value must be temporal")),
+        };
+    }
+    Err(unsupported(position, "datefmt value must be temporal"))
+}
+
+fn parse_datefmt_string(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<String, LabelError> {
+    if let Some(value) = param_value_for_ident(expr, params) {
+        return match value {
+            Value::Str(value) => Ok(value.clone()),
+            _ => Err(unsupported(position, "datefmt argument must be a string")),
+        };
+    }
+    match expr {
+        typst_ast::Expr::Str(value) => Ok(value.get().to_string()),
+        _ => Err(unsupported(position, "datefmt argument must be a string")),
+    }
+}
+
+fn parse_datefmt_style_length(
+    expr: typst_ast::Expr<'_>,
+    params: &Scope,
+    position: usize,
+) -> Result<DateTimeStyleLength, LabelError> {
+    let value = parse_datefmt_string(expr, params, position)?;
+    DateTimeStyleLength::from_str(&value)
+        .ok_or_else(|| unsupported(position, "unsupported datefmt style length"))
 }
 
 fn parse_numfmt_number(
@@ -668,6 +862,14 @@ fn numfmt_engine_error(range: Range<usize>, message: String) -> LabelError {
     }
 }
 
+fn datefmt_engine_error(range: Range<usize>, message: String) -> LabelError {
+    LabelError::Engine {
+        start: range.start,
+        end: range.end,
+        message,
+    }
+}
+
 fn lower_raw_markup(raw: typst_ast::Raw<'_>, nodes: &mut Vec<LineNode>) -> Result<(), LabelError> {
     let range = raw.to_untyped().range();
     if raw.block() {
@@ -714,12 +916,12 @@ fn lower_markup_span(
     byte_range: Range<usize>,
     source: &str,
     params: &Scope,
-    number_format: NumberFormatMarkupContext<'_>,
+    format_context: MarkupFormatContext<'_>,
     nodes: &mut Vec<LineNode>,
 ) -> Result<(), LabelError> {
     let body_range = body_markup.to_untyped().range();
     let mut body = Vec::new();
-    lower_markup(body_markup, source, params, number_format, &mut body)?;
+    lower_markup(body_markup, source, params, format_context, &mut body)?;
     nodes.push(LineNode::TextSpan(TextMarkupSpan {
         kind,
         options,
@@ -1271,6 +1473,62 @@ mod tests {
 
         assert_eq!(line.nodes.len(), 1);
         assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "1_234~5"));
+    }
+
+    #[test]
+    fn parses_datefmt_naive_date_output() {
+        let params = scope([(
+            "value",
+            Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+        )]);
+        let line = parse_with_params("#datefmt(value, \"MMM d, y\")", &params);
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "Jan 5, 2024"));
+    }
+
+    #[test]
+    fn parses_datefmt_style_override_params() {
+        let params = scope([
+            (
+                "value",
+                Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+            ),
+            ("style", Value::Str("long".to_string())),
+        ]);
+        let line = parse_with_params("#datefmt(value, \"{date}\", date_style: style)", &params);
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "January 5, 2024")
+        );
+    }
+
+    #[test]
+    fn parses_datefmt_zoned_with_context_timezone() {
+        let params = scope([(
+            "value",
+            Value::UtcDateTime(
+                chrono::DateTime::from_timestamp(1_704_067_200, 0).expect("UTC datetime"),
+            ),
+        )]);
+        let line = parse_line_with_format_context(
+            "#datefmt(value, \"y-MM-dd HH:mm\")",
+            &params,
+            MarkupFormatContext {
+                datetime: DateTimeFormatMarkupContext {
+                    timezone: Some("America/New_York"),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .expect("line");
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "2023-12-31 19:00")
+        );
     }
 
     #[test]

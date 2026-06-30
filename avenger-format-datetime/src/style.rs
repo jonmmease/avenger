@@ -10,7 +10,7 @@ pub enum DateTimeStyleLength {
 }
 
 impl DateTimeStyleLength {
-    pub(crate) fn from_str(value: &str) -> Option<Self> {
+    pub fn from_str(value: &str) -> Option<Self> {
         match value {
             "short" => Some(Self::Short),
             "medium" => Some(Self::Medium),

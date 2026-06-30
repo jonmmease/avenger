@@ -96,8 +96,8 @@ fn collect_static_call(
     let Some(name) = code_expr_name(call.callee()) else {
         return Err(unsupported(range.start, "unsupported static text command"));
     };
-    if name == "numfmt" {
-        collect_numfmt_call(call, names);
+    if name == "numfmt" || name == "datefmt" {
+        collect_format_call(call, names);
         return Ok(());
     }
     let Some(kind) = text_span_kind(&name) else {
@@ -138,7 +138,7 @@ fn collect_static_call(
     Ok(())
 }
 
-fn collect_numfmt_call(call: typst_ast::FuncCall<'_>, names: &mut IndexSet<String>) {
+fn collect_format_call(call: typst_ast::FuncCall<'_>, names: &mut IndexSet<String>) {
     for arg in call.args().items() {
         match arg {
             typst_ast::Arg::Pos(expr) => collect_unknown_code_idents(expr, names),
@@ -456,5 +456,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(names, vec!["value", "precision", "currency_code"]);
+    }
+
+    #[test]
+    fn extracts_datefmt_params() {
+        let names =
+            referenced_params("Report #datefmt(report_date, date_format, date_style: style_name)")
+                .unwrap();
+        assert_eq!(names, vec!["report_date", "date_format", "style_name"]);
     }
 }
