@@ -1,12 +1,20 @@
 use std::sync::Arc;
 
 use arrow::{
-    array::{ArrayRef, AsArray, Float32Array},
+    array::{
+        Array, ArrayRef, AsArray, Date64Array, Float32Array, TimestampMicrosecondArray,
+        TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray,
+    },
     compute::cast,
-    datatypes::{DataType, Float32Type, Float64Type},
+    datatypes::{DataType, Date32Type, Float32Type, Float64Type, TimeUnit},
 };
 use avenger_color::ColorOrGradient;
 use avenger_common::value::ScalarOrArray;
+use avenger_format_datetime::{
+    format_naive_datetime, format_zoned_datetime, parse_datetime_timezone, DateTimeFormatContext,
+    DateTimeFormatOverrides, DateTimeLocaleRegistry, DateTimeStyleLength, NaiveDateTimeInput,
+    ResolvedDateTimeLocale,
+};
 use avenger_format_number::{
     prepare_number_tick_format, Align, CurrencyDisplay, DigitSpec, ExponentMarker, FormatType,
     FormattedNumber, NumberFormatContext, NumberFormatOverrides, NumberLocaleRegistry,
@@ -22,6 +30,8 @@ use avenger_text::{
     types::{FontStyle, FontWeight, TextAlign, TextBaseline},
     TextEngine,
 };
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono_tz::Tz;
 use rstar::AABB;
 
 use super::opts::{AxisConfig, AxisOrientation, AxisTickSpacing};
@@ -298,6 +308,7 @@ mod tests {
     use arrow::array::Float64Array;
     use avenger_format_number::{LocaleId, NumberLocaleSpec};
     use avenger_scales::scales::linear::LinearScale;
+    use avenger_scales::scales::time::TimeScale;
 
     fn values(array: &ArrayRef) -> Vec<f32> {
         array
@@ -513,6 +524,72 @@ mod tests {
 
         assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
         assert_eq!(labels.text.as_vec(1, None), vec!["v=$1.2 times 10^(3)$"]);
+    }
+
+    #[test]
+    fn datefmt_tick_fragment_formats_date32_ticks() {
+        let start = Arc::new(arrow::array::Date32Array::from(vec![19723])) as ArrayRef;
+        let end = Arc::new(arrow::array::Date32Array::from(vec![19730])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0));
+        let ticks = Arc::new(arrow::array::Date32Array::from(vec![19727])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                tick_label: Some("d=#datefmt(value, \"MMM d, y\")".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.syntax_mode, TextSyntaxMode::TypstMarkup);
+        assert_eq!(labels.text.as_vec(1, None), vec!["d=Jan 5, 2024"]);
+    }
+
+    #[test]
+    fn datefmt_tick_fragment_does_not_shift_naive_timestamps() {
+        let start = Arc::new(TimestampMillisecondArray::from(vec![1_704_067_200_000])) as ArrayRef;
+        let end = Arc::new(TimestampMillisecondArray::from(vec![1_704_070_800_000])) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", "America/New_York");
+        let ticks = Arc::new(TimestampMillisecondArray::from(vec![1_704_067_200_000])) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                tick_label: Some("#datefmt(value, \"y-MM-dd HH:mm\")".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.text.as_vec(1, None), vec!["2024-01-01 00:00"]);
+    }
+
+    #[test]
+    fn datefmt_tick_fragment_shifts_zoned_timestamps() {
+        let start = Arc::new(
+            TimestampMillisecondArray::from(vec![1_704_067_200_000]).with_timezone_opt(Some("UTC")),
+        ) as ArrayRef;
+        let end = Arc::new(
+            TimestampMillisecondArray::from(vec![1_704_070_800_000]).with_timezone_opt(Some("UTC")),
+        ) as ArrayRef;
+        let scale = TimeScale::configured((start, end), (0.0, 100.0))
+            .with_option("timezone", "America/New_York");
+        let ticks = Arc::new(
+            TimestampMillisecondArray::from(vec![1_704_067_200_000]).with_timezone_opt(Some("UTC")),
+        ) as ArrayRef;
+        let labels = make_tick_label_text(
+            &ticks,
+            &scale,
+            &AxisConfig {
+                tick_label: Some("#datefmt(value, \"y-MM-dd HH:mm\")".to_string()),
+                ..Default::default()
+            },
+        )
+        .expect("labels");
+
+        assert_eq!(labels.text.as_vec(1, None), vec!["2023-12-31 19:00"]);
     }
 
     #[test]
@@ -881,17 +958,21 @@ pub(crate) fn make_tick_label_text(
     config: &AxisConfig,
 ) -> Result<TickLabelText, AvengerGuidesError> {
     if let Some(template) = config.tick_label.as_ref() {
-        if !ticks.data_type().is_numeric() {
-            return Err(AvengerGuidesError::InvalidAxisLabelFormat(
-                "tick_label fragments are only supported for numeric ticks".to_string(),
-            ));
+        if ticks.data_type().is_numeric() {
+            let values = cast(ticks, &DataType::Float64)
+                .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
+            let values = values.as_primitive::<Float64Type>();
+            let nums: Vec<Option<f64>> = values.iter().collect();
+            let format_env = NumberFormatEnvironment::from_axis_config(config)?;
+            return format_numfmt_tick_fragment(template, &nums, format_env.context());
         }
-        let values = cast(ticks, &DataType::Float64)
-            .map_err(|err| AvengerGuidesError::InvalidScale(err.into()))?;
-        let values = values.as_primitive::<Float64Type>();
-        let nums: Vec<Option<f64>> = values.iter().collect();
-        let format_env = NumberFormatEnvironment::from_axis_config(config)?;
-        return format_numfmt_tick_fragment(template, &nums, format_env.context());
+        if let Some(values) = temporal_tick_values(ticks)? {
+            let format_env = DateTimeFormatEnvironment::from_scale(scale)?;
+            return format_datefmt_tick_fragment(template, &values, format_env.context());
+        }
+        return Err(AvengerGuidesError::InvalidAxisLabelFormat(
+            "tick_label fragments are only supported for numeric or temporal ticks".to_string(),
+        ));
     }
 
     let Some(pattern) = config.format_number.as_ref() else {
@@ -902,6 +983,12 @@ pub(crate) fn make_tick_label_text(
     };
 
     if !ticks.data_type().is_numeric() {
+        if pattern.contains("#datefmt") {
+            if let Some(values) = temporal_tick_values(ticks)? {
+                let format_env = DateTimeFormatEnvironment::from_scale(scale)?;
+                return format_datefmt_tick_fragment(pattern, &values, format_env.context());
+            }
+        }
         return Ok(TickLabelText {
             text: scale.format(ticks)?,
             syntax_mode: TextSyntaxMode::Plain,
@@ -946,6 +1033,161 @@ impl NumberFormatEnvironment {
     fn context(&self) -> NumberFormatContext<'_> {
         NumberFormatContext::new(&self.locale).with_registry(self.registry.as_ref())
     }
+}
+
+struct DateTimeFormatEnvironment {
+    registry: Arc<DateTimeLocaleRegistry>,
+    locale: ResolvedDateTimeLocale,
+    timezone: Tz,
+}
+
+impl DateTimeFormatEnvironment {
+    fn from_scale(scale: &ConfiguredScale) -> Result<Self, AvengerGuidesError> {
+        let registry = Arc::new(DateTimeLocaleRegistry::with_builtins());
+        let locale_id = scale.option_string("locale", "en-US");
+        let locale = registry
+            .resolve(&locale_id)
+            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+        let timezone = parse_datetime_timezone(&scale.option_string("timezone", "UTC"))
+            .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+        Ok(Self {
+            registry,
+            locale,
+            timezone,
+        })
+    }
+
+    fn context(&self) -> DateTimeFormatContext<'_> {
+        DateTimeFormatContext::new(&self.locale, self.timezone)
+            .with_registry(self.registry.as_ref())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DatefmtTickValue {
+    Date(NaiveDate),
+    DateTime(NaiveDateTime),
+    UtcDateTime(DateTime<Utc>),
+}
+
+fn temporal_tick_values(
+    ticks: &ArrayRef,
+) -> Result<Option<Vec<Option<DatefmtTickValue>>>, AvengerGuidesError> {
+    let values = match ticks.data_type() {
+        DataType::Date32 => {
+            let values = ticks.as_primitive::<Date32Type>();
+            (0..values.len())
+                .map(|i| values.value_as_date(i).map(DatefmtTickValue::Date))
+                .collect()
+        }
+        DataType::Date64 => {
+            let values = ticks.as_any().downcast_ref::<Date64Array>().unwrap();
+            (0..values.len())
+                .map(|i| {
+                    if values.is_null(i) {
+                        None
+                    } else {
+                        datetime_from_timestamp_parts(values.value(i), TimeUnit::Millisecond)
+                            .map(|value| DatefmtTickValue::DateTime(value.naive_utc()))
+                    }
+                })
+                .collect()
+        }
+        DataType::Timestamp(unit, timezone) => {
+            timestamp_tick_values(ticks, unit, timezone.is_some())
+        }
+        _ => return Ok(None),
+    };
+    Ok(Some(values))
+}
+
+fn timestamp_tick_values(
+    ticks: &ArrayRef,
+    unit: &TimeUnit,
+    timezone_aware: bool,
+) -> Vec<Option<DatefmtTickValue>> {
+    match unit {
+        TimeUnit::Second => {
+            let values = ticks
+                .as_any()
+                .downcast_ref::<TimestampSecondArray>()
+                .unwrap();
+            (0..values.len())
+                .map(|i| {
+                    timestamp_tick_value(values.is_null(i), values.value(i), *unit, timezone_aware)
+                })
+                .collect()
+        }
+        TimeUnit::Millisecond => {
+            let values = ticks
+                .as_any()
+                .downcast_ref::<TimestampMillisecondArray>()
+                .unwrap();
+            (0..values.len())
+                .map(|i| {
+                    timestamp_tick_value(values.is_null(i), values.value(i), *unit, timezone_aware)
+                })
+                .collect()
+        }
+        TimeUnit::Microsecond => {
+            let values = ticks
+                .as_any()
+                .downcast_ref::<TimestampMicrosecondArray>()
+                .unwrap();
+            (0..values.len())
+                .map(|i| {
+                    timestamp_tick_value(values.is_null(i), values.value(i), *unit, timezone_aware)
+                })
+                .collect()
+        }
+        TimeUnit::Nanosecond => {
+            let values = ticks
+                .as_any()
+                .downcast_ref::<TimestampNanosecondArray>()
+                .unwrap();
+            (0..values.len())
+                .map(|i| {
+                    timestamp_tick_value(values.is_null(i), values.value(i), *unit, timezone_aware)
+                })
+                .collect()
+        }
+    }
+}
+
+fn timestamp_tick_value(
+    is_null: bool,
+    value: i64,
+    unit: TimeUnit,
+    timezone_aware: bool,
+) -> Option<DatefmtTickValue> {
+    if is_null {
+        return None;
+    }
+    let datetime = datetime_from_timestamp_parts(value, unit)?;
+    if timezone_aware {
+        Some(DatefmtTickValue::UtcDateTime(datetime))
+    } else {
+        Some(DatefmtTickValue::DateTime(datetime.naive_utc()))
+    }
+}
+
+fn datetime_from_timestamp_parts(value: i64, unit: TimeUnit) -> Option<DateTime<Utc>> {
+    let (seconds, nanos) = match unit {
+        TimeUnit::Second => (value, 0),
+        TimeUnit::Millisecond => (
+            value.div_euclid(1_000),
+            value.rem_euclid(1_000) as u32 * 1_000_000,
+        ),
+        TimeUnit::Microsecond => (
+            value.div_euclid(1_000_000),
+            value.rem_euclid(1_000_000) as u32 * 1_000,
+        ),
+        TimeUnit::Nanosecond => (
+            value.div_euclid(1_000_000_000),
+            value.rem_euclid(1_000_000_000) as u32,
+        ),
+    };
+    DateTime::from_timestamp(seconds, nanos)
 }
 
 fn format_bare_number_ticks(
@@ -1084,6 +1326,99 @@ fn format_numfmt_tick_fragment_value(
     Ok(output)
 }
 
+fn format_datefmt_tick_fragment(
+    template: &str,
+    values: &[Option<DatefmtTickValue>],
+    context: DateTimeFormatContext<'_>,
+) -> Result<TickLabelText, AvengerGuidesError> {
+    let parsed_template = parse_datefmt_tick_template(template)?;
+    let text = values
+        .iter()
+        .map(|value| match value {
+            Some(value) => format_datefmt_tick_fragment_value(&parsed_template, *value, context),
+            None => Ok(String::new()),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(TickLabelText {
+        text: ScalarOrArray::new_array(text),
+        syntax_mode: TextSyntaxMode::TypstMarkup,
+    })
+}
+
+struct DatefmtTickTemplate {
+    pieces: Vec<DatefmtTickPiece>,
+}
+
+enum DatefmtTickPiece {
+    Literal(String),
+    Call(DatefmtTickCall),
+}
+
+struct DatefmtTickCall {
+    spec: String,
+    overrides: DateTimeFormatOverrides,
+}
+
+fn parse_datefmt_tick_template(template: &str) -> Result<DatefmtTickTemplate, AvengerGuidesError> {
+    let mut pieces = Vec::new();
+    let mut cursor = 0;
+    while let Some(relative) = template[cursor..].find("#datefmt") {
+        let start = cursor + relative;
+        if start > cursor {
+            pieces.push(DatefmtTickPiece::Literal(escape_typst_markup_text(
+                &template[cursor..start],
+            )));
+        }
+        let (end, call) = parse_datefmt_tick_call(template, start)?;
+        pieces.push(DatefmtTickPiece::Call(call));
+        cursor = end;
+    }
+    if cursor < template.len() {
+        pieces.push(DatefmtTickPiece::Literal(escape_typst_markup_text(
+            &template[cursor..],
+        )));
+    }
+    Ok(DatefmtTickTemplate { pieces })
+}
+
+fn format_datefmt_tick_fragment_value(
+    template: &DatefmtTickTemplate,
+    value: DatefmtTickValue,
+    context: DateTimeFormatContext<'_>,
+) -> Result<String, AvengerGuidesError> {
+    let mut output = String::new();
+    for piece in &template.pieces {
+        match piece {
+            DatefmtTickPiece::Literal(text) => output.push_str(text),
+            DatefmtTickPiece::Call(call) => {
+                let formatted = match value {
+                    DatefmtTickValue::Date(value) => format_naive_datetime(
+                        NaiveDateTimeInput::Date(value),
+                        Some(&call.spec),
+                        call.overrides.clone(),
+                        context,
+                    ),
+                    DatefmtTickValue::DateTime(value) => format_naive_datetime(
+                        NaiveDateTimeInput::DateTime(value),
+                        Some(&call.spec),
+                        call.overrides.clone(),
+                        context,
+                    ),
+                    DatefmtTickValue::UtcDateTime(value) => format_zoned_datetime(
+                        value,
+                        Some(&call.spec),
+                        call.overrides.clone(),
+                        context,
+                    ),
+                }
+                .map_err(|err| AvengerGuidesError::InvalidAxisLabelFormat(err.to_string()))?;
+                output.push_str(&escape_typst_markup_text(&formatted.text));
+            }
+        }
+    }
+    Ok(output)
+}
+
 fn parse_numfmt_tick_call(
     template: &str,
     start: usize,
@@ -1099,13 +1434,34 @@ fn parse_numfmt_tick_call(
         ));
     }
     let open = after_name + open_offset;
-    let close = find_call_close(template, open)?;
+    let close = find_call_close(template, open, "numfmt")?;
     let args = &template[open + 1..close];
     let call = parse_numfmt_tick_args(args)?;
     Ok((close + 1, call))
 }
 
-fn find_call_close(template: &str, open: usize) -> Result<usize, AvengerGuidesError> {
+fn parse_datefmt_tick_call(
+    template: &str,
+    start: usize,
+) -> Result<(usize, DatefmtTickCall), AvengerGuidesError> {
+    let after_name = start + "#datefmt".len();
+    let rest = &template[after_name..];
+    let open_offset = rest
+        .find('(')
+        .ok_or_else(|| invalid_axis_label_format("datefmt call must include arguments"))?;
+    if !rest[..open_offset].trim().is_empty() {
+        return Err(invalid_axis_label_format(
+            "datefmt call must be written as #datefmt(...)",
+        ));
+    }
+    let open = after_name + open_offset;
+    let close = find_call_close(template, open, "datefmt")?;
+    let args = &template[open + 1..close];
+    let call = parse_datefmt_tick_args(args)?;
+    Ok((close + 1, call))
+}
+
+fn find_call_close(template: &str, open: usize, name: &str) -> Result<usize, AvengerGuidesError> {
     let mut in_string = false;
     let mut escaped = false;
     for (idx, ch) in template[open + 1..].char_indices() {
@@ -1126,7 +1482,9 @@ fn find_call_close(template: &str, open: usize) -> Result<usize, AvengerGuidesEr
             return Ok(absolute);
         }
     }
-    Err(invalid_axis_label_format("unterminated numfmt call"))
+    Err(invalid_axis_label_format(format!(
+        "unterminated {name} call"
+    )))
 }
 
 fn parse_numfmt_tick_args(args: &str) -> Result<NumfmtTickCall, AvengerGuidesError> {
@@ -1143,6 +1501,22 @@ fn parse_numfmt_tick_args(args: &str) -> Result<NumfmtTickCall, AvengerGuidesErr
     let (spec, rest) = parse_quoted_string(rest.trim_start())?;
     let overrides = parse_numfmt_tick_overrides(rest)?;
     Ok(NumfmtTickCall { spec, overrides })
+}
+
+fn parse_datefmt_tick_args(args: &str) -> Result<DatefmtTickCall, AvengerGuidesError> {
+    let Some(rest) = args.trim_start().strip_prefix("value") else {
+        return Err(invalid_axis_label_format(
+            "axis datefmt call first argument must be `value`",
+        ));
+    };
+    let Some(rest) = rest.trim_start().strip_prefix(',') else {
+        return Err(invalid_axis_label_format(
+            "axis datefmt call requires a format string argument",
+        ));
+    };
+    let (spec, rest) = parse_axis_string_arg(rest.trim_start(), "format")?;
+    let overrides = parse_datefmt_tick_overrides(rest)?;
+    Ok(DatefmtTickCall { spec, overrides })
 }
 
 fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, AvengerGuidesError> {
@@ -1241,6 +1615,59 @@ fn parse_numfmt_tick_overrides(raw: &str) -> Result<NumberFormatOverrides, Aveng
             _ => {
                 return Err(invalid_axis_label_format(format!(
                     "unsupported axis numfmt option `{name}`"
+                )));
+            }
+        }
+        .trim_start();
+    }
+    Ok(overrides)
+}
+
+fn parse_datefmt_tick_overrides(raw: &str) -> Result<DateTimeFormatOverrides, AvengerGuidesError> {
+    let mut rest = raw.trim();
+    let mut overrides = DateTimeFormatOverrides::default();
+    while !rest.is_empty() {
+        let Some(after_comma) = rest.strip_prefix(',') else {
+            return Err(invalid_axis_label_format(
+                "axis datefmt options must be comma-separated named arguments",
+            ));
+        };
+        rest = after_comma.trim_start();
+        let Some((name, after_name)) = parse_identifier(rest) else {
+            return Err(invalid_axis_label_format(
+                "axis datefmt option must start with an identifier",
+            ));
+        };
+        let Some(after_colon) = after_name.trim_start().strip_prefix(':') else {
+            return Err(invalid_axis_label_format(format!(
+                "axis datefmt option `{name}` must use `:`"
+            )));
+        };
+        let value = after_colon.trim_start();
+        rest = match name {
+            "timezone" => {
+                let (timezone, after_value) = parse_axis_string_arg(value, "timezone")?;
+                overrides.timezone = Some(timezone);
+                after_value
+            }
+            "date_style" => {
+                let (style, after_value) = parse_axis_datetime_style_arg(value, "date_style")?;
+                overrides.date_style = Some(style);
+                after_value
+            }
+            "time_style" => {
+                let (style, after_value) = parse_axis_datetime_style_arg(value, "time_style")?;
+                overrides.time_style = Some(style);
+                after_value
+            }
+            "datetime_style" => {
+                let (style, after_value) = parse_axis_datetime_style_arg(value, "datetime_style")?;
+                overrides.datetime_style = Some(style);
+                after_value
+            }
+            _ => {
+                return Err(invalid_axis_label_format(format!(
+                    "unsupported axis datefmt option `{name}`"
                 )));
             }
         }
@@ -1358,6 +1785,19 @@ fn parse_axis_symbol_arg(raw: &str) -> Result<(Option<Symbol>, &str), AvengerGui
     Ok((symbol, rest))
 }
 
+fn parse_axis_datetime_style_arg<'a>(
+    raw: &'a str,
+    option: &str,
+) -> Result<(DateTimeStyleLength, &'a str), AvengerGuidesError> {
+    let (value, rest) = parse_axis_string_arg(raw, option)?;
+    let Some(style) = DateTimeStyleLength::from_str(&value) else {
+        return Err(invalid_axis_label_format(format!(
+            "axis datefmt option `{option}` must be one of short, medium, long, or full"
+        )));
+    };
+    Ok((style, rest))
+}
+
 fn parse_axis_optional_usize_arg<'a>(
     raw: &'a str,
     option: &str,
@@ -1421,7 +1861,7 @@ fn parse_axis_string_arg<'a>(
 ) -> Result<(String, &'a str), AvengerGuidesError> {
     parse_quoted_string(raw).map_err(|_| {
         invalid_axis_label_format(format!(
-            "axis numfmt option `{option}` must be a string literal"
+            "axis format option `{option}` must be a string literal"
         ))
     })
 }
@@ -1487,7 +1927,7 @@ fn parse_axis_usize_arg<'a>(
 fn parse_quoted_string(raw: &str) -> Result<(String, &str), AvengerGuidesError> {
     let Some(stripped) = raw.strip_prefix('"') else {
         return Err(invalid_axis_label_format(
-            "axis numfmt format argument must be a string literal",
+            "axis format argument must be a string literal",
         ));
     };
     let mut output = String::new();
@@ -1507,9 +1947,7 @@ fn parse_quoted_string(raw: &str) -> Result<(String, &str), AvengerGuidesError> 
         }
         output.push(ch);
     }
-    Err(invalid_axis_label_format(
-        "unterminated axis numfmt format string",
-    ))
+    Err(invalid_axis_label_format("unterminated axis format string"))
 }
 
 fn formatted_number_to_typst(formatted: &FormattedNumber) -> String {
