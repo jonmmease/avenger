@@ -298,7 +298,7 @@ pub(crate) fn format_resolved_number(
         FormatType::DecimalInteger => format!("{:.0}", scaled_value),
         FormatType::HexLower => format_integer_radix(scaled_value, 16, false),
         FormatType::HexUpper => format_integer_radix(scaled_value, 16, true),
-        FormatType::Character => trim_number_text(&scaled_value.to_string()),
+        FormatType::Character => format_character(scaled_value)?,
         FormatType::Currency => unreachable!("currency returns before scalar formatting"),
     };
 
@@ -652,6 +652,22 @@ fn format_integer_radix(value: f64, radix: u32, upper: bool) -> String {
     }
 }
 
+fn format_character(value: f64) -> Result<String, FormatError> {
+    let code_point = value.round();
+    if !(0.0..=char::MAX as u32 as f64).contains(&code_point) {
+        return Err(FormatError::InvalidFormat(format!(
+            "character format code point `{code_point}` is outside the Unicode scalar range",
+        )));
+    }
+    let code_point = code_point as u32;
+    let ch = char::from_u32(code_point).ok_or_else(|| {
+        FormatError::InvalidFormat(format!(
+            "character format code point `{code_point}` is not a Unicode scalar value",
+        ))
+    })?;
+    Ok(ch.to_string())
+}
+
 fn format_si(value: f64, precision: usize) -> (String, &'static str) {
     if value == 0.0 {
         let frac = precision.saturating_sub(1);
@@ -919,7 +935,7 @@ mod tests {
             (".3s", 999.5, "1.00k"),
             ("n", 1234.5, "1,234.50"),
             ("#.0f", 10.1, "10"),
-            ("c", 65.0, "65"),
+            ("c", 65.0, "A"),
             (".2g", 1234.5, "1.2e+3"),
             (".2r", 1234.5, "1200"),
             ("p", 0.1234, "12.3400%"),
@@ -930,6 +946,19 @@ mod tests {
                 .unwrap();
             assert_eq!(out.text, expected, "{spec}");
         }
+    }
+
+    #[test]
+    fn character_type_rejects_invalid_code_points() {
+        let locale = en_us();
+        let err = format_number(
+            0x11_0000 as f64,
+            Some("c"),
+            NumberFormatOverrides::default(),
+            NumberFormatContext::new(&locale),
+        )
+        .unwrap_err();
+        assert!(matches!(err, crate::error::FormatError::InvalidFormat(_)));
     }
 
     #[test]
