@@ -9,7 +9,7 @@ use crate::{
 };
 
 const SI_PREFIXES: [&str; 17] = [
-    "y", "z", "a", "f", "p", "n", "u", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
+    "y", "z", "a", "f", "p", "n", "\u{00b5}", "m", "", "k", "M", "G", "T", "P", "E", "Z", "Y",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -119,7 +119,10 @@ pub fn resolve_number_format(
         Some(width) => width,
         None => spec.width,
     };
-    let group = overrides.group.or(spec.group).unwrap_or(false);
+    let group = overrides.group.or(spec.group).unwrap_or(matches!(
+        overrides.format_type.or(spec.format_type),
+        Some(FormatType::LocaleDefault)
+    ));
     let trim = overrides.trim.or(spec.trim).unwrap_or(false);
     let zero = overrides.zero.unwrap_or(spec.zero);
     let format_type = overrides.format_type.or(spec.format_type);
@@ -205,11 +208,11 @@ fn format_resolved_number(
         suffix.push_str(&context.locale.percent);
     }
 
-    let raw_body = match effective_type {
+    let mut raw_body = match effective_type {
         FormatType::Exponent => {
             let precision = precision_or_default(format, 6);
-            let (mantissa, exponent) = format_exponent_parts(scaled_value, precision, format)?;
-            let text = format!("{mantissa}e{exponent:+03}");
+            let (mantissa, exponent) = format_exponent_parts(scaled_value, precision)?;
+            let text = format!("{mantissa}e{exponent:+}");
             typesetting = NumberTypesetting::Exponent {
                 mantissa: mantissa.clone(),
                 exponent,
@@ -219,11 +222,7 @@ fn format_resolved_number(
         }
         FormatType::Fixed | FormatType::Percent => {
             let precision = fraction_digits(format, 6);
-            format_fixed(
-                scaled_value,
-                precision,
-                format.symbol == Some(Symbol::Alternate),
-            )
+            format_fixed(scaled_value, precision)
         }
         FormatType::General | FormatType::LocaleDefault => {
             let precision =
@@ -260,28 +259,22 @@ fn format_resolved_number(
         FormatType::DecimalInteger => format!("{:.0}", scaled_value),
         FormatType::HexLower => format_integer_radix(scaled_value, 16, false),
         FormatType::HexUpper => format_integer_radix(scaled_value, 16, true),
-        FormatType::Character => {
-            let codepoint = scaled_value.round() as u32;
-            char::from_u32(codepoint)
-                .ok_or_else(|| {
-                    FormatError::InvalidFormat(format!("invalid code point {codepoint}"))
-                })?
-                .to_string()
-        }
+        FormatType::Character => trim_number_text(&scaled_value.to_string()),
         FormatType::CompactShort | FormatType::CompactLong | FormatType::Currency => {
             unreachable!("extension types should be rejected during validation")
         }
     };
 
-    let mut body = localize_number_body(&raw_body, format, context.locale);
     if format.trim
         && !matches!(
             effective_type,
             FormatType::General | FormatType::LocaleDefault
         )
     {
-        body = trim_number_text(&body);
+        raw_body = trim_number_text(&raw_body);
     }
+
+    let body = localize_number_body(&raw_body, format, context.locale);
 
     if let Some(symbol) = format.symbol {
         match symbol {
@@ -353,29 +346,15 @@ fn significant_digits(format: &ResolvedNumberFormat, default: u8) -> usize {
     }
 }
 
-fn format_fixed(value: f64, precision: usize, alternate: bool) -> String {
-    let mut text = format!("{value:.precision$}");
-    if alternate && precision == 0 && !text.contains('.') {
-        text.push('.');
-    }
-    text
+fn format_fixed(value: f64, precision: usize) -> String {
+    format!("{value:.precision$}")
 }
 
-fn format_exponent_parts(
-    value: f64,
-    precision: usize,
-    format: &ResolvedNumberFormat,
-) -> Result<(String, i32), FormatError> {
+fn format_exponent_parts(value: f64, precision: usize) -> Result<(String, i32), FormatError> {
     let text = format!("{value:.precision$e}");
     let (mantissa, exponent) = split_exponent(&text).ok_or_else(|| {
         FormatError::InvalidFormat(format!("could not split exponent output `{text}`"))
     })?;
-    let mantissa =
-        if format.symbol == Some(Symbol::Alternate) && precision == 0 && !mantissa.contains('.') {
-            format!("{mantissa}.")
-        } else {
-            mantissa
-        };
     Ok((mantissa, exponent))
 }
 
@@ -407,8 +386,15 @@ fn format_significant_fixed(value: f64, precision: usize) -> String {
         return format!("{value:.frac$}");
     }
     let exponent = value.abs().log10().floor() as i32;
-    let frac = (precision as i32 - exponent - 1).max(0) as usize;
-    format!("{value:.frac$}")
+    let frac = precision as i32 - exponent - 1;
+    if frac >= 0 {
+        let frac = frac as usize;
+        format!("{value:.frac$}")
+    } else {
+        let factor = 10_f64.powi(-frac);
+        let rounded = (value / factor).round() * factor;
+        format!("{rounded:.0}")
+    }
 }
 
 fn normalize_exponent_text(text: &str) -> String {
@@ -418,7 +404,7 @@ fn normalize_exponent_text(text: &str) -> String {
     let sign = if exponent.starts_with('-') { '-' } else { '+' };
     let exp_digits = exponent.trim_start_matches(['+', '-']);
     let exp = exp_digits.parse::<i32>().unwrap_or(0);
-    format!("{mantissa}e{sign}{exp:02}")
+    format!("{mantissa}e{sign}{exp}")
 }
 
 fn trim_number_text(text: &str) -> String {
@@ -459,11 +445,40 @@ fn format_si(value: f64, precision: usize) -> (String, &'static str) {
         let frac = precision.saturating_sub(1);
         return (format!("{value:.frac$}"), "");
     }
-    let exponent = value.abs().log10().floor() as i32;
+
+    let (coefficient, exponent) = decompose_to_coefficient_and_exponent(value, precision);
     let prefix_exponent = (exponent.div_euclid(3)).clamp(-8, 8);
-    let scaled = value / 10_f64.powi(prefix_exponent * 3);
-    let text = format_significant_fixed(scaled, precision);
+    let decimal_index = exponent - prefix_exponent * 3 + 1;
+    let coefficient_len = coefficient.len() as i32;
+    let text = if decimal_index == coefficient_len {
+        coefficient
+    } else if decimal_index > coefficient_len {
+        format!(
+            "{}{}",
+            coefficient,
+            "0".repeat((decimal_index - coefficient_len) as usize)
+        )
+    } else if decimal_index > 0 {
+        let decimal_index = decimal_index as usize;
+        format!(
+            "{}.{}",
+            &coefficient[..decimal_index],
+            &coefficient[decimal_index..]
+        )
+    } else {
+        let zeros = "0".repeat((-decimal_index) as usize);
+        format!("0.{zeros}{coefficient}")
+    };
     (text, SI_PREFIXES[(prefix_exponent + 8) as usize])
+}
+
+fn decompose_to_coefficient_and_exponent(value: f64, precision: usize) -> (String, i32) {
+    let frac = precision.saturating_sub(1);
+    let formatted = format!("{value:.frac$e}");
+    let Some((mantissa, exponent)) = split_exponent(&formatted) else {
+        return (formatted, 0);
+    };
+    (mantissa.replace('.', ""), exponent)
 }
 
 fn localize_number_body(
@@ -642,7 +657,7 @@ mod tests {
             NumberFormatContext::new(&locale),
         )
         .unwrap();
-        assert_eq!(out.text, "1.2e+03");
+        assert_eq!(out.text, "1.2e+3");
         assert_eq!(
             out.typesetting,
             NumberTypesetting::Exponent {
@@ -688,6 +703,15 @@ mod tests {
             ("X", 255.0, "FF"),
             (".0%", 0.123, "12%"),
             (".3s", 42e6, "42.0M"),
+            (".0s", 1e-6, "1\u{00b5}"),
+            (".3s", 999.5, "1.00k"),
+            ("n", 1234.5, "1,234.50"),
+            ("#.0f", 10.1, "10"),
+            ("c", 65.0, "65"),
+            (".2g", 1234.5, "1.2e+3"),
+            (".2r", 1234.5, "1200"),
+            ("p", 0.1234, "12.3400%"),
+            (".1p", 0.1234, "10%"),
         ];
         for (spec, value, expected) in cases {
             let out = format_number(value, Some(spec), NumberFormatOverrides::default(), context)
