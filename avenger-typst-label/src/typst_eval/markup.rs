@@ -395,6 +395,7 @@ fn lower_datefmt_call(
     let mut value = None;
     let mut spec = None;
     let mut overrides = DateTimeFormatOverrides::default();
+    let mut locale_override = None;
 
     for arg in call.args().items() {
         match arg {
@@ -411,7 +412,7 @@ fn lower_datefmt_call(
                 }
             }
             typst_ast::Arg::Named(named) => {
-                parse_datefmt_named_arg(named, params, &mut overrides)?;
+                parse_datefmt_named_arg(named, params, &mut overrides, &mut locale_override)?;
             }
             typst_ast::Arg::Spread(_) => {
                 return Err(unsupported(
@@ -436,7 +437,10 @@ fn lower_datefmt_call(
         builtin_registry = DateTimeLocaleRegistry::with_builtins();
         &builtin_registry
     };
-    let locale_id = datetime_format.locale_id.unwrap_or("en-US");
+    let locale_id = locale_override
+        .as_deref()
+        .or(datetime_format.locale_id)
+        .unwrap_or("en-US");
     let locale = registry
         .resolve(locale_id)
         .map_err(|err| datefmt_engine_error(range.clone(), err.to_string()))?;
@@ -612,10 +616,14 @@ fn parse_datefmt_named_arg(
     named: typst_ast::Named<'_>,
     params: &Scope,
     overrides: &mut DateTimeFormatOverrides,
+    locale_override: &mut Option<String>,
 ) -> Result<(), LabelError> {
     let position = named.name().to_untyped().range().start;
     match named.name().as_str() {
-        "timezone" => {
+        "locale" => {
+            *locale_override = Some(parse_datefmt_string(named.expr(), params, position)?);
+        }
+        "timezone" | "tz" => {
             overrides.timezone = Some(parse_datefmt_string(named.expr(), params, position)?);
         }
         "date_style" => {
@@ -1524,6 +1532,55 @@ mod tests {
             },
         )
         .expect("line");
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(
+            matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "2023-12-31 19:00")
+        );
+    }
+
+    #[test]
+    fn parses_datefmt_with_call_locale_override() {
+        let mut registry = DateTimeLocaleRegistry::with_builtins();
+        registry
+            .register_custom_locale_json(
+                "label-date",
+                r#"{ "base": "en-US", "date_patterns": { "long": "y'~'MM'~'dd" } }"#,
+            )
+            .expect("custom datetime locale");
+        let params = scope([(
+            "value",
+            Value::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+        )]);
+        let line = parse_line_with_format_context(
+            "#datefmt(value, \"{date:long}\", locale: \"label-date\")",
+            &params,
+            MarkupFormatContext {
+                datetime: DateTimeFormatMarkupContext {
+                    registry: Some(&registry),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .expect("line");
+
+        assert_eq!(line.nodes.len(), 1);
+        assert!(matches!(&line.nodes[0], LineNode::Plain(plain) if plain.text == "2024~01~05"));
+    }
+
+    #[test]
+    fn parses_datefmt_zoned_with_tz_alias_override() {
+        let params = scope([(
+            "value",
+            Value::UtcDateTime(
+                chrono::DateTime::from_timestamp(1_704_067_200, 0).expect("UTC datetime"),
+            ),
+        )]);
+        let line = parse_with_params(
+            "#datefmt(value, \"y-MM-dd HH:mm\", tz: \"America/New_York\")",
+            &params,
+        );
 
         assert_eq!(line.nodes.len(), 1);
         assert!(
