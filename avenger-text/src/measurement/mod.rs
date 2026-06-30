@@ -61,6 +61,12 @@ pub struct TextMeasurementConfig<'a> {
     pub number_locale: Option<&'a str>,
     /// Optional custom number locale specs available to Typst markup functions.
     pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
+    /// Optional datetime locale id available to Typst markup functions such as `#datefmt`.
+    pub datetime_locale: Option<&'a str>,
+    /// Optional default timezone available to Typst markup functions such as `#datefmt`.
+    pub datetime_timezone: Option<&'a str>,
+    /// Optional custom datetime locale specs available to Typst markup functions.
+    pub datetime_locale_specs: Option<&'a crate::DateTimeLocaleSpecs>,
 }
 
 /// Configuration needed for font-level metrics.

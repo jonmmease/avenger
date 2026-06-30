@@ -237,6 +237,9 @@ fn measured_container_labels<'a>(
                 params: avenger_text::empty_label_params(),
                 number_locale: None,
                 number_locale_specs: None,
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_specs: None,
             };
             MeasuredContainerLabel {
                 item,

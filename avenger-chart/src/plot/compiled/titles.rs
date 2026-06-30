@@ -118,6 +118,17 @@ impl CompiledPlot {
             text_params,
             number_locale: Some(self.formatting_context.resolved_number_locale().to_string()),
             number_locale_specs: self.formatting_context.number_locale_specs().clone(),
+            datetime_locale: Some(
+                self.formatting_context
+                    .resolved_datetime_locale()
+                    .to_string(),
+            ),
+            datetime_timezone: Some(
+                self.formatting_context
+                    .resolved_datetime_timezone()
+                    .to_string(),
+            ),
+            datetime_locale_specs: self.formatting_context.datetime_locale_specs().clone(),
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(
@@ -240,6 +251,17 @@ impl CompiledPlot {
             text_params,
             number_locale: Some(self.formatting_context.resolved_number_locale().to_string()),
             number_locale_specs: self.formatting_context.number_locale_specs().clone(),
+            datetime_locale: Some(
+                self.formatting_context
+                    .resolved_datetime_locale()
+                    .to_string(),
+            ),
+            datetime_timezone: Some(
+                self.formatting_context
+                    .resolved_datetime_timezone()
+                    .to_string(),
+            ),
+            datetime_locale_specs: self.formatting_context.datetime_locale_specs().clone(),
             x: x.into(),
             y: y.into(),
             color: ColorOrGradient::Color(

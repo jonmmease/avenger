@@ -235,6 +235,9 @@ where
         text_params: avenger_text::empty_label_params().clone(),
         number_locale: None,
         number_locale_specs: avenger_text::NumberLocaleSpecs::default(),
+        datetime_locale: None,
+        datetime_timezone: None,
+        datetime_locale_specs: avenger_text::DateTimeLocaleSpecs::default(),
         x,
         y,
         defined,
@@ -280,6 +283,9 @@ pub fn apply_text_syntax_and_params(
         mark.text_params = avenger_text::empty_label_params().clone();
         mark.number_locale = None;
         mark.number_locale_specs = avenger_text::NumberLocaleSpecs::default();
+        mark.datetime_locale = None;
+        mark.datetime_timezone = None;
+        mark.datetime_locale_specs = avenger_text::DateTimeLocaleSpecs::default();
         return;
     }
 
@@ -300,6 +306,25 @@ pub fn apply_text_syntax_and_params(
         .eval()
         .formatting_context()
         .number_locale_specs()
+        .clone();
+    mark.datetime_locale = Some(
+        mark_context
+            .eval()
+            .formatting_context()
+            .resolved_datetime_locale()
+            .to_string(),
+    );
+    mark.datetime_timezone = Some(
+        mark_context
+            .eval()
+            .formatting_context()
+            .resolved_datetime_timezone()
+            .to_string(),
+    );
+    mark.datetime_locale_specs = mark_context
+        .eval()
+        .formatting_context()
+        .datetime_locale_specs()
         .clone();
 }
 

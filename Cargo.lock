@@ -654,6 +654,7 @@ dependencies = [
  "avenger-chart-marks",
  "avenger-color",
  "avenger-common",
+ "avenger-format-datetime",
  "avenger-format-number",
  "avenger-geometry",
  "avenger-guides",
@@ -678,6 +679,7 @@ dependencies = [
  "async-trait",
  "avenger-color",
  "avenger-common",
+ "avenger-format-datetime",
  "avenger-format-number",
  "avenger-geometry",
  "avenger-guides",
@@ -687,6 +689,7 @@ dependencies = [
  "avenger-text",
  "base64",
  "bincode",
+ "chrono",
  "cssparser",
  "datafusion",
  "datafusion-common",
@@ -1255,9 +1258,11 @@ dependencies = [
 name = "avenger-text"
 version = "0.0.8"
 dependencies = [
+ "avenger-format-datetime",
  "avenger-format-number",
  "avenger-typst-label",
  "brotli",
+ "chrono",
  "fontdb",
  "image",
  "lyon_path",

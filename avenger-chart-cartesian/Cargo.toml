@@ -8,6 +8,7 @@ avenger-color = { path = "../avenger-color" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-common = { path = "../avenger-common" }
+avenger-format-datetime = { path = "../avenger-format-datetime" }
 avenger-format-number = { path = "../avenger-format-number" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-guides = { path = "../avenger-guides" }

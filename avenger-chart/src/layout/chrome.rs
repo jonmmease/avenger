@@ -159,6 +159,19 @@ async fn measure_text_bounds(
         params: &text_params,
         number_locale: Some(eval_ctx.core.formatting_context().resolved_number_locale()),
         number_locale_specs: Some(eval_ctx.core.formatting_context().number_locale_specs()),
+        datetime_locale: Some(
+            eval_ctx
+                .core
+                .formatting_context()
+                .resolved_datetime_locale(),
+        ),
+        datetime_timezone: Some(
+            eval_ctx
+                .core
+                .formatting_context()
+                .resolved_datetime_timezone(),
+        ),
+        datetime_locale_specs: Some(eval_ctx.core.formatting_context().datetime_locale_specs()),
     };
     let bounds = eval_ctx.measure_text_bounds(&config)?;
 

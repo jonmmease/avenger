@@ -351,6 +351,9 @@ pub fn make_line_legend_itemized(
             params: &config.title_text_params,
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         })?;
 
         let title_mark = SceneTextMark {

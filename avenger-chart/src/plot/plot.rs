@@ -2024,11 +2024,21 @@ mod tests {
             group: Some("_".to_string()),
             ..Default::default()
         };
+        let datetime_locale_spec = avenger_text::DateTimeLocaleSpec {
+            date_patterns: Some(avenger_text::LengthsSpec {
+                long: Some("y'~'MM'~'dd".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
         let compiled = Plot::<Cartesian>::new()
             .formatting_context(
                 FormattingContext::new()
                     .number_locale("custom")
-                    .number_locale_spec("custom", number_locale_spec.clone()),
+                    .number_locale_spec("custom", number_locale_spec.clone())
+                    .datetime_locale("custom-datetime")
+                    .datetime_timezone("America/New_York")
+                    .datetime_locale_spec("custom-datetime", datetime_locale_spec.clone()),
             )
             .mark(Symbol::new().x(lit(1.0)).y(lit(2.0)))
             .compile(&ctx)
@@ -2045,6 +2055,21 @@ mod tests {
                 .get("custom"),
             Some(&number_locale_spec)
         );
+        assert_eq!(
+            compiled.formatting_context.resolved_datetime_locale(),
+            "custom-datetime"
+        );
+        assert_eq!(
+            compiled.formatting_context.resolved_datetime_timezone(),
+            "America/New_York"
+        );
+        assert_eq!(
+            compiled
+                .formatting_context
+                .datetime_locale_specs()
+                .get("custom-datetime"),
+            Some(&datetime_locale_spec)
+        );
 
         let serialized =
             bincode::serialize(&compiled).expect("serialize compiled plot with formatting context");
@@ -2060,6 +2085,21 @@ mod tests {
                 .number_locale_specs()
                 .get("custom"),
             Some(&number_locale_spec)
+        );
+        assert_eq!(
+            decoded.formatting_context.resolved_datetime_locale(),
+            "custom-datetime"
+        );
+        assert_eq!(
+            decoded.formatting_context.resolved_datetime_timezone(),
+            "America/New_York"
+        );
+        assert_eq!(
+            decoded
+                .formatting_context
+                .datetime_locale_specs()
+                .get("custom-datetime"),
+            Some(&datetime_locale_spec)
         );
         Ok(())
     }

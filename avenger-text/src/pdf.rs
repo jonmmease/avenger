@@ -24,6 +24,9 @@ pub struct TextPdfExtractionConfig<'a> {
     pub params: &'a avenger_typst_label::LabelParams,
     pub number_locale: Option<&'a str>,
     pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
+    pub datetime_locale: Option<&'a str>,
+    pub datetime_timezone: Option<&'a str>,
+    pub datetime_locale_specs: Option<&'a crate::DateTimeLocaleSpecs>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +95,9 @@ impl TextPdfExtractorImpl {
                     params: config.params,
                     number_locale: config.number_locale,
                     number_locale_specs: config.number_locale_specs,
+                    datetime_locale: config.datetime_locale,
+                    datetime_timezone: config.datetime_timezone,
+                    datetime_locale_specs: config.datetime_locale_specs,
                 };
                 self.measure_text_bounds(&measurement)
                     .map(|bounds| bounds.width)
@@ -109,6 +115,9 @@ impl TextPdfExtractorImpl {
             config.params,
             config.number_locale,
             config.number_locale_specs,
+            config.datetime_locale,
+            config.datetime_timezone,
+            config.datetime_locale_specs,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -198,6 +207,9 @@ mod tests {
             params: crate::empty_label_params(),
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         }
     }
 
@@ -214,6 +226,9 @@ mod tests {
             params: crate::empty_label_params(),
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         }
     }
 

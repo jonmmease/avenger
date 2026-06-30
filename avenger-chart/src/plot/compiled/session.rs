@@ -263,6 +263,9 @@ pub(crate) struct TextMeasurementCacheKey {
     params: String,
     number_locale: Option<String>,
     number_locale_specs: String,
+    datetime_locale: Option<String>,
+    datetime_timezone: Option<String>,
+    datetime_locale_specs: String,
     measurement: String,
 }
 
@@ -277,6 +280,9 @@ impl TextMeasurementCacheKey {
         params: &avenger_text::LabelParams,
         number_locale: Option<&str>,
         number_locale_specs: Option<&avenger_text::NumberLocaleSpecs>,
+        datetime_locale: Option<&str>,
+        datetime_timezone: Option<&str>,
+        datetime_locale_specs: Option<&avenger_text::DateTimeLocaleSpecs>,
         measurement: &str,
     ) -> Self {
         Self {
@@ -290,6 +296,11 @@ impl TextMeasurementCacheKey {
             number_locale: number_locale.map(str::to_string),
             number_locale_specs: number_locale_specs
                 .map(avenger_text::number_locale_specs_fingerprint)
+                .unwrap_or_default(),
+            datetime_locale: datetime_locale.map(str::to_string),
+            datetime_timezone: datetime_timezone.map(str::to_string),
+            datetime_locale_specs: datetime_locale_specs
+                .map(avenger_text::datetime_locale_specs_fingerprint)
                 .unwrap_or_default(),
             measurement: measurement.to_string(),
         }
@@ -2648,6 +2659,9 @@ mod tests {
             avenger_text::empty_label_params(),
             None,
             None,
+            None,
+            None,
+            None,
             "measurement",
         );
         let typst = TextMeasurementCacheKey::new(
@@ -2658,6 +2672,9 @@ mod tests {
             &FontStyle::default(),
             TextSyntaxMode::TypstMarkup,
             avenger_text::empty_label_params(),
+            None,
+            None,
+            None,
             None,
             None,
             "measurement",

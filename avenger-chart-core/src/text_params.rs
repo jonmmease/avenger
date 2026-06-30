@@ -1,4 +1,5 @@
 use avenger_text::{LabelParamValue, LabelParams, types::TextSyntaxMode};
+use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use datafusion::{arrow::array::Array, common::ScalarValue, error::DataFusionError};
 use indexmap::IndexMap;
 
@@ -133,6 +134,30 @@ pub fn scalar_value_to_label_param(
                 .map(|value| LabelParamValue::Str(value.clone()))
                 .unwrap_or(LabelParamValue::None)
         }
+        ScalarValue::Date32(value) => value
+            .map(date32_to_label_param)
+            .transpose()?
+            .unwrap_or(LabelParamValue::None),
+        ScalarValue::Date64(value) => value
+            .map(|value| timestamp_millis_to_label_param(value, false))
+            .transpose()?
+            .unwrap_or(LabelParamValue::None),
+        ScalarValue::TimestampSecond(value, timezone) => value
+            .map(|value| timestamp_parts_to_label_param(value, 1, timezone.is_some()))
+            .transpose()?
+            .unwrap_or(LabelParamValue::None),
+        ScalarValue::TimestampMillisecond(value, timezone) => value
+            .map(|value| timestamp_parts_to_label_param(value, 1_000, timezone.is_some()))
+            .transpose()?
+            .unwrap_or(LabelParamValue::None),
+        ScalarValue::TimestampMicrosecond(value, timezone) => value
+            .map(|value| timestamp_parts_to_label_param(value, 1_000_000, timezone.is_some()))
+            .transpose()?
+            .unwrap_or(LabelParamValue::None),
+        ScalarValue::TimestampNanosecond(value, timezone) => value
+            .map(|value| timestamp_parts_to_label_param(value, 1_000_000_000, timezone.is_some()))
+            .transpose()?
+            .unwrap_or(LabelParamValue::None),
         ScalarValue::List(array) => {
             if array.is_null(0) {
                 LabelParamValue::None
@@ -170,6 +195,53 @@ pub fn scalar_value_to_label_param(
     })
 }
 
+fn date32_to_label_param(days: i32) -> Result<LabelParamValue, AvengerChartError> {
+    let epoch = NaiveDate::from_ymd_opt(1970, 1, 1).expect("valid Unix epoch date");
+    let date = epoch
+        .checked_add_signed(Duration::days(i64::from(days)))
+        .ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "Date32 Typst label parameter {days} is outside chrono's supported date range"
+            ))
+        })?;
+    Ok(LabelParamValue::Date(date))
+}
+
+fn timestamp_millis_to_label_param(
+    millis: i64,
+    timezone_aware: bool,
+) -> Result<LabelParamValue, AvengerChartError> {
+    timestamp_parts_to_label_param(millis, 1_000, timezone_aware)
+}
+
+fn timestamp_parts_to_label_param(
+    value: i64,
+    units_per_second: i64,
+    timezone_aware: bool,
+) -> Result<LabelParamValue, AvengerChartError> {
+    let seconds = value.div_euclid(units_per_second);
+    let subsecond_units = value.rem_euclid(units_per_second);
+    let nanos_per_unit = 1_000_000_000_i64 / units_per_second;
+    let nanos = u32::try_from(subsecond_units * nanos_per_unit).map_err(|_| {
+        AvengerChartError::InvalidArgument(format!(
+            "Timestamp Typst label parameter {value} has invalid subsecond precision"
+        ))
+    })?;
+    let datetime: DateTime<Utc> = DateTime::from_timestamp(seconds, nanos).ok_or_else(|| {
+        AvengerChartError::InvalidArgument(format!(
+            "Timestamp Typst label parameter {value} is outside chrono's supported range"
+        ))
+    })?;
+    if timezone_aware {
+        Ok(LabelParamValue::UtcDateTime(datetime))
+    } else {
+        Ok(LabelParamValue::DateTime(NaiveDateTime::new(
+            datetime.date_naive(),
+            datetime.time(),
+        )))
+    }
+}
+
 fn datafusion_to_chart_error(error: DataFusionError) -> AvengerChartError {
     AvengerChartError::DataFusionError(error)
 }
@@ -190,6 +262,11 @@ mod tests {
         params.insert("count".to_string(), ScalarValue::Int64(Some(42)));
         params.insert("ratio".to_string(), ScalarValue::Float64(Some(0.5)));
         params.insert("active".to_string(), ScalarValue::Boolean(Some(true)));
+        params.insert("date".to_string(), ScalarValue::Date32(Some(19723)));
+        params.insert(
+            "datetime".to_string(),
+            ScalarValue::TimestampMillisecond(Some(1_704_067_200_000), None),
+        );
         params.insert("missing".to_string(), ScalarValue::Null);
 
         let converted = scalar_params_to_label_params(&params).unwrap();
@@ -201,6 +278,21 @@ mod tests {
         assert_eq!(converted.get("count"), Some(&LabelParamValue::Int(42)));
         assert_eq!(converted.get("ratio"), Some(&LabelParamValue::Float(0.5)));
         assert_eq!(converted.get("active"), Some(&LabelParamValue::Bool(true)));
+        assert_eq!(
+            converted.get("date"),
+            Some(&LabelParamValue::Date(
+                chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap()
+            ))
+        );
+        assert_eq!(
+            converted.get("datetime"),
+            Some(&LabelParamValue::DateTime(
+                chrono::NaiveDate::from_ymd_opt(2024, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+            ))
+        );
         assert_eq!(converted.get("missing"), Some(&LabelParamValue::None));
     }
 
@@ -299,7 +391,7 @@ mod tests {
     #[test]
     fn strict_source_params_error_for_unsupported_value() {
         let mut params = IndexMap::new();
-        params.insert("series".to_string(), ScalarValue::Date32(Some(1)));
+        params.insert("series".to_string(), ScalarValue::Binary(Some(vec![1])));
 
         let err = scalar_params_for_label_source("#series", TextSyntaxMode::TypstMarkup, &params)
             .unwrap_err();
@@ -311,7 +403,10 @@ mod tests {
     fn lenient_source_params_skip_invalid_missing_and_unsupported_values() {
         let mut params = IndexMap::new();
         params.insert("first".to_string(), ScalarValue::Int64(Some(1)));
-        params.insert("unsupported".to_string(), ScalarValue::Date32(Some(1)));
+        params.insert(
+            "unsupported".to_string(),
+            ScalarValue::Binary(Some(vec![1])),
+        );
         params.insert("second".to_string(), ScalarValue::Int64(Some(2)));
 
         let converted = scalar_params_for_label_sources_lenient(

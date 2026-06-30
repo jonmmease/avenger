@@ -56,6 +56,9 @@ mod tests {
             params: &params,
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         };
 
         let chart_bounds = default_chart_text_engine()

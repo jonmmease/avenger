@@ -143,6 +143,9 @@ impl CompiledMarkAdjustmentTransform for CompiledFixedLabelPlacement {
                 params: avenger_text::empty_label_params(),
                 number_locale: None,
                 number_locale_specs: None,
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_specs: None,
             };
             let text_bounds = context.measure_text_bounds(&config);
             let [left, top] =

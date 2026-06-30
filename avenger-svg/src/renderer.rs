@@ -443,6 +443,9 @@ impl SvgRenderer {
                 &mark.text_params,
                 mark.number_locale.as_deref(),
                 &mark.number_locale_specs,
+                mark.datetime_locale.as_deref(),
+                mark.datetime_timezone.as_deref(),
+                &mark.datetime_locale_specs,
                 &text_engine,
             );
             let target = [target[0] + origin[0], target[1] + origin[1]];
@@ -459,6 +462,9 @@ impl SvgRenderer {
                 &mark.text_params,
                 mark.number_locale.as_deref(),
                 &mark.number_locale_specs,
+                mark.datetime_locale.as_deref(),
+                mark.datetime_timezone.as_deref(),
+                &mark.datetime_locale_specs,
             )?;
             let text_bounds = typst_text_path_buffer.bounds.clone();
             if self.options.font_embedding == crate::options::SvgFontEmbedding::EmbedSubsetWoff2 {
@@ -541,6 +547,9 @@ impl SvgRenderer {
         params: &avenger_text::LabelParams,
         number_locale: Option<&str>,
         number_locale_specs: &avenger_text::NumberLocaleSpecs,
+        datetime_locale: Option<&str>,
+        datetime_timezone: Option<&str>,
+        datetime_locale_specs: &avenger_text::DateTimeLocaleSpecs,
     ) -> Result<TextPathBuffer, AvengerSvgError> {
         let path_color = match color {
             ColorOrGradient::Color(color) => *color,
@@ -559,6 +568,9 @@ impl SvgRenderer {
             params,
             number_locale,
             number_locale_specs: Some(number_locale_specs),
+            datetime_locale,
+            datetime_timezone,
+            datetime_locale_specs: Some(datetime_locale_specs),
         };
         let buffer = text_engine
             .extract_paths_with_plain_fallback(&config)
@@ -1557,6 +1569,9 @@ fn truncate_text_to_limit(
     params: &avenger_text::LabelParams,
     number_locale: Option<&str>,
     number_locale_specs: &avenger_text::NumberLocaleSpecs,
+    datetime_locale: Option<&str>,
+    datetime_timezone: Option<&str>,
+    datetime_locale_specs: &avenger_text::DateTimeLocaleSpecs,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -1574,6 +1589,9 @@ fn truncate_text_to_limit(
             params,
             number_locale,
             number_locale_specs: Some(number_locale_specs),
+            datetime_locale,
+            datetime_timezone,
+            datetime_locale_specs: Some(datetime_locale_specs),
         };
         Ok::<_, std::convert::Infallible>(
             text_engine

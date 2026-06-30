@@ -1,5 +1,6 @@
 use std::{collections::BTreeMap, sync::Arc, sync::OnceLock};
 
+use avenger_format_datetime::{DateTimeLocaleRegistry, DateTimeLocaleSpec};
 use avenger_format_number::{NumberLocaleRegistry, NumberLocaleSpec};
 use avenger_typst_label::{LabelLimits, MathStyle};
 
@@ -8,6 +9,7 @@ use crate::types::TextSyntaxMode;
 pub(crate) const DEFAULT_MARKUP_LINE_LEADING_FACTOR: f32 = 0.65;
 
 pub type NumberLocaleSpecs = BTreeMap<String, NumberLocaleSpec>;
+pub type DateTimeLocaleSpecs = BTreeMap<String, DateTimeLocaleSpec>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMarkupConfig {
@@ -137,6 +139,33 @@ pub fn number_locale_registry_from_specs(
     }
 
     let mut registry = NumberLocaleRegistry::with_builtins();
+    for (id, spec) in specs {
+        registry
+            .register_custom_locale(id.clone(), spec.clone())
+            .map_err(|err| err.to_string())?;
+    }
+    Ok(Some(Arc::new(registry)))
+}
+
+pub fn datetime_locale_specs_fingerprint(specs: &DateTimeLocaleSpecs) -> String {
+    if specs.is_empty() {
+        String::new()
+    } else {
+        serde_json::to_string(specs).unwrap_or_else(|_| format!("{specs:?}"))
+    }
+}
+
+pub fn datetime_locale_registry_from_specs(
+    specs: Option<&DateTimeLocaleSpecs>,
+) -> Result<Option<Arc<DateTimeLocaleRegistry>>, String> {
+    let Some(specs) = specs else {
+        return Ok(None);
+    };
+    if specs.is_empty() {
+        return Ok(None);
+    }
+
+    let mut registry = DateTimeLocaleRegistry::with_builtins();
     for (id, spec) in specs {
         registry
             .register_custom_locale(id.clone(), spec.clone())

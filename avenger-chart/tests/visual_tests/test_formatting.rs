@@ -1,8 +1,8 @@
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::prelude::*;
 
-use datafusion::arrow::array::Float64Array;
-use datafusion::arrow::datatypes::{DataType, Field, Schema};
+use datafusion::arrow::array::{Float64Array, TimestampMillisecondArray};
+use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::*;
@@ -34,6 +34,18 @@ fn make_df_xyv(x: &[f64], y: &[f64], v: &[f64]) -> DataFrame {
         vec![Arc::new(x_values), Arc::new(y_values), Arc::new(v_values)],
     )
     .unwrap();
+    let ctx = SessionContext::new();
+    ctx.read_batch(batch).unwrap()
+}
+
+fn make_df_time_y(x: &[i64], y: &[f64]) -> DataFrame {
+    let x_values = TimestampMillisecondArray::from(x.to_vec());
+    let y_values = Float64Array::from(y.to_vec());
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("x", DataType::Timestamp(TimeUnit::Millisecond, None), false),
+        Field::new("y", DataType::Float64, false),
+    ]));
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)]).unwrap();
     let ctx = SessionContext::new();
     ctx.read_batch(batch).unwrap()
 }
@@ -147,6 +159,71 @@ async fn axis_y_numfmt_typst_math_ticks_and_title() {
         None,
         "layout",
         "format_axis_y_numfmt_typst_math_ticks_and_title",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn axis_x_datefmt_ldml_ticks_and_title() {
+    let ctx = SessionContext::new();
+    let day = 86_400_000_i64;
+    let start = 1_704_067_200_000_i64;
+    let df = make_df_time_y(
+        &[
+            start,
+            start + day,
+            start + 2 * day,
+            start + 3 * day,
+            start + 4 * day,
+        ],
+        &[14.0, 18.0, 15.0, 21.0, 19.0],
+    );
+    let datetime_locale_spec = avenger_text::DateTimeLocaleSpec {
+        date_patterns: Some(avenger_text::LengthsSpec {
+            long: Some("y'~'MM'~'dd".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let plot = Plot::<Cartesian>::new()
+        .formatting_context(
+            FormattingContext::new()
+                .datetime_locale("visual-datetime")
+                .datetime_locale_spec("visual-datetime", datetime_locale_spec),
+        )
+        .add_params([Param::new("report_date", ScalarValue::Date32(Some(19727)))])
+        .configure_title("Report #datefmt(report_date, \"{date:long}\")", |t| {
+            t.typst()
+        })
+        .data(df)
+        .mark(
+            Line::new()
+                .x_with(col("x"), |c| {
+                    c.axis(|a| {
+                        a.title("Observation date")
+                            .tick_count(5.0)
+                            .tick_label("#datefmt(value, \"MMM d\")")
+                    })
+                })
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 25.0)))
+                        .axis(|a| a.title("Temperature"))
+                })
+                .stroke("#276fbf")
+                .stroke_width(3.0),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile datefmt LDML axis plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "format_axis_x_datefmt_ldml_ticks_and_title",
     )
     .await;
 }

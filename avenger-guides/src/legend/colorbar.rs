@@ -110,6 +110,9 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
                     number_locale_specs: Some(&config.number_locale_specs),
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
             let max_bounds =
                 text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
@@ -122,6 +125,9 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
                     number_locale_specs: Some(&config.number_locale_specs),
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -159,6 +165,10 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
                 number_locale_specs: config.number_locale_specs.clone(),
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_registry: None,
+                datetime_locale_specs: avenger_text::DateTimeLocaleSpecs::default(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -323,6 +333,9 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
                     number_locale_specs: Some(&config.number_locale_specs),
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
             let max_bounds =
                 text_engine.measure_bounds_with_plain_fallback_or_approx(&TextMeasurementConfig {
@@ -335,6 +348,9 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     params: avenger_text::empty_label_params(),
                     number_locale: config.number_locale.as_deref(),
                     number_locale_specs: Some(&config.number_locale_specs),
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -385,6 +401,10 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
                 number_locale_specs: config.number_locale_specs.clone(),
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_registry: None,
+                datetime_locale_specs: avenger_text::DateTimeLocaleSpecs::default(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -528,6 +548,9 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
                     number_locale_specs: None,
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -564,6 +587,10 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
                 number_locale_specs: config.number_locale_specs.clone(),
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_registry: None,
+                datetime_locale_specs: avenger_text::DateTimeLocaleSpecs::default(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,
@@ -741,6 +768,9 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
                     number_locale_specs: None,
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
 
             // Calculate how much the labels might overflow beyond gradient edges
@@ -793,6 +823,10 @@ fn make_colorbar_marks_with_surfaces_with_text_engine(
                 number_locale: config.number_locale.clone(),
                 number_locale_registry: config.number_locale_registry.clone(),
                 number_locale_specs: config.number_locale_specs.clone(),
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_registry: None,
+                datetime_locale_specs: avenger_text::DateTimeLocaleSpecs::default(),
                 title_font_size: config.title_font_size,
                 title_font_weight: config.title_font_weight.as_ref().map(|w| match w {
                     FontWeight::Number(n) => *n,

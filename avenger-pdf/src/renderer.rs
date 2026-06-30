@@ -606,6 +606,9 @@ impl PdfRenderer {
                 params: &mark.text_params,
                 number_locale: mark.number_locale.as_deref(),
                 number_locale_specs: Some(&mark.number_locale_specs),
+                datetime_locale: mark.datetime_locale.as_deref(),
+                datetime_timezone: mark.datetime_timezone.as_deref(),
+                datetime_locale_specs: Some(&mark.datetime_locale_specs),
             })?;
 
             if *leader {

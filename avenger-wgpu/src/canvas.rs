@@ -89,6 +89,9 @@ fn truncate_text_to_limit(
     params: &avenger_text::LabelParams,
     number_locale: Option<&str>,
     number_locale_specs: &avenger_text::NumberLocaleSpecs,
+    datetime_locale: Option<&str>,
+    datetime_timezone: Option<&str>,
+    datetime_locale_specs: &avenger_text::DateTimeLocaleSpecs,
     text_engine: &TextEngine,
 ) -> String {
     if !limit.is_finite() {
@@ -106,6 +109,9 @@ fn truncate_text_to_limit(
             params,
             number_locale,
             number_locale_specs: Some(number_locale_specs),
+            datetime_locale,
+            datetime_timezone,
+            datetime_locale_specs: Some(datetime_locale_specs),
         };
         Ok::<_, std::convert::Infallible>(
             text_engine
@@ -428,6 +434,9 @@ pub trait Canvas {
                     params: &mark.text_params,
                     number_locale: mark.number_locale.as_deref(),
                     number_locale_specs: &mark.number_locale_specs,
+                    datetime_locale: mark.datetime_locale.as_deref(),
+                    datetime_timezone: mark.datetime_timezone.as_deref(),
+                    datetime_locale_specs: &mark.datetime_locale_specs,
                     limit: *limit,
                     use_nearest_filter,
                 };
@@ -443,6 +452,9 @@ pub trait Canvas {
                         &mark.text_params,
                         mark.number_locale.as_deref(),
                         &mark.number_locale_specs,
+                        mark.datetime_locale.as_deref(),
+                        mark.datetime_timezone.as_deref(),
+                        &mark.datetime_locale_specs,
                         &text_engine,
                     );
                     let text_bounds = text_engine.measure_bounds_with_plain_fallback_or_approx(
@@ -456,6 +468,9 @@ pub trait Canvas {
                             params: &mark.text_params,
                             number_locale: mark.number_locale.as_deref(),
                             number_locale_specs: Some(&mark.number_locale_specs),
+                            datetime_locale: mark.datetime_locale.as_deref(),
+                            datetime_timezone: mark.datetime_timezone.as_deref(),
+                            datetime_locale_specs: Some(&mark.datetime_locale_specs),
                         },
                     );
                     if let Some(geometry) = compute_text_leader_geometry(TextLeaderGeometryInput {

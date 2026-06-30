@@ -1155,6 +1155,9 @@ impl EvaluationContext {
                 config.params,
                 config.number_locale,
                 config.number_locale_specs,
+                config.datetime_locale,
+                config.datetime_timezone,
+                config.datetime_locale_specs,
                 TEXT_MARK_MEASUREMENT_CACHE_TAG,
             );
             let cached = {
@@ -1201,6 +1204,9 @@ impl EvaluationContext {
                 config.params,
                 config.number_locale,
                 config.number_locale_specs,
+                config.datetime_locale,
+                config.datetime_timezone,
+                config.datetime_locale_specs,
                 measurement_tag,
             );
             let cached = {
@@ -2098,6 +2104,9 @@ mod tests {
                 params: avenger_text::empty_label_params(),
                 number_locale: None,
                 number_locale_specs: None,
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_specs: None,
             })
             .unwrap();
 
@@ -2129,6 +2138,9 @@ mod tests {
             params: avenger_text::empty_label_params(),
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         };
 
         assert!(ctx.measure_text_bounds(&config).is_err());
@@ -2181,6 +2193,9 @@ mod tests {
             params: &supplied_params,
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         };
         let missing_config = avenger_text::measurement::TextMeasurementConfig {
             text: "#series",
@@ -2192,6 +2207,9 @@ mod tests {
             params: avenger_text::empty_label_params(),
             number_locale: None,
             number_locale_specs: None,
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: None,
         };
 
         assert!(ctx.measure_text_bounds(&supplied_config).is_ok());

@@ -147,6 +147,9 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 params: text.params,
                 number_locale: text.number_locale,
                 number_locale_specs: Some(text.number_locale_specs),
+                datetime_locale: text.datetime_locale,
+                datetime_timezone: text.datetime_timezone,
+                datetime_locale_specs: Some(text.datetime_locale_specs),
             },
             dimensions.scale,
             &self.next_cache,
@@ -381,5 +384,8 @@ pub struct TextInstance<'a> {
     pub params: &'a LabelParams,
     pub number_locale: Option<&'a str>,
     pub number_locale_specs: &'a avenger_text::NumberLocaleSpecs,
+    pub datetime_locale: Option<&'a str>,
+    pub datetime_timezone: Option<&'a str>,
+    pub datetime_locale_specs: &'a avenger_text::DateTimeLocaleSpecs,
     pub use_nearest_filter: bool,
 }

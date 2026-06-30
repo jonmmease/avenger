@@ -494,6 +494,9 @@ fn make_title(
         params: &config.title_text_params,
         number_locale: config.number_locale.as_deref(),
         number_locale_specs: Some(&config.number_locale_specs),
+        datetime_locale: config.datetime_locale.as_deref(),
+        datetime_timezone: config.datetime_timezone.as_deref(),
+        datetime_locale_specs: Some(&config.datetime_locale_specs),
     })?;
     let (x, y, align, baseline, angle) = match config.orientation {
         AxisOrientation::Left => (
@@ -543,6 +546,9 @@ fn make_title(
         text_params: config.title_text_params.clone(),
         number_locale: config.number_locale.clone(),
         number_locale_specs: config.number_locale_specs.clone(),
+        datetime_locale: config.datetime_locale.clone(),
+        datetime_timezone: config.datetime_timezone.clone(),
+        datetime_locale_specs: config.datetime_locale_specs.clone(),
         ..Default::default()
     })
 }
@@ -640,6 +646,9 @@ fn level_label_cross_extent(
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
                     number_locale_specs: None,
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 });
             (bounds.width, bounds.height)
         })

@@ -44,6 +44,9 @@ pub struct TextRasterizationConfig<'a> {
     pub params: &'a avenger_typst_label::LabelParams,
     pub number_locale: Option<&'a str>,
     pub number_locale_specs: Option<&'a crate::NumberLocaleSpecs>,
+    pub datetime_locale: Option<&'a str>,
+    pub datetime_timezone: Option<&'a str>,
+    pub datetime_locale_specs: Option<&'a crate::DateTimeLocaleSpecs>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,6 +62,9 @@ pub struct TextRasterCacheKey {
     pub params: String,
     pub number_locale: Option<String>,
     pub number_locale_specs: String,
+    pub datetime_locale: Option<String>,
+    pub datetime_timezone: Option<String>,
+    pub datetime_locale_specs: String,
 }
 
 #[derive(Clone)]

@@ -389,6 +389,26 @@ impl CompiledGuide for CartesianGuide {
             .eval()
             .map(|eval| eval.formatting_context().number_locale_specs())
             .unwrap_or(&empty_number_locale_specs);
+        let default_datetime_locale = render_context
+            .eval()
+            .map(|eval| eval.formatting_context().resolved_datetime_locale())
+            .unwrap_or("en-US");
+        let default_datetime_timezone = render_context
+            .eval()
+            .map(|eval| eval.formatting_context().resolved_datetime_timezone())
+            .unwrap_or("UTC");
+        let default_datetime_locale_registry = match render_context.eval() {
+            Some(eval) => eval
+                .formatting_context()
+                .datetime_locale_registry()
+                .map_err(AvengerChartError::InvalidArgument)?,
+            None => None,
+        };
+        let empty_datetime_locale_specs = avenger_text::DateTimeLocaleSpecs::default();
+        let default_datetime_locale_specs = render_context
+            .eval()
+            .map(|eval| eval.formatting_context().datetime_locale_specs())
+            .unwrap_or(&empty_datetime_locale_specs);
 
         // Render background if specified (behind everything else)
         if let Some(bg_color) = self.get_background_color(theme, params, ctx).await {
@@ -493,6 +513,10 @@ impl CompiledGuide for CartesianGuide {
                     default_number_locale,
                     default_number_locale_registry.clone(),
                     default_number_locale_specs,
+                    default_datetime_locale,
+                    default_datetime_timezone,
+                    default_datetime_locale_registry.clone(),
+                    default_datetime_locale_specs,
                 )
                 .await?;
                 marks.push(axis_mark);

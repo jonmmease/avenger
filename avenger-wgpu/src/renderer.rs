@@ -743,6 +743,9 @@ mod text_raster_tests {
                     params: avenger_text::empty_label_params(),
                     number_locale: None,
                     number_locale_specs: &avenger_text::NumberLocaleSpecs::default(),
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: &avenger_text::DateTimeLocaleSpecs::default(),
                     use_nearest_filter: false,
                 },
                 CanvasDimensions {

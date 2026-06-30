@@ -43,6 +43,9 @@ impl TextLineMeasurer {
             config.params,
             config.number_locale,
             config.number_locale_specs,
+            config.datetime_locale,
+            config.datetime_timezone,
+            config.datetime_locale_specs,
         )?;
         Ok(bounds_from_metrics(
             result.label.metrics,
@@ -93,6 +96,9 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
                 config.params,
                 config.number_locale,
                 config.number_locale_specs,
+                config.datetime_locale,
+                config.datetime_timezone,
+                config.datetime_locale_specs,
             )
         })?;
         if raster_text.is_empty() {
@@ -125,6 +131,9 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             config.params,
             config.number_locale,
             config.number_locale_specs,
+            config.datetime_locale,
+            config.datetime_timezone,
+            config.datetime_locale_specs,
         )?;
         let tight_bounds = tight_bounds_from_metrics(result.label.metrics);
         let bounds = bounds_from_metrics(
@@ -150,6 +159,12 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             number_locale_specs: config
                 .number_locale_specs
                 .map(crate::math::number_locale_specs_fingerprint)
+                .unwrap_or_default(),
+            datetime_locale: config.datetime_locale.map(str::to_string),
+            datetime_timezone: config.datetime_timezone.map(str::to_string),
+            datetime_locale_specs: config
+                .datetime_locale_specs
+                .map(crate::math::datetime_locale_specs_fingerprint)
                 .unwrap_or_default(),
         };
         let image = if cached_entries.contains_key(&cache_key) {
@@ -204,6 +219,9 @@ fn measure_text_width_with_typst(
     params: &avenger_typst_label::LabelParams,
     number_locale: Option<&str>,
     number_locale_specs: Option<&crate::NumberLocaleSpecs>,
+    datetime_locale: Option<&str>,
+    datetime_timezone: Option<&str>,
+    datetime_locale_specs: Option<&crate::DateTimeLocaleSpecs>,
 ) -> Result<f32, AvengerTextError> {
     Ok(typeset_line(
         typst,
@@ -217,6 +235,9 @@ fn measure_text_width_with_typst(
         params,
         number_locale,
         number_locale_specs,
+        datetime_locale,
+        datetime_timezone,
+        datetime_locale_specs,
     )
     .map(|result| result.label.metrics.width)?)
 }
@@ -238,6 +259,9 @@ pub(crate) fn typeset_line(
     params: &avenger_typst_label::LabelParams,
     number_locale: Option<&str>,
     number_locale_specs: Option<&crate::NumberLocaleSpecs>,
+    datetime_locale: Option<&str>,
+    datetime_timezone: Option<&str>,
+    datetime_locale_specs: Option<&crate::DateTimeLocaleSpecs>,
 ) -> Result<TypesetLineResult, avenger_typst_label::LabelError> {
     let number_locale_registry =
         crate::math::number_locale_registry_from_specs(number_locale_specs).map_err(|message| {
@@ -247,6 +271,14 @@ pub(crate) fn typeset_line(
                 message,
             }
         })?;
+    let datetime_locale_registry = crate::math::datetime_locale_registry_from_specs(
+        datetime_locale_specs,
+    )
+    .map_err(|message| avenger_typst_label::LabelError::Engine {
+        start: 0,
+        end: text.len(),
+        message,
+    })?;
     let options = label_options(
         math,
         text,
@@ -258,6 +290,9 @@ pub(crate) fn typeset_line(
         params,
         number_locale,
         number_locale_registry,
+        datetime_locale,
+        datetime_timezone,
+        datetime_locale_registry,
     );
     let label = if math.syntax_mode == crate::types::TextSyntaxMode::Plain {
         typst.compile_text(text, &options)?
@@ -293,6 +328,11 @@ pub(crate) fn label_options(
     params: &avenger_typst_label::LabelParams,
     number_locale: Option<&str>,
     number_locale_registry: Option<std::sync::Arc<avenger_format_number::NumberLocaleRegistry>>,
+    datetime_locale: Option<&str>,
+    datetime_timezone: Option<&str>,
+    datetime_locale_registry: Option<
+        std::sync::Arc<avenger_format_datetime::DateTimeLocaleRegistry>,
+    >,
 ) -> avenger_typst_label::LabelOptions {
     let mut math_style = math.math_style.clone();
     math_style.font_size = font_size;
@@ -316,9 +356,9 @@ pub(crate) fn label_options(
         params: params.clone(),
         number_locale: number_locale.map(str::to_string),
         number_locale_registry,
-        datetime_locale: None,
-        datetime_timezone: None,
-        datetime_locale_registry: None,
+        datetime_locale: datetime_locale.map(str::to_string),
+        datetime_timezone: datetime_timezone.map(str::to_string),
+        datetime_locale_registry,
         limits: limits_for_text(text, math.limits),
     }
 }
@@ -459,6 +499,9 @@ mod tests {
             crate::empty_label_params(),
             None,
             None,
+            None,
+            None,
+            None,
         );
 
         assert_eq!(options.text.font_family, "sans-serif");
@@ -505,6 +548,9 @@ mod tests {
                 params: crate::empty_label_params(),
                 number_locale: None,
                 number_locale_specs: None,
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_specs: None,
             })
             .unwrap();
 
@@ -539,6 +585,9 @@ mod tests {
             crate::empty_label_params(),
             Some("de-DE"),
             None,
+            None,
+            None,
+            None,
         );
 
         assert_eq!(options.number_locale.as_deref(), Some("de-DE"));
@@ -571,9 +620,53 @@ mod tests {
             &params,
             Some("tick-test"),
             Some(&number_locale_specs),
+            None,
+            None,
+            None,
         );
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn typst_datefmt_uses_datetime_locale_specs() {
+        let typst = avenger_typst_label::LabelEngine::new(Default::default()).unwrap();
+        let mut params = crate::LabelParams::default();
+        params.insert(
+            "value".to_string(),
+            crate::LabelParamValue::Date(chrono::NaiveDate::from_ymd_opt(2024, 1, 5).unwrap()),
+        );
+        let mut datetime_locale_specs = crate::DateTimeLocaleSpecs::default();
+        datetime_locale_specs.insert(
+            "label-date-test".to_string(),
+            crate::DateTimeLocaleSpec {
+                date_patterns: Some(avenger_format_datetime::LengthsSpec {
+                    long: Some("y'~'MM'~'dd".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        let result = typeset_line(
+            &typst,
+            &TextMarkupConfig::default().with_syntax_mode(TextSyntaxMode::TypstMarkup),
+            "#datefmt(value, \"{date:long}\")",
+            "sans-serif",
+            12.0,
+            WEIGHT,
+            STYLE,
+            [0.0, 0.0, 0.0, 1.0],
+            &params,
+            None,
+            None,
+            Some("label-date-test"),
+            None,
+            Some(&datetime_locale_specs),
+        )
+        .expect("datefmt label");
+
+        assert_eq!(result.label.semantic_text(), "2024~01~05");
     }
 
     #[test]
@@ -599,6 +692,9 @@ mod tests {
                     params: crate::empty_label_params(),
                     number_locale: None,
                     number_locale_specs: None,
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 },
                 1.0,
                 &HashMap::new(),
@@ -634,6 +730,9 @@ mod tests {
                     params: crate::empty_label_params(),
                     number_locale: None,
                     number_locale_specs: None,
+                    datetime_locale: None,
+                    datetime_timezone: None,
+                    datetime_locale_specs: None,
                 },
                 1.0,
                 &HashMap::new(),

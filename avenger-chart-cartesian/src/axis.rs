@@ -10,6 +10,7 @@ use avenger_chart_core::{
     owner_for_edge, params_to_datafusion, project_container_edge_levels, resolve_derived_scalars,
     scalar_params_for_label_source, serialization::DefaultLogicalExprNodeExt,
 };
+use avenger_format_datetime::DateTimeLocaleRegistry;
 use avenger_format_number::NumberLocaleRegistry;
 use avenger_guides::axis::{
     band::make_band_axis_marks,
@@ -20,7 +21,7 @@ use avenger_guides::axis::{
 };
 use avenger_scales::scales::{DomainKind, band::BandScale};
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
-use avenger_text::{NumberLocaleSpecs, types::TextSyntaxMode};
+use avenger_text::{DateTimeLocaleSpecs, NumberLocaleSpecs, types::TextSyntaxMode};
 use datafusion::{
     arrow::array::{Array, StructArray},
     common::ScalarValue,
@@ -565,6 +566,10 @@ pub async fn evaluate_cartesian_axis(
     default_number_locale: &str,
     default_number_locale_registry: Option<Arc<NumberLocaleRegistry>>,
     default_number_locale_specs: &NumberLocaleSpecs,
+    default_datetime_locale: &str,
+    default_datetime_timezone: &str,
+    default_datetime_locale_registry: Option<Arc<DateTimeLocaleRegistry>>,
+    default_datetime_locale_specs: &DateTimeLocaleSpecs,
 ) -> Result<SceneMark, AvengerChartError> {
     let visible = if let Some(visible_node) = axis.visible.as_option().and_then(|o| o.as_ref()) {
         let visible_expr =
@@ -792,6 +797,10 @@ pub async fn evaluate_cartesian_axis(
         number_locale,
         number_locale_registry: default_number_locale_registry,
         number_locale_specs: default_number_locale_specs.clone(),
+        datetime_locale: Some(default_datetime_locale.to_string()),
+        datetime_timezone: Some(default_datetime_timezone.to_string()),
+        datetime_locale_registry: default_datetime_locale_registry,
+        datetime_locale_specs: default_datetime_locale_specs.clone(),
         title_font_size: theme.font_size(&title_ctx),
         domain_color,
         tick_color,
