@@ -4,6 +4,7 @@ use avenger_chart::prelude::*;
 use datafusion::arrow::array::Float64Array;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::ScalarValue;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
@@ -108,6 +109,46 @@ async fn axis_y_si_prefix() {
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "layout", "format_axis_y_si_prefix").await;
+}
+
+#[tokio::test]
+async fn axis_y_numfmt_typst_math_ticks_and_title() {
+    let ctx = SessionContext::new();
+    let df = make_df_xy(
+        &[1.0, 2.0, 3.0, 4.0, 5.0],
+        &[1.2e3, 2.4e4, 3.6e5, 7.2e5, 1.2e6],
+    );
+
+    let plot = Plot::<Cartesian>::new()
+        .add_params([Param::new("peak_force", ScalarValue::Float64(Some(1.2e6)))])
+        .configure_title("Peak force #numfmt(peak_force, \".2e\") N", |t| t.typst())
+        .data(df)
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
+                .y_with(col("y"), |c| {
+                    c.scale(|s| s.domain((0.0, 1.2e6))).axis(|a| {
+                        a.title("Force (N)")
+                            .grid(true)
+                            .tick_label("#numfmt(value, \".1e\")")
+                    })
+                })
+                .size(90.0)
+                .fill_with("#756bb1", |c| c.no_legend()),
+        );
+
+    let compiled = plot
+        .compile(&ctx)
+        .await
+        .expect("compile numfmt Typst math axis plot");
+    assert_visual_match_default(
+        &compiled,
+        &ctx,
+        None,
+        "layout",
+        "format_axis_y_numfmt_typst_math_ticks_and_title",
+    )
+    .await;
 }
 
 #[tokio::test]
