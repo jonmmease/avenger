@@ -461,6 +461,46 @@ mod tests {
             .to_vec()
     }
 
+    fn raster_f64_values(batch: &RecordBatch, row: usize) -> Vec<Option<f64>> {
+        let values = raster_struct(batch)
+            .column_by_name("values")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let data = values
+            .column_by_name("data")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let row_values = data.value(row);
+        let row_values = row_values.as_any().downcast_ref::<Float64Array>().unwrap();
+        (0..row_values.len())
+            .map(|index| {
+                if row_values.is_null(index) {
+                    None
+                } else {
+                    Some(row_values.value(index))
+                }
+            })
+            .collect()
+    }
+
+    fn assert_option_f64_close(actual: &[Option<f64>], expected: &[Option<f64>]) {
+        assert_eq!(actual.len(), expected.len());
+        for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+            match (actual, expected) {
+                (Some(actual), Some(expected)) => assert!(
+                    (actual - expected).abs() < 1e-12,
+                    "index {index}: expected {expected}, got {actual}"
+                ),
+                (None, None) => {}
+                other => panic!("index {index}: expected {expected:?}, got {other:?}"),
+            }
+        }
+    }
+
     fn raster_uniform_dimension(
         batch: &RecordBatch,
         row: usize,
@@ -4700,6 +4740,144 @@ mod tests {
         }
         assert_eq!(counts_by_group["A"], vec![1, 0, 0, 1]);
         assert_eq!(counts_by_group["B"], vec![1, 1, 0, 1]);
+    }
+
+    fn rasterize_value_reducer_dataframe(ctx: &SessionContext) -> DataFrame {
+        rasterize_dataframe(
+            ctx,
+            vec![None; 11],
+            vec![
+                Some(0.0),
+                Some(0.2),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(1.5),
+                Some(2.0),
+                Some(-1.0),
+                Some(0.0),
+            ],
+            vec![
+                Some(0.0),
+                Some(0.2),
+                Some(0.0),
+                Some(2.0),
+                Some(2.0),
+                Some(2.0),
+                Some(0.0),
+                Some(1.5),
+                Some(2.0),
+                Some(0.0),
+                Some(0.0),
+            ],
+            vec![
+                Some(1.0),
+                Some(3.0),
+                Some(-2.0),
+                Some(5.0),
+                Some(7.0),
+                Some(9.0),
+                Some(f64::NAN),
+                None,
+                Some(f64::INFINITY),
+                Some(100.0),
+                None,
+            ],
+        )
+    }
+
+    async fn rasterize_value_reducer_values(ctx: &SessionContext, agg: &str) -> Vec<Option<f64>> {
+        let dataframe = rasterize_value_reducer_dataframe(ctx);
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .value(col("value"))
+                .agg(agg),
+        );
+        let batches = transformed_batches(ctx, dataframe, vec![transform]).await;
+        raster_f64_values(&batches[0], 0)
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_sum_min_max_skip_invalid_values_and_null_empty_cells() {
+        let ctx = SessionContext::new();
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "sum").await,
+            &[Some(4.0), Some(-2.0), None, Some(21.0)],
+        );
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "min").await,
+            &[Some(1.0), Some(-2.0), None, Some(5.0)],
+        );
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "max").await,
+            &[Some(3.0), Some(-2.0), None, Some(9.0)],
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_mean_variance_and_stddev_match_hand_computed_values() {
+        let ctx = SessionContext::new();
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "mean").await,
+            &[Some(2.0), Some(-2.0), None, Some(7.0)],
+        );
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "var_pop").await,
+            &[Some(1.0), Some(0.0), None, Some(8.0 / 3.0)],
+        );
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "var_samp").await,
+            &[Some(2.0), None, None, Some(4.0)],
+        );
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "stddev_pop").await,
+            &[Some(1.0), Some(0.0), None, Some((8.0_f64 / 3.0).sqrt())],
+        );
+        assert_option_f64_close(
+            &rasterize_value_reducer_values(&ctx, "stddev_samp").await,
+            &[Some(2.0_f64.sqrt()), None, None, Some(2.0)],
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_partitioned_value_reducer_output_returns_float_rasters() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![Some("A"), Some("A"), Some("B"), Some("B"), Some("B")],
+            vec![Some(0.0), Some(0.2), Some(0.0), Some(2.0), Some(2.0)],
+            vec![Some(0.0), Some(0.2), Some(0.0), Some(2.0), Some(2.0)],
+            vec![Some(1.0), Some(3.0), Some(2.0), Some(6.0), Some(8.0)],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .value(col("value"))
+                .partition_by([col("group")])
+                .agg("mean"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        let mut values_by_group = IndexMap::new();
+        for batch in &batches {
+            let groups = batch
+                .column_by_name("group")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                values_by_group
+                    .insert(groups.value(row).to_string(), raster_f64_values(batch, row));
+            }
+        }
+        assert_option_f64_close(&values_by_group["A"], &[Some(2.0), None, None, None]);
+        assert_option_f64_close(&values_by_group["B"], &[Some(2.0), None, None, Some(7.0)]);
     }
 
     #[test]

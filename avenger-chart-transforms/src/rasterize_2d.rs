@@ -85,7 +85,7 @@ pub struct Rasterize2DExtentSpec {
     pub stop: LogicalExprNode,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Rasterize2DAgg {
     Count,
     Sum,
@@ -380,13 +380,6 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
                 INFER_MAX,
             ],
         )?;
-        if self.agg != Rasterize2DAgg::Count {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Rasterize2D reducer \"{}\" is planned but not implemented yet",
-                self.agg.name()
-            )));
-        }
-
         let x_expr = cast_to_f64(self.x.to_default_expr(ctx.session_context)?, &dataframe)?;
         let y_expr = cast_to_f64(self.y.to_default_expr(ctx.session_context)?, &dataframe)?;
         let value_expr = self
@@ -443,7 +436,7 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
             args.push(col(RASTERIZE_VALUE));
         }
 
-        let udf = AggregateUDF::new_from_impl(Rasterize2DCountUdf::new(config));
+        let udf = AggregateUDF::new_from_impl(Rasterize2DUdf::new(config, self.agg));
         let aggregate_expr = udf.call(args).alias(&self.raster_name);
         let group_exprs = self
             .partition_by
@@ -568,24 +561,27 @@ impl Hash for Rasterize2DGridConfig {
 }
 
 #[derive(Clone)]
-struct Rasterize2DCountUdf {
+struct Rasterize2DUdf {
     config: Rasterize2DGridConfig,
+    agg: Rasterize2DAgg,
     signature: Signature,
 }
 
-impl Debug for Rasterize2DCountUdf {
+impl Debug for Rasterize2DUdf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Rasterize2DCountUdf")
+        f.debug_struct("Rasterize2DUdf")
             .field("config", &self.config)
+            .field("agg", &self.agg)
             .field("signature", &self.signature)
             .finish()
     }
 }
 
-impl Rasterize2DCountUdf {
-    fn new(config: Rasterize2DGridConfig) -> Self {
+impl Rasterize2DUdf {
+    fn new(config: Rasterize2DGridConfig, agg: Rasterize2DAgg) -> Self {
         Self {
             config,
+            agg,
             signature: Signature::one_of(
                 vec![
                     TypeSignature::Exact(vec![DataType::Float64, DataType::Float64]),
@@ -601,13 +597,13 @@ impl Rasterize2DCountUdf {
     }
 }
 
-impl AggregateUDFImpl for Rasterize2DCountUdf {
+impl AggregateUDFImpl for Rasterize2DUdf {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn name(&self) -> &str {
-        "avenger_rasterize2d_count"
+        "avenger_rasterize2d"
     }
 
     fn signature(&self) -> &Signature {
@@ -615,13 +611,16 @@ impl AggregateUDFImpl for Rasterize2DCountUdf {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> DataFusionResult<DataType> {
-        Ok(raster_data_type(DataType::UInt64))
+        Ok(raster_data_type(
+            self.agg.output_cell_type(),
+            self.agg.output_cell_nullable(),
+        ))
     }
 
     fn return_field(&self, _arg_fields: &[FieldRef]) -> DataFusionResult<FieldRef> {
         Ok(Arc::new(Field::new(
             self.name(),
-            raster_data_type(DataType::UInt64),
+            raster_data_type(self.agg.output_cell_type(), self.agg.output_cell_nullable()),
             false,
         )))
     }
@@ -631,17 +630,25 @@ impl AggregateUDFImpl for Rasterize2DCountUdf {
     }
 
     fn accumulator(&self, _acc_args: AccumulatorArgs) -> DataFusionResult<Box<dyn Accumulator>> {
-        Ok(Box::new(Rasterize2DCountAccumulator::new(
+        Ok(Box::new(Rasterize2DAccumulator::new(
             self.config.clone(),
+            self.agg,
         )))
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> DataFusionResult<Vec<FieldRef>> {
-        Ok(vec![Arc::new(Field::new(
-            format!("{}_counts", args.name),
-            DataType::new_list(DataType::UInt64, false),
-            false,
-        ))])
+        Ok(self
+            .agg
+            .state_specs()
+            .into_iter()
+            .map(|spec| {
+                Arc::new(Field::new(
+                    format!("{}_{}", args.name, spec.name),
+                    DataType::new_list(spec.data_type, false),
+                    false,
+                ))
+            })
+            .collect())
     }
 
     fn groups_accumulator_supported(&self, _args: AccumulatorArgs) -> bool {
@@ -652,8 +659,9 @@ impl AggregateUDFImpl for Rasterize2DCountUdf {
         &self,
         _args: AccumulatorArgs,
     ) -> DataFusionResult<Box<dyn GroupsAccumulator>> {
-        Ok(Box::new(Rasterize2DCountGroupsAccumulator::new(
+        Ok(Box::new(Rasterize2DGroupsAccumulator::new(
             self.config.clone(),
+            self.agg,
         )))
     }
 
@@ -661,42 +669,116 @@ impl AggregateUDFImpl for Rasterize2DCountUdf {
         other
             .as_any()
             .downcast_ref::<Self>()
-            .is_some_and(|other| self.config == other.config)
+            .is_some_and(|other| self.config == other.config && self.agg == other.agg)
     }
 
     fn hash_value(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.name().hash(&mut hasher);
         self.config.hash(&mut hasher);
+        self.agg.hash(&mut hasher);
         hasher.finish()
     }
 }
 
-#[derive(Debug)]
-struct Rasterize2DCountAccumulator {
-    config: Rasterize2DGridConfig,
-    counts: Vec<u64>,
+#[derive(Clone)]
+struct Rasterize2DStateSpec {
+    name: &'static str,
+    data_type: DataType,
 }
 
-impl Rasterize2DCountAccumulator {
-    fn new(config: Rasterize2DGridConfig) -> Self {
-        let counts = vec![0; config.grid_len];
-        Self { config, counts }
+impl Rasterize2DAgg {
+    fn output_cell_type(self) -> DataType {
+        match self {
+            Self::Count => DataType::UInt64,
+            Self::Sum
+            | Self::Min
+            | Self::Max
+            | Self::Mean
+            | Self::VarPop
+            | Self::StddevPop
+            | Self::VarSamp
+            | Self::StddevSamp => DataType::Float64,
+        }
+    }
+
+    fn output_cell_nullable(self) -> bool {
+        !matches!(self, Self::Count)
+    }
+
+    fn state_specs(self) -> Vec<Rasterize2DStateSpec> {
+        let counts = Rasterize2DStateSpec {
+            name: "counts",
+            data_type: DataType::UInt64,
+        };
+        let sums = Rasterize2DStateSpec {
+            name: "sums",
+            data_type: DataType::Float64,
+        };
+        let values = Rasterize2DStateSpec {
+            name: "values",
+            data_type: DataType::Float64,
+        };
+        let means = Rasterize2DStateSpec {
+            name: "means",
+            data_type: DataType::Float64,
+        };
+        let m2s = Rasterize2DStateSpec {
+            name: "m2s",
+            data_type: DataType::Float64,
+        };
+        match self {
+            Self::Count => vec![counts],
+            Self::Sum | Self::Mean => vec![counts, sums],
+            Self::Min | Self::Max => vec![counts, values],
+            Self::VarPop | Self::StddevPop | Self::VarSamp | Self::StddevSamp => {
+                vec![counts, means, m2s]
+            }
+        }
+    }
+
+    fn uses_sums(self) -> bool {
+        matches!(self, Self::Sum | Self::Mean)
+    }
+
+    fn uses_values(self) -> bool {
+        matches!(self, Self::Min | Self::Max)
+    }
+
+    fn uses_moments(self) -> bool {
+        matches!(
+            self,
+            Self::VarPop | Self::StddevPop | Self::VarSamp | Self::StddevSamp
+        )
     }
 }
 
-impl Accumulator for Rasterize2DCountAccumulator {
+#[derive(Debug)]
+struct Rasterize2DAccumulator {
+    config: Rasterize2DGridConfig,
+    state: DenseGridState,
+}
+
+impl Rasterize2DAccumulator {
+    fn new(config: Rasterize2DGridConfig, agg: Rasterize2DAgg) -> Self {
+        let state = DenseGridState::new(agg, config.grid_len, 1);
+        Self { config, state }
+    }
+}
+
+impl Accumulator for Rasterize2DAccumulator {
     fn update_batch(&mut self, values: &[ArrayRef]) -> DataFusionResult<()> {
-        update_count_grid(&self.config, &mut self.counts, values, None, None)
+        self.state.update(&self.config, values, None, None)
     }
 
     fn evaluate(&mut self) -> DataFusionResult<ScalarValue> {
         let started = Instant::now();
-        let raster = build_count_raster_array(&self.config, [&self.counts[..]])?;
+        let raster = self.state.build_raster_array(&self.config)?;
         tracing::debug!(
             target: "avenger_chart::transforms::rasterize_2d",
             rows = 1usize,
             cells = self.config.grid_len,
+            reducer = self.state.agg.name(),
             elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
             "constructed Rasterize2D raster struct"
         );
@@ -704,79 +786,32 @@ impl Accumulator for Rasterize2DCountAccumulator {
     }
 
     fn size(&self) -> usize {
-        size_of::<Self>() + self.counts.capacity() * size_of::<u64>()
+        size_of::<Self>() + self.state.size()
     }
 
     fn state(&mut self) -> DataFusionResult<Vec<ScalarValue>> {
-        Ok(vec![ScalarValue::List(u64_list_array_from_rows(
-            [&self.counts[..]],
-            self.config.grid_len,
-            false,
-        )?)])
+        self.state.state_scalars()
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> DataFusionResult<()> {
-        let counts = list_array(states.first(), "Rasterize2D count state")?;
-        for row_index in 0..counts.len() {
-            if counts.is_null(row_index) {
-                continue;
-            }
-            let partial = counts.value(row_index);
-            let partial = partial
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "Rasterize2D count state must contain UInt64 values".to_string(),
-                    )
-                })?;
-            merge_count_grid(&mut self.counts, partial, self.config.grid_len)?;
-        }
-        Ok(())
+        self.state.merge(states, None)
     }
 }
 
 #[derive(Debug)]
-struct Rasterize2DCountGroupsAccumulator {
+struct Rasterize2DGroupsAccumulator {
     config: Rasterize2DGridConfig,
-    counts: Vec<u64>,
+    state: DenseGridState,
 }
 
-impl Rasterize2DCountGroupsAccumulator {
-    fn new(config: Rasterize2DGridConfig) -> Self {
-        Self {
-            config,
-            counts: Vec::new(),
-        }
-    }
-
-    fn resize_groups(&mut self, total_num_groups: usize) {
-        self.counts
-            .resize(total_num_groups * self.config.grid_len, 0);
-    }
-
-    fn group_count(&self) -> usize {
-        self.counts.len() / self.config.grid_len
-    }
-
-    fn emit_group_count(&self, emit_to: EmitTo) -> usize {
-        match emit_to {
-            EmitTo::All => self.group_count(),
-            EmitTo::First(count) => count,
-        }
-    }
-
-    fn emitted_counts(&mut self, emit_to: EmitTo) -> Vec<u64> {
-        let emit_groups = self.emit_group_count(emit_to);
-        let emit_values = emit_groups * self.config.grid_len;
-        match emit_to {
-            EmitTo::All => std::mem::take(&mut self.counts),
-            EmitTo::First(_) => self.counts.drain(0..emit_values).collect(),
-        }
+impl Rasterize2DGroupsAccumulator {
+    fn new(config: Rasterize2DGridConfig, agg: Rasterize2DAgg) -> Self {
+        let state = DenseGridState::new(agg, config.grid_len, 0);
+        Self { config, state }
     }
 }
 
-impl GroupsAccumulator for Rasterize2DCountGroupsAccumulator {
+impl GroupsAccumulator for Rasterize2DGroupsAccumulator {
     fn update_batch(
         &mut self,
         values: &[ArrayRef],
@@ -784,29 +819,21 @@ impl GroupsAccumulator for Rasterize2DCountGroupsAccumulator {
         opt_filter: Option<&BooleanArray>,
         total_num_groups: usize,
     ) -> DataFusionResult<()> {
-        self.resize_groups(total_num_groups);
-        update_count_grid(
-            &self.config,
-            &mut self.counts,
-            values,
-            Some(group_indices),
-            opt_filter,
-        )
+        self.state.resize_groups(total_num_groups);
+        self.state
+            .update(&self.config, values, Some(group_indices), opt_filter)
     }
 
     fn evaluate(&mut self, emit_to: EmitTo) -> DataFusionResult<ArrayRef> {
-        let emit_groups = self.emit_group_count(emit_to);
-        let counts = self.emitted_counts(emit_to);
-        let rows = counts
-            .chunks(self.config.grid_len)
-            .take(emit_groups)
-            .collect::<Vec<_>>();
+        let emitted = self.state.take_emit(emit_to)?;
+        let rows = emitted.group_count();
         let started = Instant::now();
-        let raster = build_count_raster_array(&self.config, rows)?;
+        let raster = emitted.build_raster_array(&self.config)?;
         tracing::debug!(
             target: "avenger_chart::transforms::rasterize_2d",
-            rows = emit_groups,
+            rows,
             cells = self.config.grid_len,
+            reducer = emitted.agg.name(),
             elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
             "constructed grouped Rasterize2D raster structs"
         );
@@ -814,15 +841,7 @@ impl GroupsAccumulator for Rasterize2DCountGroupsAccumulator {
     }
 
     fn state(&mut self, emit_to: EmitTo) -> DataFusionResult<Vec<ArrayRef>> {
-        let emit_groups = self.emit_group_count(emit_to);
-        let counts = self.emitted_counts(emit_to);
-        let rows = counts
-            .chunks(self.config.grid_len)
-            .take(emit_groups)
-            .collect::<Vec<_>>();
-        Ok(vec![
-            u64_list_array_from_rows(rows, self.config.grid_len, false)? as ArrayRef,
-        ])
+        self.state.take_emit(emit_to)?.state_arrays()
     }
 
     fn merge_batch(
@@ -832,112 +851,456 @@ impl GroupsAccumulator for Rasterize2DCountGroupsAccumulator {
         _opt_filter: Option<&BooleanArray>,
         total_num_groups: usize,
     ) -> DataFusionResult<()> {
-        self.resize_groups(total_num_groups);
-        let partials = list_array(values.first(), "Rasterize2D grouped count state")?;
-        if partials.len() != group_indices.len() {
+        self.state.resize_groups(total_num_groups);
+        self.state.merge(values, Some(group_indices))
+    }
+
+    fn size(&self) -> usize {
+        size_of::<Self>() + self.state.size()
+    }
+}
+
+#[derive(Debug)]
+struct DenseGridState {
+    agg: Rasterize2DAgg,
+    grid_len: usize,
+    counts: Vec<u64>,
+    sums: Vec<f64>,
+    values: Vec<f64>,
+    means: Vec<f64>,
+    m2s: Vec<f64>,
+}
+
+impl DenseGridState {
+    fn new(agg: Rasterize2DAgg, grid_len: usize, group_count: usize) -> Self {
+        let len = grid_len * group_count;
+        Self {
+            agg,
+            grid_len,
+            counts: vec![0; len],
+            sums: if agg.uses_sums() {
+                vec![0.0; len]
+            } else {
+                Vec::new()
+            },
+            values: if agg.uses_values() {
+                vec![0.0; len]
+            } else {
+                Vec::new()
+            },
+            means: if agg.uses_moments() {
+                vec![0.0; len]
+            } else {
+                Vec::new()
+            },
+            m2s: if agg.uses_moments() {
+                vec![0.0; len]
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    fn group_count(&self) -> usize {
+        self.counts.len() / self.grid_len
+    }
+
+    fn resize_groups(&mut self, group_count: usize) {
+        let len = self.grid_len * group_count;
+        self.counts.resize(len, 0);
+        if self.agg.uses_sums() {
+            self.sums.resize(len, 0.0);
+        }
+        if self.agg.uses_values() {
+            self.values.resize(len, 0.0);
+        }
+        if self.agg.uses_moments() {
+            self.means.resize(len, 0.0);
+            self.m2s.resize(len, 0.0);
+        }
+    }
+
+    fn size(&self) -> usize {
+        self.counts.capacity() * size_of::<u64>()
+            + self.sums.capacity() * size_of::<f64>()
+            + self.values.capacity() * size_of::<f64>()
+            + self.means.capacity() * size_of::<f64>()
+            + self.m2s.capacity() * size_of::<f64>()
+    }
+
+    fn update(
+        &mut self,
+        config: &Rasterize2DGridConfig,
+        arrays: &[ArrayRef],
+        group_indices: Option<&[usize]>,
+        opt_filter: Option<&BooleanArray>,
+    ) -> DataFusionResult<()> {
+        if arrays.len() != 2 && arrays.len() != 3 {
             return Err(DataFusionError::Internal(format!(
-                "Rasterize2D grouped count state length {} did not match group index length {}",
-                partials.len(),
-                group_indices.len()
+                "Rasterize2D expected 2 or 3 arguments, got {}",
+                arrays.len()
             )));
         }
-        for (row_index, group_index) in group_indices.iter().copied().enumerate() {
-            if partials.is_null(row_index) {
+        if self.agg != Rasterize2DAgg::Count && arrays.len() != 3 {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D reducer \"{}\" requires a value argument",
+                self.agg.name()
+            )));
+        }
+        let x = f64_array(arrays.first(), "Rasterize2D x argument")?;
+        let y = f64_array(arrays.get(1), "Rasterize2D y argument")?;
+        let value = arrays
+            .get(2)
+            .map(|value| f64_array(Some(value), "Rasterize2D value argument"))
+            .transpose()?;
+        if x.len() != y.len() || value.is_some_and(|value| value.len() != x.len()) {
+            return Err(DataFusionError::Internal(
+                "Rasterize2D arguments must have equal lengths".to_string(),
+            ));
+        }
+        if let Some(group_indices) = group_indices
+            && group_indices.len() != x.len()
+        {
+            return Err(DataFusionError::Internal(
+                "Rasterize2D group index length must match argument length".to_string(),
+            ));
+        }
+
+        for row in 0..x.len() {
+            if let Some(filter) = opt_filter
+                && (filter.is_null(row) || !filter.value(row))
+            {
                 continue;
             }
-            let partial = partials.value(row_index);
-            let partial = partial
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "Rasterize2D grouped count state must contain UInt64 values".to_string(),
-                    )
-                })?;
-            let start = group_index * self.config.grid_len;
-            let end = start + self.config.grid_len;
-            merge_count_grid(&mut self.counts[start..end], partial, self.config.grid_len)?;
+            if x.is_null(row) || y.is_null(row) {
+                continue;
+            }
+            let Some(cell_index) = config.cell_index(x.value(row), y.value(row)) else {
+                continue;
+            };
+            let value = match value {
+                Some(value) => {
+                    if value.is_null(row) || !value.value(row).is_finite() {
+                        continue;
+                    }
+                    Some(value.value(row))
+                }
+                None => None,
+            };
+            let offset = group_indices.map_or(0, |indices| indices[row] * self.grid_len);
+            self.update_cell(offset + cell_index, value);
         }
         Ok(())
     }
 
-    fn size(&self) -> usize {
-        size_of::<Self>() + self.counts.capacity() * size_of::<u64>()
+    fn update_cell(&mut self, index: usize, value: Option<f64>) {
+        match self.agg {
+            Rasterize2DAgg::Count => {
+                self.counts[index] = self.counts[index].saturating_add(1);
+            }
+            Rasterize2DAgg::Sum => {
+                self.counts[index] = self.counts[index].saturating_add(1);
+                self.sums[index] += value.expect("sum has a value");
+            }
+            Rasterize2DAgg::Min => {
+                let value = value.expect("min has a value");
+                if self.counts[index] == 0 || value < self.values[index] {
+                    self.values[index] = value;
+                }
+                self.counts[index] = self.counts[index].saturating_add(1);
+            }
+            Rasterize2DAgg::Max => {
+                let value = value.expect("max has a value");
+                if self.counts[index] == 0 || value > self.values[index] {
+                    self.values[index] = value;
+                }
+                self.counts[index] = self.counts[index].saturating_add(1);
+            }
+            Rasterize2DAgg::Mean => {
+                self.counts[index] = self.counts[index].saturating_add(1);
+                self.sums[index] += value.expect("mean has a value");
+            }
+            Rasterize2DAgg::VarPop
+            | Rasterize2DAgg::StddevPop
+            | Rasterize2DAgg::VarSamp
+            | Rasterize2DAgg::StddevSamp => {
+                let value = value.expect("variance has a value");
+                let count = self.counts[index] + 1;
+                let delta = value - self.means[index];
+                self.means[index] += delta / count as f64;
+                let delta2 = value - self.means[index];
+                self.m2s[index] += delta * delta2;
+                self.counts[index] = count;
+            }
+        }
     }
-}
 
-fn update_count_grid(
-    config: &Rasterize2DGridConfig,
-    counts: &mut [u64],
-    values: &[ArrayRef],
-    group_indices: Option<&[usize]>,
-    opt_filter: Option<&BooleanArray>,
-) -> DataFusionResult<()> {
-    if values.len() != 2 && values.len() != 3 {
-        return Err(DataFusionError::Internal(format!(
-            "Rasterize2D count expected 2 or 3 arguments, got {}",
-            values.len()
-        )));
-    }
-    let x = f64_array(values.first(), "Rasterize2D x argument")?;
-    let y = f64_array(values.get(1), "Rasterize2D y argument")?;
-    let value = values
-        .get(2)
-        .map(|value| f64_array(Some(value), "Rasterize2D value argument"))
-        .transpose()?;
-    if x.len() != y.len() || value.is_some_and(|value| value.len() != x.len()) {
-        return Err(DataFusionError::Internal(
-            "Rasterize2D arguments must have equal lengths".to_string(),
-        ));
-    }
-    if let Some(group_indices) = group_indices
-        && group_indices.len() != x.len()
-    {
-        return Err(DataFusionError::Internal(
-            "Rasterize2D group index length must match argument length".to_string(),
-        ));
+    fn state_scalars(&self) -> DataFusionResult<Vec<ScalarValue>> {
+        self.state_arrays()?
+            .into_iter()
+            .map(|array| {
+                let array = array
+                    .as_any()
+                    .downcast_ref::<ListArray>()
+                    .expect("state array is a ListArray")
+                    .clone();
+                Ok(ScalarValue::List(Arc::new(array)))
+            })
+            .collect()
     }
 
-    for row in 0..x.len() {
-        if let Some(filter) = opt_filter
-            && (filter.is_null(row) || !filter.value(row))
+    fn state_arrays(&self) -> DataFusionResult<Vec<ArrayRef>> {
+        let mut arrays =
+            vec![
+                u64_list_array_from_rows(self.counts.chunks(self.grid_len), self.grid_len, false)?
+                    as ArrayRef,
+            ];
+        if self.agg.uses_sums() {
+            arrays.push(f64_list_array_from_rows(
+                self.sums.chunks(self.grid_len),
+                self.grid_len,
+                false,
+            )? as ArrayRef);
+        }
+        if self.agg.uses_values() {
+            arrays.push(f64_list_array_from_rows(
+                self.values.chunks(self.grid_len),
+                self.grid_len,
+                false,
+            )? as ArrayRef);
+        }
+        if self.agg.uses_moments() {
+            arrays.push(f64_list_array_from_rows(
+                self.means.chunks(self.grid_len),
+                self.grid_len,
+                false,
+            )? as ArrayRef);
+            arrays.push(f64_list_array_from_rows(
+                self.m2s.chunks(self.grid_len),
+                self.grid_len,
+                false,
+            )? as ArrayRef);
+        }
+        Ok(arrays)
+    }
+
+    fn merge(
+        &mut self,
+        arrays: &[ArrayRef],
+        group_indices: Option<&[usize]>,
+    ) -> DataFusionResult<()> {
+        let counts = list_array(arrays.first(), "Rasterize2D counts state")?;
+        let rows = counts.len();
+        if let Some(group_indices) = group_indices
+            && rows != group_indices.len()
         {
-            continue;
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D state length {rows} did not match group index length {}",
+                group_indices.len()
+            )));
         }
-        if x.is_null(row) || y.is_null(row) {
-            continue;
-        }
-        let Some(cell_index) = config.cell_index(x.value(row), y.value(row)) else {
-            continue;
+
+        let sums = if self.agg.uses_sums() {
+            Some(list_array(arrays.get(1), "Rasterize2D sums state")?)
+        } else {
+            None
         };
-        if let Some(value) = value
-            && (value.is_null(row) || !value.value(row).is_finite())
-        {
-            continue;
+        let values = if self.agg.uses_values() {
+            Some(list_array(arrays.get(1), "Rasterize2D values state")?)
+        } else {
+            None
+        };
+        let (means, m2s) = if self.agg.uses_moments() {
+            (
+                Some(list_array(arrays.get(1), "Rasterize2D means state")?),
+                Some(list_array(arrays.get(2), "Rasterize2D m2s state")?),
+            )
+        } else {
+            (None, None)
+        };
+
+        for row in 0..rows {
+            if counts.is_null(row) {
+                continue;
+            }
+            let target_group = group_indices.map_or(0, |indices| indices[row]);
+            let target_offset = target_group * self.grid_len;
+            let counts_row = u64_list_value(counts, row, self.grid_len, "counts")?;
+            let sums_row = sums
+                .map(|array| f64_list_value(array, row, self.grid_len, "sums"))
+                .transpose()?;
+            let values_row = values
+                .map(|array| f64_list_value(array, row, self.grid_len, "values"))
+                .transpose()?;
+            let means_row = means
+                .map(|array| f64_list_value(array, row, self.grid_len, "means"))
+                .transpose()?;
+            let m2s_row = m2s
+                .map(|array| f64_list_value(array, row, self.grid_len, "m2s"))
+                .transpose()?;
+            for cell in 0..self.grid_len {
+                let count = counts_row.value(cell);
+                if count == 0 {
+                    continue;
+                }
+                let target = target_offset + cell;
+                match self.agg {
+                    Rasterize2DAgg::Count => {
+                        self.counts[target] = self.counts[target].saturating_add(count);
+                    }
+                    Rasterize2DAgg::Sum => {
+                        self.counts[target] = self.counts[target].saturating_add(count);
+                        self.sums[target] += sums_row.as_ref().expect("sum state").value(cell);
+                    }
+                    Rasterize2DAgg::Min => {
+                        let value = values_row.as_ref().expect("min state").value(cell);
+                        if self.counts[target] == 0 || value < self.values[target] {
+                            self.values[target] = value;
+                        }
+                        self.counts[target] = self.counts[target].saturating_add(count);
+                    }
+                    Rasterize2DAgg::Max => {
+                        let value = values_row.as_ref().expect("max state").value(cell);
+                        if self.counts[target] == 0 || value > self.values[target] {
+                            self.values[target] = value;
+                        }
+                        self.counts[target] = self.counts[target].saturating_add(count);
+                    }
+                    Rasterize2DAgg::Mean => {
+                        self.counts[target] = self.counts[target].saturating_add(count);
+                        self.sums[target] += sums_row.as_ref().expect("mean state").value(cell);
+                    }
+                    Rasterize2DAgg::VarPop
+                    | Rasterize2DAgg::StddevPop
+                    | Rasterize2DAgg::VarSamp
+                    | Rasterize2DAgg::StddevSamp => {
+                        merge_moments(
+                            &mut self.counts[target],
+                            &mut self.means[target],
+                            &mut self.m2s[target],
+                            count,
+                            means_row.as_ref().expect("means state").value(cell),
+                            m2s_row.as_ref().expect("m2s state").value(cell),
+                        );
+                    }
+                }
+            }
         }
-        let offset = group_indices.map_or(0, |indices| indices[row] * config.grid_len);
-        counts[offset + cell_index] = counts[offset + cell_index].saturating_add(1);
+        Ok(())
     }
-    Ok(())
+
+    fn take_emit(&mut self, emit_to: EmitTo) -> DataFusionResult<Self> {
+        let emit_groups = match emit_to {
+            EmitTo::All => self.group_count(),
+            EmitTo::First(count) => count,
+        };
+        if emit_groups > self.group_count() {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D emit requested {emit_groups} groups but only {} are available",
+                self.group_count()
+            )));
+        }
+        let emit_len = emit_groups * self.grid_len;
+        let all = matches!(emit_to, EmitTo::All);
+        Ok(Self {
+            agg: self.agg,
+            grid_len: self.grid_len,
+            counts: take_emit_values(&mut self.counts, emit_len, all),
+            sums: take_emit_values(&mut self.sums, emit_len, all),
+            values: take_emit_values(&mut self.values, emit_len, all),
+            means: take_emit_values(&mut self.means, emit_len, all),
+            m2s: take_emit_values(&mut self.m2s, emit_len, all),
+        })
+    }
+
+    fn build_raster_array(
+        &self,
+        config: &Rasterize2DGridConfig,
+    ) -> DataFusionResult<Arc<StructArray>> {
+        match self.agg {
+            Rasterize2DAgg::Count => {
+                build_count_raster_array(config, self.counts.chunks(self.grid_len))
+            }
+            Rasterize2DAgg::Sum
+            | Rasterize2DAgg::Min
+            | Rasterize2DAgg::Max
+            | Rasterize2DAgg::Mean
+            | Rasterize2DAgg::VarPop
+            | Rasterize2DAgg::StddevPop
+            | Rasterize2DAgg::VarSamp
+            | Rasterize2DAgg::StddevSamp => build_f64_raster_array(config, self.output_f64_rows()),
+        }
+    }
+
+    fn output_f64_rows(&self) -> Vec<Vec<Option<f64>>> {
+        (0..self.group_count())
+            .map(|group| {
+                let offset = group * self.grid_len;
+                (0..self.grid_len)
+                    .map(|cell| {
+                        let index = offset + cell;
+                        let count = self.counts[index];
+                        match self.agg {
+                            Rasterize2DAgg::Count => unreachable!("count output is UInt64"),
+                            Rasterize2DAgg::Sum => (count > 0).then_some(self.sums[index]),
+                            Rasterize2DAgg::Min | Rasterize2DAgg::Max => {
+                                (count > 0).then_some(self.values[index])
+                            }
+                            Rasterize2DAgg::Mean => {
+                                (count > 0).then_some(self.sums[index] / count as f64)
+                            }
+                            Rasterize2DAgg::VarPop => {
+                                (count > 0).then_some(self.m2s[index] / count as f64)
+                            }
+                            Rasterize2DAgg::StddevPop => {
+                                (count > 0).then_some((self.m2s[index] / count as f64).sqrt())
+                            }
+                            Rasterize2DAgg::VarSamp => {
+                                (count > 1).then_some(self.m2s[index] / (count - 1) as f64)
+                            }
+                            Rasterize2DAgg::StddevSamp => {
+                                (count > 1).then_some((self.m2s[index] / (count - 1) as f64).sqrt())
+                            }
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
 }
 
-fn merge_count_grid(
-    target: &mut [u64],
-    partial: &UInt64Array,
-    grid_len: usize,
-) -> DataFusionResult<()> {
-    if partial.len() != grid_len || target.len() < grid_len {
-        return Err(DataFusionError::Internal(format!(
-            "Rasterize2D count state length {} did not match expected grid length {grid_len}",
-            partial.len()
-        )));
+fn take_emit_values<T>(values: &mut Vec<T>, emit_len: usize, all: bool) -> Vec<T> {
+    if values.is_empty() {
+        Vec::new()
+    } else if all {
+        std::mem::take(values)
+    } else {
+        values.drain(0..emit_len).collect()
     }
-    for index in 0..grid_len {
-        if partial.is_valid(index) {
-            target[index] = target[index].saturating_add(partial.value(index));
-        }
+}
+
+fn merge_moments(
+    count_a: &mut u64,
+    mean_a: &mut f64,
+    m2_a: &mut f64,
+    count_b: u64,
+    mean_b: f64,
+    m2_b: f64,
+) {
+    if count_b == 0 {
+        return;
     }
-    Ok(())
+    if *count_a == 0 {
+        *count_a = count_b;
+        *mean_a = mean_b;
+        *m2_a = m2_b;
+        return;
+    }
+    let count = *count_a + count_b;
+    let delta = mean_b - *mean_a;
+    *mean_a += delta * count_b as f64 / count as f64;
+    *m2_a += m2_b + delta * delta * *count_a as f64 * count_b as f64 / count as f64;
+    *count_a = count;
 }
 
 fn f64_array<'a>(value: Option<&'a ArrayRef>, label: &str) -> DataFusionResult<&'a Float64Array> {
@@ -1028,7 +1391,7 @@ fn bin_index(value: f64, start: f64, stop: f64, count: u32) -> Option<usize> {
     Some((raw as isize).clamp(0, count as isize - 1) as usize)
 }
 
-fn raster_data_type(cell_type: DataType) -> DataType {
+fn raster_data_type(cell_type: DataType, cell_nullable: bool) -> DataType {
     let coord_values_type = DataType::new_list(DataType::Utf8, true);
     let coords_type = DataType::Struct(Fields::from(vec![
         Field::new("kind", DataType::Utf8, false),
@@ -1049,7 +1412,7 @@ fn raster_data_type(cell_type: DataType) -> DataType {
     ]));
     let values_type = DataType::Struct(Fields::from(vec![
         Field::new("dims", DataType::new_list(DataType::Utf8, false), false),
-        Field::new("data", DataType::new_list(cell_type, false), false),
+        Field::new("data", DataType::new_list(cell_type, cell_nullable), false),
     ]));
     DataType::Struct(Fields::from(vec![
         Field::new("geometry", geometry_type, false),
@@ -1061,8 +1424,23 @@ fn build_count_raster_array<'a>(
     config: &Rasterize2DGridConfig,
     rows: impl IntoIterator<Item = &'a [u64]>,
 ) -> DataFusionResult<Arc<StructArray>> {
-    let rows = rows.into_iter().collect::<Vec<_>>();
-    let row_count = rows.len();
+    let data = u64_list_array_from_rows(rows, config.grid_len, false)? as ArrayRef;
+    build_raster_array(config, data)
+}
+
+fn build_f64_raster_array(
+    config: &Rasterize2DGridConfig,
+    rows: Vec<Vec<Option<f64>>>,
+) -> DataFusionResult<Arc<StructArray>> {
+    let data = f64_option_list_array_from_rows(rows, config.grid_len)? as ArrayRef;
+    build_raster_array(config, data)
+}
+
+fn build_raster_array(
+    config: &Rasterize2DGridConfig,
+    data: ArrayRef,
+) -> DataFusionResult<Arc<StructArray>> {
+    let row_count = data.len();
     let dimensions = dimensions_list_array(config, row_count)?;
     let geometry = Arc::new(StructArray::from(vec![
         (
@@ -1083,7 +1461,6 @@ fn build_count_raster_array<'a>(
         (0..row_count).map(|_| vec![config.y_dim_name.as_str(), config.x_dim_name.as_str()]),
         false,
     )?;
-    let data = u64_list_array_from_rows(rows, config.grid_len, false)? as ArrayRef;
     let values = Arc::new(StructArray::from(vec![
         (
             Arc::new(Field::new("dims", dims.data_type().clone(), false)),
@@ -1205,6 +1582,112 @@ fn u64_list_array_from_rows<'a>(
             .clone()
             .into(),
     )
+}
+
+fn f64_list_array_from_rows<'a>(
+    rows: impl IntoIterator<Item = &'a [f64]>,
+    expected_len: usize,
+    value_nullable: bool,
+) -> DataFusionResult<Arc<ListArray>> {
+    let rows = rows.into_iter().collect::<Vec<_>>();
+    let mut values = Vec::with_capacity(rows.len() * expected_len);
+    for row in &rows {
+        if row.len() != expected_len {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D row length {} did not match expected length {expected_len}",
+                row.len()
+            )));
+        }
+        values.extend_from_slice(row);
+    }
+    let values = Arc::new(Float64Array::from(values)) as ArrayRef;
+    Ok(
+        list_array_from_lengths(values, vec![expected_len; rows.len()], value_nullable)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("list_array_from_lengths returned a ListArray")
+            .clone()
+            .into(),
+    )
+}
+
+fn f64_option_list_array_from_rows(
+    rows: Vec<Vec<Option<f64>>>,
+    expected_len: usize,
+) -> DataFusionResult<Arc<ListArray>> {
+    let mut values = Vec::with_capacity(rows.len() * expected_len);
+    for row in &rows {
+        if row.len() != expected_len {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D row length {} did not match expected length {expected_len}",
+                row.len()
+            )));
+        }
+        values.extend(row.iter().copied());
+    }
+    let values = Arc::new(Float64Array::from(values)) as ArrayRef;
+    Ok(
+        list_array_from_lengths(values, vec![expected_len; rows.len()], true)
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("list_array_from_lengths returned a ListArray")
+            .clone()
+            .into(),
+    )
+}
+
+fn u64_list_value(
+    array: &ListArray,
+    row: usize,
+    expected_len: usize,
+    label: &str,
+) -> DataFusionResult<UInt64Array> {
+    if array.is_null(row) {
+        return Err(DataFusionError::Internal(format!(
+            "Rasterize2D {label} state row {row} was null"
+        )));
+    }
+    let values = array.value(row);
+    let values = values
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .ok_or_else(|| {
+            DataFusionError::Internal(format!("Rasterize2D {label} state must contain UInt64"))
+        })?;
+    if values.len() != expected_len {
+        return Err(DataFusionError::Internal(format!(
+            "Rasterize2D {label} state length {} did not match expected grid length {expected_len}",
+            values.len()
+        )));
+    }
+    Ok(values.clone())
+}
+
+fn f64_list_value(
+    array: &ListArray,
+    row: usize,
+    expected_len: usize,
+    label: &str,
+) -> DataFusionResult<Float64Array> {
+    if array.is_null(row) {
+        return Err(DataFusionError::Internal(format!(
+            "Rasterize2D {label} state row {row} was null"
+        )));
+    }
+    let values = array.value(row);
+    let values = values
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .ok_or_else(|| {
+            DataFusionError::Internal(format!("Rasterize2D {label} state must contain Float64"))
+        })?;
+    if values.len() != expected_len {
+        return Err(DataFusionError::Internal(format!(
+            "Rasterize2D {label} state length {} did not match expected grid length {expected_len}",
+            values.len()
+        )));
+    }
+    Ok(values.clone())
 }
 
 fn string_list_array_from_rows<'a>(
@@ -1436,6 +1919,14 @@ mod tests {
         ]
     }
 
+    fn value_input_arrays(xs: Vec<f64>, ys: Vec<f64>, values: Vec<f64>) -> Vec<ArrayRef> {
+        vec![
+            Arc::new(Float64Array::from(xs)) as ArrayRef,
+            Arc::new(Float64Array::from(ys)) as ArrayRef,
+            Arc::new(Float64Array::from(values)) as ArrayRef,
+        ]
+    }
+
     fn counts_from_raster(raster: &StructArray, row: usize) -> Vec<u64> {
         let values = raster
             .column_by_name("values")
@@ -1458,6 +1949,32 @@ mod tests {
             .to_vec()
     }
 
+    fn f64_values_from_raster(raster: &StructArray, row: usize) -> Vec<Option<f64>> {
+        let values = raster
+            .column_by_name("values")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let data = values
+            .column_by_name("data")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let row_values = data.value(row);
+        let row_values = row_values.as_any().downcast_ref::<Float64Array>().unwrap();
+        (0..row_values.len())
+            .map(|index| {
+                if row_values.is_null(index) {
+                    None
+                } else {
+                    Some(row_values.value(index))
+                }
+            })
+            .collect()
+    }
+
     fn counts_from_state(state: &ArrayRef, row: usize) -> Vec<u64> {
         let state = state.as_any().downcast_ref::<ListArray>().unwrap();
         let values = state.value(row);
@@ -1469,10 +1986,65 @@ mod tests {
             .to_vec()
     }
 
+    fn scalar_state_arrays(state: Vec<ScalarValue>) -> Vec<ArrayRef> {
+        state
+            .into_iter()
+            .map(|value| match value {
+                ScalarValue::List(array) => array as ArrayRef,
+                other => panic!("expected list state, got {other:?}"),
+            })
+            .collect()
+    }
+
+    fn merged_value_reducer_output(agg: Rasterize2DAgg) -> Vec<Option<f64>> {
+        let config = test_config();
+        let mut partial_a = Rasterize2DAccumulator::new(config.clone(), agg);
+        partial_a
+            .update_batch(&value_input_arrays(
+                vec![0.0, 2.0],
+                vec![0.0, 2.0],
+                vec![1.0, 5.0],
+            ))
+            .unwrap();
+        let state_a = scalar_state_arrays(partial_a.state().unwrap());
+
+        let mut partial_b = Rasterize2DAccumulator::new(config.clone(), agg);
+        partial_b
+            .update_batch(&value_input_arrays(
+                vec![0.2, 2.0, 2.0, 2.0],
+                vec![0.2, 0.0, 2.0, 2.0],
+                vec![3.0, -2.0, 7.0, 9.0],
+            ))
+            .unwrap();
+        let state_b = scalar_state_arrays(partial_b.state().unwrap());
+
+        let mut merged = Rasterize2DAccumulator::new(config, agg);
+        merged.merge_batch(&state_a).unwrap();
+        merged.merge_batch(&state_b).unwrap();
+        let ScalarValue::Struct(raster) = merged.evaluate().unwrap() else {
+            panic!("expected struct scalar");
+        };
+        f64_values_from_raster(&raster, 0)
+    }
+
+    fn assert_option_f64_close(actual: &[Option<f64>], expected: &[Option<f64>]) {
+        assert_eq!(actual.len(), expected.len());
+        for (index, (actual, expected)) in actual.iter().zip(expected).enumerate() {
+            match (actual, expected) {
+                (Some(actual), Some(expected)) => assert!(
+                    (actual - expected).abs() < 1e-12,
+                    "index {index}: expected {expected}, got {actual}"
+                ),
+                (None, None) => {}
+                _ => panic!("index {index}: expected {expected:?}, got {actual:?}"),
+            }
+        }
+    }
+
     #[test]
     fn count_accumulator_merges_state_and_evaluates_struct_scalar() {
         let config = test_config();
-        let mut partial = Rasterize2DCountAccumulator::new(config.clone());
+        let mut partial = Rasterize2DAccumulator::new(config.clone(), Rasterize2DAgg::Count);
         partial
             .update_batch(&input_arrays(vec![0.0, 2.0], vec![0.0, 2.0]))
             .unwrap();
@@ -1483,7 +2055,7 @@ mod tests {
             other => panic!("expected list state, got {other:?}"),
         };
 
-        let mut final_acc = Rasterize2DCountAccumulator::new(config);
+        let mut final_acc = Rasterize2DAccumulator::new(config, Rasterize2DAgg::Count);
         final_acc.merge_batch(&[state_array]).unwrap();
         let value = final_acc.evaluate().unwrap();
         let ScalarValue::Struct(raster) = value else {
@@ -1495,7 +2067,7 @@ mod tests {
     #[test]
     fn count_groups_accumulator_emits_state_prefix_and_grouped_struct_array() {
         let config = test_config();
-        let mut groups = Rasterize2DCountGroupsAccumulator::new(config);
+        let mut groups = Rasterize2DGroupsAccumulator::new(config, Rasterize2DAgg::Count);
         groups
             .update_batch(
                 &input_arrays(vec![0.0, 2.0, 0.0, 2.0], vec![0.0, 2.0, 0.0, 0.0]),
@@ -1518,7 +2090,7 @@ mod tests {
     #[test]
     fn count_groups_accumulator_merges_grouped_state() {
         let config = test_config();
-        let mut partial = Rasterize2DCountGroupsAccumulator::new(config.clone());
+        let mut partial = Rasterize2DGroupsAccumulator::new(config.clone(), Rasterize2DAgg::Count);
         let empty_size = partial.size();
         partial
             .update_batch(
@@ -1531,11 +2103,47 @@ mod tests {
         assert!(partial.size() > empty_size);
         let state = partial.state(EmitTo::All).unwrap();
 
-        let mut merged = Rasterize2DCountGroupsAccumulator::new(config);
+        let mut merged = Rasterize2DGroupsAccumulator::new(config, Rasterize2DAgg::Count);
         merged.merge_batch(&state, &[0, 1], None, 2).unwrap();
         let raster = merged.evaluate(EmitTo::All).unwrap();
         let raster = raster.as_any().downcast_ref::<StructArray>().unwrap();
         assert_eq!(counts_from_raster(raster, 0), vec![1, 0, 0, 1]);
         assert_eq!(counts_from_raster(raster, 1), vec![1, 1, 0, 0]);
+    }
+
+    #[test]
+    fn value_accumulator_merges_reducer_states() {
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::Sum),
+            &[Some(4.0), Some(-2.0), None, Some(21.0)],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::Min),
+            &[Some(1.0), Some(-2.0), None, Some(5.0)],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::Max),
+            &[Some(3.0), Some(-2.0), None, Some(9.0)],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::Mean),
+            &[Some(2.0), Some(-2.0), None, Some(7.0)],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::VarPop),
+            &[Some(1.0), Some(0.0), None, Some(8.0 / 3.0)],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::VarSamp),
+            &[Some(2.0), None, None, Some(4.0)],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::StddevPop),
+            &[Some(1.0), Some(0.0), None, Some((8.0_f64 / 3.0).sqrt())],
+        );
+        assert_option_f64_close(
+            &merged_value_reducer_output(Rasterize2DAgg::StddevSamp),
+            &[Some(2.0_f64.sqrt()), None, None, Some(2.0)],
+        );
     }
 }
