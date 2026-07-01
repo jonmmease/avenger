@@ -1,7 +1,9 @@
 # Test Datasets
 
-These datasets are sourced from [vega/vega-datasets](https://github.com/vega/vega-datasets)
-and converted to Parquet format for efficient loading in tests.
+Most top-level Parquet datasets are sourced from
+[vega/vega-datasets](https://github.com/vega/vega-datasets) and converted to
+Parquet format for efficient loading in tests. Dataset-specific subdirectories
+may carry their own source and license notes.
 
 ## License
 
@@ -21,6 +23,8 @@ See: https://github.com/vega/vega-datasets/blob/main/LICENSE
 - **co2-concentration.parquet** - Atmospheric CO2 concentration measurements
 - **unemployment.parquet** - US unemployment rates by county
 - **movies.parquet** - IMDB movie ratings and metadata
+- **nyc_taxi_2015/** - NYC taxi fixture from Datashader for rasterization and
+  WebMercator-style baselines
 
 ## Updating
 
@@ -32,7 +36,8 @@ uv run scripts/sync_test_data.py
 
 ## Format
 
-All files are stored as Parquet with Snappy compression for:
+The top-level Vega-derived files are stored as Parquet with Snappy compression
+for:
 - Efficient storage (typically 50-70% smaller than CSV)
 - Fast loading with DataFusion
 - Preserved schema and data types

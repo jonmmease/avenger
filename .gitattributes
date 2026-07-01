@@ -1,6 +1,5 @@
 # GitHub syntax highlighting
 pixi.lock linguist-language=YAML
-
-# Git LFS - track all parquet files
+# Git LFS - track data files
 *.parquet filter=lfs diff=lfs merge=lfs -text
-
+*.csv filter=lfs diff=lfs merge=lfs -text
