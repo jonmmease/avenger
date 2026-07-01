@@ -1006,3 +1006,50 @@ async fn uniform_raster_2d_rasterize_taxi_pickup_count_facet_payment_type() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn uniform_raster_2d_rasterize_taxi_pickup_count_facet_payment_type_free_fill() {
+    let ctx = SessionContext::new();
+    let df = taxi_dataframe(&ctx, "pickup_x", "pickup_y").await;
+    let hist = Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+        .x(|x| x.extent(TAXI_X_MIN, TAXI_X_MAX).bins(64))
+        .y(|y| y.extent(TAXI_Y_MIN, TAXI_Y_MAX).bins(64))
+        .partition_by([col("payment_type")])
+        .agg("count");
+    let leaf = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+        UniformRaster2D::new()
+            .transform_shared(hist, |mark, hist| {
+                mark.raster_with(hist.raster(), |r| {
+                    r.x_with(hist.x_dim(), |x| {
+                        x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                            .axis(|axis| axis.title("Pickup x").tick_count(3).format(".4~s"))
+                    })
+                    .y_with(hist.y_dim(), |y| {
+                        y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                            .axis(|axis| axis.title("Pickup y").tick_count(3).format(".4~s"))
+                    })
+                    .fill(|fill| {
+                        fill.scale_with::<Sqrt>(|scale| scale.nice(false).zero(false))
+                            .free_domain()
+                            .legend(|legend| legend.title("Trips"))
+                    })
+                })
+            })
+            .smooth(false),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(175.0, 145.0)
+        .data(df)
+        .mark(Subplot::new(leaf).column(col("payment_type")));
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "rasterize_taxi_pickup_count_facet_payment_type_free_fill",
+        0.9999,
+    )
+    .await;
+}
