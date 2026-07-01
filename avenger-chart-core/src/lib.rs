@@ -119,8 +119,8 @@ pub use channel_resolution_error::{ChannelResolutionError, suggest_similar_chann
 pub use channel_value::{ChannelExpr, ChannelValue, ConditionalValue};
 pub use compiled_data_context::CompiledDataContext;
 pub use compiled_mark::{
-    CompiledMark, CompiledMarkCore, CoordinateSlotOverlayMarkCore, RenderedMarkData,
-    default_channel_value_for_eval, extract_channel_title_from_marks,
+    CompiledMark, CompiledMarkCore, CoordinateSlotOverlayMarkCore, MarkScaleDomainSource,
+    RenderedMarkData, default_channel_value_for_eval, extract_channel_title_from_marks,
 };
 pub use compound::{CompoundGrouping, band_scale_hint, validate_preserved_style_channel};
 pub use configured_scale_legend::{ConfiguredScaleLegendExt, DomainValues};

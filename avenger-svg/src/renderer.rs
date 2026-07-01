@@ -919,7 +919,9 @@ impl SvgRenderer {
             document.body.push_str(&data_uri);
             document.body.push('"');
             if !mark.smooth {
-                document.body.push_str(r#" image-rendering="pixelated""#);
+                document
+                    .body
+                    .push_str(r#" style="image-rendering:pixelated""#);
             }
             push_clip_attr(&mut document.body, clip_id);
             document.body.push_str("/>\n");
@@ -2702,8 +2704,11 @@ mod tests {
         assert!(svg.contains(r#"<image x="3" y="5" width="4" height="5""#));
         assert!(svg.contains(r#"preserveAspectRatio="none""#));
         assert!(svg.contains(r#"href="data:image/png;base64,"#));
-        assert!(svg.contains(r#"image-rendering="pixelated""#));
-        assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+        assert!(svg.contains(r#"style="image-rendering:pixelated""#));
+        assert!(!svg.contains(r#"image-rendering="pixelated""#));
+        let tree = usvg::Tree::from_str(&svg, &usvg::Options::default()).unwrap();
+        let image = first_usvg_image(tree.root().children()).expect("SVG should contain an image");
+        assert_eq!(image.rendering_mode(), usvg::ImageRendering::Pixelated);
     }
 
     #[test]
@@ -3077,6 +3082,21 @@ mod tests {
         let rest = &svg[start..];
         let end = rest.find('"').expect("WOFF2 data URI should be quoted");
         BASE64_STANDARD.decode(&rest[..end]).unwrap()
+    }
+
+    fn first_usvg_image(nodes: &[usvg::Node]) -> Option<&usvg::Image> {
+        for node in nodes {
+            match node {
+                usvg::Node::Image(image) => return Some(image),
+                usvg::Node::Group(group) => {
+                    if let Some(image) = first_usvg_image(group.children()) {
+                        return Some(image);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
     }
 
     fn resource_image_scene_graph() -> SceneGraph {

@@ -17,6 +17,7 @@ pub mod subplot;
 pub mod symbol;
 pub mod text;
 pub mod trail;
+pub mod uniform_raster_2d;
 pub mod zero_d;
 
 pub use area::{Area, AreaPartitionKey, area_channel_defaults};
@@ -35,4 +36,9 @@ pub use symbol::{
 };
 pub use text::{Text, text_channel_defaults};
 pub use trail::{Trail, TrailPartitionKey, trail_channel_defaults};
+pub use uniform_raster_2d::{
+    RasterChannelsConfig, RasterPositionConfig, UNIFORM_RASTER_2D_FILL_CHANNEL,
+    UNIFORM_RASTER_2D_RASTER_CHANNEL, UniformRaster2D, UniformRaster2DFields,
+    UniformRaster2DOptions, uniform_raster_2d_channel_defaults,
+};
 pub use zero_d::CompiledZeroDSymbol;

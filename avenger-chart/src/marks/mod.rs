@@ -14,6 +14,7 @@ pub mod subplot;
 pub mod symbol;
 pub mod text;
 pub mod trail;
+pub mod uniform_raster_2d;
 pub mod util;
 
 pub use crate::concat::CompiledConcatSubplot;

@@ -42,4 +42,5 @@ mod core_integration {
     mod test_stroke_dash_scale;
     mod test_stroke_dash_with;
     mod test_time_scale_date32;
+    mod test_uniform_raster_2d;
 }

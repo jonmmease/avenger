@@ -12,6 +12,7 @@ use std::{
     time::Duration,
 };
 
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
     group::Clip,
     pattern::{PatternFill, PatternReferenceFrame},
@@ -2031,6 +2032,13 @@ impl MarkRuntimeContext for RenderContext<'_> {
             .scales
             .get(scale_key)
             .and_then(|scale| scale.pattern_range())
+    }
+
+    fn configured_scale(&self, scale_key: &str) -> Option<&ConfiguredScale> {
+        self.state
+            .scales
+            .get(scale_key)
+            .map(|scale| scale.configured())
     }
 }
 

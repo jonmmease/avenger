@@ -24,4 +24,5 @@ lyon_extra = { workspace = true }
 lyon_path = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"
+tracing = { workspace = true }
 typetag = "0.2"

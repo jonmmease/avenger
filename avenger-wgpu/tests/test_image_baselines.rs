@@ -298,6 +298,51 @@ mod test_image_baselines {
     }
 
     #[test]
+    fn image_smooth_false_uses_nearest_sampling() {
+        let scene_graph = SceneGraph {
+            width: 20.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneImageMark {
+                len: 1,
+                aspect: false,
+                smooth: false,
+                image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
+                    width: 2,
+                    height: 2,
+                    data: vec![
+                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                    ],
+                })),
+                x: ScalarOrArray::new_scalar(2.0),
+                y: ScalarOrArray::new_scalar(2.0),
+                width: ScalarOrArray::new_scalar(16.0),
+                height: ScalarOrArray::new_scalar(16.0),
+                align: ScalarOrArray::new_scalar(ImageAlign::Left),
+                baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [20.0, 20.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        assert_eq!(image.get_pixel(5, 5).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(14, 5).0, [0, 255, 0, 255]);
+        assert_eq!(image.get_pixel(5, 14).0, [0, 0, 255, 255]);
+        assert_eq!(image.get_pixel(14, 14).0, [255, 255, 255, 255]);
+    }
+
+    #[test]
     fn patterned_rect_clips_diagonal_stripe_overlay_to_host() {
         let pattern = PatternFill {
             anchor: PatternAnchor::Mark,

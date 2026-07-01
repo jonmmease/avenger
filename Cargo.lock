@@ -669,6 +669,7 @@ dependencies = [
  "lyon_path",
  "serde",
  "serde_with",
+ "tracing",
  "typetag",
 ]
 

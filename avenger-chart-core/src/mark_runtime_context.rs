@@ -1,6 +1,7 @@
 use datafusion::common::ScalarValue;
 
 use avenger_resource::ResourceRequest;
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::Clip, pattern::PatternFill};
 
 use crate::{BasePlotAreaScene, CoordMeasurement, MarkRenderContext, TextMeasurementService};
@@ -34,6 +35,10 @@ pub trait MarkRuntimeContext: Send + Sync {
     }
 
     fn pattern_scale_range(&self, _scale_key: &str) -> Option<&[Option<PatternFill>]> {
+        None
+    }
+
+    fn configured_scale(&self, _scale_key: &str) -> Option<&ConfiguredScale> {
         None
     }
 

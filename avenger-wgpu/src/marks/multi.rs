@@ -124,6 +124,7 @@ pub struct MultiMarkBatch {
     pub clip_indices_range: Option<Range<u32>>,
     pub pattern_overlay: Option<PatternOverlayBatch>,
     pub image_atlas_index: Option<usize>,
+    pub image_smooth: bool,
     pub gradient_atlas_index: Option<usize>,
     pub text_atlas_index: Option<usize>,
 }
@@ -150,6 +151,7 @@ pub(crate) struct PreparedMulti {
     uniform_bind_group: BindGroup,
     gradient_texture_bind_groups: Vec<BindGroup>,
     image_texture_bind_groups: Vec<BindGroup>,
+    image_texture_bind_groups_nearest: Vec<BindGroup>,
     stencil_buffer: Option<wgpu::Texture>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
@@ -754,6 +756,7 @@ impl MultiMarkRenderer {
             clip_indices_range,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         });
@@ -888,6 +891,7 @@ impl MultiMarkRenderer {
                 paint_indices_range,
             }),
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
         });
@@ -951,6 +955,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1176,6 +1181,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1303,6 +1309,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1469,6 +1476,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1537,6 +1545,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1635,6 +1644,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1688,6 +1698,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1800,6 +1811,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
         };
@@ -1878,14 +1890,18 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark.clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: mark.smooth,
             gradient_atlas_index: None,
             text_atlas_index: None,
         };
 
         for (atlas_index, verts, inds) in verts_inds {
-            if next_batch.image_atlas_index.unwrap_or(atlas_index) == atlas_index {
+            if next_batch.image_atlas_index.unwrap_or(atlas_index) == atlas_index
+                && next_batch.image_smooth == mark.smooth
+            {
                 // update next batch with atlas index and inds range
                 next_batch.image_atlas_index = Some(atlas_index);
+                next_batch.image_smooth = mark.smooth;
                 next_batch.indices_range = next_batch.indices_range.start
                     ..(next_batch.indices_range.end + inds.len() as u32);
             } else {
@@ -1898,6 +1914,7 @@ impl MultiMarkRenderer {
                     clip_indices_range: self.add_clip_path(clip, mark.clip)?,
                     pattern_overlay: None,
                     image_atlas_index: Some(atlas_index),
+                    image_smooth: mark.smooth,
                     gradient_atlas_index: None,
                     text_atlas_index: None,
                 };
@@ -1938,6 +1955,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark_clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
         };
@@ -1963,6 +1981,7 @@ impl MultiMarkRenderer {
                     clip_indices_range: self.add_clip_path(clip, mark_clip)?,
                     pattern_overlay: None,
                     image_atlas_index: None,
+                    image_smooth: true,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
                 };
@@ -2007,6 +2026,7 @@ impl MultiMarkRenderer {
             clip_indices_range: self.add_clip_path(clip, mark_clip)?,
             pattern_overlay: None,
             image_atlas_index: None,
+            image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
         };
@@ -2102,6 +2122,15 @@ impl MultiMarkRenderer {
             wgpu::FilterMode::Linear,
             wgpu::FilterMode::Linear,
         );
+        let image_texture_bind_groups_nearest = Self::make_texture_bind_groups(
+            device,
+            queue,
+            &resources.texture_layout,
+            image_texture_size,
+            &image_images,
+            wgpu::FilterMode::Nearest,
+            wgpu::FilterMode::Nearest,
+        );
 
         // Stencil buffer is needed for path clips and for pattern overlay masks.
         let uses_stencil =
@@ -2173,6 +2202,7 @@ impl MultiMarkRenderer {
             uniform_bind_group,
             gradient_texture_bind_groups,
             image_texture_bind_groups,
+            image_texture_bind_groups_nearest,
             stencil_buffer,
             vertex_buffer,
             index_buffer,
@@ -2220,6 +2250,18 @@ impl MultiMarkRenderer {
             ranges,
         );
         mark_encoder.finish()
+    }
+
+    fn image_texture_bind_group<'a>(
+        prepared: &'a PreparedMulti,
+        batch: &MultiMarkBatch,
+    ) -> &'a BindGroup {
+        let index = batch.image_atlas_index.unwrap_or(0);
+        if batch.image_smooth {
+            &prepared.image_texture_bind_groups[index]
+        } else {
+            &prepared.image_texture_bind_groups_nearest[index]
+        }
     }
 
     /// Encode the draws for a set of batch ranges into a caller-provided command
@@ -2296,11 +2338,7 @@ impl MultiMarkRenderer {
                     &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
                     &[],
                 );
-                rp.set_bind_group(
-                    2,
-                    &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
-                    &[],
-                );
+                rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
                 rp.set_bind_group(
                     3,
                     &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
@@ -2401,11 +2439,7 @@ impl MultiMarkRenderer {
                     &prepared.gradient_texture_bind_groups[batch.gradient_atlas_index.unwrap_or(0)],
                     &[],
                 );
-                rp.set_bind_group(
-                    2,
-                    &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
-                    &[],
-                );
+                rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
                 rp.set_bind_group(
                     3,
                     &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
@@ -2459,11 +2493,7 @@ impl MultiMarkRenderer {
                             [batch.gradient_atlas_index.unwrap_or(0)],
                         &[],
                     );
-                    rp.set_bind_group(
-                        2,
-                        &prepared.image_texture_bind_groups[batch.image_atlas_index.unwrap_or(0)],
-                        &[],
-                    );
+                    rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
                     rp.set_bind_group(
                         3,
                         &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
@@ -2559,6 +2589,15 @@ impl MultiMarkRenderer {
             wgpu::FilterMode::Linear,
             wgpu::FilterMode::Linear,
         );
+        let image_texture_bind_groups_nearest = Self::make_texture_bind_groups(
+            device,
+            queue,
+            &resources.texture_layout,
+            image_texture_size,
+            &image_images,
+            wgpu::FilterMode::Nearest,
+            wgpu::FilterMode::Nearest,
+        );
         let image_setup_us = checkpoint_us(&mut checkpoint);
 
         // Text textures are built once per frame and shared across all multi-renderers;
@@ -2643,6 +2682,7 @@ impl MultiMarkRenderer {
             uniform_bind_group,
             gradient_texture_bind_groups,
             image_texture_bind_groups,
+            image_texture_bind_groups_nearest,
             stencil_buffer,
             vertex_buffer,
             index_buffer,
@@ -3284,7 +3324,9 @@ impl SymbolVertex {
 mod tests {
     use avenger_color::ColorOrGradient;
     use avenger_common::value::ScalarOrArray;
+    use avenger_image::RgbaImage;
     use avenger_scenegraph::marks::{
+        image::{SceneImageMark, SceneImageSource},
         pattern::{
             PatternAnchor, PatternFill, PatternLayer, PatternSymbol, StripePatternLayer,
             SymbolLattice2d, SymbolPaint, SymbolPatternLayer,
@@ -3360,6 +3402,26 @@ mod tests {
             fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.8, 0.8, 1.0, 1.0])),
             fill_pattern: ScalarOrArray::new_scalar(fill_pattern),
             stroke_width: ScalarOrArray::new_scalar(0.0),
+            ..Default::default()
+        }
+    }
+
+    fn image_mark(smooth: bool) -> SceneImageMark {
+        SceneImageMark {
+            len: 1,
+            aspect: false,
+            smooth,
+            image: ScalarOrArray::new_scalar(SceneImageSource::Inline(RgbaImage {
+                width: 2,
+                height: 2,
+                data: vec![
+                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                ],
+            })),
+            x: ScalarOrArray::new_scalar(2.0),
+            y: ScalarOrArray::new_scalar(3.0),
+            width: ScalarOrArray::new_scalar(8.0),
+            height: ScalarOrArray::new_scalar(6.0),
             ..Default::default()
         }
     }
@@ -3463,6 +3525,25 @@ mod tests {
             patterned_estimate.total <= BAR_COUNT as usize * 2,
             "patterned bar render pass estimate is above the v1 budget: {patterned_estimate:?}"
         );
+    }
+
+    #[test]
+    fn image_mark_batches_preserve_smooth_flag_for_sampler_selection() {
+        let mut nearest_renderer = MultiMarkRenderer::new(dimensions());
+        nearest_renderer
+            .add_image_mark(&image_mark(false), [0.0, 0.0], &Clip::None)
+            .unwrap();
+        assert_eq!(nearest_renderer.batch_count(), 1);
+        assert_eq!(nearest_renderer.batches[0].image_atlas_index, Some(0));
+        assert!(!nearest_renderer.batches[0].image_smooth);
+
+        let mut smooth_renderer = MultiMarkRenderer::new(dimensions());
+        smooth_renderer
+            .add_image_mark(&image_mark(true), [0.0, 0.0], &Clip::None)
+            .unwrap();
+        assert_eq!(smooth_renderer.batch_count(), 1);
+        assert_eq!(smooth_renderer.batches[0].image_atlas_index, Some(0));
+        assert!(smooth_renderer.batches[0].image_smooth);
     }
 
     #[test]

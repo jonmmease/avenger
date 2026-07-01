@@ -15,7 +15,7 @@ use avenger_scales::{
 };
 use datafusion::{
     arrow::{
-        array::{Array, AsArray, StructArray},
+        array::{Array, ArrayRef, AsArray, StructArray},
         compute::cast,
         datatypes::{DataType as ArrowDataType, Field, Float64Type},
     },
@@ -35,11 +35,12 @@ use tracing::trace;
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, CompiledMark, CoordinateSystemTransformCore, DerivedScalarMap,
-    EvaluationContext as CoreEvaluationContext, MarkDataMode, Maybe, NestScope, NestedBandSpec,
-    RadiusExpression, ScalarValueHelpers, ScaleInferenceHint, ScaleOrderingSpec, ScaleRange,
-    ScaleTypePreference, Theme, TimeContext, array_value_to_f64, collect_derived_scalar_ids,
-    contains_aggregate, default_channel_value_for_eval, eval_to_scalars, params_to_datafusion,
-    resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
+    EvaluationContext as CoreEvaluationContext, MarkDataMode, MarkScaleDomainSource, Maybe,
+    NestScope, NestedBandSpec, RadiusExpression, ScalarValueHelpers, ScaleInferenceHint,
+    ScaleOrderingSpec, ScaleRange, ScaleTypePreference, Theme, TimeContext, array_value_to_f64,
+    collect_derived_scalar_ids, contains_aggregate, default_channel_value_for_eval,
+    eval_to_scalars, params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars,
+    scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -80,6 +81,55 @@ const NESTED_ORDER_VALUE_COL: &str = "__avenger_nested_order_value__";
 const NESTED_LABEL_PREFIX_COL_PREFIX: &str = "__avenger_nested_label_prefix_";
 const NESTED_LABEL_COMPONENT_COL: &str = "__avenger_nested_label_component__";
 const NESTED_LABEL_VALUE_COL: &str = "__avenger_nested_label_value__";
+
+fn is_empty_relation(df: &DataFrame) -> bool {
+    matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_))
+}
+
+fn mark_scale_domain_sources(
+    prepared: &PreparedScaleMark,
+    ctx: &SessionContext,
+) -> Result<Vec<MarkScaleDomainSource>, AvengerChartError> {
+    prepared
+        .mark
+        .scale_domain_sources(prepared.domain_dataframe.as_ref(), ctx)
+}
+
+fn infer_expr_data_type(
+    dataframe: Option<&DataFrame>,
+    expr: &Expr,
+) -> Result<Option<ArrowDataType>, AvengerChartError> {
+    if let Some(df) = dataframe.filter(|df| !is_empty_relation(df)) {
+        return match expr {
+            Expr::Column(col) => {
+                let name = col.name.clone();
+                Ok(df
+                    .schema()
+                    .field_with_unqualified_name(&name)
+                    .ok()
+                    .map(|field| field.data_type().clone()))
+            }
+            _ => Ok(df
+                .clone()
+                .select(vec![expr.clone().alias("__t")])
+                .ok()
+                .map(|projected| projected.schema().field(0).data_type().clone())),
+        };
+    }
+
+    if expr.column_refs().is_empty() {
+        Ok(expr.get_type(&DFSchema::empty()).ok())
+    } else {
+        Ok(None)
+    }
+}
+
+fn scale_input_data_type(data_type: &ArrowDataType) -> ArrowDataType {
+    match data_type {
+        ArrowDataType::List(field) => field.data_type().clone(),
+        _ => data_type.clone(),
+    }
+}
 
 fn prepared_radius_from_serialized(
     radius: &RadiusExpression,
@@ -222,6 +272,25 @@ where
             collect_from_exprs(exprs)?;
         }
 
+        for source in mark_scale_domain_sources(prepared, ctx)? {
+            if !channel_maps_to_scale(
+                coord_transform,
+                &source.channel,
+                &source.channel_value,
+                channel,
+            ) {
+                continue;
+            }
+
+            let mut exprs = source.exprs;
+            exprs.extend(source.channel_value.all_exprs(ctx));
+            if let Some(scale_config) = source.channel_value.get_scale_config() {
+                exprs.extend(scale_config.all_exprs(ctx));
+            }
+
+            collect_from_exprs(exprs)?;
+        }
+
         if let Some(axis_config) = prepared.mark.state().axis_configs.get(channel) {
             collect_from_exprs(axis_config.all_exprs(ctx))?;
         }
@@ -298,7 +367,7 @@ fn positional_scale_names_for_prepared_marks<C>(
     prepared_marks: &[PreparedScaleMark],
     coord_transform: &C,
     ctx: &SessionContext,
-) -> HashSet<String>
+) -> Result<HashSet<String>, AvengerChartError>
 where
     C: CoordinateSystemTransformCore + ?Sized,
 {
@@ -328,9 +397,22 @@ where
                 names.insert(scale_name);
             }
         }
+
+        for source in mark_scale_domain_sources(prepared, ctx)? {
+            if !coord_transform.channel_uses_scale(&source.channel) {
+                continue;
+            }
+            let base_channel = strip_trailing_numbers(&source.channel);
+            if !coord_transform.is_position_scale_channel(base_channel) {
+                continue;
+            }
+            if let Some(scale_name) = source.channel_value.get_scale_name(&source.channel) {
+                names.insert(scale_name);
+            }
+        }
     }
 
-    names
+    Ok(names)
 }
 
 /// Build a ScaleBuilder from mark-specific prepared data and channels.
@@ -371,6 +453,17 @@ where
                 channels_with_scales.insert(scale_name);
             }
         }
+
+        for source in mark_scale_domain_sources(prepared, ctx)? {
+            if coord_transform.channel_uses_scale(&source.channel)
+                && let Some(scale_name) = source.channel_value.get_scale_name(&source.channel)
+            {
+                default_range_channels
+                    .entry(scale_name.clone())
+                    .or_insert(source.channel);
+                channels_with_scales.insert(scale_name);
+            }
+        }
     }
 
     // Also include explicit scale specs
@@ -384,7 +477,7 @@ where
     }
 
     let positional_scale_names =
-        positional_scale_names_for_prepared_marks(prepared_marks, coord_transform, ctx);
+        positional_scale_names_for_prepared_marks(prepared_marks, coord_transform, ctx)?;
 
     // Always ensure base positional scales are present. This handles implicit
     // unnamed scales and guarantees we attempt to build/capture radius-aware
@@ -567,6 +660,35 @@ where
         .unwrap_or(channel_name == target_channel)
 }
 
+fn prepared_mark_maps_to_scale<C>(
+    prepared: &PreparedScaleMark,
+    coord_transform: &C,
+    channel: &str,
+    ctx: &SessionContext,
+) -> Result<bool, AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    if prepared
+        .channels
+        .iter()
+        .any(|(ch_name, ch_val)| channel_maps_to_scale(coord_transform, ch_name, ch_val, channel))
+    {
+        return Ok(true);
+    }
+
+    Ok(mark_scale_domain_sources(prepared, ctx)?
+        .iter()
+        .any(|source| {
+            channel_maps_to_scale(
+                coord_transform,
+                &source.channel,
+                &source.channel_value,
+                channel,
+            )
+        }))
+}
+
 fn matching_scale_hint(
     channel: &str,
     prepared_marks: &[PreparedScaleMark],
@@ -636,10 +758,6 @@ async fn build_scale_for_channel<C>(
 where
     C: CoordinateSystemTransformCore + ?Sized,
 {
-    // Helper to check if a DataFrame is an EmptyRelation placeholder
-    let is_empty_relation =
-        |df: &DataFrame| -> bool { matches!(df.logical_plan(), LogicalPlan::EmptyRelation(_)) };
-
     // Find first mark that uses this channel (or a channel mapping to it) and get its expr and preferred scale type.
     // For positional channels like "y", we also check "y2" since both map to the same scale.
     let mut chosen_spec: Option<Box<dyn ScaleSpec>> = None;
@@ -662,52 +780,47 @@ where
             // literal Value branches, those branches are replaced with NULL so they
             // don't affect type inference (e.g., a numeric scaled branch with a
             // string literal override should infer as numeric, not string).
-            let maybe_dt = {
-                if let Some(expr) = channel_value.scale_input_expr(ctx) {
-                    let df_for_inference = prepared
-                        .dataframe
-                        .clone()
-                        .filter(|df| !is_empty_relation(df));
-
-                    if let Some(df) = df_for_inference {
-                        match &expr {
-                            Expr::Column(col) => {
-                                let name = col.name.clone();
-                                df.schema()
-                                    .field_with_unqualified_name(&name)
-                                    .ok()
-                                    .map(|f| f.data_type().clone())
-                            }
-                            _ => {
-                                if let Ok(projected) =
-                                    df.clone().select(vec![expr.clone().alias("__t")])
-                                {
-                                    Some(projected.schema().field(0).data_type().clone())
-                                } else {
-                                    None
-                                }
-                            }
-                        }
-                    } else if expr.column_refs().is_empty() {
-                        expr.get_type(&DFSchema::empty()).ok()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
+            let maybe_dt = if let Some(expr) = channel_value.scale_input_expr(ctx) {
+                infer_expr_data_type(prepared.dataframe.as_ref(), &expr)?
+            } else {
+                None
             };
 
             if let Some(dt) = maybe_dt {
-                data_type = Some(dt.clone());
+                let scale_dt = scale_input_data_type(&dt);
+                data_type = Some(scale_dt.clone());
                 chosen_spec = if channel_value.get_nested_band_config().is_some() {
                     Some(scale_spec_for_preference(ScaleTypePreference::NestedBand))
                 } else {
                     coord_transform
-                        .preferred_scale_type(channel, &dt)
-                        .or_else(|| mark.preferred_scale_type(channel_name, &dt))
+                        .preferred_scale_type(channel, &scale_dt)
+                        .or_else(|| mark.preferred_scale_type(channel_name, &scale_dt))
                         .map(scale_spec_for_preference)
                 };
+                break 'outer;
+            }
+        }
+
+        for source in mark_scale_domain_sources(prepared, ctx)? {
+            if !channel_maps_to_scale(
+                coord_transform,
+                &source.channel,
+                &source.channel_value,
+                channel,
+            ) {
+                continue;
+            }
+
+            for expr in &source.exprs {
+                let Some(dt) = infer_expr_data_type(Some(&source.dataframe), expr)? else {
+                    continue;
+                };
+                let scale_dt = scale_input_data_type(&dt);
+                data_type = Some(scale_dt.clone());
+                chosen_spec = coord_transform
+                    .preferred_scale_type(channel, &scale_dt)
+                    .or_else(|| mark.preferred_scale_type(&source.channel, &scale_dt))
+                    .map(scale_spec_for_preference);
                 break 'outer;
             }
         }
@@ -728,6 +841,22 @@ where
             if let Some(scale_config) = channel_value.get_scale_config() {
                 // Capture any scale config, not just those with explicit domains
                 // This ensures options like nice(false) and zero(false) are preserved
+                chosen_scale_config = Some(Scale::from_config(scale_config.clone()));
+                break 'config_outer;
+            }
+        }
+
+        for source in mark_scale_domain_sources(prepared, ctx)? {
+            if !channel_maps_to_scale(
+                coord_transform,
+                &source.channel,
+                &source.channel_value,
+                channel,
+            ) {
+                continue;
+            }
+
+            if let Some(scale_config) = source.channel_value.get_scale_config() {
                 chosen_scale_config = Some(Scale::from_config(scale_config.clone()));
                 break 'config_outer;
             }
@@ -822,12 +951,12 @@ where
             );
         }
 
-        // Find mark that has a channel mapping to this scale
-        if let Some(prepared) = prepared_marks.iter().find(|prepared| {
-            prepared.channels.iter().any(|(ch_name, ch_val)| {
-                channel_maps_to_scale(coord_transform, ch_name, ch_val, channel)
-            })
-        }) {
+        // Find mark that has a channel or mark-owned source mapping to this scale.
+        for prepared in prepared_marks {
+            if !prepared_mark_maps_to_scale(prepared, coord_transform, channel, ctx)? {
+                continue;
+            }
+
             let mark_opts = prepared
                 .mark
                 .default_scale_options(channel, scale_impl.as_ref(), &dt);
@@ -838,6 +967,7 @@ where
                 }
                 scale = scale.option(&k, v);
             }
+            break;
         }
     }
 
@@ -1304,6 +1434,25 @@ where
                 .map(Arc::new);
             if render_df.is_none() && domain_df.is_none() {
                 continue;
+            }
+
+            for source in mark_scale_domain_sources(prepared, ctx)? {
+                if !channel_maps_to_scale(
+                    coord_transform,
+                    &source.channel,
+                    &source.channel_value,
+                    channel,
+                ) {
+                    continue;
+                }
+                if is_empty_relation(&source.dataframe) {
+                    continue;
+                }
+
+                let df = Arc::new(source.dataframe.clone());
+                for expr in source.exprs {
+                    entries.push((df.clone(), expr, None));
+                }
             }
 
             let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
@@ -1797,42 +1946,69 @@ async fn distinct_categorical_values(
     let mut all_unique_values: Vec<ScalarValue> = Vec::new();
 
     for (df, expr) in data_expressions {
-        let distinct_df = df
+        let projected = df
             .as_ref()
             .clone()
-            .select(vec![expr.clone().alias("value")])?
-            .distinct()?;
+            .select(vec![expr.clone().alias("value")])?;
+        let projected_type = projected.schema().field(0).data_type().clone();
+        let collect_df = if matches!(projected_type, ArrowDataType::List(_)) {
+            projected
+        } else {
+            projected.distinct()?
+        };
 
         eval_ctx.record_scale_domain_collect();
         let batches = if !params.is_empty() {
             if let Some(param_values) = params_to_datafusion(params) {
-                distinct_df
+                collect_df
                     .with_param_values(param_values)?
                     .collect()
                     .await?
             } else {
-                distinct_df.collect().await?
+                collect_df.collect().await?
             }
         } else {
-            distinct_df.collect().await?
+            collect_df.collect().await?
         };
 
         for batch in batches.iter() {
             let value_array = batch.column(0);
-            for i in 0..value_array.len() {
-                let scalar = ScalarValue::try_from_array(value_array, i)?;
-                if scalar.is_null() {
-                    continue;
-                }
-                if !all_unique_values.iter().any(|v| v == &scalar) {
-                    all_unique_values.push(scalar);
-                }
-            }
+            append_unique_domain_scalars(value_array, &mut all_unique_values)?;
         }
     }
 
     all_unique_values.sort_by(scalar_total_cmp);
     Ok(all_unique_values)
+}
+
+fn append_unique_domain_scalars(
+    array: &ArrayRef,
+    values: &mut Vec<ScalarValue>,
+) -> Result<(), AvengerChartError> {
+    match array.data_type() {
+        ArrowDataType::List(_) => {
+            let list_array = array.as_list::<i32>();
+            for row in 0..list_array.len() {
+                if list_array.is_null(row) {
+                    continue;
+                }
+                append_unique_domain_scalars(&list_array.value(row), values)?;
+            }
+        }
+        _ => {
+            for row in 0..array.len() {
+                if array.is_null(row) {
+                    continue;
+                }
+                let scalar = ScalarValue::try_from_array(array, row)?;
+                if !scalar.is_null() && !values.iter().any(|value| value == &scalar) {
+                    values.push(scalar);
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 async fn ordered_categorical_values(
@@ -3106,6 +3282,39 @@ async fn cache_temporal_data(
     Ok(())
 }
 
+fn update_numeric_extent_from_array(
+    array: &ArrayRef,
+    min_val: &mut Option<f64>,
+    max_val: &mut Option<f64>,
+) -> Result<(), AvengerChartError> {
+    match array.data_type() {
+        ArrowDataType::List(_) => {
+            let list_array = array.as_list::<i32>();
+            for row in 0..list_array.len() {
+                if list_array.is_null(row) {
+                    continue;
+                }
+                update_numeric_extent_from_array(&list_array.value(row), min_val, max_val)?;
+            }
+        }
+        data_type => {
+            for row in 0..array.len() {
+                if array.is_null(row) {
+                    continue;
+                }
+                let value = array_value_to_f64(array, row, data_type)?;
+                if !value.is_finite() {
+                    continue;
+                }
+                *min_val = Some(min_val.map_or(value, |current| current.min(value)));
+                *max_val = Some(max_val.map_or(value, |current| current.max(value)));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn cache_numeric_data(
     channel: &str,
     spec: &Box<dyn ScaleSpec>,
@@ -3122,11 +3331,39 @@ async fn cache_numeric_data(
     let mut global_max_val: Option<f64> = None;
 
     for (df, expr) in data_expressions {
-        let agg_df = df.as_ref().clone().aggregate(
+        let projected = df
+            .as_ref()
+            .clone()
+            .select(vec![expr.clone().alias("value")])?;
+        let projected_type = projected.schema().field(0).data_type().clone();
+
+        if matches!(projected_type, ArrowDataType::List(_)) {
+            eval_ctx.record_scale_domain_collect();
+            let batches = if !params.is_empty() {
+                if let Some(param_values) = params_to_datafusion(params) {
+                    projected.with_param_values(param_values)?.collect().await?
+                } else {
+                    projected.collect().await?
+                }
+            } else {
+                projected.collect().await?
+            };
+
+            for batch in &batches {
+                update_numeric_extent_from_array(
+                    batch.column(0),
+                    &mut global_min_val,
+                    &mut global_max_val,
+                )?;
+            }
+            continue;
+        }
+
+        let agg_df = projected.aggregate(
             vec![],
             vec![
-                min(expr.clone()).alias("min"),
-                max(expr.clone()).alias("max"),
+                min(col("value")).alias("min"),
+                max(col("value")).alias("max"),
             ],
         )?;
 
@@ -3151,8 +3388,12 @@ async fn cache_numeric_data(
                     continue;
                 }
 
-                let min_val = array_value_to_f64(min_col, row, dt)?;
-                let max_val = array_value_to_f64(max_col, row, dt)?;
+                let scalar_type = scale_input_data_type(&projected_type);
+                let min_val = array_value_to_f64(min_col, row, &scalar_type)?;
+                let max_val = array_value_to_f64(max_col, row, &scalar_type)?;
+                if !min_val.is_finite() || !max_val.is_finite() {
+                    continue;
+                }
 
                 global_min_val =
                     Some(global_min_val.map_or(min_val, |current| current.min(min_val)));
@@ -3183,8 +3424,10 @@ mod tests {
 
     use datafusion::{
         arrow::{
-            array::{Array, ArrayRef, Float32Array, Float64Array, StringArray, StructArray},
-            datatypes::{DataType, Field, Schema},
+            array::{
+                Array, ArrayRef, Float32Array, Float64Array, ListArray, StringArray, StructArray,
+            },
+            datatypes::{DataType, Field, Float64Type, Schema},
             record_batch::RecordBatch,
         },
         functions_aggregate::{expr_fn::sum, min_max::max},
@@ -3474,6 +3717,21 @@ mod tests {
         ctx.read_batch(batch)
     }
 
+    fn list_df(ctx: &SessionContext) -> datafusion::error::Result<DataFrame> {
+        let values = Arc::new(ListArray::from_iter_primitive::<Float64Type, _, _>(vec![
+            Some(vec![Some(3.0), None, Some(f64::NAN)]),
+            None,
+            Some(vec![Some(-2.0), Some(10.0), Some(f64::INFINITY)]),
+        ])) as ArrayRef;
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "values",
+            values.data_type().clone(),
+            true,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![values])?;
+        ctx.read_batch(batch)
+    }
+
     fn nested_df(
         ctx: &SessionContext,
         groups: Vec<&str>,
@@ -3615,11 +3873,35 @@ mod tests {
         let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
 
         let names =
-            positional_scale_names_for_prepared_marks(&[prepared], &TestCoordTransform, &ctx);
+            positional_scale_names_for_prepared_marks(&[prepared], &TestCoordTransform, &ctx)
+                .unwrap();
 
         assert!(names.contains("x"));
         assert!(names.contains("y"));
         assert_eq!(names.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn list_array_numeric_domain_inference_flattens_finite_values() {
+        let ctx = SessionContext::new();
+        let data = list_df(&ctx).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert("x".to_string(), ChannelValue::from(col("values")));
+        channels.insert("y".to_string(), ChannelValue::from(lit(0.0)));
+        let mark = Arc::new(TestCompiledMark::new(data.clone(), channels.clone()))
+            as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new(mark, Some(data), channels, DerivedScalarMap::new());
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .unwrap();
+        let x_domain = scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("x numeric domain");
+        assert_eq!(x_domain, (-2.0, 10.0));
     }
 
     #[tokio::test]
@@ -3769,7 +4051,8 @@ mod tests {
             &[prepared],
             &DynamicPositionCoordTransform,
             &ctx,
-        );
+        )
+        .unwrap();
 
         assert_eq!(names, HashSet::from(["height".to_string()]));
     }

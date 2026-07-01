@@ -14,5 +14,6 @@ pub use marks::{
     CartesianAreaPositionChannels, CartesianImagePositionChannels, CartesianLinePositionChannels,
     CartesianPathPositionChannels, CartesianRectPositionChannels, CartesianRulePositionChannels,
     CartesianSubplotPositionChannels, CartesianSymbolPositionChannels,
-    CartesianTextPositionChannels, CartesianTrailPositionChannels, CompiledCartesianSubplot,
+    CartesianTextPositionChannels, CartesianTrailPositionChannels,
+    CartesianUniformRaster2DChannels, CompiledCartesianSubplot, CompiledCartesianUniformRaster2D,
 };

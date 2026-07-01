@@ -79,15 +79,7 @@ impl ScaleUDF {
 
     /// Build the signature on demand
     fn build_signature(&self) -> Signature {
-        Signature::new(
-            TypeSignature::Exact(vec![
-                DataType::new_list(self.domain_type.clone(), true), // Domain array
-                DataType::new_list(self.range_type.clone(), true),  // Range array
-                self.options_type.clone(),                          // Options struct
-                self.input_type.clone(),                            // Values to scale
-            ]),
-            Volatility::Immutable,
-        )
+        Signature::new(TypeSignature::Any(4), Volatility::Immutable)
     }
 
     /// Get the cached signature, building it on first access
@@ -117,7 +109,7 @@ impl ScalarUDFImpl for ScaleUDF {
         self.get_signature()
     }
 
-    fn return_type(&self, _arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
+    fn return_type(&self, arg_types: &[DataType]) -> datafusion::error::Result<DataType> {
         use avenger_scales::scales::RangeKind;
 
         // Get scale implementation
@@ -126,14 +118,17 @@ impl ScalarUDFImpl for ScaleUDF {
         })?;
 
         // All scales with discrete ranges return dictionary arrays for efficiency
-        if scale_impl.range_kind() == RangeKind::Discrete {
+        let element_type = if scale_impl.range_kind() == RangeKind::Discrete {
             // Discrete-range scales return dictionary arrays
-            Ok(DataType::Dictionary(
-                Box::new(DataType::Int16),
-                Box::new(self.range_type.clone()),
-            ))
+            DataType::Dictionary(Box::new(DataType::Int16), Box::new(self.range_type.clone()))
         } else {
-            Ok(self.range_type.clone())
+            self.range_type.clone()
+        };
+
+        if matches!(arg_types.get(3), Some(DataType::List(_))) {
+            Ok(DataType::new_list(element_type, true))
+        } else {
+            Ok(element_type)
         }
     }
 

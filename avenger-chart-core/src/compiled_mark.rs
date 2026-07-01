@@ -5,6 +5,7 @@ use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::{
     arrow::datatypes::DataType,
     arrow::record_batch::RecordBatch,
+    dataframe::DataFrame,
     logical_expr::{Expr, lit},
     prelude::SessionContext,
     scalar::ScalarValue,
@@ -13,11 +14,11 @@ use datafusion_common::ScalarValue as DatafusionScalarValue;
 use indexmap::IndexMap;
 
 use crate::{
-    AdjustmentTransformRequirements, AvengerChartError, ChannelDescriptor, CompiledDataContext,
-    CompiledMarkState, CompiledSubplotPayload, CoordinateSystemTransformCore, EvaluationContext,
-    EventDatumFieldSpec, LegendRendererSelection, MarkRenderContext, MarkRuntimeContext,
-    PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange, ScaleTypePreference,
-    Theme, default_scale_type_for_data_type, is_continuous_scale,
+    AdjustmentTransformRequirements, AvengerChartError, ChannelDescriptor, ChannelValue,
+    CompiledDataContext, CompiledMarkState, CompiledSubplotPayload, CoordinateSystemTransformCore,
+    EvaluationContext, EventDatumFieldSpec, LegendRendererSelection, MarkRenderContext,
+    MarkRuntimeContext, PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange,
+    ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
 };
 
 pub struct RenderedMarkData {
@@ -57,6 +58,20 @@ impl RenderedMarkData {
             event_datum_rows: Some(event_datum_rows),
         }
     }
+}
+
+/// Mark-owned scale-domain contribution.
+///
+/// Most marks infer scale domains directly from their render channels. Some
+/// marks, such as raster-like marks, have coordinate geometry nested inside a
+/// single render datum and need to contribute scale domains from expressions
+/// that are not themselves render-prepared channels.
+#[derive(Clone)]
+pub struct MarkScaleDomainSource {
+    pub channel: String,
+    pub channel_value: ChannelValue,
+    pub dataframe: DataFrame,
+    pub exprs: Vec<Expr>,
 }
 
 /// Core-safe compiled mark metadata and planning behavior.
@@ -149,6 +164,16 @@ pub trait CompiledMarkCore: Any + Send + Sync {
         _resolve_channel: &dyn Fn(&str) -> Expr,
     ) -> Option<RadiusExpression> {
         None
+    }
+
+    /// Return mark-owned scale-domain sources that are not ordinary render
+    /// channels.
+    fn scale_domain_sources(
+        &self,
+        _domain_dataframe: Option<&DataFrame>,
+        _ctx: &SessionContext,
+    ) -> Result<Vec<MarkScaleDomainSource>, AvengerChartError> {
+        Ok(Vec::new())
     }
 
     /// Get the name of the channel used for sorting this mark's data.

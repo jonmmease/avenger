@@ -91,15 +91,12 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
         let domain_scalar = array_to_list_scalar(self.configured.config.domain.clone())?;
         let range_scalar = array_to_list_scalar(self.configured.config.range.clone())?;
 
-        // Cast input to match domain type if needed
-        let casted_input = datafusion::logical_expr::cast(input, input_type);
-
         // Call the UDF with domain, range, options, and input
         Ok(udf.call(vec![
             lit(domain_scalar),
             lit(range_scalar),
             options_expr,
-            casted_input,
+            input,
         ]))
     }
 

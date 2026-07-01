@@ -18,9 +18,9 @@ pub mod time;
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use arrow::array::{Array, ArrayRef, AsArray, Float32Array};
+use arrow::array::{Array, ArrayRef, AsArray, Float32Array, ListArray};
 use arrow::compute::cast;
-use arrow::datatypes::{DataType, Float32Type};
+use arrow::datatypes::{DataType, Field, Float32Type};
 use avenger_color::{ColorOrGradient, GradientStop};
 use avenger_common::{
     types::{
@@ -976,6 +976,45 @@ impl ConfiguredScale {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use arrow::{
+        array::{Array, ArrayRef, AsArray, ListArray},
+        datatypes::Float32Type,
+    };
+    use std::sync::Arc;
+
+    use super::linear::LinearScale;
+
+    #[test]
+    fn configured_scale_maps_list_values_preserving_offsets_and_nulls() {
+        let scale = LinearScale::configured((0.0, 10.0), (0.0, 100.0));
+        let values = ListArray::from_iter_primitive::<Float32Type, _, _>(vec![
+            Some(vec![Some(0.0), Some(5.0)]),
+            None,
+            Some(vec![Some(10.0), None, Some(2.5)]),
+        ]);
+
+        let values = Arc::new(values) as ArrayRef;
+        let scaled = scale.scale(&values).unwrap();
+        let scaled = scaled.as_list::<i32>();
+        assert_eq!(scaled.offsets().as_ref(), &[0, 2, 2, 5]);
+        assert!(!scaled.is_null(0));
+        assert!(scaled.is_null(1));
+        assert!(!scaled.is_null(2));
+
+        let first = scaled.value(0);
+        let first = first.as_primitive::<Float32Type>();
+        assert_eq!(first.values(), &[0.0, 50.0]);
+
+        let third = scaled.value(2);
+        let third = third.as_primitive::<Float32Type>();
+        assert_eq!(third.value(0), 100.0);
+        assert!(third.is_null(1));
+        assert_eq!(third.value(2), 25.0);
+    }
+}
+
 // Pan / zoom methods
 impl ConfiguredScale {
     pub fn pan(self, delta: f32) -> Result<ConfiguredScale, AvengerScaleError> {
@@ -1079,7 +1118,28 @@ impl ConfiguredScale {
 
         // Validate options before scaling
         self.scale_impl.validate_options(&config)?;
+        if matches!(values.data_type(), DataType::List(_)) {
+            return self.scale_list_values(&config, values);
+        }
         self.scale_impl.scale(&config, values)
+    }
+
+    fn scale_list_values(
+        &self,
+        config: &ScaleConfig,
+        values: &ArrayRef,
+    ) -> Result<ArrayRef, AvengerScaleError> {
+        let list_array = values.as_list::<i32>();
+        let scaled_child = self.scale_impl.scale(config, &list_array.values())?;
+        Ok(Arc::new(ListArray::new(
+            Arc::new(Field::new_list_field(
+                scaled_child.data_type().clone(),
+                true,
+            )),
+            list_array.offsets().clone(),
+            scaled_child,
+            list_array.nulls().cloned(),
+        )) as ArrayRef)
     }
 
     pub fn scale_scalar<S: Into<Scalar> + Clone>(

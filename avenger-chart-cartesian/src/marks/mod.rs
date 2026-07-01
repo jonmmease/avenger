@@ -9,14 +9,19 @@ pub mod subplot;
 pub mod symbol;
 pub mod text;
 pub mod trail;
+pub mod uniform_raster_2d;
 mod util;
 
 use std::sync::Arc;
 
-use avenger_chart_core::{ChannelValue, PositionConfig};
-use avenger_chart_marks::{Area, Image, Line, PathMark, Rect, Rule, Symbol, Text, Trail};
+use avenger_chart_core::{ChannelValue, ColorChannelConfig, IntoExpr, PositionConfig};
+use avenger_chart_marks::{
+    Area, Image, Line, PathMark, RasterChannelsConfig, RasterPositionConfig, Rect, Rule, Symbol,
+    Text, Trail, UniformRaster2D, UniformRaster2DFields,
+};
+use datafusion::logical_expr::lit;
 
-use crate::{Cartesian, CartesianPositionConfig};
+use crate::{Cartesian, CartesianAxis, CartesianPositionConfig};
 
 pub use area::CompiledCartesianArea;
 pub use image::CompiledCartesianImage;
@@ -31,6 +36,7 @@ pub use subplot::{
 pub use symbol::CompiledCartesianSymbol;
 pub use text::CompiledCartesianText;
 pub use trail::CompiledCartesianTrail;
+pub use uniform_raster_2d::CompiledCartesianUniformRaster2D;
 
 /// Cartesian position-channel builders for the generic `Area` mark.
 pub trait CartesianAreaPositionChannels: Sized {
@@ -180,6 +186,45 @@ fn configure_image_position_channel(
             .insert(channel_name.to_string(), Arc::new(axis_config));
     }
     mark
+}
+
+/// Cartesian raster-channel builders for the generic `UniformRaster2D` mark.
+pub trait CartesianUniformRaster2DChannels: Sized {
+    fn raster_with<V, F>(self, data: V, f: F) -> Self
+    where
+        V: IntoExpr,
+        F: FnOnce(RasterChannelsConfig<CartesianAxis>) -> RasterChannelsConfig<CartesianAxis>;
+}
+
+impl CartesianUniformRaster2DChannels for UniformRaster2D<Cartesian> {
+    fn raster_with<V, F>(self, data: V, f: F) -> Self
+    where
+        V: IntoExpr,
+        F: FnOnce(RasterChannelsConfig<CartesianAxis>) -> RasterChannelsConfig<CartesianAxis>,
+    {
+        let raster_expr = data.into_expr();
+        let fields = UniformRaster2DFields::new(raster_expr.clone());
+        let config = RasterChannelsConfig::new(
+            ColorChannelConfig::new(ChannelValue::from(fields.values_data())),
+            RasterPositionConfig::new(ChannelValue::from(lit(0.0)).with_scale_name("x")),
+            RasterPositionConfig::new(ChannelValue::from(lit(0.0)).with_scale_name("y")),
+        );
+        let (fill, x, y) = f(config).into_parts();
+        let (x_channel, x_axis_config) = x.take();
+        let (y_channel, y_axis_config) = y.take();
+        let mut mark = self.configure_raster(raster_expr, Some(fill), Some((x_channel, y_channel)));
+        if let Some(axis_config) = x_axis_config {
+            mark.state_mut()
+                .axis_configs
+                .insert("x".to_string(), Arc::new(axis_config));
+        }
+        if let Some(axis_config) = y_axis_config {
+            mark.state_mut()
+                .axis_configs
+                .insert("y".to_string(), Arc::new(axis_config));
+        }
+        mark
+    }
 }
 
 /// Cartesian position-channel builders for the generic `PathMark` mark.
