@@ -21,6 +21,7 @@ pub mod uniform_raster_2d;
 pub mod zero_d;
 
 pub use area::{Area, AreaPartitionKey, area_channel_defaults};
+pub use avenger_chart_core::{RasterDim, dim};
 pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_data_scope::FacetDataScope;
@@ -37,8 +38,8 @@ pub use symbol::{
 pub use text::{Text, text_channel_defaults};
 pub use trail::{Trail, TrailPartitionKey, trail_channel_defaults};
 pub use uniform_raster_2d::{
-    RasterChannelsConfig, RasterDim, RasterPositionConfig, RasterPositionSpec,
-    UNIFORM_RASTER_2D_FILL_CHANNEL, UNIFORM_RASTER_2D_RASTER_CHANNEL, UniformRaster2D,
-    UniformRaster2DFields, UniformRaster2DOptions, dim, uniform_raster_2d_channel_defaults,
+    RasterChannelsConfig, RasterPositionConfig, RasterPositionSpec, UNIFORM_RASTER_2D_FILL_CHANNEL,
+    UNIFORM_RASTER_2D_RASTER_CHANNEL, UniformRaster2D, UniformRaster2DFields,
+    UniformRaster2DOptions, uniform_raster_2d_channel_defaults,
 };
 pub use zero_d::CompiledZeroDSymbol;

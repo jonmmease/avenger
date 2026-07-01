@@ -62,6 +62,7 @@ pub mod param;
 pub mod pattern_channel_value;
 pub mod position_config;
 pub mod radius_expression;
+pub mod raster_dim;
 pub mod repeat;
 pub mod resolved_domain;
 pub mod scalar_cmp;
@@ -266,6 +267,7 @@ pub use param::{CompiledParamSpec, Param};
 pub use pattern_channel_value::PatternChannelValue;
 pub use position_config::{GenericPositionConfig, PositionConfig};
 pub use radius_expression::RadiusExpression;
+pub use raster_dim::{RasterDim, dim};
 pub use repeat::{
     RepeatContext, RepeatDomainCoordination, RepeatPlaceholderKind, RepeatTypeHint, RepeatVariable,
     ResolvedRepeatVariable, cell_id, collect_repeat_placeholder_kinds, column, column_id,
