@@ -2112,6 +2112,21 @@ mod tests {
     }
 
     #[test]
+    fn count_groups_accumulator_handles_empty_batch_with_known_groups() {
+        let config = test_config();
+        let mut groups = Rasterize2DGroupsAccumulator::new(config, Rasterize2DAgg::Count);
+        groups
+            .update_batch(&input_arrays(vec![], vec![]), &[], None, 2)
+            .unwrap();
+
+        let raster = groups.evaluate(EmitTo::All).unwrap();
+        let raster = raster.as_any().downcast_ref::<StructArray>().unwrap();
+        assert_eq!(raster.len(), 2);
+        assert_eq!(counts_from_raster(raster, 0), vec![0, 0, 0, 0]);
+        assert_eq!(counts_from_raster(raster, 1), vec![0, 0, 0, 0]);
+    }
+
+    #[test]
     fn value_accumulator_merges_reducer_states() {
         assert_option_f64_close(
             &merged_value_reducer_output(Rasterize2DAgg::Sum),

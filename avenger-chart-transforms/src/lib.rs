@@ -4901,6 +4901,51 @@ mod tests {
     }
 
     #[test]
+    fn rasterize_2d_output_handle_uses_datafusion_names_for_unaliased_expressions() {
+        let x = col("x") + lit(1.0);
+        let y = col("y") * lit(2.0);
+        let expected_x = x.name_for_alias().unwrap();
+        let expected_y = y.name_for_alias().unwrap();
+
+        let (_compiled_transform, output) = compile_transform(
+            Rasterize2D::new(x, y)
+                .x(|x| x.extent(0.0, 10.0).bins(32))
+                .y(|y| y.extent(0.0, 4.0).bins(16))
+                .agg("count"),
+        );
+
+        assert_eq!(output.x_dim().name(), expected_x);
+        assert_eq!(output.y_dim().name(), expected_y);
+    }
+
+    #[test]
+    fn rasterize_2d_rejects_duplicate_dimension_names() {
+        let result = Rasterize2D::new(col("value"), col("value"))
+            .x(|x| x.extent(0.0, 10.0).bins(32))
+            .y(|y| y.extent(0.0, 4.0).bins(16))
+            .agg("count")
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free));
+        let err = result.err().expect("duplicate dimension names should fail");
+        assert!(
+            err.to_string().contains("dimension names must be distinct"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rasterize_2d_rejects_invalid_reducer_name() {
+        let result = Rasterize2D::new(col("x"), col("y"))
+            .agg("median")
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free));
+        let err = result.err().expect("invalid reducer should fail");
+        assert!(
+            err.to_string()
+                .contains("reducer \"median\" is not supported"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
     fn rasterize_2d_value_reducer_requires_value_expression() {
         let result = Rasterize2D::new(col("x"), col("y"))
             .agg("mean")
@@ -4920,6 +4965,41 @@ mod tests {
         let err = result.err().expect("computed partition key should fail");
         assert!(
             err.to_string().contains("simple column"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_rejects_excessive_grid_size() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![None],
+            vec![Some(0.0)],
+            vec![Some(0.0)],
+            vec![Some(1.0)],
+        );
+        let (compiled_transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 1.0).bins(4097))
+                .y(|y| y.extent(0.0, 1.0).bins(4097))
+                .agg("count"),
+        );
+        let err = avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[compiled_transform],
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+                facet_context: None,
+            },
+        )
+        .await
+        .err()
+        .expect("excessive grid should fail");
+        assert!(
+            err.to_string().contains("above the current limit"),
             "unexpected error: {err}"
         );
     }
