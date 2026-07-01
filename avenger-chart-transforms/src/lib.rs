@@ -8,6 +8,7 @@ mod impute;
 mod join_aggregate;
 mod kde;
 pub mod lump;
+mod rasterize_2d;
 mod select;
 mod stack;
 mod time_fill;
@@ -27,6 +28,10 @@ pub use impute::{CompiledImputeTransform, Impute, ImputeMethodSpec, ImputeOutput
 pub use join_aggregate::{CompiledJoinAggregateTransform, JoinAggregate};
 pub use kde::{CompiledKdeTransform, Kde, KdeOutput, KdeResolve};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
+pub use rasterize_2d::{
+    CompiledRasterize2DTransform, Rasterize2D, Rasterize2DAgg, Rasterize2DDimension,
+    Rasterize2DDimensionSpec, Rasterize2DExtentSpec, Rasterize2DOutput,
+};
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
 pub use time_fill::{CompiledTimeFillTransform, TimeFill, TimeFillExtentSpec, TimeFillOutput};
@@ -4423,6 +4428,62 @@ mod tests {
                 ("A", "s3", 0.0, -3.0),
                 ("B", "s1", 0.0, 4.0),
             ],
+        );
+    }
+
+    #[test]
+    fn rasterize_2d_output_handle_uses_alias_dimension_names() {
+        let (_compiled_transform, output) = compile_transform(
+            Rasterize2D::new(
+                (col("value") / lit(10.0)).alias("value_tens"),
+                col("category").alias("category_axis"),
+            )
+            .x(|x| x.extent(0.0, 10.0).bins(32))
+            .y(|y| y.extent(0.0, 4.0).bins(16))
+            .agg("count"),
+        );
+
+        assert_eq!(output.x_dim().name(), "value_tens");
+        assert_eq!(output.y_dim().name(), "category_axis");
+        match output.raster() {
+            Expr::Column(column) => assert_eq!(column.name, "raster"),
+            other => panic!("expected raster column expression, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rasterize_2d_value_reducer_requires_value_expression() {
+        let result = Rasterize2D::new(col("x"), col("y"))
+            .agg("mean")
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free));
+        let err = result.err().expect("mean without value should fail");
+        assert!(
+            err.to_string().contains("requires value"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rasterize_2d_partition_by_requires_simple_columns() {
+        let result = Rasterize2D::new(col("x"), col("y"))
+            .partition_by([col("category") + lit("_suffix")])
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free));
+        let err = result.err().expect("computed partition key should fail");
+        assert!(
+            err.to_string().contains("simple column"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rasterize_2d_rejects_unsupported_sampling() {
+        let result = Rasterize2D::new(col("x"), col("y"))
+            .x(|x| x.sampling("log10"))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free));
+        let err = result.err().expect("unsupported sampling should fail");
+        assert!(
+            err.to_string().contains("sampling(\"linear\")"),
+            "unexpected error: {err}"
         );
     }
 }
