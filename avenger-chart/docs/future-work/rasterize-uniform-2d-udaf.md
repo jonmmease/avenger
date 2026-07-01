@@ -7,9 +7,11 @@ Reviewed implementation design. This note covers the implementation model for
 aggregate machinery to bin source rows directly into uniform raster structs.
 
 The public authoring API is sketched in
-`scratch/rasterize-uniform-2d-public-api.md`. The Arrow raster struct schemas
-are specified separately in
-[raster-arrow-representations.md](raster-arrow-representations.md).
+`scratch/rasterize-uniform-2d-public-api.md`. This document summarizes the
+current uniform raster struct shape used by the implementation plan; older
+multi-raster explorations in
+[raster-arrow-representations.md](raster-arrow-representations.md) may predate
+the DataArray-style `geometry.dimensions` and `values.dims` form.
 
 ## Goal
 
@@ -36,7 +38,7 @@ The design fits together if we separate three layers:
 
 ```text
 Transform config:
-  concrete extents, bins, aggregation mode, coord metadata
+  concrete extents, bins, aggregation mode, dimension names
 
 UDAF intermediate state:
   dense mergeable value grids only
@@ -47,10 +49,10 @@ UDAF final output:
 
 The UDAF should not use the full raster struct as its merge state. Geometry is
 invariant for all partial states in one configured aggregate, so carrying
-`geometry.kind`, `columns.start`, `rows.stop`, coord names, and sampling through
-every partial state would duplicate data and create unnecessary consistency
-checks. The merge state should contain only the dense cell state that actually
-changes across partitions.
+`geometry.kind`, dimension starts/stops, dimension names, `values.dims`, and
+sampling through every partial state would duplicate data and create unnecessary
+consistency checks. The merge state should contain only the dense cell state
+that actually changes across partitions.
 
 The UDAF should still return the full raster struct from `evaluate`. That keeps
 Avenger's internal and public representation aligned: a raster produced by
@@ -93,7 +95,11 @@ UniformRaster2D::new().transform(
         .x(|x| x.bins(256).extent(0.0, 100.0))
         .y(|y| y.bins(256).extent(0.0, 50.0))
         .agg("count"),
-    |mark, hist| mark.raster(hist.raster()),
+    |mark, hist| {
+        mark.raster_with(hist.raster(), |r| {
+            r.x(dim("x")).y(dim("y"))
+        })
+    },
 )
 ```
 
@@ -108,7 +114,9 @@ UniformRaster2D::new().transform(
         .agg(param("raster_agg")),
     |mark, hist| {
         mark.raster_with(hist.raster(), |r| {
-            r.fill(|fill| fill.legend(|legend| legend.title("Density")))
+            r.x(dim("x"))
+             .y(dim("y"))
+             .fill(|fill| fill.legend(|legend| legend.title("Density")))
         })
     },
 )
@@ -178,18 +186,18 @@ rasterize_uniform_2d(x, y, value) -> UniformRaster2DStruct
 The UDAF object should be configured by the transform with:
 
 ```text
-columns: u32
-rows: u32
+x_bins: u32
+y_bins: u32
 x_start: f64
 x_stop: f64
 y_start: f64
 y_stop: f64
 aggregate_op: CountRows | CountValues | SumValues
 output_value_type: UInt64 for count, Float64 for sum
-columns_coord_name: String
-rows_coord_name: String
-columns_sampling: "linear"
-rows_sampling: "linear"
+x_dim_name: String
+y_dim_name: String
+x_sampling: "linear"
+y_sampling: "linear"
 ```
 
 `CountRows` receives x/y only. `CountValues` receives x/y/value and counts
@@ -202,26 +210,28 @@ The return type is the current uniform raster struct:
 Struct<
   geometry: Struct<
     kind: Utf8,
-    columns: Struct<
-      coord: Utf8,
-      sampling: Utf8?,
-      start: Float64,
-      stop: Float64,
-      count: UInt32,
-    >,
-    rows: Struct<
-      coord: Utf8,
-      sampling: Utf8?,
-      start: Float64,
-      stop: Float64,
-      count: UInt32,
-    >,
+    dimensions: List<Struct<
+      name: Utf8,
+      coords: Struct<
+        kind: Utf8, // "uniform"
+        sampling: Utf8?,
+        start: Float64,
+        stop: Float64,
+        count: UInt32,
+      >,
+    >>,
   >,
   values: Struct<
+    dims: List<Utf8>,
     data: List<TAggregate>,
   >,
 >
 ```
+
+V1 should emit `geometry.kind = "grid"`, two uniform dimensions named from the
+DataFusion x/y expression display names, and `values.dims = [y_dim_name,
+x_dim_name]` so the data list is row-major y/x storage. The mark still binds the
+plot axes explicitly with `r.x(dim(...)).y(dim(...))`.
 
 Do not add value-domain extrema, `null_count`, or `non_finite_count` fields to
 the transform output. Downstream domain inference should inspect `values.data`
@@ -256,11 +266,11 @@ values from being dropped.
 Validation:
 
 ```text
-columns > 0
-rows > 0
+x_bins > 0
+y_bins > 0
 x_start != x_stop
 y_start != y_stop
-rows * columns fits the selected Arrow list representation
+x_bins * y_bins fits the selected Arrow list representation
 ```
 
 For v1, use `List<T>` and reject rasters whose cell count exceeds the Arrow
@@ -317,17 +327,17 @@ Scalar accumulator state:
 
 ```text
 CountRows / CountValues:
-  counts: Vec<u64> // length = rows * columns
+  counts: Vec<u64> // length = x_bins * y_bins
 
 SumValues:
-  sums: Vec<f64>      // length = rows * columns
-  occupied: Vec<bool> // length = rows * columns
+  sums: Vec<f64>      // length = x_bins * y_bins
+  occupied: Vec<bool> // length = x_bins * y_bins
 ```
 
 Grouped accumulator state should be flattened by group index:
 
 ```text
-cell_count = rows * columns
+cell_count = x_bins * y_bins
 offset(group_index) = group_index * cell_count
 
 CountRows / CountValues:
@@ -347,10 +357,10 @@ groups.
 accounting:
 
 ```text
-groups * rows * columns * state_lanes * bytes_per_lane
+groups * x_bins * y_bins * state_lanes * bytes_per_lane
 ```
 
-The transform should also validate `rows * columns` against a practical maximum
+The transform should also validate `x_bins * y_bins` against a practical maximum
 before accumulator allocation.
 
 ## Intermediate State Fields
@@ -669,12 +679,12 @@ loop works with plain Rust buffers:
 
 ```rust
 struct UniformRaster2DSpec {
-    columns: UniformRasterAxisSpec,
-    rows: UniformRasterAxisSpec,
+    dimensions: Vec<UniformRasterDimensionSpec>,
+    values_dims: Vec<String>,
 }
 
-struct UniformRasterAxisSpec {
-    coord: String,
+struct UniformRasterDimensionSpec {
+    name: String,
     sampling: Option<String>, // Some("linear") for transform output
     start: f64,
     stop: f64,
@@ -715,8 +725,8 @@ The output raster struct contains enough geometry and value data for ordinary
 raster mark domain inference:
 
 ```text
-x domain    <- geometry.columns.start/stop
-y domain    <- geometry.rows.start/stop
+x domain    <- geometry.dimensions[name = x_dim].coords.start/stop
+y domain    <- geometry.dimensions[name = y_dim].coords.start/stop
 fill domain <- values.data
 ```
 
@@ -746,8 +756,8 @@ Expected costs:
 
 ```text
 row scan: O(input_rows)
-merge:    O(groups * rows * columns * partial_partitions)
-memory:   O(groups * rows * columns * state_width) per aggregate partition
+merge:    O(groups * x_bins * y_bins * partial_partitions)
+memory:   O(groups * x_bins * y_bins * state_width) per aggregate partition
 ```
 
 The transform should add tracing spans around:
@@ -866,7 +876,7 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
       later groups correct.
 - [ ] Schema test: output field is accepted by uniform raster schema
       validation.
-- [ ] Error test: zero rows or columns is rejected.
+- [ ] Error test: zero x or y bins are rejected.
 - [ ] Error test: degenerate x or y extent is rejected.
 - [ ] Error test: non-numeric value expression is rejected for `sum`.
 - [ ] Error test: oversized raster dimensions are rejected before accumulator

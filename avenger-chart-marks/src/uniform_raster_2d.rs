@@ -1,18 +1,34 @@
-use datafusion::{
-    logical_expr::{Expr, lit},
-    prelude::get_field,
-};
+use datafusion::{logical_expr::Expr, prelude::get_field};
 use datafusion_common::ScalarValue;
 use serde::{Deserialize, Serialize};
 
 use avenger_chart_core::{
-    Axis, ChannelConfig, ChannelValue, ColorChannelConfig, CoordinationScope, IntoExpr, MarkState,
+    Axis, ChannelConfig, ChannelValue, ColorChannelConfig, CoordinationScope, MarkState,
     OpacityChannelConfig, PrimitiveMarkEffects, Scale, ScaleChannelValue, ScaleSpec,
     define_common_mark_channels, impl_mark_base_with_extra_fields,
 };
 
 pub const UNIFORM_RASTER_2D_RASTER_CHANNEL: &str = "raster";
 pub const UNIFORM_RASTER_2D_FILL_CHANNEL: &str = "fill";
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RasterDim {
+    name: String,
+}
+
+impl RasterDim {
+    pub fn new(name: impl Into<String>) -> Self {
+        Self { name: name.into() }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+}
+
+pub fn dim(name: impl Into<String>) -> RasterDim {
+    RasterDim::new(name)
+}
 
 pub struct UniformRaster2D<C> {
     pub(crate) state: MarkState,
@@ -27,10 +43,6 @@ impl_mark_base_with_extra_fields!(UniformRaster2D {
 });
 
 impl<C> UniformRaster2D<C> {
-    pub fn raster(self, data: impl IntoExpr) -> Self {
-        self.configure_raster(data.into_expr(), None, None)
-    }
-
     pub fn null_color(mut self, color: impl Into<ChannelValue>) -> Self {
         self.options.null_color = color.into();
         self
@@ -38,11 +50,6 @@ impl<C> UniformRaster2D<C> {
 
     pub fn non_finite_color(mut self, color: impl Into<ChannelValue>) -> Self {
         self.options.non_finite_color = color.into();
-        self
-    }
-
-    pub fn transpose(mut self) -> Self {
-        self.options.transpose = true;
         self
     }
 
@@ -66,13 +73,14 @@ impl<C> UniformRaster2D<C> {
         mut self,
         raster_expr: Expr,
         fill: Option<ChannelValue>,
-        positions: Option<(ChannelValue, ChannelValue)>,
+        positions: Option<(Option<RasterPositionSpec>, Option<RasterPositionSpec>)>,
     ) -> Self {
         let fields = UniformRaster2DFields::new(raster_expr.clone());
         let fill = fill.unwrap_or_else(|| ChannelValue::from(fields.values_data()));
-        let (x_channel, y_channel) = positions.unwrap_or_else(default_raster_position_channels);
-        self.options.x_channel = x_channel;
-        self.options.y_channel = y_channel;
+        if let Some((x_position, y_position)) = positions {
+            self.options.x_position = x_position;
+            self.options.y_position = y_position;
+        }
         self.with_channel_value(
             UNIFORM_RASTER_2D_RASTER_CHANNEL,
             ChannelValue::from(raster_expr).no_scale(),
@@ -94,46 +102,42 @@ define_common_mark_channels! {
 pub struct UniformRaster2DOptions {
     pub null_color: ChannelValue,
     pub non_finite_color: ChannelValue,
-    pub x_channel: ChannelValue,
-    pub y_channel: ChannelValue,
-    pub transpose: bool,
+    pub x_position: Option<RasterPositionSpec>,
+    pub y_position: Option<RasterPositionSpec>,
     pub smooth: bool,
 }
 
 impl Default for UniformRaster2DOptions {
     fn default() -> Self {
-        let (x_channel, y_channel) = default_raster_position_channels();
         Self {
             null_color: ChannelValue::from("#00000000"),
             non_finite_color: ChannelValue::from("#00000000"),
-            x_channel,
-            y_channel,
-            transpose: false,
+            x_position: None,
+            y_position: None,
             smooth: false,
         }
     }
 }
 
-fn default_raster_position_channels() -> (ChannelValue, ChannelValue) {
-    (
-        ChannelValue::from(lit(0.0)).with_scale_name("x"),
-        ChannelValue::from(lit(0.0)).with_scale_name("y"),
-    )
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RasterPositionSpec {
+    pub dim: RasterDim,
+    pub channel_value: ChannelValue,
 }
 
 pub struct RasterChannelsConfig<A: Clone + Default + Send + Sync + 'static> {
     fill: ColorChannelConfig,
-    x: RasterPositionConfig<A>,
-    y: RasterPositionConfig<A>,
+    x: Option<RasterPositionConfig<A>>,
+    y: Option<RasterPositionConfig<A>>,
 }
 
 impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
-    pub fn new(
-        fill: ColorChannelConfig,
-        x: RasterPositionConfig<A>,
-        y: RasterPositionConfig<A>,
-    ) -> Self {
-        Self { fill, x, y }
+    pub fn new(fill: ColorChannelConfig) -> Self {
+        Self {
+            fill,
+            x: None,
+            y: None,
+        }
     }
 
     pub fn fill<F>(mut self, f: F) -> Self
@@ -144,19 +148,37 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
         self
     }
 
-    pub fn x<F>(mut self, f: F) -> Self
+    pub fn x(mut self, dim: RasterDim) -> Self
     where
-        F: FnOnce(RasterPositionConfig<A>) -> RasterPositionConfig<A>,
+        A: Axis + Default,
     {
-        self.x = f(self.x);
+        self.x = Some(RasterPositionConfig::new(dim, "x"));
         self
     }
 
-    pub fn y<F>(mut self, f: F) -> Self
+    pub fn x_with<F>(mut self, dim: RasterDim, f: F) -> Self
     where
+        A: Axis + Default,
         F: FnOnce(RasterPositionConfig<A>) -> RasterPositionConfig<A>,
     {
-        self.y = f(self.y);
+        self.x = Some(f(RasterPositionConfig::new(dim, "x")));
+        self
+    }
+
+    pub fn y(mut self, dim: RasterDim) -> Self
+    where
+        A: Axis + Default,
+    {
+        self.y = Some(RasterPositionConfig::new(dim, "y"));
+        self
+    }
+
+    pub fn y_with<F>(mut self, dim: RasterDim, f: F) -> Self
+    where
+        A: Axis + Default,
+        F: FnOnce(RasterPositionConfig<A>) -> RasterPositionConfig<A>,
+    {
+        self.y = Some(f(RasterPositionConfig::new(dim, "y")));
         self
     }
 
@@ -165,8 +187,8 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
         self,
     ) -> (
         ChannelValue,
-        RasterPositionConfig<A>,
-        RasterPositionConfig<A>,
+        Option<RasterPositionConfig<A>>,
+        Option<RasterPositionConfig<A>>,
     ) {
         (self.fill.into_inner(), self.x, self.y)
     }
@@ -174,14 +196,16 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
 
 #[derive(Clone)]
 pub struct RasterPositionConfig<A: Clone + Default + Send + Sync + 'static> {
-    inner: ChannelValue,
+    dim: RasterDim,
+    channel_value: ChannelValue,
     axis_config: Option<A>,
 }
 
 impl<A: Clone + Default + Send + Sync + 'static> RasterPositionConfig<A> {
-    pub fn new(value: ChannelValue) -> Self {
+    pub fn new(dim: RasterDim, channel: &str) -> Self {
         Self {
-            inner: value,
+            dim,
+            channel_value: ChannelValue::from(0.0).with_scale_name(channel),
             axis_config: None,
         }
     }
@@ -196,7 +220,7 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterPositionConfig<A> {
     }
 
     pub fn with_scale_name(mut self, name: impl Into<String>) -> Self {
-        self.inner = self.inner.with_scale_name(name);
+        self.channel_value = self.channel_value.with_scale_name(name);
         self
     }
 
@@ -207,7 +231,7 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterPositionConfig<A> {
             + Sync
             + 'static,
     {
-        self.inner = self.inner.scale(f);
+        self.channel_value = self.channel_value.scale(f);
         self
     }
 
@@ -215,12 +239,12 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterPositionConfig<A> {
         mut self,
         f: impl Fn(Scale<S>) -> Scale<S> + Send + Sync + 'static,
     ) -> Self {
-        self.inner = self.inner.scale_with::<S>(f);
+        self.channel_value = self.channel_value.scale_with::<S>(f);
         self
     }
 
     pub fn with_domain_scope(mut self, scope: CoordinationScope) -> Self {
-        self.inner = self.inner.with_domain_scope(scope);
+        self.channel_value = self.channel_value.with_domain_scope(scope);
         self
     }
 
@@ -233,16 +257,14 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterPositionConfig<A> {
     }
 
     #[doc(hidden)]
-    pub fn take(self) -> (ChannelValue, Option<A>) {
-        (self.inner, self.axis_config)
-    }
-}
-
-impl<A: Axis + Default + Clone + Send + Sync + 'static> From<ChannelValue>
-    for RasterPositionConfig<A>
-{
-    fn from(value: ChannelValue) -> Self {
-        Self::new(value)
+    pub fn take(self) -> (RasterPositionSpec, Option<A>) {
+        (
+            RasterPositionSpec {
+                dim: self.dim,
+                channel_value: self.channel_value,
+            },
+            self.axis_config,
+        )
     }
 }
 
@@ -276,56 +298,12 @@ impl UniformRaster2DFields {
         field(self.geometry(), "kind")
     }
 
-    pub fn coordinate_space(&self) -> Expr {
-        field(self.geometry(), "coordinate_space")
+    pub fn dimensions(&self) -> Expr {
+        field(self.geometry(), "dimensions")
     }
 
-    pub fn columns(&self) -> Expr {
-        field(self.geometry(), "columns")
-    }
-
-    pub fn rows(&self) -> Expr {
-        field(self.geometry(), "rows")
-    }
-
-    pub fn columns_coord(&self) -> Expr {
-        field(self.columns(), "coord")
-    }
-
-    pub fn columns_sampling(&self) -> Expr {
-        field(self.columns(), "sampling")
-    }
-
-    pub fn columns_start(&self) -> Expr {
-        field(self.columns(), "start")
-    }
-
-    pub fn columns_stop(&self) -> Expr {
-        field(self.columns(), "stop")
-    }
-
-    pub fn columns_count(&self) -> Expr {
-        field(self.columns(), "count")
-    }
-
-    pub fn rows_coord(&self) -> Expr {
-        field(self.rows(), "coord")
-    }
-
-    pub fn rows_sampling(&self) -> Expr {
-        field(self.rows(), "sampling")
-    }
-
-    pub fn rows_start(&self) -> Expr {
-        field(self.rows(), "start")
-    }
-
-    pub fn rows_stop(&self) -> Expr {
-        field(self.rows(), "stop")
-    }
-
-    pub fn rows_count(&self) -> Expr {
-        field(self.rows(), "count")
+    pub fn values_dims(&self) -> Expr {
+        field(self.values(), "dims")
     }
 
     pub fn values_data(&self) -> Expr {

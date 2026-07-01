@@ -94,8 +94,9 @@ pub use avenger_chart_cartesian::{
     CartesianUniformRaster2DChannels,
 };
 pub use avenger_chart_marks::{
-    Area, Image, IntoDerivedPrimitiveMark, Line, PathMark, RasterChannelsConfig,
-    RasterPositionConfig, Rect, Rule, Subplot, Symbol, Text, Trail, UniformRaster2D,
+    Area, Image, IntoDerivedPrimitiveMark, Line, PathMark, RasterChannelsConfig, RasterDim,
+    RasterPositionConfig, RasterPositionSpec, Rect, Rule, Subplot, Symbol, Text, Trail,
+    UniformRaster2D, dim,
 };
 pub use avenger_chart_marks_statistical::{
     BoxPlot, BoxPlotOrientation, Violin, ViolinOrientation, ViolinWidthNormalization,

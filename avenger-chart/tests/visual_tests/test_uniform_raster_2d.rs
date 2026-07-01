@@ -4,75 +4,181 @@ use avenger_chart::prelude::*;
 use datafusion::{
     arrow::{
         array::{
-            Array, ArrayRef, Float64Array, Float64Builder, ListBuilder, StringArray, StringBuilder,
-            StructArray, UInt32Array,
+            Array, ArrayRef, Float64Array, Float64Builder, ListArray, ListBuilder, StringArray,
+            StringBuilder, StructArray, UInt32Array,
         },
+        buffer::OffsetBuffer,
         datatypes::{DataType, Field},
         record_batch::RecordBatch,
     },
     common::ScalarValue,
-    prelude::{ParquetReadOptions, SessionContext, col},
+    prelude::{ParquetReadOptions, SessionContext, col, lit},
 };
 
 use super::helpers::assert_visual_match;
 
-#[derive(Clone, Copy)]
-struct UniformAxis {
-    coord: &'static str,
-    start: f64,
-    stop: f64,
-    count: u32,
+#[derive(Clone)]
+enum RasterDimension {
+    Uniform {
+        name: &'static str,
+        start: f64,
+        stop: f64,
+        count: u32,
+    },
+    Categorical {
+        name: &'static str,
+        values: Vec<&'static str>,
+    },
 }
 
-impl UniformAxis {
-    fn new(coord: &'static str, start: f64, stop: f64, count: u32) -> Self {
-        Self {
-            coord,
+impl RasterDimension {
+    fn uniform(name: &'static str, start: f64, stop: f64, count: u32) -> Self {
+        Self::Uniform {
+            name,
             start,
             stop,
             count,
         }
     }
+
+    fn categorical(name: &'static str, values: Vec<&'static str>) -> Self {
+        Self::Categorical { name, values }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Uniform { name, .. } | Self::Categorical { name, .. } => name,
+        }
+    }
 }
 
-struct RasterRow {
-    columns: UniformAxis,
-    rows: UniformAxis,
-    values: Vec<Option<f64>>,
+struct RasterRow<T> {
+    dimensions: Vec<RasterDimension>,
+    values_dims: Vec<&'static str>,
+    values: Vec<Option<T>>,
 }
 
-fn axis_array(axes: impl IntoIterator<Item = UniformAxis>) -> StructArray {
-    let axes = axes.into_iter().collect::<Vec<_>>();
-    StructArray::from(vec![
+fn uniform_raster<T>(
+    x_name: &'static str,
+    x_start: f64,
+    x_stop: f64,
+    x_count: u32,
+    y_name: &'static str,
+    y_start: f64,
+    y_stop: f64,
+    y_count: u32,
+    values: Vec<Option<T>>,
+) -> RasterRow<T> {
+    RasterRow {
+        dimensions: vec![
+            RasterDimension::uniform(x_name, x_start, x_stop, x_count),
+            RasterDimension::uniform(y_name, y_start, y_stop, y_count),
+        ],
+        values_dims: vec![y_name, x_name],
+        values,
+    }
+}
+
+fn list_array_from_rows(values: ArrayRef, lengths: impl IntoIterator<Item = usize>) -> ArrayRef {
+    let offsets = OffsetBuffer::from_lengths(lengths);
+    Arc::new(
+        ListArray::try_new(
+            Arc::new(Field::new_list_field(values.data_type().clone(), true)),
+            offsets,
+            values,
+            None,
+        )
+        .expect("list array"),
+    ) as ArrayRef
+}
+
+fn dimensions_list_rows(rows: &[Vec<RasterDimension>]) -> ArrayRef {
+    let dimensions = rows
+        .iter()
+        .flat_map(|row| row.iter().cloned())
+        .collect::<Vec<_>>();
+    let names = dimensions
+        .iter()
+        .map(RasterDimension::name)
+        .collect::<Vec<_>>();
+    let kinds = dimensions
+        .iter()
+        .map(|dimension| match dimension {
+            RasterDimension::Uniform { .. } => "uniform",
+            RasterDimension::Categorical { .. } => "categorical",
+        })
+        .collect::<Vec<_>>();
+    let starts = dimensions
+        .iter()
+        .map(|dimension| match dimension {
+            RasterDimension::Uniform { start, .. } => Some(*start),
+            RasterDimension::Categorical { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let stops = dimensions
+        .iter()
+        .map(|dimension| match dimension {
+            RasterDimension::Uniform { stop, .. } => Some(*stop),
+            RasterDimension::Categorical { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let counts = dimensions
+        .iter()
+        .map(|dimension| match dimension {
+            RasterDimension::Uniform { count, .. } => Some(*count),
+            RasterDimension::Categorical { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let mut coord_values_builder = ListBuilder::new(StringBuilder::new());
+    for dimension in &dimensions {
+        match dimension {
+            RasterDimension::Uniform { .. } => coord_values_builder.append(false),
+            RasterDimension::Categorical { values, .. } => {
+                for value in values {
+                    coord_values_builder.values().append_value(*value);
+                }
+                coord_values_builder.append(true);
+            }
+        }
+    }
+    let coord_values = Arc::new(coord_values_builder.finish()) as ArrayRef;
+    let coords = Arc::new(StructArray::from(vec![
         (
-            Arc::new(Field::new("coord", DataType::Utf8, false)),
-            Arc::new(StringArray::from(
-                axes.iter().map(|axis| axis.coord).collect::<Vec<_>>(),
-            )) as ArrayRef,
+            Arc::new(Field::new("kind", DataType::Utf8, false)),
+            Arc::new(StringArray::from(kinds)) as ArrayRef,
         ),
         (
             Arc::new(Field::new("sampling", DataType::Utf8, true)),
-            Arc::new(StringArray::from(vec![None::<&str>; axes.len()])) as ArrayRef,
+            Arc::new(StringArray::from(vec![Some("linear"); dimensions.len()])) as ArrayRef,
         ),
         (
-            Arc::new(Field::new("start", DataType::Float64, false)),
-            Arc::new(Float64Array::from(
-                axes.iter().map(|axis| axis.start).collect::<Vec<_>>(),
-            )) as ArrayRef,
+            Arc::new(Field::new("start", DataType::Float64, true)),
+            Arc::new(Float64Array::from(starts)) as ArrayRef,
         ),
         (
-            Arc::new(Field::new("stop", DataType::Float64, false)),
-            Arc::new(Float64Array::from(
-                axes.iter().map(|axis| axis.stop).collect::<Vec<_>>(),
-            )) as ArrayRef,
+            Arc::new(Field::new("stop", DataType::Float64, true)),
+            Arc::new(Float64Array::from(stops)) as ArrayRef,
         ),
         (
-            Arc::new(Field::new("count", DataType::UInt32, false)),
-            Arc::new(UInt32Array::from(
-                axes.iter().map(|axis| axis.count).collect::<Vec<_>>(),
-            )) as ArrayRef,
+            Arc::new(Field::new("count", DataType::UInt32, true)),
+            Arc::new(UInt32Array::from(counts)) as ArrayRef,
         ),
-    ])
+        (
+            Arc::new(Field::new("values", coord_values.data_type().clone(), true)),
+            coord_values,
+        ),
+    ])) as ArrayRef;
+    let dimension_values = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("name", DataType::Utf8, false)),
+            Arc::new(StringArray::from(names)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("coords", coords.data_type().clone(), false)),
+            coords,
+        ),
+    ])) as ArrayRef;
+    list_array_from_rows(dimension_values, rows.iter().map(Vec::len))
 }
 
 fn f64_list_rows(rows: &[Vec<Option<f64>>]) -> ArrayRef {
@@ -101,28 +207,44 @@ fn string_list_rows(rows: &[Vec<&str>]) -> ArrayRef {
     Arc::new(builder.finish()) as ArrayRef
 }
 
-fn raster_array(columns: StructArray, rows: StructArray, values_data: ArrayRef) -> ArrayRef {
+fn raster_array<T>(rows: &[RasterRow<T>], values_data: ArrayRef) -> ArrayRef {
+    let dimensions = dimensions_list_rows(
+        &rows
+            .iter()
+            .map(|row| row.dimensions.clone())
+            .collect::<Vec<_>>(),
+    );
+    let values_dims = string_list_rows(
+        &rows
+            .iter()
+            .map(|row| row.values_dims.clone())
+            .collect::<Vec<_>>(),
+    );
     let len = values_data.len();
-    let columns = Arc::new(columns) as ArrayRef;
-    let rows = Arc::new(rows) as ArrayRef;
     let geometry = Arc::new(StructArray::from(vec![
         (
             Arc::new(Field::new("kind", DataType::Utf8, false)),
-            Arc::new(StringArray::from(vec!["uniform"; len])) as ArrayRef,
+            Arc::new(StringArray::from(vec!["grid"; len])) as ArrayRef,
         ),
         (
-            Arc::new(Field::new("columns", columns.data_type().clone(), false)),
-            columns,
-        ),
-        (
-            Arc::new(Field::new("rows", rows.data_type().clone(), false)),
-            rows,
+            Arc::new(Field::new(
+                "dimensions",
+                dimensions.data_type().clone(),
+                false,
+            )),
+            dimensions,
         ),
     ])) as ArrayRef;
-    let values = Arc::new(StructArray::from(vec![(
-        Arc::new(Field::new("data", values_data.data_type().clone(), false)),
-        values_data,
-    )])) as ArrayRef;
+    let values = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("dims", values_dims.data_type().clone(), false)),
+            values_dims,
+        ),
+        (
+            Arc::new(Field::new("data", values_data.data_type().clone(), false)),
+            values_data,
+        ),
+    ])) as ArrayRef;
 
     Arc::new(StructArray::from(vec![
         (
@@ -136,47 +258,49 @@ fn raster_array(columns: StructArray, rows: StructArray, values_data: ArrayRef) 
     ])) as ArrayRef
 }
 
-fn raster_batch(rows: Vec<RasterRow>) -> RecordBatch {
-    let raster = raster_array(
-        axis_array(rows.iter().map(|row| row.columns)),
-        axis_array(rows.iter().map(|row| row.rows)),
-        f64_list_rows(
-            &rows
-                .iter()
-                .map(|row| row.values.clone())
-                .collect::<Vec<_>>(),
-        ),
+fn raster_batch(rows: Vec<RasterRow<f64>>) -> RecordBatch {
+    let values = f64_list_rows(
+        &rows
+            .iter()
+            .map(|row| row.values.clone())
+            .collect::<Vec<_>>(),
     );
+    let raster = raster_array(&rows, values);
     RecordBatch::try_from_iter(vec![("raster", raster)]).expect("raster batch")
 }
 
 fn direct_color_batch() -> RecordBatch {
-    let raster = raster_array(
-        axis_array([UniformAxis::new("x", 0.0, 3.0, 3)]),
-        axis_array([UniformAxis::new("y", 0.0, 2.0, 2)]),
-        string_list_rows(&[vec![
-            "#d7191c",
-            "#fdae61",
-            "#ffffbf",
-            "#abd9e9",
-            "#2c7bb6",
-            "#00000080",
-        ]]),
-    );
+    let rows = vec![RasterRow {
+        dimensions: vec![
+            RasterDimension::uniform("x", 0.0, 3.0, 3),
+            RasterDimension::uniform("y", 0.0, 2.0, 2),
+        ],
+        values_dims: vec!["y", "x"],
+        values: vec![
+            Some("#d7191c"),
+            Some("#fdae61"),
+            Some("#ffffbf"),
+            Some("#abd9e9"),
+            Some("#2c7bb6"),
+            Some("#00000080"),
+        ],
+    }];
+    let values = string_list_rows(&[rows[0].values.iter().map(|v| v.unwrap()).collect()]);
+    let raster = raster_array(&rows, values);
     RecordBatch::try_from_iter(vec![("raster", raster)]).expect("raster batch")
 }
 
 fn multiple_rows_batch() -> RecordBatch {
-    let raster = raster_array(
-        axis_array([
-            UniformAxis::new("x", 0.0, 3.0, 3),
-            UniformAxis::new("x", 1.0, 4.0, 3),
-        ]),
-        axis_array([
-            UniformAxis::new("y", 0.0, 2.0, 2),
-            UniformAxis::new("y", 1.0, 3.0, 2),
-        ]),
-        f64_list_rows(&[
+    let rows = vec![
+        uniform_raster(
+            "x",
+            0.0,
+            3.0,
+            3,
+            "y",
+            0.0,
+            2.0,
+            2,
             vec![
                 Some(0.0),
                 Some(1.0),
@@ -185,6 +309,16 @@ fn multiple_rows_batch() -> RecordBatch {
                 Some(4.0),
                 Some(5.0),
             ],
+        ),
+        uniform_raster(
+            "x",
+            1.0,
+            4.0,
+            3,
+            "y",
+            1.0,
+            3.0,
+            2,
             vec![
                 Some(5.0),
                 Some(4.0),
@@ -193,8 +327,15 @@ fn multiple_rows_batch() -> RecordBatch {
                 Some(1.0),
                 Some(0.0),
             ],
-        ]),
+        ),
+    ];
+    let values = f64_list_rows(
+        &rows
+            .iter()
+            .map(|row| row.values.clone())
+            .collect::<Vec<_>>(),
     );
+    let raster = raster_array(&rows, values);
     RecordBatch::try_from_iter(vec![
         ("raster", raster),
         (
@@ -203,6 +344,57 @@ fn multiple_rows_batch() -> RecordBatch {
         ),
     ])
     .expect("raster batch")
+}
+
+fn categorical_dimension_batch() -> RecordBatch {
+    let rows = vec![RasterRow {
+        dimensions: vec![
+            RasterDimension::uniform("x", 0.0, 3.0, 3),
+            RasterDimension::categorical("group", vec!["A", "B", "C"]),
+        ],
+        values_dims: vec!["group", "x"],
+        values: vec![
+            Some(0.0),
+            Some(1.0),
+            Some(2.0),
+            Some(3.0),
+            Some(4.0),
+            Some(5.0),
+            Some(6.0),
+            Some(7.0),
+            Some(8.0),
+        ],
+    }];
+    let values = f64_list_rows(&[rows[0].values.clone()]);
+    let raster = raster_array(&rows, values);
+    RecordBatch::try_from_iter(vec![("raster", raster)]).expect("raster batch")
+}
+
+fn discrete_fill_batch() -> RecordBatch {
+    let rows = vec![RasterRow {
+        dimensions: vec![
+            RasterDimension::uniform("x", 0.0, 4.0, 4),
+            RasterDimension::uniform("y", 0.0, 3.0, 3),
+        ],
+        values_dims: vec!["y", "x"],
+        values: vec![
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("medium"),
+            Some("high"),
+            Some("low"),
+            Some("medium"),
+            Some("high"),
+            Some("medium"),
+            Some("high"),
+            Some("low"),
+            Some("medium"),
+        ],
+    }];
+    let values = string_list_rows(&[rows[0].values.iter().map(|value| value.unwrap()).collect()]);
+    let raster = raster_array(&rows, values);
+    RecordBatch::try_from_iter(vec![("raster", raster)]).expect("raster batch")
 }
 
 fn scalar_to_f64(value: ScalarValue, label: &str) -> f64 {
@@ -285,22 +477,27 @@ async fn cars_density_batch(ctx: &SessionContext) -> (RecordBatch, f64) {
     let origins = by_origin.keys().cloned().collect::<Vec<_>>();
     let rows = by_origin
         .into_values()
-        .map(|values| RasterRow {
-            columns: UniformAxis::new("Weight_in_lbs", X0, X1, NX as u32),
-            rows: UniformAxis::new("Miles_per_Gallon", Y0, Y1, NY as u32),
-            values: values.into_iter().map(Some).collect(),
+        .map(|values| {
+            uniform_raster(
+                "Weight_in_lbs",
+                X0,
+                X1,
+                NX as u32,
+                "Miles_per_Gallon",
+                Y0,
+                Y1,
+                NY as u32,
+                values.into_iter().map(Some).collect(),
+            )
         })
         .collect::<Vec<_>>();
-    let raster = raster_array(
-        axis_array(rows.iter().map(|row| row.columns)),
-        axis_array(rows.iter().map(|row| row.rows)),
-        f64_list_rows(
-            &rows
-                .iter()
-                .map(|row| row.values.clone())
-                .collect::<Vec<_>>(),
-        ),
+    let values = f64_list_rows(
+        &rows
+            .iter()
+            .map(|row| row.values.clone())
+            .collect::<Vec<_>>(),
     );
+    let raster = raster_array(&rows, values);
     let batch = RecordBatch::try_from_iter(vec![
         ("raster", raster),
         ("origin", Arc::new(StringArray::from(origins)) as ArrayRef),
@@ -313,16 +510,26 @@ async fn cars_density_batch(ctx: &SessionContext) -> (RecordBatch, f64) {
 async fn uniform_raster_2d_scaled_inferred_domain() {
     let ctx = SessionContext::new();
     let df = ctx
-        .read_batch(raster_batch(vec![RasterRow {
-            columns: UniformAxis::new("x", 0.0, 4.0, 4),
-            rows: UniformAxis::new("y", 0.0, 3.0, 3),
-            values: (0..12).map(|value| Some(value as f64)).collect(),
-        }]))
+        .read_batch(raster_batch(vec![uniform_raster(
+            "x",
+            0.0,
+            4.0,
+            4,
+            "y",
+            0.0,
+            3.0,
+            3,
+            (0..12).map(|value| Some(value as f64)).collect(),
+        )]))
         .unwrap();
     let plot = Plot::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
-        .mark(UniformRaster2D::new().raster(col("raster")).smooth(false));
+        .mark(
+            UniformRaster2D::new()
+                .raster_with(col("raster"), |r| r.x(dim("x")).y(dim("y")))
+                .smooth(false),
+        );
 
     let compiled = plot.compile(&ctx).await.unwrap();
     assert_visual_match(
@@ -340,11 +547,17 @@ async fn uniform_raster_2d_scaled_inferred_domain() {
 async fn uniform_raster_2d_scaled_explicit_domain() {
     let ctx = SessionContext::new();
     let df = ctx
-        .read_batch(raster_batch(vec![RasterRow {
-            columns: UniformAxis::new("x", 0.0, 4.0, 4),
-            rows: UniformAxis::new("y", 0.0, 3.0, 3),
-            values: (0..12).map(|value| Some(value as f64)).collect(),
-        }]))
+        .read_batch(raster_batch(vec![uniform_raster(
+            "x",
+            0.0,
+            4.0,
+            4,
+            "y",
+            0.0,
+            3.0,
+            3,
+            (0..12).map(|value| Some(value as f64)).collect(),
+        )]))
         .unwrap();
     let plot = Plot::<Cartesian>::new()
         .plot_size(240.0, 180.0)
@@ -352,7 +565,7 @@ async fn uniform_raster_2d_scaled_explicit_domain() {
         .mark(
             UniformRaster2D::new()
                 .raster_with(col("raster"), |r| {
-                    r.fill(|fill| {
+                    r.x(dim("x")).y(dim("y")).fill(|fill| {
                         fill.scale_with::<Linear>(|scale| {
                             scale.domain((0.0, 100.0)).nice(false).zero(false)
                         })
@@ -375,15 +588,71 @@ async fn uniform_raster_2d_scaled_explicit_domain() {
 }
 
 #[tokio::test]
+async fn uniform_raster_2d_axis_scale_fill_legend_config() {
+    let ctx = SessionContext::new();
+    let df = ctx
+        .read_batch(raster_batch(vec![uniform_raster(
+            "x",
+            0.0,
+            4.0,
+            4,
+            "y",
+            0.0,
+            3.0,
+            3,
+            (0..12).map(|value| Some(value as f64)).collect(),
+        )]))
+        .unwrap();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(270.0, 190.0)
+        .data(df)
+        .mark(
+            UniformRaster2D::new()
+                .raster_with(col("raster"), |r| {
+                    r.x_with(dim("x"), |x| {
+                        x.scale_with::<Linear>(|scale| {
+                            scale.domain((-1.0, 5.0)).nice(false).zero(false)
+                        })
+                        .axis(|axis| axis.title("Configured X"))
+                    })
+                    .y_with(dim("y"), |y| {
+                        y.scale_with::<Linear>(|scale| {
+                            scale.domain((-0.5, 3.5)).nice(false).zero(false)
+                        })
+                        .axis(|axis| axis.title("Configured Y"))
+                    })
+                    .fill(|fill| {
+                        fill.scale_with::<Linear>(|scale| {
+                            scale.domain((0.0, 12.0)).nice(false).zero(false)
+                        })
+                        .legend(|legend| legend.title("Configured Fill"))
+                    })
+                })
+                .smooth(false),
+        );
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "axis_scale_fill_legend_config",
+        0.9999,
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn uniform_raster_2d_unscaled_direct_colors() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(direct_color_batch()).unwrap();
     let plot = Plot::<Cartesian>::new()
         .plot_size(220.0, 150.0)
         .data(df)
-        .mark(
-            UniformRaster2D::new().raster_with(col("raster"), |r| r.fill(|fill| fill.no_scale())),
-        );
+        .mark(UniformRaster2D::new().raster_with(col("raster"), |r| {
+            r.x(dim("x")).y(dim("y")).fill(|fill| fill.no_scale())
+        }));
 
     let compiled = plot.compile(&ctx).await.unwrap();
     assert_visual_match(
@@ -406,7 +675,7 @@ async fn uniform_raster_2d_multiple_rows_single_plot() {
         .data(df)
         .mark(
             UniformRaster2D::new()
-                .raster(col("raster"))
+                .raster_with(col("raster"), |r| r.x(dim("x")).y(dim("y")))
                 .opacity_with(col("alpha"), |opacity| opacity.no_scale())
                 .smooth(false),
         );
@@ -424,29 +693,34 @@ async fn uniform_raster_2d_multiple_rows_single_plot() {
 }
 
 #[tokio::test]
-async fn uniform_raster_2d_transposed_axis_binding() {
+async fn uniform_raster_2d_values_dims_storage_order() {
     let ctx = SessionContext::new();
-    let df = ctx
-        .read_batch(raster_batch(vec![RasterRow {
-            columns: UniformAxis::new("column_coord", 0.0, 2.0, 2),
-            rows: UniformAxis::new("row_coord", 0.0, 3.0, 3),
-            values: vec![
-                Some(0.0),
-                Some(5.0),
-                Some(2.0),
-                Some(8.0),
-                Some(4.0),
-                Some(10.0),
-            ],
-        }]))
-        .unwrap();
+    let rows = vec![RasterRow {
+        dimensions: vec![
+            RasterDimension::uniform("column_coord", 0.0, 2.0, 2),
+            RasterDimension::uniform("row_coord", 0.0, 3.0, 3),
+        ],
+        values_dims: vec!["column_coord", "row_coord"],
+        values: vec![
+            Some(0.0),
+            Some(5.0),
+            Some(2.0),
+            Some(8.0),
+            Some(4.0),
+            Some(10.0),
+        ],
+    }];
+    let df = ctx.read_batch(raster_batch(rows)).unwrap();
     let plot = Plot::<Cartesian>::new()
         .plot_size(240.0, 160.0)
         .data(df)
         .mark(
             UniformRaster2D::new()
-                .raster(col("raster"))
-                .transpose()
+                .raster_with(col("raster"), |r| {
+                    r.x(dim("column_coord"))
+                        .y(dim("row_coord"))
+                        .fill(|fill| fill.legend(|legend| legend.title("Value")))
+                })
                 .smooth(false),
         );
 
@@ -456,7 +730,73 @@ async fn uniform_raster_2d_transposed_axis_binding() {
         &ctx,
         None,
         "uniform_raster_2d",
-        "transposed_axis_binding",
+        "values_dims_storage_order",
+        0.9999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn uniform_raster_2d_categorical_dimension() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(categorical_dimension_batch()).unwrap();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(250.0, 170.0)
+        .data(df)
+        .mark(
+            UniformRaster2D::new()
+                .raster_with(col("raster"), |r| {
+                    r.x_with(dim("x"), |x| x.axis(|axis| axis.title("X")))
+                        .y_with(dim("group"), |y| {
+                            y.scale_with::<Band>(|scale| scale)
+                                .axis(|axis| axis.title("Group"))
+                        })
+                        .fill(|fill| fill.legend(|legend| legend.title("Value")))
+                })
+                .smooth(false),
+        );
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "categorical_dimension",
+        0.9999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn uniform_raster_2d_discrete_fill_rect_legend_config() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_batch(discrete_fill_batch()).unwrap();
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(260.0, 180.0)
+        .data(df)
+        .mark(
+            UniformRaster2D::new()
+                .raster_with(col("raster"), |r| {
+                    r.x(dim("x")).y(dim("y")).fill(|fill| {
+                        fill.scale_with::<Ordinal>(|scale| {
+                            scale
+                                .domain_discrete(vec![lit("low"), lit("medium"), lit("high")])
+                                .range_discrete(vec!["#e8f5e9", "#66bb6a", "#1b5e20"])
+                        })
+                        .legend(|legend| legend.title("Band"))
+                    })
+                })
+                .smooth(false),
+        );
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "discrete_fill_rect_legend_config",
         0.9999,
     )
     .await;
@@ -470,14 +810,18 @@ async fn uniform_raster_2d_dataset_cars_density_by_origin() {
     let leaf = Plot::<Cartesian>::new().mark(
         UniformRaster2D::new()
             .raster_with(col("raster"), move |r| {
-                r.fill(move |fill| {
+                r.x_with(dim("Weight_in_lbs"), |x| {
+                    x.axis(|axis| axis.title("Weight"))
+                })
+                .y_with(dim("Miles_per_Gallon"), |y| {
+                    y.axis(|axis| axis.title("MPG"))
+                })
+                .fill(move |fill| {
                     fill.scale_with::<Sqrt>(move |scale| {
                         scale.domain((0.0, max_bin_count)).nice(false).zero(false)
                     })
                     .legend(|legend| legend.title("Cars"))
                 })
-                .x(|x| x.axis(|axis| axis.title("Weight")))
-                .y(|y| y.axis(|axis| axis.title("MPG")))
             })
             .smooth(false),
     );

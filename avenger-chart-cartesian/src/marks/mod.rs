@@ -16,10 +16,9 @@ use std::sync::Arc;
 
 use avenger_chart_core::{ChannelValue, ColorChannelConfig, IntoExpr, PositionConfig};
 use avenger_chart_marks::{
-    Area, Image, Line, PathMark, RasterChannelsConfig, RasterPositionConfig, Rect, Rule, Symbol,
-    Text, Trail, UniformRaster2D, UniformRaster2DFields,
+    Area, Image, Line, PathMark, RasterChannelsConfig, Rect, Rule, Symbol, Text, Trail,
+    UniformRaster2D,
 };
-use datafusion::logical_expr::lit;
 
 use crate::{Cartesian, CartesianAxis, CartesianPositionConfig};
 
@@ -203,16 +202,27 @@ impl CartesianUniformRaster2DChannels for UniformRaster2D<Cartesian> {
         F: FnOnce(RasterChannelsConfig<CartesianAxis>) -> RasterChannelsConfig<CartesianAxis>,
     {
         let raster_expr = data.into_expr();
-        let fields = UniformRaster2DFields::new(raster_expr.clone());
-        let config = RasterChannelsConfig::new(
-            ColorChannelConfig::new(ChannelValue::from(fields.values_data())),
-            RasterPositionConfig::new(ChannelValue::from(lit(0.0)).with_scale_name("x")),
-            RasterPositionConfig::new(ChannelValue::from(lit(0.0)).with_scale_name("y")),
-        );
+        let fields = avenger_chart_marks::UniformRaster2DFields::new(raster_expr.clone());
+        let config = RasterChannelsConfig::new(ColorChannelConfig::new(ChannelValue::from(
+            fields.values_data(),
+        )));
         let (fill, x, y) = f(config).into_parts();
-        let (x_channel, x_axis_config) = x.take();
-        let (y_channel, y_axis_config) = y.take();
-        let mut mark = self.configure_raster(raster_expr, Some(fill), Some((x_channel, y_channel)));
+        let (x_position, x_axis_config) = match x {
+            Some(x) => {
+                let (position, axis_config) = x.take();
+                (Some(position), axis_config)
+            }
+            None => (None, None),
+        };
+        let (y_position, y_axis_config) = match y {
+            Some(y) => {
+                let (position, axis_config) = y.take();
+                (Some(position), axis_config)
+            }
+            None => (None, None),
+        };
+        let mut mark =
+            self.configure_raster(raster_expr, Some(fill), Some((x_position, y_position)));
         if let Some(axis_config) = x_axis_config {
             mark.state_mut()
                 .axis_configs

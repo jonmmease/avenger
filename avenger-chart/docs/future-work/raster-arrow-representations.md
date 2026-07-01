@@ -2,11 +2,16 @@
 
 ## Status
 
-Design spike in progress. This note specifies the first public-data
-representation target for raster-like data. It does not yet specify renderer
-implementation, legend behavior, or View integration. The non-materializing
-`RasterizeUniform2D` transform plan is tracked separately in
-[rasterize-uniform-2d-udaf.md](rasterize-uniform-2d-udaf.md).
+Historical design spike. The current implemented uniform raster representation
+uses the DataArray-style `geometry.dimensions` plus `values.dims` schema from
+the `UniformRaster2D` implementation and
+[rasterize-uniform-2d-udaf.md](rasterize-uniform-2d-udaf.md). Older examples in
+this note that mention fixed `geometry.columns` / `geometry.rows` fields are
+superseded and should not be used as implementation guidance.
+
+This note still captures useful future-work context for non-uniform and
+curvilinear rasters, but it does not specify current renderer implementation,
+legend behavior, or View integration.
 
 ## Goal
 

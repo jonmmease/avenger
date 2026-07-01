@@ -37,8 +37,8 @@ pub use symbol::{
 pub use text::{Text, text_channel_defaults};
 pub use trail::{Trail, TrailPartitionKey, trail_channel_defaults};
 pub use uniform_raster_2d::{
-    RasterChannelsConfig, RasterPositionConfig, UNIFORM_RASTER_2D_FILL_CHANNEL,
-    UNIFORM_RASTER_2D_RASTER_CHANNEL, UniformRaster2D, UniformRaster2DFields,
-    UniformRaster2DOptions, uniform_raster_2d_channel_defaults,
+    RasterChannelsConfig, RasterDim, RasterPositionConfig, RasterPositionSpec,
+    UNIFORM_RASTER_2D_FILL_CHANNEL, UNIFORM_RASTER_2D_RASTER_CHANNEL, UniformRaster2D,
+    UniformRaster2DFields, UniformRaster2DOptions, dim, uniform_raster_2d_channel_defaults,
 };
 pub use zero_d::CompiledZeroDSymbol;
