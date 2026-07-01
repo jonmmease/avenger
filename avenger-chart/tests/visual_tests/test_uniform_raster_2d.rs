@@ -12,10 +12,15 @@ use datafusion::{
         record_batch::RecordBatch,
     },
     common::ScalarValue,
-    prelude::{ParquetReadOptions, SessionContext, col, lit},
+    prelude::{CsvReadOptions, ParquetReadOptions, SessionContext, col, lit},
 };
 
 use super::helpers::assert_visual_match;
+
+const TAXI_X_MIN: f64 = -8_242_500.0;
+const TAXI_X_MAX: f64 = -8_226_500.0;
+const TAXI_Y_MIN: f64 = 4_968_000.0;
+const TAXI_Y_MAX: f64 = 4_983_000.0;
 
 #[derive(Clone)]
 enum RasterDimension {
@@ -506,6 +511,28 @@ async fn cars_density_batch(ctx: &SessionContext) -> (RecordBatch, f64) {
     (batch, max_bin_count)
 }
 
+async fn taxi_dataframe(
+    ctx: &SessionContext,
+    x_col: &'static str,
+    y_col: &'static str,
+) -> datafusion::dataframe::DataFrame {
+    let taxi_path = format!(
+        "{}/tests/data/nyc_taxi_2015/nyc_taxi.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    ctx.read_csv(taxi_path, CsvReadOptions::new())
+        .await
+        .expect("load NYC taxi fixture")
+        .filter(
+            col(x_col)
+                .gt_eq(lit(TAXI_X_MIN))
+                .and(col(x_col).lt_eq(lit(TAXI_X_MAX)))
+                .and(col(y_col).gt_eq(lit(TAXI_Y_MIN)))
+                .and(col(y_col).lt_eq(lit(TAXI_Y_MAX))),
+        )
+        .expect("filter taxi fixture to valid projected coordinates")
+}
+
 #[tokio::test]
 async fn uniform_raster_2d_scaled_inferred_domain() {
     let ctx = SessionContext::new();
@@ -837,6 +864,144 @@ async fn uniform_raster_2d_dataset_cars_density_by_origin() {
         None,
         "uniform_raster_2d",
         "dataset_cars_density_by_origin",
+        0.9999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn uniform_raster_2d_rasterize_taxi_dropoff_count_inferred_extent() {
+    let ctx = SessionContext::new();
+    let df = taxi_dataframe(&ctx, "dropoff_x", "dropoff_y").await;
+    let hist = Rasterize2D::new(col("dropoff_x"), col("dropoff_y"))
+        .x(|x| x.bins(96))
+        .y(|y| y.bins(96))
+        .agg("count");
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(320.0, 250.0)
+        .data(df)
+        .mark(
+            UniformRaster2D::new()
+                .transform(hist, |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x_with(hist.x_dim(), |x| {
+                            x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                                .axis(|axis| axis.title("Dropoff x").tick_count(4).format(".4~s"))
+                        })
+                        .y_with(hist.y_dim(), |y| {
+                            y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                                .axis(|axis| axis.title("Dropoff y").tick_count(4).format(".4~s"))
+                        })
+                        .fill(|fill| {
+                            fill.scale_with::<Sqrt>(|scale| scale)
+                                .legend(|legend| legend.title("Trips"))
+                        })
+                    })
+                })
+                .smooth(false),
+        );
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "rasterize_taxi_dropoff_count_inferred_extent",
+        0.9999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn uniform_raster_2d_rasterize_taxi_pickup_count_explicit_domain() {
+    let ctx = SessionContext::new();
+    let df = taxi_dataframe(&ctx, "pickup_x", "pickup_y").await;
+    let hist = Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+        .x(|x| x.extent(TAXI_X_MIN, TAXI_X_MAX).bins(96))
+        .y(|y| y.extent(TAXI_Y_MIN, TAXI_Y_MAX).bins(96))
+        .agg("count");
+    let plot = Plot::<Cartesian>::new()
+        .plot_size(320.0, 250.0)
+        .data(df)
+        .mark(
+            UniformRaster2D::new()
+                .transform(hist, |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x_with(hist.x_dim(), |x| {
+                            x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                                .axis(|axis| axis.title("Pickup x").tick_count(4).format(".4~s"))
+                        })
+                        .y_with(hist.y_dim(), |y| {
+                            y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                                .axis(|axis| axis.title("Pickup y").tick_count(4).format(".4~s"))
+                        })
+                        .fill(|fill| {
+                            fill.scale_with::<Sqrt>(|scale| {
+                                scale.domain((0.0, 120.0)).nice(false).zero(false)
+                            })
+                            .legend(|legend| legend.title("Trips"))
+                        })
+                    })
+                })
+                .smooth(false),
+        );
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "rasterize_taxi_pickup_count_explicit_domain",
+        0.9999,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn uniform_raster_2d_rasterize_taxi_pickup_count_facet_payment_type() {
+    let ctx = SessionContext::new();
+    let df = taxi_dataframe(&ctx, "pickup_x", "pickup_y").await;
+    let hist = Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+        .x(|x| x.extent(TAXI_X_MIN, TAXI_X_MAX).bins(64))
+        .y(|y| y.extent(TAXI_Y_MIN, TAXI_Y_MAX).bins(64))
+        .partition_by([col("payment_type")])
+        .agg("count");
+    let leaf = Plot::<Cartesian>::new().mark(
+        UniformRaster2D::new()
+            .transform_shared(hist, |mark, hist| {
+                mark.raster_with(hist.raster(), |r| {
+                    r.x_with(hist.x_dim(), |x| {
+                        x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                            .axis(|axis| axis.title("Pickup x").tick_count(3).format(".4~s"))
+                    })
+                    .y_with(hist.y_dim(), |y| {
+                        y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
+                            .axis(|axis| axis.title("Pickup y").tick_count(3).format(".4~s"))
+                    })
+                    .fill(|fill| {
+                        fill.scale_with::<Sqrt>(|scale| {
+                            scale.domain((0.0, 80.0)).nice(false).zero(false)
+                        })
+                        .legend(|legend| legend.title("Trips"))
+                    })
+                })
+            })
+            .smooth(false),
+    );
+    let plot = Plot::<FacetColumn>::new()
+        .plot_size(175.0, 145.0)
+        .data(df)
+        .mark(Subplot::new(leaf).column(col("payment_type")));
+
+    let compiled = plot.compile(&ctx).await.unwrap();
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        "uniform_raster_2d",
+        "rasterize_taxi_pickup_count_facet_payment_type",
         0.9999,
     )
     .await;
