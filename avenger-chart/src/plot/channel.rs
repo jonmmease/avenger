@@ -1,12 +1,15 @@
 //! Channel resolution and gathering methods for Plot
 
-use std::collections::{HashMap, hash_map::Entry};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    sync::Arc,
+};
 
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CoordinateSystemCore,
+    Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CompiledMark, CoordinateSystemCore,
     CoordinateSystemTransformCore, Legend, MarkState, Scale, resolve_all_channel_refs,
     strip_trailing_numbers,
 };
@@ -54,90 +57,15 @@ fn extract_channel_configs_from_channels(
     };
 
     for (channel_name, channel_value) in resolved_encodings {
-        if let Some(axis_config) = channel_value.get_axis_config() {
-            merge_axis_config(axis_specs, &channel_name, axis_config);
-        }
-
-        if !coord_transform.channel_uses_scale(&channel_name) {
-            if channel_value.has_scale_config() || channel_value.has_legend_config() {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Coordinate channel '{channel_name}' is a layout/partition input and does \
-                     not support scale or legend configuration. Use coordinate-specific ordering, \
-                     sharing, and guide options instead."
-                )));
-            }
-            continue;
-        }
-
-        // Extract scale and legend configs
-        let (scale_config, legend_config) = match channel_value.clone() {
-            ChannelValue::Scaled {
-                scale_config,
-                legend_config,
-                ..
-            }
-            | ChannelValue::Conditional {
-                scale_config,
-                legend_config,
-                ..
-            } => (scale_config, legend_config),
-            ChannelValue::Value { .. } => {
-                // No scale or legend for identity mappings
-                continue;
-            }
-        };
-
-        // Determine scale name
-        let scale_key = match channel_value {
-            ChannelValue::Scaled { scale_name, .. } => {
-                scale_name.as_deref().unwrap_or(&channel_name).to_string()
-            }
-            ChannelValue::Conditional { .. } => {
-                // Conditional always uses channel name
-                channel_name.to_string()
-            }
-            _ => unreachable!(),
-        };
-        scale_to_coord_channel
-            .entry(scale_key.clone())
-            .or_insert_with(|| coord_channel_for_scale_channel(&channel_name));
-
-        // Extract scale config if present
-        if let Some(config) = scale_config {
-            let config = *config;
-            match scale_specs.entry(scale_key.clone()) {
-                Entry::Occupied(mut occupied) => {
-                    let existing_spec = occupied.get().clone();
-                    match existing_spec {
-                        ScaleSpec::Local(existing_scale) => {
-                            // Compose the two scale configurations using update()
-                            // Apply existing config first, then the new config
-                            let updated_scale = Scale::<Auto>::from_config(existing_scale.clone())
-                                .update(Scale::from_config(config));
-                            occupied.insert(ScaleSpec::Local(updated_scale.into_config()));
-                        }
-                    }
-                }
-                Entry::Vacant(vacant) => {
-                    vacant.insert(ScaleSpec::Local(config));
-                }
-            }
-        }
-
-        // Extract legend config if present
-        if let Some(config) = legend_config {
-            let config = *config;
-            // Compose legend configurations - apply all configs in order
-            let existing_legend = legends.shift_remove(channel_name.as_str());
-            let configured = if let Some(existing) = existing_legend {
-                // Apply new config on top of existing configured legend
-                existing.update(config.clone())
-            } else {
-                // Use the config as-is
-                config.clone()
-            };
-            legends.insert(channel_name.clone(), configured);
-        }
+        extract_channel_config_from_value(
+            &channel_name,
+            &channel_value,
+            coord_transform,
+            axis_specs,
+            legends,
+            scale_specs,
+            scale_to_coord_channel,
+        )?;
     }
 
     // Extract explicit position-channel axis configurations from the mark after
@@ -145,6 +73,90 @@ fn extract_channel_configs_from_channels(
     // augments defaults carried by the value itself.
     for (channel_name, axis_config) in explicit_axis_configs.iter() {
         merge_axis_config(axis_specs, channel_name, axis_config.as_ref());
+    }
+
+    Ok(())
+}
+
+fn extract_channel_config_from_value(
+    channel_name: &str,
+    channel_value: &ChannelValue,
+    coord_transform: &dyn CoordinateSystemTransformCore,
+    axis_specs: &mut HashMap<String, AxisSpec>,
+    legends: &mut IndexMap<String, Legend>,
+    scale_specs: &mut HashMap<String, ScaleSpec>,
+    scale_to_coord_channel: &mut HashMap<String, String>,
+) -> Result<(), AvengerChartError> {
+    if let Some(axis_config) = channel_value.get_axis_config() {
+        merge_axis_config(axis_specs, channel_name, axis_config);
+    }
+
+    if !coord_transform.channel_uses_scale(channel_name) {
+        if channel_value.has_scale_config() || channel_value.has_legend_config() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Coordinate channel '{channel_name}' is a layout/partition input and does \
+                 not support scale or legend configuration. Use coordinate-specific ordering, \
+                 sharing, and guide options instead."
+            )));
+        }
+        return Ok(());
+    }
+
+    let (scale_config, legend_config) = match channel_value.clone() {
+        ChannelValue::Scaled {
+            scale_config,
+            legend_config,
+            ..
+        }
+        | ChannelValue::Conditional {
+            scale_config,
+            legend_config,
+            ..
+        } => (scale_config, legend_config),
+        ChannelValue::Value { .. } => {
+            return Ok(());
+        }
+    };
+
+    let scale_key = match channel_value {
+        ChannelValue::Scaled { scale_name, .. } => {
+            scale_name.as_deref().unwrap_or(channel_name).to_string()
+        }
+        ChannelValue::Conditional { .. } => channel_name.to_string(),
+        ChannelValue::Value { .. } => unreachable!(),
+    };
+    scale_to_coord_channel
+        .entry(scale_key.clone())
+        .or_insert_with(|| coord_channel_for_scale_channel(channel_name));
+
+    if let Some(config) = scale_config {
+        let config = *config;
+        match scale_specs.entry(scale_key.clone()) {
+            Entry::Occupied(mut occupied) => {
+                let existing_spec = occupied.get().clone();
+                match existing_spec {
+                    ScaleSpec::Local(existing_scale) => {
+                        let updated_scale = Scale::<Auto>::from_config(existing_scale.clone())
+                            .update(Scale::from_config(config));
+                        occupied.insert(ScaleSpec::Local(updated_scale.into_config()));
+                    }
+                }
+            }
+            Entry::Vacant(vacant) => {
+                vacant.insert(ScaleSpec::Local(config));
+            }
+        }
+    }
+
+    if let Some(config) = legend_config {
+        let config = *config;
+        let existing_legend = legends.shift_remove(channel_name);
+        let configured = if let Some(existing) = existing_legend {
+            existing.update(config.clone())
+        } else {
+            config.clone()
+        };
+        legends.insert(channel_name.to_string(), configured);
     }
 
     Ok(())
@@ -170,6 +182,30 @@ pub(crate) fn extract_channel_configs_from_state(
         scale_specs,
         scale_to_coord_channel,
     )
+}
+
+pub(crate) fn extract_channel_configs_from_compiled_domain_channels(
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    coord_transform: &dyn CoordinateSystemTransformCore,
+    axis_specs: &mut HashMap<String, AxisSpec>,
+    legends: &mut IndexMap<String, Legend>,
+    scale_specs: &mut HashMap<String, ScaleSpec>,
+    scale_to_coord_channel: &mut HashMap<String, String>,
+) -> Result<(), AvengerChartError> {
+    for mark in compiled_marks {
+        for source in mark.scale_domain_channels()? {
+            extract_channel_config_from_value(
+                &source.channel,
+                &source.channel_value,
+                coord_transform,
+                axis_specs,
+                legends,
+                scale_specs,
+                scale_to_coord_channel,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Extract axis configurations owned by the resolved coordinate frame.

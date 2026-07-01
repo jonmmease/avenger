@@ -605,6 +605,14 @@ impl<C: CoordinateSystem> Plot<C> {
             compiled_marks.push(compiled_mark);
         }
         let mark_groups = compile_mark_group_states(&flat_marks.group_states);
+        crate::plot::channel::extract_channel_configs_from_compiled_domain_channels(
+            &compiled_marks,
+            coord_transform.as_ref(),
+            &mut axis_specs,
+            &mut legends,
+            &mut scale_specs,
+            &mut scale_to_coord_channel,
+        )?;
 
         // 3. Build guide renderer - either from config or default
         let mut guide = if let Some(config) = &self.guide_config {

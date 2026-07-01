@@ -6,10 +6,10 @@ use std::{
 use avenger_chart_core::{
     Auto, AvengerChartError, ChannelDescriptor, ChannelValue, CompiledDataContext, CompiledMark,
     CompiledMarkCore, CompiledMarkState, CoordinateSystemTransformCore, LegendRendererKind,
-    LegendRendererSelection, Mark, MarkRenderContext, MarkRuntimeContext, MarkScaleDomainSource,
-    PointGeometry, RenderedMarkData, ResolvedDomain, Scale, ScaleRange, ScaleTypePreference, Theme,
-    coerce_opacity_channel_with_renderer, default_scale_type_for_data_type, impl_mark_trait_common,
-    is_continuous_scale,
+    LegendRendererSelection, Mark, MarkRenderContext, MarkRuntimeContext, MarkScaleDomainChannel,
+    MarkScaleDomainSource, PointGeometry, RenderedMarkData, ResolvedDomain, Scale, ScaleRange,
+    ScaleTypePreference, Theme, coerce_opacity_channel_with_renderer,
+    default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
 };
 use avenger_chart_marks::{
     RasterPositionSpec, UNIFORM_RASTER_2D_FILL_CHANNEL, UNIFORM_RASTER_2D_RASTER_CHANNEL,
@@ -113,6 +113,26 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
 
     fn mark_specific_default(&self, channel: &str) -> Option<ScalarValue> {
         uniform_raster_2d_channel_defaults(channel)
+    }
+
+    fn scale_domain_channels(&self) -> Result<Vec<MarkScaleDomainChannel>, AvengerChartError> {
+        if self.state.exclude_from_scale_domains {
+            return Ok(Vec::new());
+        }
+
+        let x_position = required_position(&self.options.x_position, "x")?;
+        let y_position = required_position(&self.options.y_position, "y")?;
+
+        Ok(vec![
+            MarkScaleDomainChannel {
+                channel: "x".to_string(),
+                channel_value: x_position.channel_value.clone(),
+            },
+            MarkScaleDomainChannel {
+                channel: "y".to_string(),
+                channel_value: y_position.channel_value.clone(),
+            },
+        ])
     }
 
     fn scale_domain_sources(

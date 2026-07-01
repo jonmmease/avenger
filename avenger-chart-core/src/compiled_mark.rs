@@ -67,6 +67,16 @@ impl RenderedMarkData {
 /// single render datum and need to contribute scale domains from expressions
 /// that are not themselves render-prepared channels.
 #[derive(Clone)]
+pub struct MarkScaleDomainChannel {
+    pub channel: String,
+    pub channel_value: ChannelValue,
+}
+
+/// Mark-owned scale-domain contribution with the dataframe needed to evaluate
+/// the contribution.
+///
+/// See [`MarkScaleDomainChannel`] for the compile-time declaration half.
+#[derive(Clone)]
 pub struct MarkScaleDomainSource {
     pub channel: String,
     pub channel_value: ChannelValue,
@@ -167,7 +177,15 @@ pub trait CompiledMarkCore: Any + Send + Sync {
     }
 
     /// Return mark-owned scale-domain sources that are not ordinary render
-    /// channels.
+    /// channels. These declarations are available at compile time even when an
+    /// inherited-data subplot does not yet have the dataframe needed to compute
+    /// concrete domain extents.
+    fn scale_domain_channels(&self) -> Result<Vec<MarkScaleDomainChannel>, AvengerChartError> {
+        Ok(Vec::new())
+    }
+
+    /// Return mark-owned scale-domain sources with dataframes that can be used
+    /// to compute concrete domain extents.
     fn scale_domain_sources(
         &self,
         _domain_dataframe: Option<&DataFrame>,

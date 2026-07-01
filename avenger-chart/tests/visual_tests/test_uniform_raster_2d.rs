@@ -877,7 +877,7 @@ async fn uniform_raster_2d_rasterize_taxi_dropoff_count_inferred_extent() {
         .x(|x| x.bins(96))
         .y(|y| y.bins(96))
         .agg("count");
-    let plot = Plot::<Cartesian>::new()
+    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(320.0, 250.0)
         .data(df)
         .mark(
@@ -921,7 +921,7 @@ async fn uniform_raster_2d_rasterize_taxi_pickup_count_explicit_domain() {
         .x(|x| x.extent(TAXI_X_MIN, TAXI_X_MAX).bins(96))
         .y(|y| y.extent(TAXI_Y_MIN, TAXI_Y_MAX).bins(96))
         .agg("count");
-    let plot = Plot::<Cartesian>::new()
+    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(320.0, 250.0)
         .data(df)
         .mark(
@@ -968,7 +968,7 @@ async fn uniform_raster_2d_rasterize_taxi_pickup_count_facet_payment_type() {
         .y(|y| y.extent(TAXI_Y_MIN, TAXI_Y_MAX).bins(64))
         .partition_by([col("payment_type")])
         .agg("count");
-    let leaf = Plot::<Cartesian>::new().mark(
+    let leaf = Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
         UniformRaster2D::new()
             .transform_shared(hist, |mark, hist| {
                 mark.raster_with(hist.raster(), |r| {
