@@ -15,6 +15,7 @@ datafusion-proto = "48.0.1"
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"
+tracing = { workspace = true }
 typetag = "0.2"
 
 [dev-dependencies]

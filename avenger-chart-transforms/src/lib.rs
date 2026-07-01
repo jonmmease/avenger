@@ -47,8 +47,8 @@ mod tests {
     use super::*;
     use arrow::{
         array::{
-            Array, BooleanArray, Float64Array, Int32Array, Int64Array, StringArray, StructArray,
-            TimestampMillisecondArray, UInt64Array,
+            Array, BooleanArray, Float64Array, Int32Array, Int64Array, ListArray, StringArray,
+            StructArray, TimestampMillisecondArray, UInt32Array, UInt64Array,
         },
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
@@ -403,6 +403,129 @@ mod tests {
             .into_compiled_and_output(DataTransformCompileContext::new(scope))
             .unwrap();
         (DataTransformStage::new(scope, compiled), output)
+    }
+
+    fn rasterize_dataframe(
+        ctx: &SessionContext,
+        groups: Vec<Option<&str>>,
+        xs: Vec<Option<f64>>,
+        ys: Vec<Option<f64>>,
+        values: Vec<Option<f64>>,
+    ) -> DataFrame {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("group", DataType::Utf8, true),
+                Field::new("x", DataType::Float64, true),
+                Field::new("y", DataType::Float64, true),
+                Field::new("value", DataType::Float64, true),
+            ])),
+            vec![
+                Arc::new(StringArray::from(groups)) as _,
+                Arc::new(Float64Array::from(xs)) as _,
+                Arc::new(Float64Array::from(ys)) as _,
+                Arc::new(Float64Array::from(values)) as _,
+            ],
+        )
+        .unwrap();
+        ctx.read_batch(batch).unwrap()
+    }
+
+    fn raster_struct(batch: &RecordBatch) -> &StructArray {
+        batch
+            .column_by_name("raster")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap()
+    }
+
+    fn raster_count_values(batch: &RecordBatch, row: usize) -> Vec<u64> {
+        let values = raster_struct(batch)
+            .column_by_name("values")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let data = values
+            .column_by_name("data")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let row_values = data.value(row);
+        row_values
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .unwrap()
+            .values()
+            .to_vec()
+    }
+
+    fn raster_uniform_dimension(
+        batch: &RecordBatch,
+        row: usize,
+        dimension: usize,
+    ) -> (String, String, f64, f64, u32) {
+        let geometry = raster_struct(batch)
+            .column_by_name("geometry")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let dimensions = geometry
+            .column_by_name("dimensions")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let row_dimensions = dimensions.value(row);
+        let row_dimensions = row_dimensions
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let names = row_dimensions
+            .column_by_name("name")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let coords = row_dimensions
+            .column_by_name("coords")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let samplings = coords
+            .column_by_name("sampling")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let starts = coords
+            .column_by_name("start")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let stops = coords
+            .column_by_name("stop")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Float64Array>()
+            .unwrap();
+        let counts = coords
+            .column_by_name("count")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .unwrap();
+        (
+            names.value(dimension).to_string(),
+            samplings.value(dimension).to_string(),
+            starts.value(dimension),
+            stops.value(dimension),
+            counts.value(dimension),
+        )
     }
 
     fn bin_rows(batch: &RecordBatch) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
@@ -4429,6 +4552,154 @@ mod tests {
                 ("B", "s1", 0.0, 4.0),
             ],
         );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_count_bins_rows_and_closes_final_bin() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![None; 10],
+            vec![
+                Some(0.0),
+                Some(0.49),
+                Some(1.0),
+                Some(2.0),
+                Some(2.0),
+                Some(-1.0),
+                Some(f64::INFINITY),
+                Some(f64::NAN),
+                None,
+                Some(0.0),
+            ],
+            vec![
+                Some(0.0),
+                Some(0.49),
+                Some(1.0),
+                Some(2.0),
+                Some(0.0),
+                Some(0.0),
+                Some(1.0),
+                Some(1.0),
+                Some(0.0),
+                None,
+            ],
+            vec![Some(1.0); 10],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .agg("count"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].num_rows(), 1);
+        assert_eq!(raster_count_values(&batches[0], 0), vec![2, 1, 0, 2]);
+        assert_eq!(
+            raster_uniform_dimension(&batches[0], 0, 0),
+            ("x".to_string(), "linear".to_string(), 0.0, 2.0, 2)
+        );
+        assert_eq!(
+            raster_uniform_dimension(&batches[0], 0, 1),
+            ("y".to_string(), "linear".to_string(), 0.0, 2.0, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_count_value_skips_null_and_non_finite_values() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![None; 5],
+            vec![Some(0.0), Some(0.49), Some(1.0), Some(2.0), Some(2.0)],
+            vec![Some(0.0), Some(0.49), Some(1.0), Some(2.0), Some(0.0)],
+            vec![Some(1.0), None, Some(f64::NAN), Some(4.0), Some(5.0)],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .value(col("value"))
+                .agg("count"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        assert_eq!(raster_count_values(&batches[0], 0), vec![1, 1, 0, 1]);
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_infers_extents_with_datafusion_prepass() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![None; 5],
+            vec![
+                Some(0.0),
+                Some(1.0),
+                Some(2.0),
+                Some(f64::NAN),
+                Some(f64::INFINITY),
+            ],
+            vec![Some(10.0), Some(15.0), Some(20.0), Some(12.0), Some(18.0)],
+            vec![Some(1.0); 5],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.bins(2))
+                .y(|y| y.bins(2))
+                .agg("count"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        assert_eq!(
+            raster_uniform_dimension(&batches[0], 0, 0),
+            ("x".to_string(), "linear".to_string(), 0.0, 2.0, 2)
+        );
+        assert_eq!(
+            raster_uniform_dimension(&batches[0], 0, 1),
+            ("y".to_string(), "linear".to_string(), 10.0, 20.0, 2)
+        );
+        assert_eq!(raster_count_values(&batches[0], 0), vec![1, 0, 0, 2]);
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_partitioned_output_returns_one_raster_per_group() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![Some("A"), Some("A"), Some("B"), Some("B"), Some("B")],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(1.0), Some(2.0)],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(1.0), Some(0.0)],
+            vec![Some(1.0); 5],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .partition_by([col("group")])
+                .agg("count"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        let mut counts_by_group = IndexMap::new();
+        for batch in &batches {
+            let groups = batch
+                .column_by_name("group")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                counts_by_group.insert(
+                    groups.value(row).to_string(),
+                    raster_count_values(batch, row),
+                );
+            }
+        }
+        assert_eq!(counts_by_group["A"], vec![1, 0, 0, 1]);
+        assert_eq!(counts_by_group["B"], vec![1, 1, 0, 1]);
     }
 
     #[test]

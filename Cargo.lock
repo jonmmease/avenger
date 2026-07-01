@@ -932,6 +932,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tokio",
+ "tracing",
  "typetag",
 ]
 
