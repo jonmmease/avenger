@@ -151,6 +151,13 @@ impl MaterializationExecutor for Rasterize2DExecutor {
         request: MaterializationRequest,
         ctx: MaterializationExecutionContext<'_>,
     ) -> Result<MaterializationResult, AvengerChartError> {
+        let started = Instant::now();
+        tracing::debug!(
+            target: "avenger_chart::transforms::rasterize_2d",
+            key = %request.key,
+            priority = request.priority,
+            "Rasterize2D materialization started"
+        );
         maybe_sleep_for_demo_delay();
 
         let spec: Rasterize2DMaterializationSpec = serde_json::from_value(request.spec.clone())
@@ -179,6 +186,14 @@ impl MaterializationExecutor for Rasterize2DExecutor {
             .apply_to_dataframe(dataframe, &transform_ctx)
             .await?;
         let batch = collect_single_batch(result.dataframe, &params).await?;
+        tracing::debug!(
+            target: "avenger_chart::transforms::rasterize_2d",
+            key = %request.key,
+            rows = batch.num_rows(),
+            columns = batch.num_columns(),
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+            "Rasterize2D materialization finished"
+        );
         Ok(MaterializationResult::RecordBatch(batch))
     }
 }
@@ -653,12 +668,23 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
         ctx: &ViewMaterializationContext<'_>,
     ) -> Result<Option<ViewMaterializationRequest>, AvengerChartError> {
         let spec = self.materialization_spec(dataframe.clone(), ctx)?;
+        let key = spec.key()?;
+        let identity = spec.identity()?;
+        tracing::debug!(
+            target: "avenger_chart::transforms::rasterize_2d",
+            key = %key,
+            identity = %identity,
+            reducer = self.agg.name(),
+            priority = ctx.priority,
+            allow_stale = ctx.policy.allow_stale,
+            "created Rasterize2D materialization request"
+        );
         let request = MaterializationRequest::new(
-            spec.key()?,
+            key,
             RASTERIZE_2D_MATERIALIZATION_KIND,
             MaterializationOutputKind::RecordBatch,
         )
-        .identity(spec.identity()?)
+        .identity(identity)
         .priority(ctx.priority)
         .policy(ctx.policy.clone())
         .spec(serde_json::to_value(&spec).map_err(|err| {

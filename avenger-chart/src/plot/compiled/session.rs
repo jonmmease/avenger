@@ -1635,6 +1635,12 @@ impl PlotSession {
     fn schedule_materialization_requests(&self, requests: &[MaterializationRequest]) {
         for request in requests {
             let Some(executor) = self.materialization_registry.get(&request.kind) else {
+                tracing::debug!(
+                    target: "avenger_chart::materialization",
+                    key = %request.key,
+                    kind = %request.kind,
+                    "skipping materialization request with no registered executor"
+                );
                 continue;
             };
             let should_start = self
@@ -1642,6 +1648,14 @@ impl PlotSession {
                 .lock()
                 .expect("materialization cache lock poisoned")
                 .mark_running(&request.key);
+            tracing::debug!(
+                target: "avenger_chart::materialization",
+                key = %request.key,
+                kind = %request.kind,
+                priority = request.priority,
+                should_start,
+                "materialization queue decision"
+            );
             if !should_start {
                 continue;
             }
@@ -1651,6 +1665,14 @@ impl PlotSession {
             let session_context = self.ctx.clone();
             let invalidation_hub = self.materialization_invalidation_hub.clone();
             tokio::spawn(async move {
+                let started = Instant::now();
+                tracing::debug!(
+                    target: "avenger_chart::materialization",
+                    key = %request.key,
+                    kind = %request.kind,
+                    priority = request.priority,
+                    "materialization executor started"
+                );
                 let params = IndexMap::new();
                 let result = executor
                     .run(
@@ -1663,12 +1685,31 @@ impl PlotSession {
                     .await;
                 let mut cache = cache.lock().expect("materialization cache lock poisoned");
                 match result {
-                    Ok(result) => cache.mark_ready_and_request_invalidation(
-                        &request,
-                        result,
-                        &invalidation_hub,
-                    ),
-                    Err(err) => cache.mark_error(&request, err.to_string()),
+                    Ok(result) => {
+                        tracing::debug!(
+                            target: "avenger_chart::materialization",
+                            key = %request.key,
+                            kind = %request.kind,
+                            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                            "materialization executor finished"
+                        );
+                        cache.mark_ready_and_request_invalidation(
+                            &request,
+                            result,
+                            &invalidation_hub,
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "avenger_chart::materialization",
+                            key = %request.key,
+                            kind = %request.kind,
+                            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                            error = %err,
+                            "materialization executor failed"
+                        );
+                        cache.mark_error(&request, err.to_string());
+                    }
                 }
             });
         }
