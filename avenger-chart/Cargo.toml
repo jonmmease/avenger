@@ -113,6 +113,10 @@ name = "simple_instanced_pan_png_replay"
 required-features = ["wgpu"]
 
 [[example]]
+name = "taxi_async_rasterize_png_replay"
+required-features = ["wgpu"]
+
+[[example]]
 name = "test_legend_height"
 required-features = ["doc-render"]
 
