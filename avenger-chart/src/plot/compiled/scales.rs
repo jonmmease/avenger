@@ -71,6 +71,12 @@ fn view_domain_sources(
     }
 }
 
+fn remove_view_positional_domain_channels(domain_channels: &mut IndexMap<String, ChannelValue>) {
+    for channel in ["x", "x2", "y", "y2"] {
+        domain_channels.shift_remove(channel);
+    }
+}
+
 async fn prepare_scale_mark_for_plot(
     plot: &CompiledPlot,
     mark: &Arc<dyn CompiledMark>,
@@ -112,8 +118,7 @@ async fn prepare_scale_mark_for_plot(
             eval_ctx.session_context.as_ref(),
         )?;
         channels.extend(view_channels);
-        domain_channels.shift_remove("x");
-        domain_channels.shift_remove("y");
+        remove_view_positional_domain_channels(&mut domain_channels);
         extra_domain_sources = view_domain_sources(
             view_scope,
             &PreparedLogicalMarkData {
@@ -208,8 +213,7 @@ async fn prepare_view_materialized_scale_mark_for_plot(
         ))
         .await?;
         let mut domain_channels = view_prepared.domain_channels.clone();
-        domain_channels.shift_remove("x");
-        domain_channels.shift_remove("y");
+        remove_view_positional_domain_channels(&mut domain_channels);
         let extra_domain_sources = view_domain_sources(
             view_scope,
             &view_prepared,
@@ -578,6 +582,57 @@ mod tests {
             y_domain.0 < 1.0 && y_domain.1 < 10.0,
             "y domain should come from view y_domain, not zoom_y render channel: {y_domain:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn view_xy_domains_ignore_view_derivative_render_channels() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 8.0)) AS t(x, y)")
+            .await
+            .expect("view scale data");
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Rect::new().view(
+                    View::cartesian()
+                        .id("domain_box")
+                        .x_domain(col("x"))
+                        .y_domain(col("y")),
+                    |mark, view| {
+                        mark.x_with(view.x().domain_start(), |x| {
+                            x.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        })
+                        .x2(view.x().domain_end())
+                        .y_with(view.y().domain_start(), |y| {
+                            y.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        })
+                        .y2(view.y().domain_end())
+                    },
+                ),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile view rect plot");
+
+        let scales = two_phase_build_scales(&compiled, 400.0, 300.0, &ctx, &IndexMap::new())
+            .await
+            .expect("build view scales");
+
+        let x_domain = scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .unwrap();
+        let y_domain = scales
+            .get("y")
+            .expect("y scale")
+            .configured()
+            .numeric_interval_domain()
+            .unwrap();
+        assert_eq!(x_domain, (0.0, 10.0));
+        assert_eq!(y_domain, (0.0, 8.0));
     }
 
     #[tokio::test]

@@ -9,9 +9,7 @@ use datafusion::logical_expr::col;
 use datafusion::prelude::*;
 use std::sync::Arc;
 
-async fn create_simple_scatter_data() -> DataFrame {
-    let ctx = SessionContext::new();
-
+async fn create_simple_scatter_data(ctx: &SessionContext) -> DataFrame {
     let schema = Arc::new(Schema::new(vec![
         Field::new("x", DataType::Float32, false),
         Field::new("y", DataType::Float32, false),
@@ -29,7 +27,7 @@ async fn create_simple_scatter_data() -> DataFrame {
 #[tokio::test]
 async fn test_symbol_padding_no_nice() {
     let ctx = SessionContext::new();
-    let df = create_simple_scatter_data().await;
+    let df = create_simple_scatter_data(&ctx).await;
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
@@ -57,7 +55,7 @@ async fn test_symbol_padding_no_nice() {
 #[tokio::test]
 async fn test_symbol_padding_with_nice() {
     let ctx = SessionContext::new();
-    let df = create_simple_scatter_data().await;
+    let df = create_simple_scatter_data(&ctx).await;
 
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
