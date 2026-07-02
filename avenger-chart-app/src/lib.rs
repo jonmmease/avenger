@@ -488,6 +488,14 @@ impl ChartAppState {
         self.runtime.lock().await.runtime_resources.clone()
     }
 
+    pub async fn has_pending_materializations(&self) -> bool {
+        self.runtime
+            .lock()
+            .await
+            .session
+            .has_pending_materializations()
+    }
+
     pub async fn accepted_resize_count(&self) -> usize {
         self.runtime.lock().await.accepted_resize_count
     }

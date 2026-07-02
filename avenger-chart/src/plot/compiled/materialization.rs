@@ -59,6 +59,16 @@ impl MaterializationCache {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn has_pending(&self) -> bool {
+        self.entries.values().any(|entry| {
+            matches!(
+                entry,
+                MaterializationCacheEntry::Queued(_) | MaterializationCacheEntry::Running(_)
+            )
+        })
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn enqueue(&mut self, request: MaterializationRequest) -> MaterializationStatus {
         match self.entries.get_mut(&request.key) {
             None => {
@@ -238,6 +248,28 @@ mod tests {
             }
             other => panic!("unexpected entry: {other:?}"),
         }
+    }
+
+    #[test]
+    fn cache_reports_pending_queued_and_running_entries() {
+        let mut cache = MaterializationCache::default();
+        let pending = request("key/a", "scope/a", 0.0);
+        let ready = request("key/b", "scope/b", 0.0);
+
+        assert!(!cache.has_pending());
+
+        cache.enqueue(pending.clone());
+        assert!(cache.has_pending());
+
+        assert!(cache.mark_running(&pending.key));
+        assert!(cache.has_pending());
+
+        cache.mark_ready(&pending, empty_result());
+        assert!(!cache.has_pending());
+
+        cache.enqueue(ready.clone());
+        cache.mark_ready(&ready, empty_result());
+        assert!(!cache.has_pending());
     }
 
     #[test]

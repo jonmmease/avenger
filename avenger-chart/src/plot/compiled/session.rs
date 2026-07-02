@@ -1600,6 +1600,14 @@ impl PlotSession {
         self.materialization_invalidation_hub.epoch()
     }
 
+    #[doc(hidden)]
+    pub fn has_pending_materializations(&self) -> bool {
+        self.materialization_cache
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .has_pending()
+    }
+
     fn clear_materialization_completion_invalidation_pending(&self) {
         self.materialization_cache
             .lock()
@@ -5092,6 +5100,38 @@ mod tests {
         };
         assert_eq!(batch.num_rows(), 1);
         assert_eq!(raster_count_values(&batch, 0), vec![2, 0, 0, 2]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_reports_pending_materializations() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_session_test_plot(&ctx).await?);
+        let session = compiled.instantiate(ctx);
+        let request = view_domain_materialization_request(
+            "viewport",
+            "viewport-materialized",
+            0.0,
+            1.0,
+            0.0,
+            1.0,
+        );
+
+        assert!(!session.has_pending_materializations());
+
+        session
+            .materialization_cache()
+            .lock()
+            .unwrap()
+            .enqueue(request.clone());
+        assert!(session.has_pending_materializations());
+
+        session.materialization_cache().lock().unwrap().mark_ready(
+            &request,
+            MaterializationResult::RecordBatch(materialized_view_batch(vec![0.0], vec![0.0])),
+        );
+        assert!(!session.has_pending_materializations());
 
         Ok(())
     }
