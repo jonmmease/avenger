@@ -19,6 +19,7 @@ macro_rules! impl_mark_base {
                     state: $crate::MarkState {
                         id: None,
                         data: $crate::DataContext::default(),
+                        view: None,
                         data_mode: $crate::MarkDataMode::Inherit,
                         facet_data_scope: $crate::FacetDataScope::FILTERED,
                         exclude_from_scale_domains: false,
@@ -140,6 +141,36 @@ macro_rules! impl_mark_base {
                     .data
                     .with_transform_stage(scope, compiled_transform);
                 f(self, output)
+            }
+
+            /// Configure view-scoped transforms and channels for this mark.
+            ///
+            /// Ordinary transforms chained before or after this method remain
+            /// pre-view transforms on the mark's base data context. Transforms
+            /// and channel encodings configured inside the closure are stored
+            /// in a view-local data context.
+            pub fn view<V, F>(mut self, view: V, f: F) -> Self
+            where
+                V: $crate::ViewSpec,
+                F: FnOnce(Self, $crate::ViewRef) -> Self,
+            {
+                if self.state.view.is_some() {
+                    panic!("Nested mark.view(...) scopes are not supported");
+                }
+
+                let (compiled_view, view_ref) = view
+                    .into_compiled_and_ref()
+                    .expect("Failed to build view scope");
+                let base_data = std::mem::take(&mut self.state.data);
+                let mut mark = f(self, view_ref);
+
+                if mark.state.view.is_some() {
+                    panic!("Nested mark.view(...) scopes are not supported");
+                }
+
+                let view_data = std::mem::replace(&mut mark.state.data, base_data);
+                mark.state.view = Some($crate::ViewScopeState::new(compiled_view, view_data));
+                mark
             }
 
             /// Apply a no-output data transform and configure this mark without a dummy output argument.

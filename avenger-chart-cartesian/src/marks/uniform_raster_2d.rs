@@ -1594,6 +1594,7 @@ mod tests {
             id: None,
             public_target_path: None,
             data: CompiledDataContext::default(),
+            view: None,
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::FILTERED,

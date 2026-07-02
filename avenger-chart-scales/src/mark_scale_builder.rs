@@ -3529,6 +3529,7 @@ mod tests {
                 state: CompiledMarkState {
                     id: None,
                     data: CompiledDataContext::new(Some(dataframe), Vec::new(), channels),
+                    view: None,
                     data_mode: MarkDataMode::Inherit,
                     mark_index: 0,
                     public_target_path: None,

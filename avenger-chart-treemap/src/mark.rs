@@ -68,6 +68,7 @@ impl<C> Default for TreeRect<C> {
             state: MarkState {
                 id: None,
                 data: DataContext::default(),
+                view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
                 exclude_from_scale_domains: false,
@@ -311,6 +312,7 @@ impl<C> Default for TreeLabel<C> {
             state: MarkState {
                 id: None,
                 data: DataContext::default(),
+                view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
                 exclude_from_scale_domains: true,
@@ -881,6 +883,7 @@ impl<C> Default for TreeHeader<C> {
             state: MarkState {
                 id: None,
                 data: DataContext::default(),
+                view: None,
                 data_mode: MarkDataMode::Inherit,
                 facet_data_scope: FacetDataScope::FILTERED,
                 exclude_from_scale_domains: false,

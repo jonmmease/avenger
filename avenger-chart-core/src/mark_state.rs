@@ -11,6 +11,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use crate::{
     AvengerChartError, Axis, CompiledDataContext, DataContext, DefaultLogicalExprNodeExt,
     FacetDataScope, GeometrySpace, RepeatContext, SerializableExpr, resolve_repeat_placeholders,
+    view::{CompiledViewScope, ViewScopeState},
 };
 
 pub const DETAIL_ARRAY_COLUMN_PREFIX: &str = "__avenger_detail_";
@@ -67,6 +68,7 @@ pub enum MarkDataMode {
 pub struct MarkState {
     pub id: Option<String>,
     pub data: DataContext,
+    pub view: Option<ViewScopeState>,
     pub data_mode: MarkDataMode,
 
     // Faceting behavior for this mark
@@ -92,6 +94,8 @@ pub struct CompiledMarkState {
     #[serde(default)]
     pub public_target_path: Option<String>,
     pub data: CompiledDataContext,
+    #[serde(default)]
+    pub view: Option<CompiledViewScope>,
     #[serde(default)]
     pub data_mode: MarkDataMode,
 
@@ -137,6 +141,10 @@ impl CompiledMarkState {
             id: state.id.clone(),
             public_target_path: None,
             data,
+            view: state
+                .view
+                .as_ref()
+                .map(CompiledViewScope::from_view_scope_state),
             data_mode: state.data_mode,
             mark_index: 0,
             facet_data_scope: state.facet_data_scope,
@@ -178,6 +186,11 @@ impl MarkState {
     pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
         let mut resolved = self.clone();
         resolved.data = self.data.resolve_repeat(ctx)?;
+        resolved.view = self
+            .view
+            .as_ref()
+            .map(|view| view.resolve_repeat(ctx))
+            .transpose()?;
         resolved.visible = self
             .visible
             .clone()
@@ -216,6 +229,7 @@ mod tests {
             id: Some("line".to_string()),
             public_target_path: None,
             data: CompiledDataContext::default(),
+            view: None,
             data_mode: MarkDataMode::Inherit,
             mark_index: 0,
             facet_data_scope: FacetDataScope::default(),
@@ -231,10 +245,14 @@ mod tests {
         json.as_object_mut()
             .expect("compiled mark state json object")
             .remove("geometry_space");
+        json.as_object_mut()
+            .expect("compiled mark state json object")
+            .remove("view");
 
         let decoded: CompiledMarkState =
             serde_json::from_value(json).expect("deserialize without geometry_space");
         assert_eq!(decoded.geometry_space, None);
+        assert!(decoded.view.is_none());
         assert_eq!(
             decoded.geometry_space_or(GeometrySpace::Coordinate),
             GeometrySpace::Coordinate

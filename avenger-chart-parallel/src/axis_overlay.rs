@@ -39,6 +39,7 @@ impl ParallelAxisOverlay<Parallel> {
             state: MarkState {
                 id: None,
                 data: DataContext::default(),
+                view: None,
                 data_mode: MarkDataMode::Unit,
                 facet_data_scope: FacetDataScope::FILTERED,
                 exclude_from_scale_domains: true,

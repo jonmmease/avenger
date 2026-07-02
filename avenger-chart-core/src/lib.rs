@@ -92,6 +92,7 @@ pub mod title_spec;
 pub mod tools;
 pub mod transform;
 pub mod unit_aspect;
+pub mod view;
 pub mod zero_d;
 
 #[doc(hidden)]
@@ -345,4 +346,8 @@ pub use transform::{
     DataTransformStage, apply_compiled_data_transforms,
 };
 pub use unit_aspect::CartesianUnitAspect;
+pub use view::{
+    CartesianView, CompiledCartesianViewSpec, CompiledViewScope, CompiledViewSpec, View,
+    ViewAsyncPolicy, ViewRef, ViewScopeState, ViewSpec, ViewStalePolicy,
+};
 pub use zero_d::ZeroDCoord;
