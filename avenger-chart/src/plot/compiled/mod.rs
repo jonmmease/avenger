@@ -113,6 +113,7 @@ pub(crate) use self::mark_data_runtime::{
     BaseDataRequest, LogicalMarkDataRequest, MarkDataRequest, PreparedBaseData, PreparedMarkData,
     prepare_base_data, prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
 };
+pub(crate) use self::materialization::MaterializationCacheHandle;
 #[cfg(test)]
 pub(crate) use self::session::TextMeasurementCache;
 pub use self::session::{

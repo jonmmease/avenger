@@ -29,9 +29,10 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     CompiledDataContext, CompiledSelectionSpec, CompiledViewScope, CompiledViewSpec,
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformStage, DerivedScalarMap,
-    FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
-    SharingLevel, contains_aggregate, detail_array_column_name, item_frame_column_refs,
-    params_to_datafusion, selection_clause_value_id_from_placeholder,
+    FacetDataScope, MarkDataMode, MaterializationPolicy, MaterializationResult, SelectionClause,
+    SelectionCombine, SelectionPredicateSpec, SharingLevel, ViewMaterializationContext,
+    ViewMaterializationRequest, ViewStalePolicy, contains_aggregate, detail_array_column_name,
+    item_frame_column_refs, params_to_datafusion, selection_clause_value_id_from_placeholder,
     selection_id_from_predicate_placeholder,
 };
 
@@ -47,6 +48,8 @@ use crate::{
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
+
+use super::materialization::MaterializationStatus;
 
 /// Mark data and channels after container data scope and aggregate preparation.
 #[derive(Clone)]
@@ -247,6 +250,178 @@ async fn apply_mark_data_transforms(
             facet_data_scope,
             final_level,
             "final mark facet data scope",
+        )?;
+    }
+
+    Ok((Some(dataframe), derived_scalars))
+}
+
+fn materialization_policy_for_view(view_scope: &CompiledViewScope) -> MaterializationPolicy {
+    let policy = view_scope.spec.policy();
+    MaterializationPolicy {
+        allow_stale: policy.preview_cached
+            || matches!(policy.stale_policy, ViewStalePolicy::RetargetCached),
+    }
+}
+
+fn dataframe_from_materialization_result(
+    result: MaterializationResult,
+    ctx: &SessionContext,
+) -> Result<DataFrame, AvengerChartError> {
+    match result {
+        MaterializationResult::RecordBatch(batch) => ctx
+            .read_batch(batch)
+            .map_err(AvengerChartError::DataFusionError),
+        MaterializationResult::RgbaImage(_) => Err(AvengerChartError::InvalidArgument(
+            "View-local data materialization expected a RecordBatch result, got RgbaImage"
+                .to_string(),
+        )),
+    }
+}
+
+fn dataframe_for_materialization_display(
+    materialization: &ViewMaterializationRequest,
+    ctx: &SessionContext,
+    eval_ctx: &EvaluationContext,
+) -> Result<DataFrame, AvengerChartError> {
+    let Some(cache) = eval_ctx.materialization_cache() else {
+        eval_ctx.record_materialization_cache_miss();
+        return Ok(materialization
+            .empty_dataframe
+            .clone()
+            .unwrap_or_else(|| empty_dataframe(ctx)));
+    };
+
+    let mut cache = cache.lock().expect("materialization cache lock poisoned");
+    if let Some(result) = cache.get_ready(&materialization.request.key) {
+        eval_ctx.record_materialization_cache_hit();
+        eval_ctx.record_materialization_ready_used();
+        return dataframe_from_materialization_result(result, ctx);
+    }
+
+    eval_ctx.record_materialization_cache_miss();
+    match cache.enqueue(materialization.request.clone()) {
+        MaterializationStatus::Queued => eval_ctx.record_materialization_queued(),
+        MaterializationStatus::Running => eval_ctx.record_materialization_running(),
+        MaterializationStatus::Ready => {
+            eval_ctx.record_materialization_cache_hit();
+            eval_ctx.record_materialization_ready_used();
+        }
+        MaterializationStatus::Error(_) => eval_ctx.record_materialization_error(),
+        MaterializationStatus::Missing => {}
+    }
+
+    if materialization.request.policy.allow_stale
+        && let Some(identity) = &materialization.request.identity
+        && let Some((_key, result)) = cache.last_ready(identity)
+    {
+        eval_ctx.record_materialization_stale_fallback_used();
+        return dataframe_from_materialization_result(result, ctx);
+    }
+
+    Ok(materialization
+        .empty_dataframe
+        .clone()
+        .unwrap_or_else(|| empty_dataframe(ctx)))
+}
+
+async fn apply_view_mark_data_transforms(
+    dataframe: Option<DataFrame>,
+    transforms: &[DataTransformStage],
+    ctx: &SessionContext,
+    eval_ctx: &EvaluationContext,
+    facet_data_scope: Option<FacetDataScopeContext<'_>>,
+    mark_facet_data_scope: FacetDataScope,
+    view_scope: &CompiledViewScope,
+) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
+    if transforms.is_empty() {
+        return Ok((dataframe, DerivedScalarMap::new()));
+    }
+    let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
+    let transforms = scoped_transform_stages(transforms, mark_facet_data_scope)?;
+    let mut dataframe = dataframe;
+    let mut derived_scalars = DerivedScalarMap::new();
+    let mut current_level = transforms
+        .first()
+        .map(|stage| stage.level)
+        .unwrap_or_else(|| mark_facet_data_scope.sharing_level());
+
+    dataframe = filter_dataframe_to_transform_scope(
+        dataframe,
+        facet_data_scope,
+        current_level,
+        "initial view transform scope",
+    )?;
+
+    for stage in transforms {
+        if stage.level > current_level {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Transform stage scope {:?} is broader than the preceding stage scope {:?}; transform scopes must stay the same or get narrower through a chain",
+                stage.level, current_level
+            )));
+        }
+        if stage.level < current_level {
+            dataframe = filter_dataframe_to_transform_scope(
+                dataframe,
+                facet_data_scope,
+                stage.level,
+                "narrower view transform scope",
+            )?;
+            current_level = stage.level;
+        }
+
+        let available_columns = dataframe
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>();
+        let transform = stage.transform.map_exprs(&mut |expr| {
+            expand_selection_predicates(expr, eval_ctx, Some(&available_columns))
+        })?;
+        let facet_context =
+            transform_facet_context(facet_data_scope, current_level, mark_facet_data_scope);
+        let transform_ctx = DataTransformExecutionContext {
+            session_context: ctx,
+            params: eval_ctx.params(),
+            time_context: eval_ctx.time_context().clone(),
+            facet_context: facet_context.clone(),
+        };
+        let materialization_ctx = ViewMaterializationContext {
+            session_context: ctx,
+            params: eval_ctx.params(),
+            time_context: eval_ctx.time_context().clone(),
+            facet_context: facet_context.as_ref(),
+            policy: materialization_policy_for_view(view_scope),
+            priority: 0.0,
+        };
+        if let Some(mut materialization) =
+            transform.view_materialization_request(&dataframe, &materialization_ctx)?
+        {
+            materialization.request.policy = materialization_ctx.policy;
+            eval_ctx.request_materialization(materialization.request.clone());
+            dataframe = dataframe_for_materialization_display(&materialization, ctx, eval_ctx)?;
+            continue;
+        }
+
+        let result = transform.apply(dataframe, &transform_ctx).await?;
+        dataframe = result.dataframe;
+        for (id, expr) in result.derived_scalars {
+            if derived_scalars.insert(id.clone(), expr).is_some() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Derived scalar '{id}' was produced more than once in the same data scope"
+                )));
+            }
+        }
+    }
+
+    let final_level = mark_facet_data_scope.sharing_level();
+    if final_level < current_level {
+        dataframe = filter_dataframe_to_transform_scope(
+            dataframe,
+            facet_data_scope,
+            final_level,
+            "final view mark facet data scope",
         )?;
     }
 
@@ -1336,13 +1511,14 @@ async fn prepare_view_logical_mark_data(
         base_prepared.dataframe.clone()
     };
 
-    let (dataframe, view_derived_scalars) = apply_mark_data_transforms(
+    let (dataframe, view_derived_scalars) = apply_view_mark_data_transforms(
         dataframe,
         view_scope.data.transforms(),
         ctx,
         view_eval_ctx,
         request.facet_data_scope,
         mark.state().facet_data_scope,
+        view_scope,
     )
     .await?;
     let derived_scalars =
@@ -1839,8 +2015,12 @@ fn validate_mark_detail_fields(
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, sync::Arc};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
+    use async_trait::async_trait;
     use avenger_chart_core::nested;
     use avenger_chart_scales::NestedBand;
     use avenger_chart_transforms::{
@@ -1862,6 +2042,7 @@ mod tests {
     };
     use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
     use indexmap::IndexMap;
+    use serde::{Deserialize, Serialize};
 
     use super::*;
     use crate::{
@@ -1878,6 +2059,7 @@ mod tests {
         parallel::{Parallel, ParallelLine, generated_dimension_channel},
         plot::{
             Plot,
+            compiled::materialization::MaterializationCache,
             compiled::session::{ScopedStoreAssignment, ScopedStoreState, StoreStateUpdate},
         },
         scales::{Linear, Scale, ScaleRangeBinding, ScaleSpec},
@@ -1886,8 +2068,9 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        CoordinateSystem, CoordinationScope, Param, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-        STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, View, detail_array_column_name,
+        CoordinateSystem, CoordinationScope, DataTransformResult, Param, STORE_NAME_COLUMN,
+        STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, View,
+        detail_array_column_name,
     };
     use avenger_chart_marks::{Area, Rect};
 
@@ -1914,6 +2097,105 @@ mod tests {
         )
         .expect("test batch");
         ctx.read_batch(batch).expect("test dataframe")
+    }
+
+    fn materialized_batch(xs: Vec<f64>, ys: Vec<f64>) -> RecordBatch {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("mx", DataType::Float64, false),
+            Field::new("my", DataType::Float64, false),
+        ]));
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Float64Array::from(xs)) as ArrayRef,
+                Arc::new(Float64Array::from(ys)) as ArrayRef,
+            ],
+        )
+        .expect("materialized batch")
+    }
+
+    fn empty_materialized_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        ctx.read_batch(RecordBatch::new_empty(
+            materialized_batch(Vec::new(), Vec::new()).schema(),
+        ))
+        .expect("empty materialized dataframe")
+    }
+
+    #[derive(Clone)]
+    struct FakeMaterializedTransform {
+        key: String,
+        identity: String,
+    }
+
+    impl FakeMaterializedTransform {
+        fn new(key: impl Into<String>, identity: impl Into<String>) -> Self {
+            Self {
+                key: key.into(),
+                identity: identity.into(),
+            }
+        }
+    }
+
+    impl avenger_chart_core::DataTransform for FakeMaterializedTransform {
+        type Output = ();
+
+        fn into_compiled_and_output(
+            self,
+            _ctx: avenger_chart_core::DataTransformCompileContext,
+        ) -> Result<
+            (
+                Box<dyn avenger_chart_core::CompiledDataTransform>,
+                Self::Output,
+            ),
+            AvengerChartError,
+        > {
+            Ok((
+                Box::new(CompiledFakeMaterializedTransform {
+                    key: self.key,
+                    identity: self.identity,
+                }),
+                (),
+            ))
+        }
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct CompiledFakeMaterializedTransform {
+        key: String,
+        identity: String,
+    }
+
+    #[typetag::serde(name = "test_fake_materialized")]
+    #[async_trait]
+    impl avenger_chart_core::CompiledDataTransform for CompiledFakeMaterializedTransform {
+        fn clone_box(&self) -> Box<dyn avenger_chart_core::CompiledDataTransform> {
+            Box::new(self.clone())
+        }
+
+        async fn apply(
+            &self,
+            dataframe: datafusion::dataframe::DataFrame,
+            _ctx: &DataTransformExecutionContext<'_>,
+        ) -> Result<DataTransformResult, AvengerChartError> {
+            Ok(DataTransformResult::dataframe(dataframe))
+        }
+
+        fn view_materialization_request(
+            &self,
+            _dataframe: &datafusion::dataframe::DataFrame,
+            ctx: &ViewMaterializationContext<'_>,
+        ) -> Result<Option<ViewMaterializationRequest>, AvengerChartError> {
+            Ok(Some(ViewMaterializationRequest {
+                request: avenger_chart_core::MaterializationRequest::new(
+                    self.key.clone(),
+                    "fake-materialized",
+                    avenger_chart_core::MaterializationOutputKind::RecordBatch,
+                )
+                .identity(self.identity.clone())
+                .policy(ctx.policy.clone()),
+                empty_dataframe: Some(empty_materialized_dataframe(ctx.session_context)),
+            }))
+        }
     }
 
     fn nested_category_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
@@ -1997,6 +2279,60 @@ mod tests {
             configured,
             ScaleRangeBinding::Independent,
         )
+    }
+
+    async fn prepare_fake_materialized_view_mark(
+        cache: Arc<Mutex<MaterializationCache>>,
+        key: &str,
+        identity: &str,
+    ) -> Result<(PreparedMarkData, EvaluationContext), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let mark = Symbol::<Cartesian>::new().view(
+            View::cartesian()
+                .id("materialized")
+                .x_domain(col("x"))
+                .y_domain(col("y"))
+                .preview_cached(true),
+            |mark, _view| {
+                mark.transform_no_output(FakeMaterializedTransform::new(key, identity), |mark| {
+                    mark.x(ChannelValue::from(col("mx")).no_scale())
+                        .y(ChannelValue::from(col("my")).no_scale())
+                })
+            },
+        );
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session.clone()).with_materialization_cache(cache);
+        let scales = HashMap::from([
+            (
+                "x".to_string(),
+                linear_scale_with_domain_range((0.0, 10.0), (0.0, 100.0)),
+            ),
+            (
+                "y".to_string(),
+                linear_scale_with_domain_range((0.0, 10.0), (100.0, 0.0)),
+            ),
+        ]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            coord_transform: None,
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        Ok((prepared, eval_ctx))
     }
 
     fn nested_domain_array(groups: Vec<&str>, members: Vec<&str>) -> ArrayRef {
@@ -2331,6 +2667,87 @@ mod tests {
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![2.0, 7.0, 12.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![10.0, 5.0, 0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_uses_ready_view_materialization() -> Result<(), AvengerChartError> {
+        let cache = Arc::new(Mutex::new(MaterializationCache::default()));
+        let request = avenger_chart_core::MaterializationRequest::new(
+            "desired",
+            "fake-materialized",
+            avenger_chart_core::MaterializationOutputKind::RecordBatch,
+        )
+        .identity("scope");
+        cache.lock().expect("cache lock").mark_ready(
+            &request,
+            avenger_chart_core::MaterializationResult::RecordBatch(materialized_batch(
+                vec![1.0, 2.0],
+                vec![3.0, 4.0],
+            )),
+        );
+
+        let (prepared, eval_ctx) =
+            prepare_fake_materialized_view_mark(cache, "desired", "scope").await?;
+        let data_batch = prepared.data_batch.expect("array data");
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![1.0, 2.0]);
+        assert_eq!(values_as_f64(&data_batch, "y"), vec![3.0, 4.0]);
+        assert_eq!(eval_ctx.materialization_requests_snapshot().len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_emits_view_materialization_request_when_missing()
+    -> Result<(), AvengerChartError> {
+        let cache = Arc::new(Mutex::new(MaterializationCache::default()));
+
+        let (prepared, eval_ctx) =
+            prepare_fake_materialized_view_mark(cache.clone(), "missing", "scope").await?;
+        let data_batch = prepared.data_batch.expect("array data");
+        assert!(values_as_f64(&data_batch, "x").is_empty());
+        assert!(values_as_f64(&data_batch, "y").is_empty());
+        assert_eq!(eval_ctx.materialization_requests_snapshot().len(), 1);
+        assert_eq!(
+            cache
+                .lock()
+                .expect("cache lock")
+                .status(&avenger_chart_core::MaterializationKey::new("missing")),
+            MaterializationStatus::Queued
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_uses_stale_view_materialization_fallback()
+    -> Result<(), AvengerChartError> {
+        let cache = Arc::new(Mutex::new(MaterializationCache::default()));
+        let stale = avenger_chart_core::MaterializationRequest::new(
+            "stale",
+            "fake-materialized",
+            avenger_chart_core::MaterializationOutputKind::RecordBatch,
+        )
+        .identity("scope");
+        cache.lock().expect("cache lock").mark_ready(
+            &stale,
+            avenger_chart_core::MaterializationResult::RecordBatch(materialized_batch(
+                vec![9.0],
+                vec![8.0],
+            )),
+        );
+
+        let (prepared, eval_ctx) =
+            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope").await?;
+        let data_batch = prepared.data_batch.expect("array data");
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![9.0]);
+        assert_eq!(values_as_f64(&data_batch, "y"), vec![8.0]);
+        assert_eq!(eval_ctx.materialization_requests_snapshot().len(), 1);
+        assert_eq!(
+            cache
+                .lock()
+                .expect("cache lock")
+                .status(&avenger_chart_core::MaterializationKey::new("desired")),
+            MaterializationStatus::Queued
+        );
         Ok(())
     }
 

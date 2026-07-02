@@ -101,6 +101,7 @@ use super::{
     },
     compiled_subplot_payload_child_plot,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
+    materialization::{MaterializationCache, MaterializationCacheHandle},
     prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider},
     scales::build_scale_builder_from_compiled_plot,
@@ -6193,6 +6194,7 @@ impl CompiledPlot {
                 Some(guide_overflow_cache),
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
+                Some(Arc::new(Mutex::new(MaterializationCache::default()))),
                 None,
                 None,
                 Some(Arc::new(ScopedStoreState::new(self.store_specs.clone()))),
@@ -6213,6 +6215,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        materialization_cache: Option<MaterializationCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
@@ -6236,6 +6239,7 @@ impl CompiledPlot {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            materialization_cache,
             None,
             scoped_param_store,
             scoped_selection_store,
@@ -6261,6 +6265,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        materialization_cache: Option<MaterializationCacheHandle>,
         layout_profile: Option<Arc<LayoutProfileSnapshot>>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
@@ -6468,6 +6473,9 @@ impl CompiledPlot {
         }
         if let Some(cache) = &text_measurement_cache {
             eval_ctx = eval_ctx.with_text_measurement_cache(cache.clone());
+        }
+        if let Some(cache) = &materialization_cache {
+            eval_ctx = eval_ctx.with_materialization_cache(cache.clone());
         }
         if let Some(profile) = layout_profile {
             eval_ctx = eval_ctx.with_layout_profile(profile);
@@ -6722,6 +6730,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        materialization_cache: Option<MaterializationCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
@@ -6885,6 +6894,7 @@ impl CompiledPlot {
                     guide_overflow_cache,
                     legend_measurement_cache,
                     text_measurement_cache,
+                    materialization_cache.clone(),
                     Some(Arc::new(layout_profile.clone())),
                     scoped_param_store.clone(),
                     scoped_selection_store.clone(),
@@ -6974,6 +6984,9 @@ impl CompiledPlot {
         ))
         .with_scale_domain_cache(scale_domain_cache.clone())
         .with_evaluation_metrics(metrics.clone());
+        if let Some(cache) = &materialization_cache {
+            eval_ctx = eval_ctx.with_materialization_cache(cache.clone());
+        }
         let facet_cell_rendered_components_capture =
             Arc::new(Mutex::new(FacetCellProfileIndex::default()));
         eval_ctx = eval_ctx

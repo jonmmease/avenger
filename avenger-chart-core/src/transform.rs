@@ -5,7 +5,10 @@ use datafusion::{
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::{AvengerChartError, CoordinationScope, DerivedScalarMap, SharingLevel, TimeContext};
+use crate::{
+    AvengerChartError, CoordinationScope, DerivedScalarMap, MaterializationPolicy,
+    MaterializationRequest, SharingLevel, TimeContext,
+};
 
 #[derive(Clone, Debug)]
 pub struct DataTransformFacetContext {
@@ -21,6 +24,20 @@ pub struct DataTransformExecutionContext<'a> {
     pub params: &'a IndexMap<String, ScalarValue>,
     pub time_context: TimeContext,
     pub facet_context: Option<DataTransformFacetContext>,
+}
+
+pub struct ViewMaterializationContext<'a> {
+    pub session_context: &'a SessionContext,
+    pub params: &'a IndexMap<String, ScalarValue>,
+    pub time_context: TimeContext,
+    pub facet_context: Option<&'a DataTransformFacetContext>,
+    pub policy: MaterializationPolicy,
+    pub priority: f32,
+}
+
+pub struct ViewMaterializationRequest {
+    pub request: MaterializationRequest,
+    pub empty_dataframe: Option<DataFrame>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -53,6 +70,14 @@ pub trait CompiledDataTransform: Send + Sync {
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
     ) -> Result<DataTransformResult, AvengerChartError>;
+
+    fn view_materialization_request(
+        &self,
+        _dataframe: &DataFrame,
+        _ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<ViewMaterializationRequest>, AvengerChartError> {
+        Ok(None)
+    }
 }
 
 impl Clone for Box<dyn CompiledDataTransform> {

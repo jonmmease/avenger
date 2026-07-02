@@ -1648,6 +1648,7 @@ impl PlotSession {
                         use_measurement_profile_caches
                             .then(|| self.legend_measurement_cache.clone()),
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                        Some(self.materialization_cache.clone()),
                         scoped_store.clone(),
                         selection_store.clone(),
                         store_state.clone(),
@@ -1685,6 +1686,7 @@ impl PlotSession {
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                    Some(self.materialization_cache.clone()),
                     scoped_store.clone(),
                     selection_store.clone(),
                     store_state.clone(),
@@ -1727,6 +1729,7 @@ impl PlotSession {
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                Some(self.materialization_cache.clone()),
                 scoped_store,
                 selection_store,
                 store_state,
@@ -2565,13 +2568,20 @@ fn collect_expr_placeholders(expr: &Expr, names: &mut BTreeSet<String>) {
 
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use avenger_chart_core::{
+        CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
+        MaterializationResult, ViewMaterializationContext, ViewMaterializationRequest,
+    };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
     use datafusion::{
         arrow::array::{ArrayRef, Float64Array, StringArray, StructArray},
         prelude::SessionContext,
         scalar::ScalarValue,
     };
+    use serde::{Deserialize, Serialize};
 
+    use crate::plot::compiled::materialization::MaterializationStatus;
     use crate::prelude::*;
 
     use super::*;
@@ -3015,6 +3025,187 @@ mod tests {
                                 .axis(|a| a.visible(false))
                         })
                         .size(20.0)
+                    },
+                ),
+            )
+            .tool(PanScrollZoom::cartesian())
+            .compile(ctx)
+            .await
+    }
+
+    fn view_axis_param_name(view_id: &str, axis: &str, field: &str) -> String {
+        format!("__avenger_view_{view_id}_{axis}_{field}")
+    }
+
+    fn view_param_f64(
+        params: &IndexMap<String, ScalarValue>,
+        view_id: &str,
+        axis: &str,
+        field: &str,
+    ) -> Result<f64, AvengerChartError> {
+        let name = view_axis_param_name(view_id, axis, field);
+        match params.get(&name) {
+            Some(ScalarValue::Float64(Some(value))) => Ok(*value),
+            Some(value) => Err(AvengerChartError::InvalidArgument(format!(
+                "Expected Float64 view parameter '{name}', got {value:?}"
+            ))),
+            None => Err(AvengerChartError::InvalidArgument(format!(
+                "Missing view parameter '{name}'"
+            ))),
+        }
+    }
+
+    fn view_domain_materialization_request(
+        view_id: &str,
+        identity: &str,
+        x0: f64,
+        x1: f64,
+        y0: f64,
+        y1: f64,
+    ) -> MaterializationRequest {
+        let key = format!("test-view-domain/{view_id}/x={x0:.6}:{x1:.6}/y={y0:.6}:{y1:.6}");
+        MaterializationRequest::new(
+            key,
+            "test-view-domain",
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity(identity)
+    }
+
+    fn materialized_view_batch(xs: Vec<f64>, ys: Vec<f64>) -> RecordBatch {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("mx", DataType::Float64, false),
+            Field::new("my", DataType::Float64, false),
+        ]));
+        RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Float64Array::from(xs)) as ArrayRef,
+                Arc::new(Float64Array::from(ys)) as ArrayRef,
+            ],
+        )
+        .expect("materialized view batch")
+    }
+
+    fn empty_materialized_view_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        ctx.read_batch(RecordBatch::new_empty(
+            materialized_view_batch(Vec::new(), Vec::new()).schema(),
+        ))
+        .expect("empty materialized view dataframe")
+    }
+
+    #[derive(Clone)]
+    struct ViewDomainMaterializedTransform {
+        view_id: String,
+        identity: String,
+    }
+
+    impl ViewDomainMaterializedTransform {
+        fn new(view_id: impl Into<String>, identity: impl Into<String>) -> Self {
+            Self {
+                view_id: view_id.into(),
+                identity: identity.into(),
+            }
+        }
+    }
+
+    impl DataTransform for ViewDomainMaterializedTransform {
+        type Output = ();
+
+        fn into_compiled_and_output(
+            self,
+            _ctx: DataTransformCompileContext,
+        ) -> Result<(Box<dyn CompiledDataTransform>, Self::Output), AvengerChartError> {
+            Ok((
+                Box::new(CompiledViewDomainMaterializedTransform {
+                    view_id: self.view_id,
+                    identity: self.identity,
+                }),
+                (),
+            ))
+        }
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct CompiledViewDomainMaterializedTransform {
+        view_id: String,
+        identity: String,
+    }
+
+    #[typetag::serde(name = "test_view_domain_materialized_session")]
+    #[async_trait]
+    impl CompiledDataTransform for CompiledViewDomainMaterializedTransform {
+        fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
+            Box::new(self.clone())
+        }
+
+        async fn apply(
+            &self,
+            dataframe: datafusion::dataframe::DataFrame,
+            _ctx: &DataTransformExecutionContext<'_>,
+        ) -> Result<DataTransformResult, AvengerChartError> {
+            Ok(DataTransformResult::dataframe(dataframe))
+        }
+
+        fn view_materialization_request(
+            &self,
+            _dataframe: &datafusion::dataframe::DataFrame,
+            ctx: &ViewMaterializationContext<'_>,
+        ) -> Result<Option<ViewMaterializationRequest>, AvengerChartError> {
+            let x0 = view_param_f64(ctx.params, &self.view_id, "x", "domain_start")?;
+            let x1 = view_param_f64(ctx.params, &self.view_id, "x", "domain_end")?;
+            let y0 = view_param_f64(ctx.params, &self.view_id, "y", "domain_start")?;
+            let y1 = view_param_f64(ctx.params, &self.view_id, "y", "domain_end")?;
+
+            Ok(Some(ViewMaterializationRequest {
+                request: view_domain_materialization_request(
+                    &self.view_id,
+                    &self.identity,
+                    x0,
+                    x1,
+                    y0,
+                    y1,
+                )
+                .policy(ctx.policy.clone()),
+                empty_dataframe: Some(empty_materialized_view_dataframe(ctx.session_context)),
+            }))
+        }
+    }
+
+    async fn compile_pan_scroll_zoom_materialized_view_scope_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new().view(
+                    View::cartesian()
+                        .id("viewport")
+                        .x_domain(col("x"))
+                        .y_domain(col("y"))
+                        .preview_cached(true),
+                    |mark, _view| {
+                        mark.transform_no_output(
+                            ViewDomainMaterializedTransform::new(
+                                "viewport",
+                                "viewport-materialized",
+                            ),
+                            |mark| {
+                                mark.x_with(col("mx"), |c| {
+                                    c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                        .axis(|a| a.visible(false))
+                                })
+                                .y_with(col("my"), |c| {
+                                    c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                        .axis(|a| a.visible(false))
+                                })
+                                .size(20.0)
+                            },
+                        )
                     },
                 ),
             )
@@ -4464,6 +4655,90 @@ mod tests {
             &evaluated.scene_graph,
             &one_shot.scene_graph,
             6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_uses_stale_view_materialization_for_pan_scroll_zoom()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_pan_scroll_zoom_materialized_view_scope_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(warmup_metrics.pipeline.materialization_queued, 1);
+        let initial_request = warmup
+            .materialization_requests
+            .first()
+            .expect("initial materialization request")
+            .clone();
+        session.materialization_cache().lock().unwrap().mark_ready(
+            &initial_request,
+            MaterializationResult::RecordBatch(materialized_view_batch(
+                vec![1.0, 3.0, 8.0],
+                vec![2.0, 3.0, 5.0],
+            )),
+        );
+
+        let (initial, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(exact.pipeline.materialization_ready_used, 1);
+        assert_eq!(exact.pipeline.materialization_stale_fallback_used, 0);
+        let initial_positions = collect_symbol_positions(&initial.scene_graph);
+        assert_eq!(initial_positions.len(), 3);
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(2.0, 6.0),
+        );
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(
+            preview.pipeline.preview_data_mark_reuses, 0,
+            "view-scoped materialized marks must rebuild so their request key sees the panned domain"
+        );
+        assert!(
+            preview.pipeline.mark_data_collects > 0,
+            "PanScrollZoom preview should run the view-local materialization transform"
+        );
+        assert_eq!(preview.pipeline.materialization_requests_emitted, 1);
+        assert_eq!(preview.pipeline.materialization_queued, 1);
+        assert_eq!(preview.pipeline.materialization_stale_fallback_used, 1);
+        let desired_request = preview_plot
+            .materialization_requests
+            .first()
+            .expect("panned materialization request");
+        assert_ne!(initial_request.key, desired_request.key);
+        assert!(
+            desired_request.key.as_ref().contains("x=2.000000:6.000000"),
+            "view materialization request should be keyed by the resolved panned domain, got {}",
+            desired_request.key
+        );
+        assert_eq!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&desired_request.key),
+            MaterializationStatus::Queued
+        );
+
+        let preview_positions = collect_symbol_positions(&preview_plot.scene_graph);
+        assert_eq!(preview_positions.len(), 3);
+        assert_ne!(
+            initial_positions, preview_positions,
+            "stale materialized data should still move through the PanScrollZoom-updated scales"
         );
 
         Ok(())

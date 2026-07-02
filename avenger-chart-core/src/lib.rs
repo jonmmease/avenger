@@ -352,7 +352,8 @@ pub use tools::{
 pub use transform::{
     CompiledDataTransform, DataTransform, DataTransformCompileContext,
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformResult,
-    DataTransformStage, apply_compiled_data_transforms,
+    DataTransformStage, ViewMaterializationContext, ViewMaterializationRequest,
+    apply_compiled_data_transforms,
 };
 pub use unit_aspect::CartesianUnitAspect;
 pub use view::{
