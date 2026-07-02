@@ -61,6 +61,7 @@ pub struct PreparedScaleMark {
     pub channels: IndexMap<String, ChannelValue>,
     pub domain_dataframe: Option<DataFrame>,
     pub domain_channels: IndexMap<String, ChannelValue>,
+    pub extra_domain_sources: Vec<MarkScaleDomainSource>,
     pub derived_scalars: DerivedScalarMap,
     pub scale_inference_hints: Vec<ScaleInferenceHint>,
 }
@@ -90,9 +91,11 @@ fn mark_scale_domain_sources(
     prepared: &PreparedScaleMark,
     ctx: &SessionContext,
 ) -> Result<Vec<MarkScaleDomainSource>, AvengerChartError> {
-    prepared
+    let mut sources = prepared
         .mark
-        .scale_domain_sources(prepared.domain_dataframe.as_ref(), ctx)
+        .scale_domain_sources(prepared.domain_dataframe.as_ref(), ctx)?;
+    sources.extend(prepared.extra_domain_sources.clone());
+    Ok(sources)
 }
 
 fn infer_expr_data_type(
@@ -191,6 +194,7 @@ impl PreparedScaleMark {
             mark,
             domain_dataframe: dataframe.clone(),
             domain_channels: channels.clone(),
+            extra_domain_sources: Vec::new(),
             dataframe,
             channels,
             derived_scalars,
@@ -212,9 +216,15 @@ impl PreparedScaleMark {
             channels,
             domain_dataframe,
             domain_channels,
+            extra_domain_sources: Vec::new(),
             derived_scalars,
             scale_inference_hints: Vec::new(),
         }
+    }
+
+    pub fn with_extra_domain_sources(mut self, sources: Vec<MarkScaleDomainSource>) -> Self {
+        self.extra_domain_sources = sources;
+        self
     }
 
     pub fn with_scale_inference_hints(mut self, hints: Vec<ScaleInferenceHint>) -> Self {

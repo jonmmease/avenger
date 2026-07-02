@@ -2981,6 +2981,39 @@ mod tests {
             .await
     }
 
+    async fn compile_pan_scroll_zoom_view_scope_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new().view(
+                    View::cartesian()
+                        .id("viewport")
+                        .x_domain(col("x"))
+                        .y_domain(col("y")),
+                    |mark, view| {
+                        mark.x_with(view.x().domain_start(), |c| {
+                            c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                .axis(|a| a.visible(false))
+                        })
+                        .y_with(col("y"), |c| {
+                            c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                .axis(|a| a.visible(false))
+                        })
+                        .size(20.0)
+                    },
+                ),
+            )
+            .tool(PanScrollZoom::cartesian())
+            .compile(ctx)
+            .await
+    }
+
     async fn compile_unit_aspect_raw_domain_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
@@ -4362,6 +4395,59 @@ mod tests {
         assert!(
             count_symbol_scale_adjustments(&evaluated.scene_graph) > 0,
             "retargeted symbol marks should carry scale adjustments for the renderer"
+        );
+
+        let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;
+        assert_symbol_positions_close_with_tolerance(
+            &evaluated.scene_graph,
+            &one_shot.scene_graph,
+            6.0,
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_rebuilds_view_scoped_marks_for_pan_scroll_zoom()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_pan_scroll_zoom_view_scope_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (_evaluated, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            exact.facet_layout.plot_component_measure_calls > 0,
+            "warm exact evaluation should build the initial PanScrollZoom view profile"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(2.0, 6.0),
+        );
+        let (evaluated, preview) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_profile_misses, 0);
+        assert_eq!(preview.pipeline.preview_fallbacks, 0);
+        assert_eq!(
+            preview.pipeline.preview_data_mark_reuses, 0,
+            "view-scoped marks depend on the resolved scale domain and must be rebuilt"
+        );
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 1);
+        assert_eq!(preview.facet_layout.plot_component_measure_calls, 0);
+        assert!(
+            preview.pipeline.mark_data_collects > 0,
+            "PanScrollZoom preview should recollect view-scoped mark data"
         );
 
         let one_shot = compiled.evaluate(ctx.as_ref(), Some(patch)).await?;

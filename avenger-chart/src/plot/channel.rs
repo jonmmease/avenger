@@ -181,7 +181,20 @@ pub(crate) fn extract_channel_configs_from_state(
         legends,
         scale_specs,
         scale_to_coord_channel,
-    )
+    )?;
+    if let Some(view) = mark_state.view.as_ref() {
+        extract_channel_configs_from_channels(
+            view.data.channels(),
+            &mark_state.axis_configs,
+            ctx,
+            coord_transform,
+            axis_specs,
+            legends,
+            scale_specs,
+            scale_to_coord_channel,
+        )?;
+    }
+    Ok(())
 }
 
 pub(crate) fn extract_channel_configs_from_compiled_domain_channels(

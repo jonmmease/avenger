@@ -8,18 +8,67 @@ use datafusion::{
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, CompiledMark, EvaluationContext as CoreEvaluationContext, ResolvedDomain,
-    ScaleRange, Theme,
+    AvengerChartError, ChannelValue, CompiledMark, CompiledViewScope, CompiledViewSpec,
+    EvaluationContext as CoreEvaluationContext, MarkScaleDomainSource, ResolvedDomain, ScaleRange,
+    Theme, resolve_all_channel_refs,
 };
 use avenger_chart_scales::{PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
 
-use crate::facet::evaluated_facet_tree::EvaluatedFacetTree;
+use crate::{facet::evaluated_facet_tree::EvaluatedFacetTree, serialization::LogicalExprNodeExt};
 
 use super::{
-    CompiledPlot, LogicalMarkDataRequest, prepare_logical_mark_data,
+    CompiledPlot, LogicalMarkDataRequest,
+    mark_data_runtime::PreparedLogicalMarkData,
+    prepare_logical_mark_data,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
+
+fn view_domain_channel_value(
+    channel: &str,
+    domain_expr: datafusion::logical_expr::Expr,
+    prepared: &PreparedLogicalMarkData,
+) -> Result<ChannelValue, AvengerChartError> {
+    let domain_node = datafusion_proto::protobuf::LogicalExprNode::from_expr(domain_expr.clone())?;
+    Ok(prepared
+        .channels
+        .get(channel)
+        .cloned()
+        .map(|value| value.with_expr(domain_node.clone()))
+        .unwrap_or_else(|| ChannelValue::from(domain_expr)))
+}
+
+fn view_domain_sources(
+    view_scope: &CompiledViewScope,
+    prepared: &PreparedLogicalMarkData,
+    base_prepared: &PreparedLogicalMarkData,
+    ctx: &datafusion::prelude::SessionContext,
+) -> Result<Vec<MarkScaleDomainSource>, AvengerChartError> {
+    let Some(dataframe) = base_prepared.domain_dataframe.clone() else {
+        return Ok(Vec::new());
+    };
+
+    match &view_scope.spec {
+        CompiledViewSpec::Cartesian(spec) => {
+            let x_expr = spec.x_domain.to_expr(ctx)?;
+            let y_expr = spec.y_domain.to_expr(ctx)?;
+            Ok(vec![
+                MarkScaleDomainSource {
+                    channel: "x".to_string(),
+                    channel_value: view_domain_channel_value("x", x_expr.clone(), prepared)?,
+                    dataframe: dataframe.clone(),
+                    exprs: vec![x_expr],
+                },
+                MarkScaleDomainSource {
+                    channel: "y".to_string(),
+                    channel_value: view_domain_channel_value("y", y_expr.clone(), prepared)?,
+                    dataframe,
+                    exprs: vec![y_expr],
+                },
+            ])
+        }
+    }
+}
 
 async fn prepare_scale_mark_for_plot(
     plot: &CompiledPlot,
@@ -53,14 +102,40 @@ async fn prepare_scale_mark_for_plot(
         eval_ctx,
     }))
     .await?;
+    let mut channels = prepared.channels.clone();
+    let mut domain_channels = prepared.domain_channels.clone();
+    let mut extra_domain_sources = Vec::new();
+    if let Some(view_scope) = mark.state().view.as_ref() {
+        let view_channels = resolve_all_channel_refs(
+            view_scope.data.channels(),
+            eval_ctx.session_context.as_ref(),
+        )?;
+        channels.extend(view_channels);
+        domain_channels.shift_remove("x");
+        domain_channels.shift_remove("y");
+        extra_domain_sources = view_domain_sources(
+            view_scope,
+            &PreparedLogicalMarkData {
+                dataframe: prepared.dataframe.clone(),
+                channels: channels.clone(),
+                domain_dataframe: prepared.domain_dataframe.clone(),
+                domain_channels: domain_channels.clone(),
+                derived_scalars: prepared.derived_scalars.clone(),
+            },
+            &prepared,
+            eval_ctx.session_context.as_ref(),
+        )?;
+    }
+
     Ok(PreparedScaleMark::new_with_domain_source(
         mark.clone(),
         prepared.dataframe,
-        prepared.channels,
+        channels,
         prepared.domain_dataframe,
-        prepared.domain_channels,
+        domain_channels,
         prepared.derived_scalars,
     )
+    .with_extra_domain_sources(extra_domain_sources)
     .with_scale_inference_hints(plot.scale_inference_hints_for_mark(mark.state().mark_index())?))
 }
 
@@ -306,6 +381,66 @@ mod tests {
                 params,
             )
             .await
+    }
+
+    #[tokio::test]
+    async fn view_xy_domains_come_from_view_spec_not_view_render_channels() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES \
+                 (0.0, 0.0, 100.0, 500.0), \
+                 (10.0, 5.0, 200.0, 600.0) \
+                 ) AS t(x, y, zoom_x, zoom_y)",
+            )
+            .await
+            .expect("view scale data");
+        let compiled = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Line::new().view(
+                    View::cartesian()
+                        .id("viewport")
+                        .x_domain(col("x"))
+                        .y_domain(col("y")),
+                    |mark, _view| {
+                        mark.x_with(col("zoom_x"), |x| {
+                            x.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        })
+                        .y_with(col("zoom_y"), |y| {
+                            y.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                        })
+                    },
+                ),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile view plot");
+
+        let scales = two_phase_build_scales(&compiled, 400.0, 300.0, &ctx, &IndexMap::new())
+            .await
+            .expect("build view scales");
+
+        let x_domain = scales
+            .get("x")
+            .expect("x scale")
+            .configured()
+            .numeric_interval_domain()
+            .unwrap();
+        let y_domain = scales
+            .get("y")
+            .expect("y scale")
+            .configured()
+            .numeric_interval_domain()
+            .unwrap();
+        assert!(
+            x_domain.0 < 1.0 && x_domain.1 < 20.0,
+            "x domain should come from view x_domain, not zoom_x render channel: {x_domain:?}"
+        );
+        assert!(
+            y_domain.0 < 1.0 && y_domain.1 < 10.0,
+            "y domain should come from view y_domain, not zoom_y render channel: {y_domain:?}"
+        );
     }
 
     #[tokio::test]

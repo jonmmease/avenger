@@ -143,6 +143,9 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
         if self.state.exclude_from_scale_domains {
             return Ok(Vec::new());
         }
+        if self.state.view.is_some() {
+            return Ok(Vec::new());
+        }
 
         let Some(dataframe) = domain_dataframe.cloned() else {
             return Ok(Vec::new());

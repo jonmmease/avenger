@@ -150,6 +150,12 @@ impl CompiledViewSpec {
         }
     }
 
+    pub fn view_ref(&self) -> ViewRef {
+        ViewRef {
+            id: self.id().to_string(),
+        }
+    }
+
     pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
         match self {
             Self::Cartesian(spec) => Ok(Self::Cartesian(spec.resolve_repeat(ctx)?)),
@@ -295,7 +301,7 @@ impl ViewAxisRef {
         Param::new(self.param_name(field), ScalarValue::Float64(Some(0.0))).expr()
     }
 
-    fn param_name(&self, field: &str) -> String {
+    pub fn param_name(&self, field: &str) -> String {
         format!(
             "__avenger_view_{}_{}_{}",
             self.id,

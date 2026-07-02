@@ -27,11 +27,12 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledDataContext, CompiledSelectionSpec, DataTransformExecutionContext,
-    DataTransformFacetContext, DataTransformStage, DerivedScalarMap, FacetDataScope, MarkDataMode,
-    SelectionClause, SelectionCombine, SelectionPredicateSpec, SharingLevel, contains_aggregate,
-    detail_array_column_name, item_frame_column_refs, params_to_datafusion,
-    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
+    CompiledDataContext, CompiledSelectionSpec, CompiledViewScope, CompiledViewSpec,
+    DataTransformExecutionContext, DataTransformFacetContext, DataTransformStage, DerivedScalarMap,
+    FacetDataScope, MarkDataMode, SelectionClause, SelectionCombine, SelectionPredicateSpec,
+    SharingLevel, contains_aggregate, detail_array_column_name, item_frame_column_refs,
+    params_to_datafusion, selection_clause_value_id_from_placeholder,
+    selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -853,6 +854,7 @@ fn dataframe_for_mark(
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     mark_facet_data_scope: FacetDataScope,
     channels: &IndexMap<String, ChannelValue>,
+    force_rows: bool,
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
 ) -> Result<Option<DataFrame>, AvengerChartError> {
@@ -874,7 +876,7 @@ fn dataframe_for_mark(
         return Ok(Some(df_override));
     }
 
-    if !channel_exprs_reference_columns(channels, ctx) {
+    if !force_rows && !channel_exprs_reference_columns(channels, ctx) {
         return Ok(None);
     }
     if let Some(df) = plot_data.and_then(|node| {
@@ -1002,76 +1004,12 @@ fn empty_dataframe(ctx: &SessionContext) -> DataFrame {
     )
 }
 
-/// Resolve channel references and run aggregate channel preparation on the
-/// selected mark data. This intentionally happens at runtime so faceted marks
-/// aggregate after their facet data scope has been selected.
-pub(crate) async fn prepare_logical_mark_data(
-    request: LogicalMarkDataRequest<'_>,
+async fn finalize_logical_mark_data(
+    dataframe: Option<DataFrame>,
+    channels: IndexMap<String, ChannelValue>,
+    derived_scalars: DerivedScalarMap,
+    ctx: &SessionContext,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
-    let ctx = request.eval_ctx.session_context.as_ref();
-    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
-    validate_no_item_frame_refs_in_mark_channels(request.mark, &channels, ctx)?;
-    let transform_initial_scope = transform_initial_facet_scope(
-        request.mark.data_context().transforms(),
-        request.mark.state().facet_data_scope,
-    );
-    let (dataframe, inherited_derived_scalars) = if let Some(prepared_base) = request.prepared_base
-    {
-        validate_narrowed_scope(
-            transform_initial_scope,
-            prepared_base.facet_data_scope,
-            "Child mark",
-        )?;
-        let needs_rows = channel_exprs_reference_columns(&channels, ctx)
-            || aggregate_channels_need_preparation(&channels, ctx)
-            || !request.mark.data_context().transforms().is_empty();
-        let dataframe = if needs_rows {
-            inherited_data_for_scope(
-                prepared_base.dataframe.as_ref(),
-                transform_initial_scope,
-                request.facet_data_scope,
-            )?
-        } else {
-            None
-        };
-        (dataframe, prepared_base.derived_scalars.clone())
-    } else {
-        (
-            dataframe_for_mark(
-                request.mark,
-                request.plot_data,
-                request.provided_plot_df,
-                request.facet_data_scope,
-                transform_initial_scope,
-                &channels,
-                ctx,
-                request.eval_ctx,
-            )?,
-            DerivedScalarMap::new(),
-        )
-    };
-    let (dataframe, derived_scalars) = apply_mark_data_transforms(
-        dataframe,
-        request.mark.data_context().transforms(),
-        ctx,
-        request.eval_ctx,
-        request.facet_data_scope,
-        request.mark.state().facet_data_scope,
-    )
-    .await?;
-    let derived_scalars = merge_derived_scalars(inherited_derived_scalars, derived_scalars)?;
-    let available_columns = dataframe.as_ref().map(|df| {
-        df.schema()
-            .fields()
-            .iter()
-            .map(|field| field.name().clone())
-            .collect::<HashSet<_>>()
-    });
-    let channels = expand_selection_predicates_in_channels(
-        channels,
-        request.eval_ctx,
-        available_columns.as_ref(),
-    )?;
     let domain_dataframe = dataframe.clone();
     let domain_channels = channels.clone();
 
@@ -1196,6 +1134,237 @@ pub(crate) async fn prepare_logical_mark_data(
     })
 }
 
+/// Resolve channel references and run aggregate channel preparation on the
+/// selected mark data. This intentionally happens at runtime so faceted marks
+/// aggregate after their facet data scope has been selected.
+pub(crate) async fn prepare_logical_mark_data(
+    request: LogicalMarkDataRequest<'_>,
+) -> Result<PreparedLogicalMarkData, AvengerChartError> {
+    let ctx = request.eval_ctx.session_context.as_ref();
+    let channels = resolve_all_channel_refs(request.mark.data_context().channels(), ctx)?;
+    validate_no_item_frame_refs_in_mark_channels(request.mark, &channels, ctx)?;
+    let force_rows_for_view = request.mark.state().view.is_some();
+    let transform_initial_scope = transform_initial_facet_scope(
+        request.mark.data_context().transforms(),
+        request.mark.state().facet_data_scope,
+    );
+    let (dataframe, inherited_derived_scalars) = if let Some(prepared_base) = request.prepared_base
+    {
+        validate_narrowed_scope(
+            transform_initial_scope,
+            prepared_base.facet_data_scope,
+            "Child mark",
+        )?;
+        let needs_rows = channel_exprs_reference_columns(&channels, ctx)
+            || aggregate_channels_need_preparation(&channels, ctx)
+            || force_rows_for_view
+            || !request.mark.data_context().transforms().is_empty();
+        let dataframe = if needs_rows {
+            inherited_data_for_scope(
+                prepared_base.dataframe.as_ref(),
+                transform_initial_scope,
+                request.facet_data_scope,
+            )?
+        } else {
+            None
+        };
+        (dataframe, prepared_base.derived_scalars.clone())
+    } else {
+        (
+            dataframe_for_mark(
+                request.mark,
+                request.plot_data,
+                request.provided_plot_df,
+                request.facet_data_scope,
+                transform_initial_scope,
+                &channels,
+                force_rows_for_view,
+                ctx,
+                request.eval_ctx,
+            )?,
+            DerivedScalarMap::new(),
+        )
+    };
+    let (dataframe, derived_scalars) = apply_mark_data_transforms(
+        dataframe,
+        request.mark.data_context().transforms(),
+        ctx,
+        request.eval_ctx,
+        request.facet_data_scope,
+        request.mark.state().facet_data_scope,
+    )
+    .await?;
+    let derived_scalars = merge_derived_scalars(inherited_derived_scalars, derived_scalars)?;
+    let available_columns = dataframe.as_ref().map(|df| {
+        df.schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>()
+    });
+    let channels = expand_selection_predicates_in_channels(
+        channels,
+        request.eval_ctx,
+        available_columns.as_ref(),
+    )?;
+    finalize_logical_mark_data(dataframe, channels, derived_scalars, ctx).await
+}
+
+fn rounded_pixel_count(size: f32) -> u32 {
+    if size.is_finite() {
+        size.round().max(1.0).min(u32::MAX as f32) as u32
+    } else {
+        1
+    }
+}
+
+fn resolved_view_params(
+    spec: &CompiledViewSpec,
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+) -> Result<IndexMap<String, ScalarValue>, AvengerChartError> {
+    match spec {
+        CompiledViewSpec::Cartesian(_) => {
+            let x_scale = scales
+                .get("x")
+                .ok_or_else(|| AvengerChartError::ScaleNotFound("x".to_string()))?;
+            let y_scale = scales
+                .get("y")
+                .ok_or_else(|| AvengerChartError::ScaleNotFound("y".to_string()))?;
+            let (x_domain_start, x_domain_end) = x_scale
+                .configured()
+                .numeric_interval_domain()
+                .map_err(AvengerChartError::ScaleError)?;
+            let (y_domain_start, y_domain_end) = y_scale
+                .configured()
+                .numeric_interval_domain()
+                .map_err(AvengerChartError::ScaleError)?;
+            let (x_range_start, x_range_end) = x_scale
+                .configured()
+                .numeric_interval_range()
+                .map_err(AvengerChartError::ScaleError)?;
+            let (y_range_start, y_range_end) = y_scale
+                .configured()
+                .numeric_interval_range()
+                .map_err(AvengerChartError::ScaleError)?;
+
+            let view_ref = spec.view_ref();
+            let mut params = IndexMap::new();
+            params.insert(
+                view_ref.x().param_name("domain_start"),
+                ScalarValue::Float64(Some(x_domain_start as f64)),
+            );
+            params.insert(
+                view_ref.x().param_name("domain_end"),
+                ScalarValue::Float64(Some(x_domain_end as f64)),
+            );
+            params.insert(
+                view_ref.x().param_name("range_start"),
+                ScalarValue::Float64(Some(x_range_start as f64)),
+            );
+            params.insert(
+                view_ref.x().param_name("range_end"),
+                ScalarValue::Float64(Some(x_range_end as f64)),
+            );
+            params.insert(
+                view_ref.x().param_name("pixels"),
+                ScalarValue::UInt32(Some(rounded_pixel_count(plot_width))),
+            );
+            params.insert(
+                view_ref.y().param_name("domain_start"),
+                ScalarValue::Float64(Some(y_domain_start as f64)),
+            );
+            params.insert(
+                view_ref.y().param_name("domain_end"),
+                ScalarValue::Float64(Some(y_domain_end as f64)),
+            );
+            params.insert(
+                view_ref.y().param_name("range_start"),
+                ScalarValue::Float64(Some(y_range_start as f64)),
+            );
+            params.insert(
+                view_ref.y().param_name("range_end"),
+                ScalarValue::Float64(Some(y_range_end as f64)),
+            );
+            params.insert(
+                view_ref.y().param_name("pixels"),
+                ScalarValue::UInt32(Some(rounded_pixel_count(plot_height))),
+            );
+            Ok(params)
+        }
+    }
+}
+
+fn eval_ctx_with_view_params(
+    eval_ctx: &EvaluationContext,
+    view_scope: &CompiledViewScope,
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+) -> Result<EvaluationContext, AvengerChartError> {
+    let mut params = eval_ctx.params().clone();
+    params.extend(resolved_view_params(
+        &view_scope.spec,
+        scales,
+        plot_width,
+        plot_height,
+    )?);
+    Ok(eval_ctx.with_params(params))
+}
+
+async fn prepare_view_logical_mark_data(
+    mark: &dyn CompiledMark,
+    view_scope: &CompiledViewScope,
+    base_prepared: &PreparedLogicalMarkData,
+    request: &MarkDataRequest<'_>,
+    view_eval_ctx: &EvaluationContext,
+) -> Result<PreparedLogicalMarkData, AvengerChartError> {
+    let ctx = request.eval_ctx.session_context.as_ref();
+    let view_channels = resolve_all_channel_refs(view_scope.data.channels(), ctx)?;
+    validate_no_item_frame_refs_in_mark_channels(mark, &view_channels, ctx)?;
+
+    let dataframe = if let Some(store_data) = view_scope.data.store_data() {
+        Some(store_dataframe(
+            store_data,
+            request.facet_data_scope,
+            view_eval_ctx,
+        )?)
+    } else if let Some(dataframe) = view_scope.data.dataframe_with_context(ctx) {
+        Some(dataframe)
+    } else {
+        base_prepared.dataframe.clone()
+    };
+
+    let (dataframe, view_derived_scalars) = apply_mark_data_transforms(
+        dataframe,
+        view_scope.data.transforms(),
+        ctx,
+        view_eval_ctx,
+        request.facet_data_scope,
+        mark.state().facet_data_scope,
+    )
+    .await?;
+    let derived_scalars =
+        merge_derived_scalars(base_prepared.derived_scalars.clone(), view_derived_scalars)?;
+    let available_columns = dataframe.as_ref().map(|df| {
+        df.schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>()
+    });
+    let view_channels = expand_selection_predicates_in_channels(
+        view_channels,
+        view_eval_ctx,
+        available_columns.as_ref(),
+    )?;
+
+    let mut channels = base_prepared.channels.clone();
+    channels.extend(view_channels);
+    finalize_logical_mark_data(dataframe, channels, derived_scalars, ctx).await
+}
+
 /// Apply a scale transformation to a channel expression.
 pub(crate) fn apply_channel_scale(
     channel_name: &str,
@@ -1294,11 +1463,10 @@ pub(crate) async fn prepare_mark_data(
     request: MarkDataRequest<'_>,
 ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
     let ctx = &*request.eval_ctx.session_context;
-    let params = &request.eval_ctx.params;
     let mark = request.mark;
 
     let prepared_storage;
-    let prepared_logical = if let Some(prepared) = request.prepared_logical {
+    let mut prepared_logical = if let Some(prepared) = request.prepared_logical {
         prepared
     } else {
         prepared_storage = prepare_logical_mark_data(LogicalMarkDataRequest {
@@ -1313,6 +1481,30 @@ pub(crate) async fn prepare_mark_data(
         &prepared_storage
     };
 
+    let view_eval_ctx_storage;
+    let view_prepared_storage;
+    let mut eval_ctx = request.eval_ctx;
+    if let Some(view_scope) = mark.state().view.as_ref() {
+        view_eval_ctx_storage = eval_ctx_with_view_params(
+            request.eval_ctx,
+            view_scope,
+            request.scales,
+            request.plot_width,
+            request.plot_height,
+        )?;
+        view_prepared_storage = prepare_view_logical_mark_data(
+            mark,
+            view_scope,
+            prepared_logical,
+            &request,
+            &view_eval_ctx_storage,
+        )
+        .await?;
+        eval_ctx = &view_eval_ctx_storage;
+        prepared_logical = &view_prepared_storage;
+    }
+
+    let params = eval_ctx.params();
     let channels = &prepared_logical.channels;
     let df_ref = prepared_logical.dataframe.clone();
     validate_mark_detail_fields(mark, df_ref.as_ref())?;
@@ -1695,7 +1887,7 @@ mod tests {
     };
     use avenger_chart_core::{
         CoordinateSystem, CoordinationScope, Param, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-        STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, detail_array_column_name,
+        STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, View, detail_array_column_name,
     };
     use avenger_chart_marks::{Area, Rect};
 
@@ -1786,13 +1978,20 @@ mod tests {
     }
 
     fn linear_scale() -> ConfiguredScaleWithSpec {
+        linear_scale_with_domain_range((0.0, 10.0), (0.0, 100.0))
+    }
+
+    fn linear_scale_with_domain_range(
+        domain: (f32, f32),
+        range: (f32, f32),
+    ) -> ConfiguredScaleWithSpec {
         let scale = Scale::<Linear>::new().into_auto();
         let configured = ConfiguredScale {
             scale_impl: Linear.create_impl(),
             config: ScaleConfig::empty(),
         }
-        .with_domain_interval((0.0, 10.0))
-        .with_range_interval((0.0, 100.0));
+        .with_domain_interval(domain)
+        .with_range_interval(range);
         ConfiguredScaleWithSpec::with_range_binding(
             scale,
             configured,
@@ -2024,6 +2223,114 @@ mod tests {
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![0.0, 50.0, 100.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![100.0, 50.0, 0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_resolves_view_params_from_configured_scales()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let mark = Rect::<Cartesian>::new().unit_data().view(
+            View::cartesian()
+                .id("zoom")
+                .x_domain(col("x"))
+                .y_domain(col("y")),
+            |mark, view| {
+                mark.x(view.x().domain_start())
+                    .x2(view.x().domain_end())
+                    .y(view.y().domain_start())
+                    .y2(view.y().domain_end())
+            },
+        );
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::from([
+            (
+                "x".to_string(),
+                linear_scale_with_domain_range((2.0, 6.0), (0.0, 100.0)),
+            ),
+            (
+                "y".to_string(),
+                linear_scale_with_domain_range((20.0, 40.0), (100.0, 0.0)),
+            ),
+        ]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            coord_transform: None,
+            plot_data: None,
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 321.0,
+            plot_height: 123.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        assert!(prepared.data_batch.is_none());
+        assert_eq!(values_as_f64(&prepared.scalar_batch, "x"), vec![0.0]);
+        assert_eq!(values_as_f64(&prepared.scalar_batch, "x2"), vec![100.0]);
+        assert_eq!(values_as_f64(&prepared.scalar_batch, "y"), vec![100.0]);
+        assert_eq!(values_as_f64(&prepared.scalar_batch, "y2"), vec![0.0]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_applies_view_local_transforms_to_inherited_rows()
+    -> Result<(), AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let df = xy_dataframe(&session);
+        let plot_node = plot_data_node(&df)?;
+        let mark = Symbol::<Cartesian>::new().view(
+            View::cartesian()
+                .id("viewport")
+                .x_domain(col("x"))
+                .y_domain(col("y")),
+            |mark, view| {
+                mark.transform_no_output(
+                    Calculate::new().expr("x_from_view", col("x") + view.x().domain_start()),
+                    |mark| {
+                        mark.x(ChannelValue::from(col("x_from_view")).no_scale())
+                            .y(ChannelValue::from(col("y")).no_scale())
+                    },
+                )
+            },
+        );
+        let compiled_mark = mark.compile_untransformed(&session).await?;
+        let eval_ctx = eval_context(session);
+        let scales = HashMap::from([
+            (
+                "x".to_string(),
+                linear_scale_with_domain_range((2.0, 6.0), (0.0, 100.0)),
+            ),
+            ("y".to_string(), linear_scale()),
+        ]);
+
+        let prepared = prepare_mark_data(MarkDataRequest {
+            mark: compiled_mark.as_ref(),
+            coord_transform: None,
+            plot_data: Some(&plot_node),
+            provided_plot_df: None,
+            facet_data_scope: None,
+            prepared_logical: None,
+            prepared_base: None,
+            eval_ctx: &eval_ctx,
+            evaluation_metrics: None,
+            scales: &scales,
+            plot_width: 100.0,
+            plot_height: 100.0,
+        })
+        .await?
+        .expect("prepared data");
+
+        let data_batch = prepared.data_batch.expect("array data");
+        assert_eq!(values_as_f64(&data_batch, "x"), vec![2.0, 7.0, 12.0]);
+        assert_eq!(values_as_f64(&data_batch, "y"), vec![10.0, 5.0, 0.0]);
         Ok(())
     }
 

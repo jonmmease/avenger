@@ -1990,6 +1990,10 @@ impl CompiledPlot {
             .any(|mark| mark.has_render_stage_derived())
     }
 
+    fn has_view_scoped_marks(&self) -> bool {
+        self.marks.iter().any(|mark| mark.state().view.is_some())
+    }
+
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
     /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
     /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
@@ -4950,6 +4954,7 @@ impl CompiledPlot {
         // without coordinate scopes for nested concat/repeat/facet tools.
         if measurement.child_frame_container_view()?.is_some()
             || self.has_render_stage_derived_marks()
+            || self.has_view_scoped_marks()
         {
             return Ok(None);
         }
@@ -4985,7 +4990,7 @@ impl CompiledPlot {
         cached_components: &PlotComponents,
     ) -> Result<Option<PlotComponents>, AvengerChartError> {
         let build_start = Instant::now();
-        if self.has_render_stage_derived_marks() {
+        if self.has_render_stage_derived_marks() || self.has_view_scoped_marks() {
             return Ok(None);
         }
         if !self.can_reuse_plot_components_data_marks_and_chrome(
