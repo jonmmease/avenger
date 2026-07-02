@@ -263,6 +263,7 @@ fn resource_evaluated_plot(source: ResourceSource) -> EvaluatedPlot {
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
         }],
+        materialization_requests: Vec::new(),
         rtree: None,
         interaction: EvaluatedInteractionState { scopes: Vec::new() },
         event_datums: EvaluatedEventDatumState { rows: Vec::new() },

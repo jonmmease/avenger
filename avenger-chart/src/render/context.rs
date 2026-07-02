@@ -30,7 +30,7 @@ use indexmap::IndexMap;
 use avenger_chart_core::{
     AvengerChartError, BasePlotAreaScene, EvaluationContext as CoreEvaluationContext,
     EvaluationDiagnostics, FormattingContext, MarkRenderContext as CoreMarkRenderContext,
-    MarkRuntimeContext, TextMeasurementService, TimeContext,
+    MarkRuntimeContext, MaterializationRequest, TextMeasurementService, TimeContext,
 };
 
 use crate::{
@@ -329,7 +329,8 @@ impl EvaluationContext {
     ) -> Self {
         Self {
             core: CoreEvaluationContext::new(theme, session_context, params)
-                .with_resource_request_sink(Arc::new(Mutex::new(Vec::new()))),
+                .with_resource_request_sink(Arc::new(Mutex::new(Vec::new())))
+                .with_materialization_request_sink(Arc::new(Mutex::new(Vec::new()))),
             facet_tree,
             facet_data_root: None,
             hide_invalid_facet_path_axes: false,
@@ -428,6 +429,15 @@ impl EvaluationContext {
             let mut guard = sink.lock().expect("event datum sink poisoned");
             guard.extend(rows);
         }
+    }
+
+    pub fn request_materialization(&self, request: MaterializationRequest) {
+        self.record_materialization_request_emitted();
+        self.core.request_materialization(request);
+    }
+
+    pub(crate) fn materialization_requests_snapshot(&self) -> Vec<MaterializationRequest> {
+        self.core.materialization_requests_snapshot()
     }
 
     /// Install the session-owned scoped param store for per-cell resolution.
@@ -1796,6 +1806,95 @@ impl EvaluationContext {
         }
     }
 
+    pub(crate) fn record_materialization_request_emitted(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_request_emitted();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_cache_hit(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_cache_hit();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_cache_miss(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_cache_miss();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_queued(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_queued();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_running(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_running();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_ready_used(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_ready_used();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_stale_fallback_used(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_stale_fallback_used();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_error(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_error();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_completion(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_materialization_completion();
+        }
+    }
+
     pub(crate) fn record_facet_band_measure_run(
         &self,
         estimated_overflow_leaf_measure_count: usize,
@@ -2089,6 +2188,29 @@ mod tests {
         let requests = ctx.resource_requests_snapshot();
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].key, ResourceKey::new("tile/0/0/0"));
+    }
+
+    #[test]
+    fn evaluation_context_collects_materialization_requests_by_default() {
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+            Arc::new(EvaluatedFacetTree::empty()),
+        );
+
+        ctx.request_materialization(MaterializationRequest::new(
+            "view/raster/1",
+            "rasterize-2d",
+            avenger_chart_core::MaterializationOutputKind::RecordBatch,
+        ));
+
+        let requests = ctx.materialization_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(
+            requests[0].key,
+            avenger_chart_core::MaterializationKey::new("view/raster/1")
+        );
     }
 
     #[test]

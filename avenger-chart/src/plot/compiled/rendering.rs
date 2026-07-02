@@ -5736,6 +5736,7 @@ impl CompiledPlot {
         let evaluated = EvaluatedPlot {
             scene_graph,
             resource_requests: eval_ctx.resource_requests_snapshot(),
+            materialization_requests: eval_ctx.materialization_requests_snapshot(),
             rtree,
             interaction,
             event_datums,
@@ -5924,6 +5925,7 @@ impl CompiledPlot {
         EvaluatedPlot {
             scene_graph,
             resource_requests: evaluated.resource_requests,
+            materialization_requests: evaluated.materialization_requests,
             rtree: Some(rtree),
             interaction,
             event_datums,

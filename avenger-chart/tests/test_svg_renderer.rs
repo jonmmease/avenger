@@ -312,6 +312,7 @@ fn resource_evaluated_plot(include_request: bool) -> EvaluatedPlot {
     EvaluatedPlot {
         scene_graph,
         resource_requests,
+        materialization_requests: Vec::new(),
         rtree: None,
         interaction: EvaluatedInteractionState { scopes: Vec::new() },
         event_datums: EvaluatedEventDatumState { rows: Vec::new() },

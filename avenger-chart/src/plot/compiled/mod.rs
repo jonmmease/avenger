@@ -15,6 +15,7 @@ mod domain_coordination;
 mod layout_profile;
 mod legends;
 mod mark_data_runtime;
+mod materialization;
 pub(crate) mod rendering;
 pub mod scale_provider;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks

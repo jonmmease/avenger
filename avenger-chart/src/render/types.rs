@@ -2,6 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
+use avenger_chart_core::MaterializationRequest;
 use avenger_chart_core::{AvengerChartError, CoordinateSystemTransform, SceneQueryDatumField};
 use avenger_resource::ResourceRequest;
 use avenger_scales::scales::ConfiguredScale;
@@ -457,6 +458,50 @@ impl EvaluationMetrics {
         self.pipeline.mark_data_scalar_collects += 1;
     }
 
+    pub(crate) fn record_materialization_request_emitted(&mut self) {
+        self.pipeline.materialization_requests_emitted += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_cache_hit(&mut self) {
+        self.pipeline.materialization_cache_hits += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_cache_miss(&mut self) {
+        self.pipeline.materialization_cache_misses += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_queued(&mut self) {
+        self.pipeline.materialization_queued += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_running(&mut self) {
+        self.pipeline.materialization_running += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_ready_used(&mut self) {
+        self.pipeline.materialization_ready_used += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_stale_fallback_used(&mut self) {
+        self.pipeline.materialization_stale_fallback_used += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_error(&mut self) {
+        self.pipeline.materialization_errors += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_materialization_completion(&mut self) {
+        self.pipeline.materialization_completions += 1;
+    }
+
     pub(crate) fn record_plot_component_measure_call(&mut self, facet_depth: usize) {
         self.facet_layout
             .record_plot_component_measure_call(facet_depth);
@@ -634,6 +679,24 @@ pub struct EvaluationPipelineMetrics {
     pub mark_data_array_collects: usize,
     /// Mark data collect calls for scalar channel batches.
     pub mark_data_scalar_collects: usize,
+    /// Async materialization requests emitted during evaluation.
+    pub materialization_requests_emitted: usize,
+    /// Materialization cache hits for desired keys.
+    pub materialization_cache_hits: usize,
+    /// Materialization cache misses for desired keys.
+    pub materialization_cache_misses: usize,
+    /// Materialization requests newly queued.
+    pub materialization_queued: usize,
+    /// Materialization requests already running.
+    pub materialization_running: usize,
+    /// Ready materialization results used for the desired key.
+    pub materialization_ready_used: usize,
+    /// Last-ready stale materialization results used while a desired key is pending.
+    pub materialization_stale_fallback_used: usize,
+    /// Materialization errors observed during evaluation.
+    pub materialization_errors: usize,
+    /// Async materialization completions observed by the chart runtime.
+    pub materialization_completions: usize,
 }
 
 impl EvaluationPipelineMetrics {
@@ -678,6 +741,15 @@ impl EvaluationPipelineMetrics {
         self.mark_data_full_collects += other.mark_data_full_collects;
         self.mark_data_array_collects += other.mark_data_array_collects;
         self.mark_data_scalar_collects += other.mark_data_scalar_collects;
+        self.materialization_requests_emitted += other.materialization_requests_emitted;
+        self.materialization_cache_hits += other.materialization_cache_hits;
+        self.materialization_cache_misses += other.materialization_cache_misses;
+        self.materialization_queued += other.materialization_queued;
+        self.materialization_running += other.materialization_running;
+        self.materialization_ready_used += other.materialization_ready_used;
+        self.materialization_stale_fallback_used += other.materialization_stale_fallback_used;
+        self.materialization_errors += other.materialization_errors;
+        self.materialization_completions += other.materialization_completions;
     }
 }
 
@@ -1129,6 +1201,8 @@ pub struct EvaluatedPlot {
     pub scene_graph: SceneGraph,
     /// External resources requested while evaluating scene output.
     pub resource_requests: Vec<ResourceRequest>,
+    /// Async materializations requested while evaluating scene output.
+    pub materialization_requests: Vec<MaterializationRequest>,
     /// Spatial index for efficient hit testing
     pub rtree: Option<SceneGraphRTree>,
     /// Interaction scopes for event routing and coordinate inversion.

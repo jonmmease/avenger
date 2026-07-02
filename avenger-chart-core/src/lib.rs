@@ -54,6 +54,7 @@ pub mod mark_macros;
 pub mod mark_render_context;
 pub mod mark_runtime_context;
 pub mod mark_state;
+pub mod materialization;
 pub mod maybe;
 pub mod nested_band;
 pub mod no_guide;
@@ -259,6 +260,14 @@ pub use mark_state::{
     detail_array_column_name,
 };
 pub use mark_state::{validate_mark_target_path, validate_structural_id};
+pub use materialization::{
+    EvaluationInvalidation, EvaluationInvalidationCallback, EvaluationInvalidationHub,
+    EvaluationInvalidationReason, EvaluationInvalidationRequest, EvaluationInvalidationSchedule,
+    EvaluationInvalidationSink, EvaluationInvalidationSubscription,
+    MaterializationExecutionContext, MaterializationExecutor, MaterializationExecutorRegistry,
+    MaterializationIdentity, MaterializationKey, MaterializationKind, MaterializationOutputKind,
+    MaterializationPolicy, MaterializationRequest, MaterializationResult, RgbaImageMaterialization,
+};
 pub use maybe::{Maybe, MaybeOptionalExpr};
 pub use nested_band::{
     NestScope, NestedBandLevelConfig, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,

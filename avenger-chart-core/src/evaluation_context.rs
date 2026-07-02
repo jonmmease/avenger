@@ -4,7 +4,9 @@ use avenger_resource::{ResourceRequest, ResourceRequestPurpose};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
-use crate::{FormattingContext, Theme, ThemeContext, ThemeValue, TimeContext};
+use crate::{
+    FormattingContext, MaterializationRequest, Theme, ThemeContext, ThemeValue, TimeContext,
+};
 
 /// Diagnostics hook used by higher-level runtime crates to observe expensive
 /// evaluation work without making lower-level crates depend on the facade.
@@ -34,6 +36,8 @@ pub struct EvaluationContext {
     pub diagnostics: Option<Arc<dyn EvaluationDiagnostics>>,
     #[doc(hidden)]
     pub resource_request_sink: Option<Arc<Mutex<Vec<ResourceRequest>>>>,
+    #[doc(hidden)]
+    pub materialization_request_sink: Option<Arc<Mutex<Vec<MaterializationRequest>>>>,
 }
 
 impl EvaluationContext {
@@ -50,6 +54,7 @@ impl EvaluationContext {
             formatting_context: FormattingContext::default(),
             diagnostics: None,
             resource_request_sink: None,
+            materialization_request_sink: None,
         }
     }
 
@@ -88,6 +93,7 @@ impl EvaluationContext {
             formatting_context: self.formatting_context.clone(),
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
+            materialization_request_sink: self.materialization_request_sink.clone(),
         }
     }
 
@@ -100,6 +106,7 @@ impl EvaluationContext {
             formatting_context: self.formatting_context.clone(),
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
+            materialization_request_sink: self.materialization_request_sink.clone(),
         }
     }
 
@@ -112,6 +119,7 @@ impl EvaluationContext {
             formatting_context,
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
+            materialization_request_sink: self.materialization_request_sink.clone(),
         }
     }
 
@@ -125,6 +133,7 @@ impl EvaluationContext {
             formatting_context: self.formatting_context.clone(),
             diagnostics: Some(diagnostics),
             resource_request_sink: self.resource_request_sink.clone(),
+            materialization_request_sink: self.materialization_request_sink.clone(),
         }
     }
 
@@ -138,6 +147,24 @@ impl EvaluationContext {
             formatting_context: self.formatting_context.clone(),
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: Some(sink),
+            materialization_request_sink: self.materialization_request_sink.clone(),
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn with_materialization_request_sink(
+        &self,
+        sink: Arc<Mutex<Vec<MaterializationRequest>>>,
+    ) -> Self {
+        Self {
+            theme: self.theme.clone(),
+            session_context: self.session_context.clone(),
+            params: self.params.clone(),
+            time_context: self.time_context.clone(),
+            formatting_context: self.formatting_context.clone(),
+            diagnostics: self.diagnostics.clone(),
+            resource_request_sink: self.resource_request_sink.clone(),
+            materialization_request_sink: Some(sink),
         }
     }
 
@@ -173,6 +200,26 @@ impl EvaluationContext {
         }
     }
 
+    /// Record an async materialization that an evaluated chart would like the
+    /// embedding runtime or session executor to produce.
+    pub fn request_materialization(&self, request: MaterializationRequest) {
+        if let Some(sink) = &self.materialization_request_sink {
+            let mut guard = sink
+                .lock()
+                .expect("materialization request sink lock poisoned");
+            if let Some(existing) = guard
+                .iter_mut()
+                .find(|existing| existing.key == request.key)
+            {
+                if request.priority > existing.priority {
+                    *existing = request;
+                }
+            } else {
+                guard.push(request);
+            }
+        }
+    }
+
     #[doc(hidden)]
     pub fn resource_requests_snapshot(&self) -> Vec<ResourceRequest> {
         self.resource_request_sink
@@ -180,6 +227,18 @@ impl EvaluationContext {
             .map(|sink| {
                 sink.lock()
                     .expect("resource request sink lock poisoned")
+                    .clone()
+            })
+            .unwrap_or_default()
+    }
+
+    #[doc(hidden)]
+    pub fn materialization_requests_snapshot(&self) -> Vec<MaterializationRequest> {
+        self.materialization_request_sink
+            .as_ref()
+            .map(|sink| {
+                sink.lock()
+                    .expect("materialization request sink lock poisoned")
                     .clone()
             })
             .unwrap_or_default()
@@ -217,6 +276,8 @@ impl EvaluationContext {
 mod tests {
     use super::*;
     use avenger_resource::{ResourceCachePolicy, ResourceKey, ResourceKind, ResourceSource};
+
+    use crate::MaterializationOutputKind;
 
     #[test]
     fn resource_request_sink_survives_context_clones() {
@@ -306,5 +367,70 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].purpose, ResourceRequestPurpose::Required);
         assert_eq!(requests[0].priority, 0.0);
+    }
+
+    #[test]
+    fn materialization_request_sink_survives_context_clones() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+        )
+        .with_materialization_request_sink(sink)
+        .with_time_context(TimeContext::default())
+        .with_params(IndexMap::new());
+
+        ctx.request_materialization(MaterializationRequest::new(
+            "view/raster/1",
+            "rasterize-2d",
+            MaterializationOutputKind::RecordBatch,
+        ));
+
+        let requests = ctx.materialization_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].key, "view/raster/1".into());
+    }
+
+    #[test]
+    fn materialization_request_sink_dedupes_by_key_and_keeps_highest_priority() {
+        let sink = Arc::new(Mutex::new(Vec::new()));
+        let ctx = EvaluationContext::new(
+            Arc::new(Theme::light()),
+            Arc::new(SessionContext::new()),
+            IndexMap::new(),
+        )
+        .with_materialization_request_sink(sink);
+
+        ctx.request_materialization(
+            MaterializationRequest::new(
+                "view/raster/1",
+                "rasterize-2d",
+                MaterializationOutputKind::RecordBatch,
+            )
+            .priority(0.25),
+        );
+        ctx.request_materialization(
+            MaterializationRequest::new(
+                "view/raster/1",
+                "rasterize-2d",
+                MaterializationOutputKind::RecordBatch,
+            )
+            .priority(2.0)
+            .spec(serde_json::json!({"winner": true})),
+        );
+        ctx.request_materialization(
+            MaterializationRequest::new(
+                "view/raster/1",
+                "rasterize-2d",
+                MaterializationOutputKind::RecordBatch,
+            )
+            .priority(1.0),
+        );
+
+        let requests = ctx.materialization_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].priority, 2.0);
+        assert_eq!(requests[0].spec, serde_json::json!({"winner": true}));
     }
 }

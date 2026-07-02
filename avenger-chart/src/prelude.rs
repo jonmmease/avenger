@@ -31,9 +31,11 @@ pub use avenger_chart_core::time;
 pub use avenger_chart_core::{
     AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinationScope, CursorStyle,
     EmptySelectionBehavior, FacetEmptyCellPolicy, FormattingContext, IntoPlotMark, MarkGroup,
-    PlotMark, Selection, SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery,
-    SelectionUpdate, Store, StoreData, StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow,
-    StoreUpdate, TimeContext, View, ViewAsyncPolicy, ViewStalePolicy, WeekStart, ZeroDCoord,
+    MaterializationIdentity, MaterializationKey, MaterializationKind, MaterializationOutputKind,
+    MaterializationPolicy, MaterializationRequest, PlotMark, Selection, SelectionClauseUpdate,
+    SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch,
+    StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, View, ViewAsyncPolicy,
+    ViewStalePolicy, WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{
     NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,

@@ -56,6 +56,7 @@ use crate::{
 use super::{
     CompiledPlot, LayoutProfileSnapshot, compiled_subplot_payload_child_plot,
     legends::PreparedLegendGroup,
+    materialization::{MaterializationCache, MaterializationCacheHandle},
 };
 
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
@@ -1398,6 +1399,8 @@ pub struct PlotSession {
     guide_overflow_cache: GuideOverflowCacheHandle,
     legend_measurement_cache: LegendMeasurementCacheHandle,
     text_measurement_cache: TextMeasurementCacheHandle,
+    #[allow(dead_code)]
+    materialization_cache: MaterializationCacheHandle,
 }
 
 impl PlotSession {
@@ -1434,6 +1437,7 @@ impl PlotSession {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            materialization_cache: Arc::new(Mutex::new(MaterializationCache::default())),
         }
     }
 
@@ -1567,6 +1571,11 @@ impl PlotSession {
 
     pub fn options(&self) -> &PlotSessionOptions {
         &self.options
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn materialization_cache(&self) -> MaterializationCacheHandle {
+        self.materialization_cache.clone()
     }
 
     pub fn set_options(&mut self, options: PlotSessionOptions) {
