@@ -18,6 +18,9 @@ agents. User-facing chart documentation lives in `avenger-chart/book/src`.
 - To work on interactive chart apps or resize behavior, read
   [chart-apps-and-interaction.md](chart-apps-and-interaction.md) and
   [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md).
+- To work on view-dependent async mark data, read
+  [view-materialization.md](view-materialization.md) together with
+  [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md).
 - To work on GUI toolkit integrations that display Avenger-rendered charts as
   native widgets, read
   [wgpu-gui-offscreen.md](wgpu-gui-offscreen.md).
@@ -93,6 +96,9 @@ flowchart TD
 - [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md):
   reusable `PlotSession` evaluation, cache families, Preview optimization,
   raw-domain interaction retargeting, and metrics.
+- [view-materialization.md](view-materialization.md): `mark.view(...)`,
+  view-local async materialization, retained ready results, preview retargeting,
+  scheduler debounce/throttle behavior, and host wakeup wiring.
 - [chart-apps-and-interaction.md](chart-apps-and-interaction.md):
   `avenger-chart-app`, framed canvas resize, app event flow, and Winit/WGPU
   hosting.

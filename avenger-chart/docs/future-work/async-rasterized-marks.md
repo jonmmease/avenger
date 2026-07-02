@@ -82,10 +82,11 @@ view scope run before view resolution. Transforms configured inside the
 `view(...)` closure are view-local and may read the resolved view.
 
 `View` is also the public home for default async interaction policy for
-materializations inside the scope. Options such as `preview_cached`,
-throttle/debounce, stale-result behavior, and settle priority belong here
-because they describe how view-dependent work should behave during pan/zoom.
-The view-local transform still owns the computation spec: source expressions,
+materializations inside the scope. The canonical stale-result setting is
+`ViewStalePolicy`; `.preview_cached(true)` is only shorthand for
+`RetargetCached`. Throttle/debounce and settle priority belong here because
+they describe how view-dependent work should behave during pan/zoom. The
+view-local transform still owns the computation spec: source expressions,
 bins/resolution, aggregate, and output type.
 
 A future convenience mark such as `RasterizedPoints` may still exist, but it
@@ -454,7 +455,8 @@ materializations:
 - `RetargetCached`: draw the last ready raster through the new scale transform,
   accepting temporarily stretched pixels,
 - `HideUntilReady`: hide the raster if the exact key is missing,
-- `Placeholder`: draw a neutral placeholder while the new raster computes.
+- Placeholder rendering is not part of the current policy surface; a future
+  version can add it once there is a concrete placeholder data contract.
 
 `RetargetCached` should be the default for interactive exploration.
 
@@ -776,7 +778,7 @@ and options over ordinary lower-level primitives.
 
 ### Phase 5: Pan/Zoom Integration
 
-- Attach default async policy to `View`, including `preview_cached`,
+- Attach default async policy to `View`, including `ViewStalePolicy`,
   throttle/debounce, stale-result behavior, and settle priority.
 - Ensure `PanScrollZoom` Preview retargets stale `UniformRaster2D` image output
   smoothly while new `Rasterize2D` results are pending.

@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -11,6 +11,9 @@ use avenger_chart_core::{
 };
 
 pub(crate) type MaterializationCacheHandle = Arc<Mutex<MaterializationCache>>;
+
+const MAX_UNSCOPED_READY_ENTRIES: usize = 64;
+const MAX_TOTAL_READY_ENTRIES: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -24,9 +27,19 @@ pub(crate) enum MaterializationStatus {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
+pub(crate) enum MaterializationDeferReason {
+    Debounce,
+    Throttle,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
 pub(crate) enum MaterializationStart {
     Started,
-    Deferred { remaining: Duration },
+    Deferred {
+        remaining: Duration,
+        reason: MaterializationDeferReason,
+    },
     NotStarted,
 }
 
@@ -54,7 +67,16 @@ pub(crate) struct MaterializationCache {
     entries: HashMap<MaterializationKey, MaterializationCacheEntry>,
     last_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
     last_settled_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
+    last_started_by_identity: HashMap<MaterializationIdentity, Instant>,
+    ready_order: VecDeque<MaterializationKey>,
     completion_invalidation_pending: bool,
+}
+
+fn throttle_identity_for_request(request: &MaterializationRequest) -> MaterializationIdentity {
+    request
+        .identity
+        .clone()
+        .unwrap_or_else(|| MaterializationIdentity::new(format!("key:{}", request.key.as_ref())))
 }
 
 impl MaterializationCache {
@@ -164,25 +186,49 @@ impl MaterializationCache {
         key: &MaterializationKey,
         now: Instant,
     ) -> MaterializationStart {
-        let Some(entry) = self.entries.get_mut(key) else {
-            return MaterializationStart::NotStarted;
+        let (request, queued_at) = match self.entries.get(key) {
+            Some(MaterializationCacheEntry::Queued { request, queued_at }) => {
+                (request.clone(), *queued_at)
+            }
+            _ => return MaterializationStart::NotStarted,
         };
-        if let MaterializationCacheEntry::Queued { request, queued_at } = entry {
-            if request.priority < 0.0
-                && let Some(debounce) = request.policy.debounce
-            {
-                let elapsed = now.saturating_duration_since(*queued_at);
+
+        if request.priority < 0.0 {
+            let mut deferred: Option<(Duration, MaterializationDeferReason)> = None;
+            if let Some(debounce) = request.policy.debounce {
+                let elapsed = now.saturating_duration_since(queued_at);
                 if elapsed < debounce {
-                    return MaterializationStart::Deferred {
-                        remaining: debounce - elapsed,
-                    };
+                    deferred = Some((debounce - elapsed, MaterializationDeferReason::Debounce));
                 }
             }
-            *entry = MaterializationCacheEntry::Running(request.clone());
-            MaterializationStart::Started
-        } else {
-            MaterializationStart::NotStarted
+
+            if let Some(throttle) = request.policy.throttle {
+                let identity = throttle_identity_for_request(&request);
+                if let Some(last_started) = self.last_started_by_identity.get(&identity) {
+                    let elapsed = now.saturating_duration_since(*last_started);
+                    if elapsed < throttle {
+                        let remaining = throttle - elapsed;
+                        deferred = Some(match deferred {
+                            Some((existing, reason)) if existing >= remaining => (existing, reason),
+                            _ => (remaining, MaterializationDeferReason::Throttle),
+                        });
+                    }
+                }
+            }
+
+            if let Some((remaining, reason)) = deferred {
+                return MaterializationStart::Deferred { remaining, reason };
+            }
         }
+
+        if let Some(entry) = self.entries.get_mut(key) {
+            *entry = MaterializationCacheEntry::Running(request.clone());
+            self.last_started_by_identity
+                .insert(throttle_identity_for_request(&request), now);
+            return MaterializationStart::Started;
+        }
+
+        MaterializationStart::NotStarted
     }
 
     #[allow(dead_code)]
@@ -252,6 +298,125 @@ impl MaterializationCache {
                     .insert(identity.clone(), request.key.clone());
             }
         }
+        self.remember_ready_key(&request.key);
+        self.prune_ready_entries_for_request(request);
+    }
+
+    fn remember_ready_key(&mut self, key: &MaterializationKey) {
+        self.ready_order.retain(|existing| existing != key);
+        self.ready_order.push_back(key.clone());
+    }
+
+    fn remove_ready_key_from_order(&mut self, key: &MaterializationKey) {
+        self.ready_order.retain(|existing| existing != key);
+    }
+
+    fn ready_entry_count(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| matches!(entry, MaterializationCacheEntry::Ready { .. }))
+            .count()
+    }
+
+    fn is_ready_key_protected(&self, key: &MaterializationKey) -> bool {
+        self.last_ready_by_identity
+            .values()
+            .any(|protected| protected == key)
+            || self
+                .last_settled_ready_by_identity
+                .values()
+                .any(|protected| protected == key)
+    }
+
+    fn evict_ready_key(&mut self, key: &MaterializationKey, reason: &'static str) -> bool {
+        if matches!(
+            self.entries.get(key),
+            Some(MaterializationCacheEntry::Ready { .. })
+        ) {
+            tracing::debug!(
+                target: "avenger_chart::materialization",
+                key = %key,
+                reason,
+                "evicting ready materialization"
+            );
+            self.entries.remove(key);
+            self.remove_ready_key_from_order(key);
+            true
+        } else {
+            self.remove_ready_key_from_order(key);
+            false
+        }
+    }
+
+    fn prune_ready_entries_for_request(&mut self, request: &MaterializationRequest) {
+        if let Some(identity) = &request.identity {
+            self.prune_ready_entries_for_identity(identity);
+        } else {
+            self.prune_unscoped_ready_entries();
+        }
+        self.prune_total_ready_entries();
+    }
+
+    fn prune_ready_entries_for_identity(&mut self, identity: &MaterializationIdentity) {
+        let latest_ready = self.last_ready_by_identity.get(identity);
+        let latest_settled_ready = self.last_settled_ready_by_identity.get(identity);
+        let evict = self
+            .entries
+            .iter()
+            .filter_map(|(key, entry)| match entry {
+                MaterializationCacheEntry::Ready {
+                    identity: Some(entry_identity),
+                    ..
+                } if entry_identity == identity
+                    && Some(key) != latest_ready
+                    && Some(key) != latest_settled_ready =>
+                {
+                    Some(key.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for key in evict {
+            self.evict_ready_key(&key, "stale_identity_ready");
+        }
+    }
+
+    fn prune_unscoped_ready_entries(&mut self) {
+        let unscoped_ready = self
+            .ready_order
+            .iter()
+            .filter_map(|key| match self.entries.get(key) {
+                Some(MaterializationCacheEntry::Ready { identity: None, .. }) => Some(key.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let excess = unscoped_ready
+            .len()
+            .saturating_sub(MAX_UNSCOPED_READY_ENTRIES);
+        for key in unscoped_ready.into_iter().take(excess) {
+            self.evict_ready_key(&key, "unscoped_ready_lru");
+        }
+    }
+
+    fn prune_total_ready_entries(&mut self) {
+        let mut ready_count = self.ready_entry_count();
+        if ready_count <= MAX_TOTAL_READY_ENTRIES {
+            return;
+        }
+
+        let ready_order = self.ready_order.iter().cloned().collect::<Vec<_>>();
+        for key in ready_order {
+            if ready_count <= MAX_TOTAL_READY_ENTRIES {
+                break;
+            }
+            if self.is_ready_key_protected(&key) {
+                continue;
+            }
+            if self.evict_ready_key(&key, "global_ready_cap") {
+                ready_count -= 1;
+            }
+        }
     }
 
     #[allow(dead_code)]
@@ -289,6 +454,36 @@ impl MaterializationCache {
     pub(crate) fn completion_invalidation_pending(&self) -> bool {
         self.completion_invalidation_pending
     }
+
+    #[cfg(test)]
+    fn ready_count_for_testing(&self) -> usize {
+        self.ready_entry_count()
+    }
+
+    #[cfg(test)]
+    fn ready_keys_for_identity_for_testing(
+        &self,
+        identity: &MaterializationIdentity,
+    ) -> Vec<MaterializationKey> {
+        self.ready_order
+            .iter()
+            .filter_map(|key| match self.entries.get(key) {
+                Some(MaterializationCacheEntry::Ready {
+                    identity: Some(entry_identity),
+                    ..
+                }) if entry_identity == identity => Some(key.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn contains_ready_for_testing(&self, key: &MaterializationKey) -> bool {
+        matches!(
+            self.entries.get(key),
+            Some(MaterializationCacheEntry::Ready { .. })
+        )
+    }
 }
 
 #[cfg(test)]
@@ -306,6 +501,11 @@ mod tests {
     fn request(key: &str, identity: &str, priority: f32) -> MaterializationRequest {
         MaterializationRequest::new(key, "test", MaterializationOutputKind::RecordBatch)
             .identity(identity)
+            .priority(priority)
+    }
+
+    fn unscoped_request(key: &str, priority: f32) -> MaterializationRequest {
+        MaterializationRequest::new(key, "test", MaterializationOutputKind::RecordBatch)
             .priority(priority)
     }
 
@@ -445,7 +645,8 @@ mod tests {
 
         cache.enqueue(debounced.clone());
         match cache.mark_running_if_ready(&debounced.key, now + Duration::from_millis(10)) {
-            MaterializationStart::Deferred { remaining } => {
+            MaterializationStart::Deferred { remaining, reason } => {
+                assert_eq!(reason, MaterializationDeferReason::Debounce);
                 assert!(remaining <= Duration::from_millis(50));
                 assert!(remaining >= Duration::from_millis(30));
             }
@@ -472,6 +673,110 @@ mod tests {
             MaterializationStart::Started
         );
         assert_eq!(cache.status(&settled.key), MaterializationStatus::Running);
+    }
+
+    #[test]
+    fn mark_running_if_ready_throttles_preview_requests_by_identity() {
+        let mut cache = MaterializationCache::default();
+        let mut first = request("key/a", "scope/a", -1.0);
+        first.policy.throttle = Some(Duration::from_millis(100));
+        let now = Instant::now();
+
+        cache.enqueue(first.clone());
+        assert_eq!(
+            cache.mark_running_if_ready(&first.key, now),
+            MaterializationStart::Started
+        );
+
+        let mut second = request("key/b", "scope/a", -1.0);
+        second.policy.throttle = Some(Duration::from_millis(100));
+        cache.enqueue(second.clone());
+        match cache.mark_running_if_ready(&second.key, now + Duration::from_millis(25)) {
+            MaterializationStart::Deferred { remaining, reason } => {
+                assert_eq!(reason, MaterializationDeferReason::Throttle);
+                assert!(remaining <= Duration::from_millis(100));
+                assert!(remaining >= Duration::from_millis(50));
+            }
+            other => panic!("expected throttled request to defer, got {other:?}"),
+        }
+        assert_eq!(cache.status(&second.key), MaterializationStatus::Queued);
+
+        assert_eq!(
+            cache.mark_running_if_ready(&second.key, now + Duration::from_millis(125)),
+            MaterializationStart::Started
+        );
+    }
+
+    #[test]
+    fn mark_running_if_ready_throttles_unscoped_preview_requests_by_key() {
+        let mut cache = MaterializationCache::default();
+        let mut first = unscoped_request("key/a", -1.0);
+        first.policy.throttle = Some(Duration::from_millis(100));
+        let now = Instant::now();
+
+        cache.enqueue(first.clone());
+        assert_eq!(
+            cache.mark_running_if_ready(&first.key, now),
+            MaterializationStart::Started
+        );
+
+        let mut same_key = unscoped_request("key/a", -1.0);
+        same_key.policy.throttle = Some(Duration::from_millis(100));
+        cache.mark_error(&same_key, "retry".to_string());
+        cache.enqueue(same_key.clone());
+        match cache.mark_running_if_ready(&same_key.key, now + Duration::from_millis(25)) {
+            MaterializationStart::Deferred { remaining, reason } => {
+                assert_eq!(reason, MaterializationDeferReason::Throttle);
+                assert!(remaining >= Duration::from_millis(50));
+            }
+            other => panic!("expected key-fallback throttle defer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn mark_running_if_ready_starts_settled_requests_despite_throttle() {
+        let mut cache = MaterializationCache::default();
+        let mut preview = request("key/a", "scope/a", -1.0);
+        preview.policy.throttle = Some(Duration::from_secs(60));
+        let now = Instant::now();
+        cache.enqueue(preview.clone());
+        assert_eq!(
+            cache.mark_running_if_ready(&preview.key, now),
+            MaterializationStart::Started
+        );
+
+        let mut settled = request("key/b", "scope/a", 1.0);
+        settled.policy.throttle = Some(Duration::from_secs(60));
+        cache.enqueue(settled.clone());
+        assert_eq!(
+            cache.mark_running_if_ready(&settled.key, now + Duration::from_millis(1)),
+            MaterializationStart::Started
+        );
+    }
+
+    #[test]
+    fn mark_running_if_ready_uses_larger_debounce_or_throttle_wait() {
+        let mut cache = MaterializationCache::default();
+        let mut first = request("key/a", "scope/a", -1.0);
+        first.policy.throttle = Some(Duration::from_millis(100));
+        let now = Instant::now();
+        cache.enqueue(first.clone());
+        assert_eq!(
+            cache.mark_running_if_ready(&first.key, now),
+            MaterializationStart::Started
+        );
+
+        let mut second = request("key/b", "scope/a", -1.0);
+        second.policy.debounce = Some(Duration::from_millis(50));
+        second.policy.throttle = Some(Duration::from_millis(100));
+        cache.enqueue(second.clone());
+        match cache.mark_running_if_ready(&second.key, now + Duration::from_millis(10)) {
+            MaterializationStart::Deferred { remaining, reason } => {
+                assert_eq!(reason, MaterializationDeferReason::Throttle);
+                assert!(remaining >= Duration::from_millis(80));
+            }
+            other => panic!("expected larger throttle defer, got {other:?}"),
+        }
     }
 
     #[test]
@@ -504,5 +809,118 @@ mod tests {
         cache.clear_completion_invalidation_pending();
         cache.mark_ready_and_request_invalidation(&second, empty_result(), &hub);
         assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn ready_cache_keeps_latest_preview_and_latest_settled_per_identity() {
+        let mut cache = MaterializationCache::default();
+        let exact = request("key/exact", "scope/a", 1.0);
+        cache.mark_ready(&exact, empty_result());
+
+        let preview_a = request("key/preview-a", "scope/a", -1.0);
+        cache.mark_ready(&preview_a, empty_result());
+
+        let preview_b = request("key/preview-b", "scope/a", -1.0);
+        cache.mark_ready(&preview_b, empty_result());
+
+        assert!(cache.contains_ready_for_testing(&exact.key));
+        assert!(!cache.contains_ready_for_testing(&preview_a.key));
+        assert!(cache.contains_ready_for_testing(&preview_b.key));
+        assert_eq!(
+            cache.ready_keys_for_identity_for_testing(exact.identity.as_ref().unwrap()),
+            vec![exact.key.clone(), preview_b.key.clone()]
+        );
+        assert_eq!(
+            cache
+                .last_ready(exact.identity.as_ref().unwrap())
+                .expect("last ready")
+                .0,
+            preview_b.key
+        );
+        assert_eq!(
+            cache
+                .stale_fallback_ready(exact.identity.as_ref().unwrap(), -1.0)
+                .expect("stale fallback")
+                .0,
+            exact.key
+        );
+    }
+
+    #[test]
+    fn exact_ready_replaces_previous_settled_ready_for_identity() {
+        let mut cache = MaterializationCache::default();
+        let first = request("key/exact-a", "scope/a", 1.0);
+        let preview = request("key/preview", "scope/a", -1.0);
+        let second = request("key/exact-b", "scope/a", 1.0);
+
+        cache.mark_ready(&first, empty_result());
+        cache.mark_ready(&preview, empty_result());
+        cache.mark_ready(&second, empty_result());
+
+        assert!(!cache.contains_ready_for_testing(&first.key));
+        assert!(!cache.contains_ready_for_testing(&preview.key));
+        assert!(cache.contains_ready_for_testing(&second.key));
+        assert_eq!(
+            cache
+                .stale_fallback_ready(first.identity.as_ref().unwrap(), -1.0)
+                .expect("stale fallback")
+                .0,
+            second.key
+        );
+    }
+
+    #[test]
+    fn unscoped_ready_entries_are_bounded() {
+        let mut cache = MaterializationCache::default();
+        for index in 0..(MAX_UNSCOPED_READY_ENTRIES + 5) {
+            let request = unscoped_request(&format!("key/{index}"), 0.0);
+            cache.mark_ready(&request, empty_result());
+        }
+
+        assert_eq!(cache.ready_count_for_testing(), MAX_UNSCOPED_READY_ENTRIES);
+        assert!(!cache.contains_ready_for_testing(&MaterializationKey::new("key/0")));
+        assert!(
+            cache.contains_ready_for_testing(&MaterializationKey::new(format!(
+                "key/{}",
+                MAX_UNSCOPED_READY_ENTRIES + 4
+            )))
+        );
+    }
+
+    #[test]
+    fn global_ready_cap_preserves_protected_identity_ready_entries() {
+        let mut cache = MaterializationCache::default();
+        for index in 0..(MAX_TOTAL_READY_ENTRIES + 5) {
+            let request = request(&format!("key/{index}"), &format!("scope/{index}"), 1.0);
+            cache.mark_ready(&request, empty_result());
+        }
+
+        // Every identity's latest settled result is protected, so the defensive
+        // cap cannot evict below the number of protected identities.
+        assert_eq!(cache.ready_count_for_testing(), MAX_TOTAL_READY_ENTRIES + 5);
+
+        for index in 0..5 {
+            let preview = request(
+                &format!("key/{index}/preview"),
+                &format!("scope/{index}"),
+                -1.0,
+            );
+            cache.mark_ready(&preview, empty_result());
+        }
+
+        assert_eq!(
+            cache.ready_count_for_testing(),
+            MAX_TOTAL_READY_ENTRIES + 10
+        );
+        for index in 0..5 {
+            assert!(
+                cache.contains_ready_for_testing(&MaterializationKey::new(format!("key/{index}")))
+            );
+            assert!(
+                cache.contains_ready_for_testing(&MaterializationKey::new(format!(
+                    "key/{index}/preview"
+                )))
+            );
+        }
     }
 }

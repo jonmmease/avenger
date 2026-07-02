@@ -262,6 +262,7 @@ pub struct EvaluationInvalidation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EvaluationInvalidationReason {
     MaterializationCompleted { kind: MaterializationKind },
+    MaterializationDeferred { kind: MaterializationKind },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -285,6 +286,13 @@ impl EvaluationInvalidationRequest {
         Self {
             reason,
             schedule: EvaluationInvalidationSchedule::Now,
+        }
+    }
+
+    pub fn after(reason: EvaluationInvalidationReason, duration: Duration) -> Self {
+        Self {
+            reason,
+            schedule: EvaluationInvalidationSchedule::After(duration),
         }
     }
 }

@@ -9,11 +9,12 @@ use std::{
 use avenger_chart_core::{
     ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CoordinationScope,
     DefaultLogicalExprNodeExt, EvaluationInvalidationCallback, EvaluationInvalidationHub,
+    EvaluationInvalidationReason, EvaluationInvalidationRequest, EvaluationInvalidationSink,
     EvaluationInvalidationSubscription, FacetWrapColumnMode, LegendChannel, LegendPosition,
     LogicalPlanNodeExt, MaterializationExecutionContext, MaterializationExecutorRegistry,
-    MaterializationRequest, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-    STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause,
-    SerializableExpr, StoreData, StoreRowValue,
+    MaterializationKind, MaterializationRequest, Maybe, RadiusExpression, STORE_NAME_COLUMN,
+    STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain,
+    ScaleDomain, SelectionClause, SerializableExpr, StoreData, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
@@ -1636,6 +1637,7 @@ impl PlotSession {
                 .running_count();
             MAX_CONCURRENT_MATERIALIZATIONS.saturating_sub(running)
         };
+        let mut earliest_deferred_wakeup: Option<(Duration, MaterializationKind)> = None;
 
         for request in requests {
             let Some(executor) = self.materialization_registry.get(&request.kind) else {
@@ -1674,15 +1676,23 @@ impl PlotSession {
                     );
                     starts_remaining = starts_remaining.saturating_sub(1);
                 }
-                MaterializationStart::Deferred { remaining } => {
+                MaterializationStart::Deferred { remaining, reason } => {
                     tracing::debug!(
                         target: "avenger_chart::materialization",
                         key = %request.key,
                         kind = %request.kind,
                         priority = request.priority,
+                        reason = ?reason,
                         remaining_ms = remaining.as_secs_f64() * 1000.0,
-                        "materialization queue decision: debounce defer"
+                        "materialization queue decision: time defer"
                     );
+                    let should_replace_deferred_wakeup = match earliest_deferred_wakeup.as_ref() {
+                        Some((current, _)) => remaining < *current,
+                        None => true,
+                    };
+                    if should_replace_deferred_wakeup {
+                        earliest_deferred_wakeup = Some((remaining, request.kind.clone()));
+                    }
                     continue;
                 }
                 MaterializationStart::NotStarted => {
@@ -1749,6 +1759,15 @@ impl PlotSession {
                     }
                 }
             });
+        }
+
+        if let Some((remaining, kind)) = earliest_deferred_wakeup {
+            self.materialization_invalidation_hub.request_evaluation(
+                EvaluationInvalidationRequest::after(
+                    EvaluationInvalidationReason::MaterializationDeferred { kind },
+                    remaining,
+                ),
+            );
         }
     }
 
@@ -2757,8 +2776,8 @@ mod tests {
     use async_trait::async_trait;
     use avenger_chart_core::{
         CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
-        MaterializationPolicy, MaterializationResult, ViewMaterializationContext,
-        ViewMaterializationRequest,
+        EvaluationInvalidation, EvaluationInvalidationSchedule, MaterializationPolicy,
+        MaterializationResult, ViewMaterializationContext, ViewMaterializationRequest,
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
     use datafusion::{
@@ -5536,6 +5555,15 @@ mod tests {
         .identity("materialization/debounced")
         .priority(-1.0);
         request.policy.debounce = Some(Duration::from_secs(60));
+        let seen = Arc::new(Mutex::new(Vec::<EvaluationInvalidation>::new()));
+        let seen_callback = seen.clone();
+        let _subscription =
+            session.subscribe_to_evaluation_invalidations(Arc::new(move |invalidation| {
+                seen_callback
+                    .lock()
+                    .expect("seen invalidations lock poisoned")
+                    .push(invalidation);
+            }));
 
         session
             .materialization_cache()
@@ -5551,6 +5579,22 @@ mod tests {
                 .status(&request.key),
             MaterializationStatus::Queued
         );
+        let invalidations = seen.lock().expect("seen invalidations lock poisoned");
+        assert_eq!(invalidations.len(), 1);
+        assert_eq!(
+            invalidations[0].reason,
+            EvaluationInvalidationReason::MaterializationDeferred {
+                kind: request.kind.clone()
+            }
+        );
+        match invalidations[0].schedule {
+            EvaluationInvalidationSchedule::After(remaining) => {
+                assert!(remaining <= Duration::from_secs(60));
+                assert!(remaining > Duration::from_secs(0));
+            }
+            other => panic!("expected delayed materialization invalidation, got {other:?}"),
+        }
+        drop(invalidations);
 
         let mut settled = request.clone();
         settled.priority = 1.0;

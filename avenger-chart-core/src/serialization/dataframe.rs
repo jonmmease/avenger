@@ -220,6 +220,19 @@ impl LogicalPlanNodeExt for LogicalPlanNode {
 }
 
 /// A serializable wrapper for DataFrames that stores protobuf logical-plan bytes.
+///
+/// In-memory `MemTable` inputs have two serialization modes:
+///
+/// - unnamed tables are serialized inline as Arrow IPC payloads and can be
+///   reconstructed in a fresh `SessionContext`;
+/// - named tables are serialized as references to tables registered in the
+///   provided `SessionContext`.
+///
+/// Named references keep large cached sources small and avoid copying record
+/// batches into every compiled plan or async materialization request. They are
+/// intentionally session-local: deserializing or materializing the logical plan
+/// requires the same table name to be registered in the target
+/// `SessionContext`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SerializableDataFrame(pub Vec<u8>);
 
@@ -361,7 +374,11 @@ mod tests {
         assert_eq!(batches[0].num_rows(), 3);
 
         let missing_ctx = SessionContext::new();
-        assert!(serializable.to_dataframe(&missing_ctx).is_err());
+        let err = serializable.to_dataframe(&missing_ctx).unwrap_err();
+        assert!(
+            err.to_string().contains("cached_values"),
+            "missing named table error should mention the table reference: {err}"
+        );
     }
 
     #[tokio::test]

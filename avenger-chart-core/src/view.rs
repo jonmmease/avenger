@@ -15,20 +15,17 @@ use crate::{
 /// How a view-scoped mark should behave while a newer view-local result is pending.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewStalePolicy {
+    /// Do not render the view-local mark until the current result is ready.
+    #[default]
+    HideUntilReady,
     /// Retarget the last ready result through the current scales while the next
     /// result is being computed.
-    #[default]
     RetargetCached,
-    /// Do not render the view-local mark until the current result is ready.
-    HideUntilReady,
-    /// Render a placeholder until the current result is ready.
-    Placeholder,
 }
 
 /// Async and stale-result policy for a view-scoped mark.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewAsyncPolicy {
-    pub preview_cached: bool,
     pub stale_policy: ViewStalePolicy,
     pub throttle: Option<Duration>,
     pub debounce: Option<Duration>,
@@ -37,7 +34,6 @@ pub struct ViewAsyncPolicy {
 impl Default for ViewAsyncPolicy {
     fn default() -> Self {
         Self {
-            preview_cached: false,
             stale_policy: ViewStalePolicy::HideUntilReady,
             throttle: None,
             debounce: None,
@@ -62,7 +58,6 @@ pub struct CartesianView {
     x_domain: Option<Expr>,
     y_domain: Option<Expr>,
     policy: ViewAsyncPolicy,
-    stale_policy_explicit: bool,
 }
 
 impl CartesianView {
@@ -82,19 +77,16 @@ impl CartesianView {
     }
 
     pub fn preview_cached(mut self, preview_cached: bool) -> Self {
-        self.policy.preview_cached = preview_cached;
-        if preview_cached {
-            self.policy.stale_policy = ViewStalePolicy::RetargetCached;
-        } else if !self.stale_policy_explicit {
-            self.policy.stale_policy = ViewStalePolicy::HideUntilReady;
-        }
+        self.policy.stale_policy = if preview_cached {
+            ViewStalePolicy::RetargetCached
+        } else {
+            ViewStalePolicy::HideUntilReady
+        };
         self
     }
 
     pub fn stale_policy(mut self, stale_policy: ViewStalePolicy) -> Self {
         self.policy.stale_policy = stale_policy;
-        self.policy.preview_cached = matches!(stale_policy, ViewStalePolicy::RetargetCached);
-        self.stale_policy_explicit = true;
         self
     }
 
@@ -445,24 +437,42 @@ mod tests {
             .y_domain(col("y"));
 
         let default_policy = compiled_policy(base.clone());
-        assert!(!default_policy.preview_cached);
         assert_eq!(default_policy.stale_policy, ViewStalePolicy::HideUntilReady);
 
         let preview_policy = compiled_policy(base.clone().preview_cached(true));
-        assert!(preview_policy.preview_cached);
         assert_eq!(preview_policy.stale_policy, ViewStalePolicy::RetargetCached);
 
         let hidden_policy = compiled_policy(base.clone().preview_cached(false));
-        assert!(!hidden_policy.preview_cached);
         assert_eq!(hidden_policy.stale_policy, ViewStalePolicy::HideUntilReady);
 
         let explicit_policy = compiled_policy(
             base.stale_policy(ViewStalePolicy::RetargetCached)
                 .preview_cached(false),
         );
-        assert!(!explicit_policy.preview_cached);
         assert_eq!(
             explicit_policy.stale_policy,
+            ViewStalePolicy::HideUntilReady
+        );
+    }
+
+    #[test]
+    fn view_policy_serializes_only_stale_policy() {
+        let (spec, _view_ref) = View::cartesian()
+            .id("density")
+            .x_domain(col("x"))
+            .y_domain(col("y"))
+            .stale_policy(ViewStalePolicy::RetargetCached)
+            .into_compiled_and_ref()
+            .expect("compile view");
+
+        let json = serde_json::to_string(&spec).expect("serialize view spec");
+        assert!(json.contains("stale_policy"));
+        assert!(!json.contains("preview_cached"));
+
+        let roundtrip: CompiledViewSpec =
+            serde_json::from_str(&json).expect("deserialize view spec");
+        assert_eq!(
+            roundtrip.policy().stale_policy,
             ViewStalePolicy::RetargetCached
         );
     }

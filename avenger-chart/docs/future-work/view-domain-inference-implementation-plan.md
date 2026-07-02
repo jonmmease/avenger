@@ -1248,8 +1248,10 @@ reuse yet.
 
 Checklist:
 
-- [ ] Add `preview_cached: bool` to View authoring and compiled View metadata.
-- [ ] Serialize/deserialize `preview_cached`.
+- [ ] Add `ViewStalePolicy::RetargetCached` to View authoring and compiled
+      View metadata. `.preview_cached(true)` may remain builder sugar, but
+      should not be stored separately.
+- [ ] Serialize/deserialize the View stale policy.
 - [ ] Add stable View boundary ids.
 - [ ] Add `RetainedViewCacheHandle` to `PlotSession`.
 - [ ] Thread retained cache and `EvaluationMode` through render/evaluation
@@ -1435,8 +1437,10 @@ selection/store/data revision changed
 
 Phase 1 tests:
 
-- [ ] Unit test: `preview_cached` serializes/deserializes on compiled View.
-- [ ] Unit test: `preview_cached(false)` does not consult retained cache.
+- [ ] Unit test: the View stale policy serializes/deserializes on compiled
+      View.
+- [ ] Unit test: `ViewStalePolicy::HideUntilReady` does not consult retained
+      cache.
 - [ ] Unit test: retained View boundary id uses explicit `.id(...)` when set.
 - [ ] Unit test: retained View boundary id falls back to mark path and transform
       index.

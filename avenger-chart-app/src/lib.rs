@@ -31,7 +31,7 @@ use avenger_eventstream::{
     stream::{EventStreamConfig, UpdateStatus},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
-use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceResolver};
+use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceCache, ImageResourceResolver};
 use avenger_resource::{
     RenderInvalidationHub, RenderInvalidationReason, RenderInvalidationRequest,
     RenderInvalidationSchedule, RenderInvalidationSink, ResourceRequest,
@@ -129,6 +129,11 @@ impl ChartRuntimeResources {
             render_invalidation_hub,
         }
     }
+}
+
+pub struct ChartAppBundle {
+    pub app: AvengerApp<ChartAppState>,
+    pub runtime_resources: ChartRuntimeResources,
 }
 
 /// Cloneable app state wrapper around the stateful chart session runtime.
@@ -343,6 +348,7 @@ struct ChartAppRuntime {
     last_scene_size: Option<[f32; 2]>,
     runtime_resources: Option<ChartRuntimeResources>,
     _evaluation_invalidation_subscription: Option<EvaluationInvalidationSubscription>,
+    warned_missing_materialization_wakeup: bool,
     last_resource_requests: Vec<ResourceRequest>,
     accepted_resize_count: usize,
     event_metrics: ChartEventMetrics,
@@ -389,6 +395,7 @@ impl ChartAppState {
                 last_scene_size: None,
                 runtime_resources,
                 _evaluation_invalidation_subscription: evaluation_invalidation_subscription,
+                warned_missing_materialization_wakeup: false,
                 last_resource_requests: Vec::new(),
                 accepted_resize_count: 0,
                 event_metrics: ChartEventMetrics::default(),
@@ -488,6 +495,23 @@ impl ChartAppState {
 
     pub async fn runtime_resources(&self) -> Option<ChartRuntimeResources> {
         self.runtime.lock().await.runtime_resources.clone()
+    }
+
+    #[doc(hidden)]
+    pub async fn has_evaluation_invalidation_subscription_for_testing(&self) -> bool {
+        self.runtime
+            .lock()
+            .await
+            ._evaluation_invalidation_subscription
+            .is_some()
+    }
+
+    #[doc(hidden)]
+    pub async fn missing_materialization_wakeup_warning_emitted_for_testing(&self) -> bool {
+        self.runtime
+            .lock()
+            .await
+            .warned_missing_materialization_wakeup
     }
 
     pub async fn has_pending_materializations(&self) -> bool {
@@ -686,6 +710,17 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
             );
         }
 
+        if runtime._evaluation_invalidation_subscription.is_none()
+            && !runtime.warned_missing_materialization_wakeup
+            && (metrics.pipeline.materialization_requests_emitted > 0
+                || runtime.session.has_pending_materializations())
+        {
+            log::warn!(
+                "async view materializations were queued without ChartRuntimeResources; completed results may not trigger a rerender"
+            );
+            runtime.warned_missing_materialization_wakeup = true;
+        }
+
         runtime.last_metrics = Some(metrics);
         runtime.last_evaluation_elapsed = Some(elapsed);
         runtime.last_scene_size = Some(scene_size);
@@ -816,6 +851,31 @@ pub async fn chart_avenger_app_with_runtime_resources(
     chart_avenger_app_inner(compiled_plot, ctx, options, Some(runtime_resources)).await
 }
 
+pub async fn chart_avenger_app_with_default_runtime_resources(
+    compiled_plot: CompiledPlot,
+    ctx: Arc<SessionContext>,
+    options: ChartAppOptions,
+) -> Result<ChartAppBundle, AvengerAppError> {
+    let render_invalidation_hub = RenderInvalidationHub::default();
+    let image_resource_resolver = Arc::new(
+        ImageResourceCache::new()
+            .with_render_invalidation_sink(Arc::new(render_invalidation_hub.clone())),
+    );
+    let runtime_resources =
+        ChartRuntimeResources::new(image_resource_resolver, render_invalidation_hub);
+    let app = chart_avenger_app_with_runtime_resources(
+        compiled_plot,
+        ctx,
+        options,
+        runtime_resources.clone(),
+    )
+    .await?;
+    Ok(ChartAppBundle {
+        app,
+        runtime_resources,
+    })
+}
+
 async fn chart_avenger_app_inner(
     compiled_plot: CompiledPlot,
     ctx: Arc<SessionContext>,
@@ -898,6 +958,11 @@ fn render_invalidation_reason_for_evaluation(
         EvaluationInvalidationReason::MaterializationCompleted { kind } => {
             RenderInvalidationReason::EvaluationChanged {
                 kind: format!("materialization:{kind}"),
+            }
+        }
+        EvaluationInvalidationReason::MaterializationDeferred { kind } => {
+            RenderInvalidationReason::EvaluationChanged {
+                kind: format!("materialization-deferred:{kind}"),
             }
         }
         _ => RenderInvalidationReason::EvaluationChanged {
@@ -1062,8 +1127,8 @@ mod tests {
     };
     use avenger_image::{ImageResourceResolver, ImageResourceState};
     use avenger_resource::{
-        RenderInvalidationHub, ResourceCachePolicy, ResourceKey, ResourceKind,
-        ResourceRequestPurpose, ResourceSource,
+        RenderInvalidationHub, RenderInvalidationReason, RenderInvalidationSchedule,
+        ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequestPurpose, ResourceSource,
     };
     use avenger_scenegraph::marks::mark::SceneMark;
     use avenger_scenegraph::scene_graph::SceneGraph;
@@ -1256,6 +1321,11 @@ mod tests {
             ChartAppOptions::default(),
             Some(resources),
         );
+        assert!(
+            state
+                .has_evaluation_invalidation_subscription_for_testing()
+                .await
+        );
 
         ChartSceneGraphBuilder
             .build(&mut state)
@@ -1288,6 +1358,78 @@ mod tests {
         assert!(
             count_image_marks(&ready_scene) > 0,
             "scene rebuilt after materialization should contain a raster image mark"
+        );
+    }
+
+    #[tokio::test]
+    async fn default_runtime_resources_constructor_installs_subscription() {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = compile_tiny_async_raster_plot(&ctx).await;
+
+        let mut bundle = chart_avenger_app_with_default_runtime_resources(
+            compiled,
+            ctx,
+            ChartAppOptions::default(),
+        )
+        .await
+        .expect("build bundled chart app");
+
+        assert!(
+            bundle
+                .app
+                .app_state_mut()
+                .has_evaluation_invalidation_subscription_for_testing()
+                .await
+        );
+        assert_eq!(bundle.runtime_resources.render_invalidation_hub.epoch(), 0);
+    }
+
+    #[tokio::test]
+    async fn missing_runtime_resources_warns_for_async_materialization() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = compile_tiny_async_raster_plot(&ctx).await;
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(ctx);
+        let mut state = ChartAppState::new(session, policy, ChartAppOptions::default());
+        assert!(
+            !state
+                .has_evaluation_invalidation_subscription_for_testing()
+                .await
+        );
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build initial async raster scene");
+
+        assert!(
+            state
+                .missing_materialization_wakeup_warning_emitted_for_testing()
+                .await
+        );
+    }
+
+    #[test]
+    fn materialization_deferred_evaluation_maps_to_delayed_render_invalidation() {
+        let request = render_invalidation_request_for_evaluation(EvaluationInvalidation {
+            epoch: 7,
+            reason: EvaluationInvalidationReason::MaterializationDeferred {
+                kind: MaterializationKind::new("rasterize-2d"),
+            },
+            schedule: EvaluationInvalidationSchedule::After(Duration::from_millis(25)),
+        });
+
+        assert_eq!(
+            request.reason,
+            RenderInvalidationReason::EvaluationChanged {
+                kind: "materialization-deferred:rasterize-2d".to_string()
+            }
+        );
+        assert_eq!(
+            request.schedule,
+            RenderInvalidationSchedule::After(Duration::from_millis(25))
         );
     }
 
