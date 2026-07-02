@@ -399,6 +399,7 @@ async fn apply_view_mark_data_transforms(
             transform.view_materialization_request(&dataframe, &materialization_ctx)?
         {
             materialization.request.policy = materialization_ctx.policy;
+            materialization.request.priority = materialization_ctx.priority;
             eval_ctx.request_materialization(materialization.request.clone());
             dataframe = dataframe_for_materialization_display(&materialization, ctx, eval_ctx)?;
             continue;

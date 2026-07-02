@@ -1377,6 +1377,23 @@ fn options_for_evaluation_mode(
     options
 }
 
+fn materialization_priority_bias_for_evaluation_mode(mode: EvaluationMode) -> f32 {
+    match mode {
+        EvaluationMode::Preview => -1.0,
+        EvaluationMode::Exact | EvaluationMode::ForceRemeasure => 1.0,
+    }
+}
+
+fn apply_evaluation_mode_materialization_priority(
+    evaluated: &mut EvaluatedPlot,
+    mode: EvaluationMode,
+) {
+    let priority_bias = materialization_priority_bias_for_evaluation_mode(mode);
+    for request in &mut evaluated.materialization_requests {
+        request.priority += priority_bias;
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EvaluationRequestSummary {
     mode: EvaluationMode,
@@ -1735,9 +1752,10 @@ impl PlotSession {
                     )
                     .await?;
                 preview_attempt_duration += preview_attempt_start.elapsed();
-                if let Some((evaluated, mut metrics, layout_profile)) = attempt.reused {
+                if let Some((mut evaluated, mut metrics, layout_profile)) = attempt.reused {
                     metrics.mode = mode;
                     metrics.record_preview_attempt_duration(preview_attempt_duration);
+                    apply_evaluation_mode_materialization_priority(&mut evaluated, mode);
                     self.commit_root_params(next_params.clone());
                     self.last_request = Some(EvaluationRequestSummary {
                         mode,
@@ -1755,7 +1773,7 @@ impl PlotSession {
                 preview_fallback_reasons.push(PreviewProfileFallbackReason::NoPriorProfile);
             }
 
-            let (evaluated, mut metrics, layout_profile) = self
+            let (mut evaluated, mut metrics, layout_profile) = self
                 .program
                 .evaluate_with_options_and_metrics_with_scale_domain_cache(
                     self.ctx.as_ref(),
@@ -1777,6 +1795,7 @@ impl PlotSession {
             metrics.record_preview_attempt_duration(preview_attempt_duration);
             metrics.record_preview_profile_miss();
             metrics.record_preview_fallback();
+            apply_evaluation_mode_materialization_priority(&mut evaluated, mode);
             if preview_fallback_reasons.iter().any(|reason| {
                 matches!(
                     reason,
@@ -1799,7 +1818,7 @@ impl PlotSession {
             return Ok((evaluated, metrics));
         }
 
-        let (evaluated, mut metrics, layout_profile) = self
+        let (mut evaluated, mut metrics, layout_profile) = self
             .program
             .evaluate_with_options_and_metrics_with_scale_domain_cache(
                 self.ctx.as_ref(),
@@ -1818,6 +1837,7 @@ impl PlotSession {
             )
             .await?;
         metrics.mode = mode;
+        apply_evaluation_mode_materialization_priority(&mut evaluated, mode);
         self.commit_root_params(next_params.clone());
         self.last_request = Some(EvaluationRequestSummary {
             mode,
@@ -4865,6 +4885,10 @@ mod tests {
             .first()
             .expect("initial materialization request")
             .clone();
+        assert!(
+            initial_request.priority > 0.0,
+            "settled materialization requests should be prioritized over transient previews"
+        );
         session.materialization_cache().lock().unwrap().mark_ready(
             &initial_request,
             MaterializationResult::RecordBatch(materialized_view_batch(
@@ -4908,6 +4932,10 @@ mod tests {
             .materialization_requests
             .first()
             .expect("panned materialization request");
+        assert!(
+            desired_request.priority < initial_request.priority,
+            "preview materialization requests should stay lower priority than settled requests"
+        );
         assert_ne!(initial_request.key, desired_request.key);
         assert!(
             desired_request.key.as_ref().contains("x=2.000000:6.000000"),
@@ -4958,6 +4986,10 @@ mod tests {
             .first()
             .expect("initial rasterization request")
             .clone();
+        assert!(
+            initial_request.priority > 0.0,
+            "settled raster materialization requests should be prioritized over transient previews"
+        );
 
         for _ in 0..100 {
             if session
@@ -5014,6 +5046,10 @@ mod tests {
             .materialization_requests
             .first()
             .expect("panned rasterization request");
+        assert!(
+            desired_request.priority < initial_request.priority,
+            "preview raster materialization requests should stay lower priority than settled requests"
+        );
         assert_ne!(initial_request.key, desired_request.key);
         assert_eq!(initial_request.identity, desired_request.identity);
 
