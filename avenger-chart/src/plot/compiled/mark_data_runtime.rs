@@ -259,8 +259,7 @@ async fn apply_mark_data_transforms(
 fn materialization_policy_for_view(view_scope: &CompiledViewScope) -> MaterializationPolicy {
     let policy = view_scope.spec.policy();
     MaterializationPolicy {
-        allow_stale: policy.preview_cached
-            || matches!(policy.stale_policy, ViewStalePolicy::RetargetCached),
+        allow_stale: matches!(policy.stale_policy, ViewStalePolicy::RetargetCached),
     }
 }
 
@@ -2286,6 +2285,7 @@ mod tests {
         cache: Arc<Mutex<MaterializationCache>>,
         key: &str,
         identity: &str,
+        preview_cached: bool,
     ) -> Result<(PreparedMarkData, EvaluationContext), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let df = xy_dataframe(&session);
@@ -2295,7 +2295,7 @@ mod tests {
                 .id("materialized")
                 .x_domain(col("x"))
                 .y_domain(col("y"))
-                .preview_cached(true),
+                .preview_cached(preview_cached),
             |mark, _view| {
                 mark.transform_no_output(FakeMaterializedTransform::new(key, identity), |mark| {
                     mark.x(ChannelValue::from(col("mx")).no_scale())
@@ -2689,7 +2689,7 @@ mod tests {
         );
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache, "desired", "scope").await?;
+            prepare_fake_materialized_view_mark(cache, "desired", "scope", true).await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![1.0, 2.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![3.0, 4.0]);
@@ -2703,7 +2703,7 @@ mod tests {
         let cache = Arc::new(Mutex::new(MaterializationCache::default()));
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache.clone(), "missing", "scope").await?;
+            prepare_fake_materialized_view_mark(cache.clone(), "missing", "scope", true).await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert!(values_as_f64(&data_batch, "x").is_empty());
         assert!(values_as_f64(&data_batch, "y").is_empty());
@@ -2737,10 +2737,44 @@ mod tests {
         );
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope").await?;
+            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope", true).await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![9.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![8.0]);
+        assert_eq!(eval_ctx.materialization_requests_snapshot().len(), 1);
+        assert_eq!(
+            cache
+                .lock()
+                .expect("cache lock")
+                .status(&avenger_chart_core::MaterializationKey::new("desired")),
+            MaterializationStatus::Queued
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_hides_stale_view_materialization_when_preview_cache_disabled()
+    -> Result<(), AvengerChartError> {
+        let cache = Arc::new(Mutex::new(MaterializationCache::default()));
+        let stale = avenger_chart_core::MaterializationRequest::new(
+            "stale",
+            "fake-materialized",
+            avenger_chart_core::MaterializationOutputKind::RecordBatch,
+        )
+        .identity("scope");
+        cache.lock().expect("cache lock").mark_ready(
+            &stale,
+            avenger_chart_core::MaterializationResult::RecordBatch(materialized_batch(
+                vec![9.0],
+                vec![8.0],
+            )),
+        );
+
+        let (prepared, eval_ctx) =
+            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope", false).await?;
+        let data_batch = prepared.data_batch.expect("array data");
+        assert!(values_as_f64(&data_batch, "x").is_empty());
+        assert!(values_as_f64(&data_batch, "y").is_empty());
         assert_eq!(eval_ctx.materialization_requests_snapshot().len(), 1);
         assert_eq!(
             cache

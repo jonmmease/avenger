@@ -38,7 +38,7 @@ impl Default for ViewAsyncPolicy {
     fn default() -> Self {
         Self {
             preview_cached: false,
-            stale_policy: ViewStalePolicy::RetargetCached,
+            stale_policy: ViewStalePolicy::HideUntilReady,
             throttle: None,
             debounce: None,
         }
@@ -62,6 +62,7 @@ pub struct CartesianView {
     x_domain: Option<Expr>,
     y_domain: Option<Expr>,
     policy: ViewAsyncPolicy,
+    stale_policy_explicit: bool,
 }
 
 impl CartesianView {
@@ -82,11 +83,18 @@ impl CartesianView {
 
     pub fn preview_cached(mut self, preview_cached: bool) -> Self {
         self.policy.preview_cached = preview_cached;
+        if preview_cached {
+            self.policy.stale_policy = ViewStalePolicy::RetargetCached;
+        } else if !self.stale_policy_explicit {
+            self.policy.stale_policy = ViewStalePolicy::HideUntilReady;
+        }
         self
     }
 
     pub fn stale_policy(mut self, stale_policy: ViewStalePolicy) -> Self {
         self.policy.stale_policy = stale_policy;
+        self.policy.preview_cached = matches!(stale_policy, ViewStalePolicy::RetargetCached);
+        self.stale_policy_explicit = true;
         self
     }
 
@@ -402,6 +410,14 @@ mod tests {
         }
     }
 
+    fn compiled_policy(view: CartesianView) -> ViewAsyncPolicy {
+        view.into_compiled_and_ref()
+            .expect("compile view")
+            .0
+            .policy()
+            .clone()
+    }
+
     #[test]
     fn view_ref_uses_stable_reserved_placeholders() {
         let (_, view_ref) = View::cartesian()
@@ -418,6 +434,36 @@ mod tests {
         assert_eq!(
             placeholder_id(view_ref.y().pixels()),
             "$__avenger_view_pickup_density_y_pixels"
+        );
+    }
+
+    #[test]
+    fn preview_cached_sets_stale_policy_sugar() {
+        let base = View::cartesian()
+            .id("density")
+            .x_domain(col("x"))
+            .y_domain(col("y"));
+
+        let default_policy = compiled_policy(base.clone());
+        assert!(!default_policy.preview_cached);
+        assert_eq!(default_policy.stale_policy, ViewStalePolicy::HideUntilReady);
+
+        let preview_policy = compiled_policy(base.clone().preview_cached(true));
+        assert!(preview_policy.preview_cached);
+        assert_eq!(preview_policy.stale_policy, ViewStalePolicy::RetargetCached);
+
+        let hidden_policy = compiled_policy(base.clone().preview_cached(false));
+        assert!(!hidden_policy.preview_cached);
+        assert_eq!(hidden_policy.stale_policy, ViewStalePolicy::HideUntilReady);
+
+        let explicit_policy = compiled_policy(
+            base.stale_policy(ViewStalePolicy::RetargetCached)
+                .preview_cached(false),
+        );
+        assert!(!explicit_policy.preview_cached);
+        assert_eq!(
+            explicit_policy.stale_policy,
+            ViewStalePolicy::RetargetCached
         );
     }
 
