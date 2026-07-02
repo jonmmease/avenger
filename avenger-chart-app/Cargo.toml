@@ -56,11 +56,43 @@ name = "canvas_width_height_scatter"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "box_plot_compound_interaction"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "cartesian_pan"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "cartesian_box_zoom"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_colorbar_interval_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_equality_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "cartesian_image_mark"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_instanced_pan_10k"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_instanced_pan_stress"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_legend_opacity_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "cartesian_store_sharing_selection"
 required-features = ["winit-wgpu"]
 
 [[example]]
@@ -145,4 +177,28 @@ required-features = ["winit-wgpu"]
 
 [[example]]
 name = "treemap_decorated_click_to_zoom"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "parallel_axis_brush_selection"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "parallel_coordinates_header_drag_reorder"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "repeat_splom_box_select"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "repeat_splom_pan_zoom"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "repeated_grouped_bar_cross_filter"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "temporal_nested_cross_filter"
 required-features = ["winit-wgpu"]
