@@ -69,7 +69,25 @@ impl MaterializationCache {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn running_count(&self) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| matches!(entry, MaterializationCacheEntry::Running(_)))
+            .count()
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn enqueue(&mut self, request: MaterializationRequest) -> MaterializationStatus {
+        let dropped = self.drop_stale_queued_for_request(&request);
+        if dropped > 0 {
+            tracing::debug!(
+                target: "avenger_chart::materialization",
+                key = %request.key,
+                dropped,
+                "dropped stale queued materialization requests"
+            );
+        }
+
         match self.entries.get_mut(&request.key) {
             None => {
                 self.entries.insert(
@@ -94,6 +112,24 @@ impl MaterializationCache {
                 MaterializationStatus::Queued
             }
         }
+    }
+
+    fn drop_stale_queued_for_request(&mut self, request: &MaterializationRequest) -> usize {
+        let Some(identity) = request.identity.as_ref() else {
+            return 0;
+        };
+        let before = self.entries.len();
+        self.entries.retain(|key, entry| {
+            if key == &request.key {
+                return true;
+            }
+            !matches!(
+                entry,
+                MaterializationCacheEntry::Queued(existing)
+                    if existing.identity.as_ref() == Some(identity)
+            )
+        });
+        before.saturating_sub(self.entries.len())
     }
 
     #[allow(dead_code)]
@@ -270,6 +306,62 @@ mod tests {
         cache.enqueue(ready.clone());
         cache.mark_ready(&ready, empty_result());
         assert!(!cache.has_pending());
+    }
+
+    #[test]
+    fn enqueue_drops_stale_queued_requests_for_same_identity() {
+        let mut cache = MaterializationCache::default();
+        let queued = request("key/a", "scope/a", 0.0);
+        let replacement = request("key/b", "scope/a", 0.0);
+        let other_scope = request("key/c", "scope/c", 0.0);
+        let running = request("key/d", "scope/a", 0.0);
+        let ready = request("key/e", "scope/a", 0.0);
+
+        cache.enqueue(queued.clone());
+        cache.enqueue(other_scope.clone());
+        cache.enqueue(running.clone());
+        assert!(cache.mark_running(&running.key));
+        cache.enqueue(ready.clone());
+        cache.mark_ready(&ready, empty_result());
+
+        assert_eq!(
+            cache.enqueue(replacement.clone()),
+            MaterializationStatus::Queued
+        );
+
+        assert_eq!(cache.status(&queued.key), MaterializationStatus::Missing);
+        assert_eq!(
+            cache.status(&replacement.key),
+            MaterializationStatus::Queued
+        );
+        assert_eq!(
+            cache.status(&other_scope.key),
+            MaterializationStatus::Queued
+        );
+        assert_eq!(cache.status(&running.key), MaterializationStatus::Running);
+        assert_eq!(cache.status(&ready.key), MaterializationStatus::Ready);
+    }
+
+    #[test]
+    fn running_count_tracks_running_entries() {
+        let mut cache = MaterializationCache::default();
+        let first = request("key/a", "scope/a", 0.0);
+        let second = request("key/b", "scope/b", 0.0);
+
+        assert_eq!(cache.running_count(), 0);
+        cache.enqueue(first.clone());
+        cache.enqueue(second.clone());
+        assert_eq!(cache.running_count(), 0);
+
+        assert!(cache.mark_running(&first.key));
+        assert_eq!(cache.running_count(), 1);
+        assert!(cache.mark_running(&second.key));
+        assert_eq!(cache.running_count(), 2);
+
+        cache.mark_ready(&first, empty_result());
+        assert_eq!(cache.running_count(), 1);
+        cache.mark_error(&second, "failed".to_string());
+        assert_eq!(cache.running_count(), 0);
     }
 
     #[test]

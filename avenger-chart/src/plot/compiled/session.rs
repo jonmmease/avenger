@@ -62,6 +62,8 @@ use super::{
     materialization::{MaterializationCache, MaterializationCacheHandle},
 };
 
+const MAX_CONCURRENT_MATERIALIZATIONS: usize = 2;
+
 pub(crate) type ScaleDomainCacheHandle = Arc<Mutex<ScaleDomainCache>>;
 pub(crate) type FacetSemanticCacheHandle = Arc<Mutex<PartitionSlotCache>>;
 pub(crate) type FacetScaleBuilderPrecomputeCacheHandle =
@@ -1633,6 +1635,17 @@ impl PlotSession {
     }
 
     fn schedule_materialization_requests(&self, requests: &[MaterializationRequest]) {
+        let mut requests = requests.iter().collect::<Vec<_>>();
+        requests.sort_by(|left, right| right.priority.total_cmp(&left.priority));
+        let mut starts_remaining = {
+            let running = self
+                .materialization_cache
+                .lock()
+                .expect("materialization cache lock poisoned")
+                .running_count();
+            MAX_CONCURRENT_MATERIALIZATIONS.saturating_sub(running)
+        };
+
         for request in requests {
             let Some(executor) = self.materialization_registry.get(&request.kind) else {
                 tracing::debug!(
@@ -1643,6 +1656,17 @@ impl PlotSession {
                 );
                 continue;
             };
+            if starts_remaining == 0 {
+                tracing::debug!(
+                    target: "avenger_chart::materialization",
+                    key = %request.key,
+                    kind = %request.kind,
+                    priority = request.priority,
+                    max_concurrent = MAX_CONCURRENT_MATERIALIZATIONS,
+                    "deferring materialization request because concurrency limit is reached"
+                );
+                continue;
+            }
             let should_start = self
                 .materialization_cache
                 .lock()
@@ -1659,6 +1683,7 @@ impl PlotSession {
             if !should_start {
                 continue;
             }
+            starts_remaining = starts_remaining.saturating_sub(1);
 
             let request = request.clone();
             let cache = self.materialization_cache.clone();
@@ -5209,6 +5234,58 @@ mod tests {
             MaterializationResult::RecordBatch(materialized_view_batch(vec![0.0], vec![0.0])),
         );
         assert!(!session.has_pending_materializations());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_starts_high_priority_materializations_with_concurrency_limit()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .mark(Symbol::new().x(0.0).y(0.0))
+                .compile(ctx.as_ref())
+                .await?,
+        );
+        let session = compiled.instantiate(ctx);
+        let low = MaterializationRequest::new(
+            "materialization/low",
+            avenger_chart_transforms::RASTERIZE_2D_MATERIALIZATION_KIND,
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity("materialization/low")
+        .priority(-1.0);
+        let mid = MaterializationRequest::new(
+            "materialization/mid",
+            avenger_chart_transforms::RASTERIZE_2D_MATERIALIZATION_KIND,
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity("materialization/mid")
+        .priority(1.0);
+        let high = MaterializationRequest::new(
+            "materialization/high",
+            avenger_chart_transforms::RASTERIZE_2D_MATERIALIZATION_KIND,
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity("materialization/high")
+        .priority(2.0);
+
+        {
+            let cache = session.materialization_cache();
+            let mut cache = cache.lock().unwrap();
+            cache.enqueue(low.clone());
+            cache.enqueue(mid.clone());
+            cache.enqueue(high.clone());
+        }
+
+        session.schedule_materialization_requests(&[low.clone(), mid.clone(), high.clone()]);
+
+        let cache = session.materialization_cache();
+        let cache = cache.lock().unwrap();
+        assert_eq!(cache.status(&low.key), MaterializationStatus::Queued);
+        assert_ne!(cache.status(&mid.key), MaterializationStatus::Queued);
+        assert_ne!(cache.status(&high.key), MaterializationStatus::Queued);
 
         Ok(())
     }
