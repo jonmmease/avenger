@@ -31,10 +31,12 @@ use avenger_chart::{
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::{
-    arrow::{compute::concat_batches, record_batch::RecordBatch},
+    arrow::{compute::concat_batches, datatypes::DataType, record_batch::RecordBatch},
     dataframe::DataFrame,
     datasource::MemTable,
     error::{DataFusionError, Result as DataFusionResult},
+    functions::expr_fn::{abs, floor},
+    logical_expr::{expr_fn::cast, when},
     prelude::{ParquetReadOptions, SessionContext},
     scalar::ScalarValue,
 };
@@ -46,6 +48,8 @@ const PAN_FRAMES: usize = 5;
 const TAXI_TABLE: &str = "taxi_pickups";
 const TAXI_MAX_ROWS: usize = 1_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
+// Taxi coordinates are projected meters; keep deep-zoom raster cells aggregating nearby trips.
+const MIN_RASTER_PIXEL_DOMAIN_SIZE: f64 = 20.0;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -187,11 +191,19 @@ async fn build_plot(
                             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
                                 .x(|x| {
                                     x.extent(view.x().domain_start(), view.x().domain_end())
-                                        .bins(view.x().pixels())
+                                        .bins(raster_bins_with_min_domain_size(
+                                            view.x().domain_start(),
+                                            view.x().domain_end(),
+                                            view.x().pixels(),
+                                        ))
                                 })
                                 .y(|y| {
                                     y.extent(view.y().domain_start(), view.y().domain_end())
-                                        .bins(view.y().pixels())
+                                        .bins(raster_bins_with_min_domain_size(
+                                            view.y().domain_start(),
+                                            view.y().domain_end(),
+                                            view.y().pixels(),
+                                        ))
                                 })
                                 .agg("count"),
                             |mark, hist| {
@@ -452,6 +464,20 @@ fn list_domain(min: f64, max: f64) -> ScalarValue {
         &datafusion::arrow::datatypes::DataType::Float64,
         true,
     ))
+}
+
+fn raster_bins_with_min_domain_size(start: Expr, stop: Expr, view_pixels: Expr) -> Expr {
+    let view_pixels = cast(view_pixels, DataType::Float64);
+    let span_limited_bins = floor(abs(stop - start) / lit(MIN_RASTER_PIXEL_DOMAIN_SIZE));
+    let domain_limited_bins = when(span_limited_bins.clone().gt(lit(1.0)), span_limited_bins)
+        .otherwise(lit(1.0))
+        .expect("valid minimum raster bin count expression");
+    when(
+        domain_limited_bins.clone().lt(view_pixels.clone()),
+        domain_limited_bins,
+    )
+    .otherwise(view_pixels)
+    .expect("valid raster bin count expression")
 }
 
 fn no_scene_rtree_request(request: EvaluationRequest) -> EvaluationRequest {

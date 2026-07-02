@@ -70,8 +70,9 @@ impl<'a> ScaleProvider for DynamicScaleProvider<'a> {
 ///
 /// View transforms can depend on scale domains, plot-area ranges, and pixel
 /// dimensions. This provider first builds provisional scales from the ordinary
-/// domain builder, then prepares view-local mark data with those scales so
-/// non-position channels can infer domains from the materialized view output.
+/// domain builder, then prepares view-local mark data with those scales in a
+/// cache-read-only mode so non-position channels can infer domains from ready
+/// materialized view output without launching work from layout probing.
 pub struct ViewAwareScaleProvider<'a> {
     pub builder: &'a ScaleBuilder,
     pub plot: &'a CompiledPlot,

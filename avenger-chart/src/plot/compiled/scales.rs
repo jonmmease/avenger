@@ -20,7 +20,9 @@ use crate::{facet::evaluated_facet_tree::EvaluatedFacetTree, serialization::Logi
 use super::{
     CompiledPlot, LogicalMarkDataRequest, MarkDataRequest,
     mark_data_runtime::PreparedLogicalMarkData,
-    mark_data_runtime::{eval_ctx_with_view_params, prepare_view_logical_mark_data},
+    mark_data_runtime::{
+        ViewMaterializationHandling, eval_ctx_with_view_params, prepare_view_logical_mark_data,
+    },
     prepare_logical_mark_data,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
@@ -210,6 +212,7 @@ async fn prepare_view_materialized_scale_mark_for_plot(
             &base_prepared,
             &request,
             &view_eval_ctx,
+            ViewMaterializationHandling::ScaleInferenceReadOnly,
         ))
         .await?;
         let mut domain_channels = view_prepared.domain_channels.clone();

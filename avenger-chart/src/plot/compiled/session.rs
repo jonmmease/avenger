@@ -5255,9 +5255,105 @@ mod tests {
             "__tool_pan_scroll_zoom__x_domain".to_string(),
             list_domain(0.5, 1.5),
         );
+        let (_pending_plot, pending) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch.clone()))
+            .await?;
+        assert!(
+            pending.pipeline.materialization_stale_fallback_used >= 1,
+            "pending exact evaluation should draw the previous ready raster as stale fallback"
+        );
+        assert_eq!(
+            retained_fill_domain(&session)?,
+            ready_domain,
+            "pending exact evaluation should scale the stale raster with its stale inferred fill domain"
+        );
+
         let updated = evaluate_exact_until_settled(&mut session, Some(patch)).await?;
         assert!(updated.pipeline.materialization_ready_used >= 1);
         assert_eq!(retained_fill_domain(&session)?, (0.0, 1.0));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rasterize_view_exact_idle_does_not_reschedule_materialization()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            compile_pan_scroll_zoom_rasterized_view_scope_plot_without_fill_domain(&ctx).await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        let (warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(
+            warmup_metrics.pipeline.materialization_requests_emitted, 1,
+            "cold exact evaluation should emit only the final render-pass view materialization request"
+        );
+        assert_eq!(warmup_metrics.pipeline.materialization_queued, 1);
+        let initial_key = warmup
+            .materialization_requests
+            .first()
+            .expect("initial rasterization request")
+            .key
+            .as_ref()
+            .to_string();
+        wait_for_session_materializations(&session).await;
+
+        let (ready_plot, ready_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            ready_metrics.pipeline.materialization_ready_used > 0,
+            "settled exact evaluation should consume the ready raster"
+        );
+        assert_eq!(
+            ready_metrics.pipeline.materialization_queued, 0,
+            "ready exact evaluation should not queue another raster"
+        );
+        assert_eq!(
+            ready_metrics.pipeline.materialization_stale_fallback_used, 0,
+            "unchanged exact evaluation should not need stale raster fallback"
+        );
+        let ready_keys = ready_plot
+            .materialization_requests
+            .iter()
+            .map(|request| request.key.as_ref().to_string())
+            .collect::<Vec<_>>();
+        assert_eq!(ready_keys, vec![initial_key.clone()]);
+
+        for iteration in 0..3 {
+            let (idle_plot, idle_metrics) = session
+                .evaluate_with_metrics(EvaluationRequest::new().exact())
+                .await?;
+            assert_eq!(
+                idle_metrics.pipeline.materialization_queued, 0,
+                "idle exact evaluation {iteration} should not queue a new raster"
+            );
+            assert_eq!(
+                idle_metrics.pipeline.materialization_running, 0,
+                "idle exact evaluation {iteration} should not restart rasterization"
+            );
+            assert_eq!(
+                idle_metrics.pipeline.materialization_stale_fallback_used, 0,
+                "idle exact evaluation {iteration} should not fall back to a stale raster"
+            );
+            let idle_keys = idle_plot
+                .materialization_requests
+                .iter()
+                .map(|request| request.key.as_ref().to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                idle_keys,
+                vec![initial_key.clone()],
+                "idle exact evaluation {iteration} should keep requesting the same ready raster key"
+            );
+            assert!(
+                !session.has_pending_materializations(),
+                "idle exact evaluation {iteration} should leave no pending raster work"
+            );
+        }
 
         Ok(())
     }

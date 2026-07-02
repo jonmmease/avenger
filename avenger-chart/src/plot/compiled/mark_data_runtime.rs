@@ -170,9 +170,35 @@ fn aggregate_channels_need_preparation(
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ViewMaterializationHandling {
-    DisplayData,
-    ScheduleOnly,
+pub(crate) enum ViewMaterializationHandling {
+    RenderAndSchedule,
+    ScaleInferenceReadOnly,
+    PreviewRetargetScheduleOnly,
+}
+
+impl ViewMaterializationHandling {
+    fn emits_request(self) -> bool {
+        matches!(
+            self,
+            Self::RenderAndSchedule | Self::PreviewRetargetScheduleOnly
+        )
+    }
+
+    fn enqueues_cache_miss(self) -> bool {
+        matches!(
+            self,
+            Self::RenderAndSchedule | Self::PreviewRetargetScheduleOnly
+        )
+    }
+
+    fn uses_stale_fallback(self) -> bool {
+        matches!(
+            self,
+            Self::RenderAndSchedule
+                | Self::ScaleInferenceReadOnly
+                | Self::PreviewRetargetScheduleOnly
+        )
+    }
 }
 
 enum TransformChainMode<'a> {
@@ -327,15 +353,16 @@ async fn execute_transform_chain(
             {
                 materialization.request.policy = materialization_ctx.policy;
                 materialization.request.priority = materialization_ctx.priority;
-                eval_ctx.request_materialization(materialization.request.clone());
-                match materialization_handling {
-                    ViewMaterializationHandling::DisplayData
-                    | ViewMaterializationHandling::ScheduleOnly => {
-                        dataframe =
-                            dataframe_for_materialization_display(&materialization, ctx, eval_ctx)?;
-                    }
+                if materialization_handling.emits_request() {
+                    eval_ctx.request_materialization(materialization.request.clone());
+                    materialization_request_count += 1;
                 }
-                materialization_request_count += 1;
+                dataframe = dataframe_for_materialization_display(
+                    &materialization,
+                    ctx,
+                    eval_ctx,
+                    *materialization_handling,
+                )?;
                 continue;
             }
         }
@@ -396,6 +423,7 @@ fn dataframe_for_materialization_display(
     materialization: &ViewMaterializationRequest,
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
+    handling: ViewMaterializationHandling,
 ) -> Result<DataFrame, AvengerChartError> {
     let Some(cache) = eval_ctx.materialization_cache() else {
         eval_ctx.record_materialization_cache_miss();
@@ -413,23 +441,28 @@ fn dataframe_for_materialization_display(
     }
 
     eval_ctx.record_materialization_cache_miss();
-    match cache.enqueue(materialization.request.clone()) {
-        MaterializationStatus::Queued => eval_ctx.record_materialization_queued(),
-        MaterializationStatus::Running => eval_ctx.record_materialization_running(),
-        MaterializationStatus::Ready => {
-            eval_ctx.record_materialization_cache_hit();
-            eval_ctx.record_materialization_ready_used();
+    if handling.enqueues_cache_miss() {
+        match cache.enqueue(materialization.request.clone()) {
+            MaterializationStatus::Queued => eval_ctx.record_materialization_queued(),
+            MaterializationStatus::Running => eval_ctx.record_materialization_running(),
+            MaterializationStatus::Ready => {
+                eval_ctx.record_materialization_cache_hit();
+                eval_ctx.record_materialization_ready_used();
+            }
+            MaterializationStatus::Error(_) => eval_ctx.record_materialization_error(),
+            MaterializationStatus::Missing => {}
         }
-        MaterializationStatus::Error(_) => eval_ctx.record_materialization_error(),
-        MaterializationStatus::Missing => {}
     }
 
-    if materialization.request.policy.allow_stale
+    if handling.uses_stale_fallback()
+        && materialization.request.policy.allow_stale
         && let Some(identity) = &materialization.request.identity
         && let Some((_key, result)) =
             cache.stale_fallback_ready(identity, materialization.request.priority)
     {
-        eval_ctx.record_materialization_stale_fallback_used();
+        if handling != ViewMaterializationHandling::ScaleInferenceReadOnly {
+            eval_ctx.record_materialization_stale_fallback_used();
+        }
         return dataframe_from_materialization_result(result, ctx);
     }
 
@@ -447,6 +480,7 @@ async fn apply_view_mark_data_transforms(
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     mark_facet_data_scope: FacetDataScope,
     view_scope: &CompiledViewScope,
+    materialization_handling: ViewMaterializationHandling,
 ) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
     let outcome = execute_transform_chain(
         dataframe,
@@ -457,7 +491,7 @@ async fn apply_view_mark_data_transforms(
         TransformChainMode::View {
             eval_ctx,
             view_scope,
-            materialization_handling: ViewMaterializationHandling::DisplayData,
+            materialization_handling,
         },
     )
     .await?;
@@ -1530,6 +1564,7 @@ pub(crate) async fn prepare_view_logical_mark_data(
     base_prepared: &PreparedLogicalMarkData,
     request: &MarkDataRequest<'_>,
     view_eval_ctx: &EvaluationContext,
+    materialization_handling: ViewMaterializationHandling,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
     let view_channels = resolve_all_channel_refs(view_scope.data.channels(), ctx)?;
@@ -1555,6 +1590,7 @@ pub(crate) async fn prepare_view_logical_mark_data(
         request.facet_data_scope,
         mark.state().facet_data_scope,
         view_scope,
+        materialization_handling,
     )
     .await?;
     let derived_scalars =
@@ -1668,7 +1704,7 @@ async fn schedule_view_materialization_transforms(
         TransformChainMode::View {
             eval_ctx: view_eval_ctx,
             view_scope,
-            materialization_handling: ViewMaterializationHandling::ScheduleOnly,
+            materialization_handling: ViewMaterializationHandling::PreviewRetargetScheduleOnly,
         },
     )
     .await?;
@@ -1809,6 +1845,7 @@ pub(crate) async fn prepare_mark_data(
             prepared_logical,
             &request,
             &view_eval_ctx_storage,
+            ViewMaterializationHandling::RenderAndSchedule,
         )
         .await?;
         eval_ctx = &view_eval_ctx_storage;
