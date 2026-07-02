@@ -68,6 +68,10 @@ name = "webmercator_tiles"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "taxi_async_rasterize"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "cartesian_facet_pan"
 required-features = ["winit-wgpu"]
 

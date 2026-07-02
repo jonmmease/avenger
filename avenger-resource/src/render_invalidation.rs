@@ -14,6 +14,7 @@ pub struct RenderInvalidation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderInvalidationReason {
     ResourceChanged { kind: &'static str },
+    EvaluationChanged { kind: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

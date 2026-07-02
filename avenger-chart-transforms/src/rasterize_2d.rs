@@ -44,7 +44,7 @@ use std::{
     hash::{Hash, Hasher},
     mem::size_of,
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 pub const RASTERIZE_2D_MATERIALIZATION_KIND: &str = "rasterize-2d";
@@ -151,6 +151,8 @@ impl MaterializationExecutor for Rasterize2DExecutor {
         request: MaterializationRequest,
         ctx: MaterializationExecutionContext<'_>,
     ) -> Result<MaterializationResult, AvengerChartError> {
+        maybe_sleep_for_demo_delay();
+
         let spec: Rasterize2DMaterializationSpec = serde_json::from_value(request.spec.clone())
             .map_err(|err| {
                 AvengerChartError::InvalidArgument(format!(
@@ -179,6 +181,18 @@ impl MaterializationExecutor for Rasterize2DExecutor {
         let batch = collect_single_batch(result.dataframe, &params).await?;
         Ok(MaterializationResult::RecordBatch(batch))
     }
+}
+
+fn maybe_sleep_for_demo_delay() {
+    let Some(delay) = std::env::var("AVENGER_TAXI_RASTER_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|delay| *delay > 0)
+    else {
+        return;
+    };
+
+    std::thread::sleep(Duration::from_millis(delay));
 }
 
 #[serde_as]

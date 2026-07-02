@@ -21,6 +21,10 @@ use avenger_chart::{
     },
 };
 use avenger_chart_core::ScalarValueHelpers;
+use avenger_chart_core::{
+    EvaluationInvalidation, EvaluationInvalidationReason, EvaluationInvalidationSchedule,
+    EvaluationInvalidationSubscription,
+};
 use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},
@@ -28,7 +32,10 @@ use avenger_eventstream::{
 };
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceResolver};
-use avenger_resource::{RenderInvalidationHub, ResourceRequest};
+use avenger_resource::{
+    RenderInvalidationHub, RenderInvalidationReason, RenderInvalidationRequest,
+    RenderInvalidationSchedule, RenderInvalidationSink, ResourceRequest,
+};
 use avenger_scenegraph::scene_graph::SceneGraph;
 use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 use indexmap::IndexMap;
@@ -334,6 +341,7 @@ struct ChartAppRuntime {
     last_evaluation_elapsed: Option<Duration>,
     last_scene_size: Option<[f32; 2]>,
     runtime_resources: Option<ChartRuntimeResources>,
+    _evaluation_invalidation_subscription: Option<EvaluationInvalidationSubscription>,
     last_resource_requests: Vec<ResourceRequest>,
     accepted_resize_count: usize,
     event_metrics: ChartEventMetrics,
@@ -362,6 +370,8 @@ impl ChartAppState {
     ) -> Self {
         warn_about_ignored_bindings(resize_policy, &options.resize_binding);
         let params = session.params().clone();
+        let evaluation_invalidation_subscription =
+            subscribe_to_session_evaluation_invalidations(&session, runtime_resources.as_ref());
         Self {
             params: Arc::new(StdMutex::new(ChartParamState::new(params))),
             runtime: Arc::new(Mutex::new(ChartAppRuntime {
@@ -376,6 +386,7 @@ impl ChartAppState {
                 last_evaluation_elapsed: None,
                 last_scene_size: None,
                 runtime_resources,
+                _evaluation_invalidation_subscription: evaluation_invalidation_subscription,
                 last_resource_requests: Vec::new(),
                 accepted_resize_count: 0,
                 event_metrics: ChartEventMetrics::default(),
@@ -586,7 +597,7 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
 
         if runtime.log_metrics {
             eprintln!(
-                "chart eval mode={:?} elapsed={:?} scene={:.1}x{:.1} preview_reuse={} reflow_reuse={} facet_tree_builds={} facet_tree_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome_refresh={} skipped_measures={} guide_measures={}",
+                "chart eval mode={:?} elapsed={:?} scene={:.1}x{:.1} preview_reuse={} reflow_reuse={} facet_tree_builds={} facet_tree_reuse={} cell_reuse={} data_reuse={} data_miss={} chrome_refresh={} skipped_measures={} guide_measures={} materialize_emit={} materialize_ready={} materialize_fallback={} materialize_queued={} materialize_running={} materialize_errors={}",
                 metrics.mode,
                 elapsed,
                 scene_size[0],
@@ -603,6 +614,12 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
                     .facet_cell_measurement_profile_chrome_refreshes,
                 metrics.pipeline.skipped_component_measure_calls,
                 metrics.pipeline.guide_overflow_measure_calls,
+                metrics.pipeline.materialization_requests_emitted,
+                metrics.pipeline.materialization_ready_used,
+                metrics.pipeline.materialization_stale_fallback_used,
+                metrics.pipeline.materialization_queued,
+                metrics.pipeline.materialization_running,
+                metrics.pipeline.materialization_errors,
             );
         }
         if runtime.trace_resize && runtime.accepted_resize_count > 0 {
@@ -836,6 +853,54 @@ fn request_image_resources(resources: &ChartRuntimeResources, requests: &[Resour
         .filter(|request| request.kind.0 == IMAGE_RESOURCE_KIND)
     {
         resources.image_resource_resolver.request_image(request);
+    }
+}
+
+fn subscribe_to_session_evaluation_invalidations(
+    session: &PlotSession,
+    resources: Option<&ChartRuntimeResources>,
+) -> Option<EvaluationInvalidationSubscription> {
+    let render_invalidation_hub = resources?.render_invalidation_hub.clone();
+    Some(
+        session.subscribe_to_evaluation_invalidations(Arc::new(move |invalidation| {
+            render_invalidation_hub
+                .request_render(render_invalidation_request_for_evaluation(invalidation));
+        })),
+    )
+}
+
+fn render_invalidation_request_for_evaluation(
+    invalidation: EvaluationInvalidation,
+) -> RenderInvalidationRequest {
+    RenderInvalidationRequest {
+        reason: render_invalidation_reason_for_evaluation(invalidation.reason),
+        schedule: render_invalidation_schedule_for_evaluation(invalidation.schedule),
+    }
+}
+
+fn render_invalidation_reason_for_evaluation(
+    reason: EvaluationInvalidationReason,
+) -> RenderInvalidationReason {
+    match reason {
+        EvaluationInvalidationReason::MaterializationCompleted { kind } => {
+            RenderInvalidationReason::EvaluationChanged {
+                kind: format!("materialization:{kind}"),
+            }
+        }
+        _ => RenderInvalidationReason::EvaluationChanged {
+            kind: "evaluation".to_string(),
+        },
+    }
+}
+
+fn render_invalidation_schedule_for_evaluation(
+    schedule: EvaluationInvalidationSchedule,
+) -> RenderInvalidationSchedule {
+    match schedule {
+        EvaluationInvalidationSchedule::Now => RenderInvalidationSchedule::Now,
+        EvaluationInvalidationSchedule::After(duration) => {
+            RenderInvalidationSchedule::After(duration)
+        }
     }
 }
 
@@ -1095,6 +1160,112 @@ mod tests {
         assert_eq!(recorded_requests.len(), 2);
         assert_eq!(recorded_requests[0], image_request);
         assert_eq!(recorded_requests[1], prefetch_image_request);
+    }
+
+    async fn compile_tiny_async_raster_plot(ctx: &SessionContext) -> CompiledPlot {
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (0.75, 0.75), (1.0, 1.0)) AS t(x, y)")
+            .await
+            .expect("build tiny raster data");
+
+        Plot::<Cartesian>::new()
+            .canvas_size(240.0, 180.0)
+            .data(df)
+            .mark(
+                UniformRaster2D::new()
+                    .view(
+                        View::cartesian()
+                            .id("density")
+                            .x_domain(col("x"))
+                            .y_domain(col("y"))
+                            .preview_cached(true),
+                        |mark, view| {
+                            mark.transform(
+                                Rasterize2D::new(col("x"), col("y"))
+                                    .x(|x| {
+                                        x.extent(view.x().domain_start(), view.x().domain_end())
+                                            .bins(4_usize)
+                                    })
+                                    .y(|y| {
+                                        y.extent(view.y().domain_start(), view.y().domain_end())
+                                            .bins(4_usize)
+                                    })
+                                    .agg("count"),
+                                |mark, hist| {
+                                    mark.raster_with(hist.raster(), |r| {
+                                        r.x_with(hist.x_dim(), |x| {
+                                            x.scale_with::<Linear>(|scale| {
+                                                scale.nice(false).zero(false)
+                                            })
+                                            .axis(|axis| axis.visible(false))
+                                        })
+                                        .y_with(hist.y_dim(), |y| {
+                                            y.scale_with::<Linear>(|scale| {
+                                                scale.nice(false).zero(false)
+                                            })
+                                            .axis(|axis| axis.visible(false))
+                                        })
+                                        .fill(|fill| {
+                                            fill.scale_with::<Sqrt>(|scale| {
+                                                scale.domain((0.0, 4.0)).nice(false).zero(false)
+                                            })
+                                            .no_legend()
+                                        })
+                                    })
+                                },
+                            )
+                        },
+                    )
+                    .smooth(false),
+            )
+            .compile(ctx)
+            .await
+            .expect("compile tiny async raster plot")
+    }
+
+    #[tokio::test]
+    async fn materialization_completion_requests_render_invalidation() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = compile_tiny_async_raster_plot(&ctx).await;
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(ctx);
+        let render_invalidation_hub = RenderInvalidationHub::default();
+        let resources = ChartRuntimeResources::new(
+            Arc::new(RecordingImageResolver::default()),
+            render_invalidation_hub.clone(),
+        );
+        let mut state = ChartAppState::new_with_runtime_resources(
+            session,
+            policy,
+            ChartAppOptions::default(),
+            Some(resources),
+        );
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build initial async raster scene");
+        let metrics = state.last_metrics().await.expect("initial metrics");
+        assert!(
+            metrics.pipeline.materialization_queued > 0,
+            "initial evaluation should queue view-local raster materialization"
+        );
+        assert_eq!(render_invalidation_hub.epoch(), 0);
+
+        for _ in 0..200 {
+            if render_invalidation_hub.epoch() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        assert_eq!(
+            render_invalidation_hub.epoch(),
+            1,
+            "completed raster materialization should wake the render host once"
+        );
     }
 
     fn empty_rtree() -> SceneGraphRTree {
