@@ -180,6 +180,10 @@ pub struct EvaluationOptions {
     /// App hosts that immediately build their own R-tree from the returned scene
     /// graph can disable this to avoid duplicate interaction-index work.
     pub build_scene_rtree: bool,
+    /// Priority bias applied to async materialization requests emitted during this
+    /// evaluation.
+    #[doc(hidden)]
+    pub materialization_priority: f32,
 }
 
 /// Controls optional repeated facet measurement/layout passes.
@@ -210,6 +214,7 @@ impl Default for EvaluationOptions {
             debug_layout_overlay: LayoutDebugOverlayMode::Off,
             facet_layout_refinement: FacetLayoutRefinement::default(),
             build_scene_rtree: true,
+            materialization_priority: 0.0,
         }
     }
 }

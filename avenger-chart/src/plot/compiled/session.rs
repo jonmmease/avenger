@@ -59,7 +59,7 @@ use crate::{
 use super::{
     CompiledPlot, LayoutProfileSnapshot, compiled_subplot_payload_child_plot,
     legends::PreparedLegendGroup,
-    materialization::{MaterializationCache, MaterializationCacheHandle},
+    materialization::{MaterializationCache, MaterializationCacheHandle, MaterializationStart},
 };
 
 const MAX_CONCURRENT_MATERIALIZATIONS: usize = 2;
@@ -1376,6 +1376,7 @@ fn options_for_evaluation_mode(
     if mode == EvaluationMode::Preview {
         options.facet_layout_refinement.max_refinement_passes = 0;
     }
+    options.materialization_priority = materialization_priority_bias_for_evaluation_mode(mode);
     options
 }
 
@@ -1383,16 +1384,6 @@ fn materialization_priority_bias_for_evaluation_mode(mode: EvaluationMode) -> f3
     match mode {
         EvaluationMode::Preview => -1.0,
         EvaluationMode::Exact | EvaluationMode::ForceRemeasure => 1.0,
-    }
-}
-
-fn apply_evaluation_mode_materialization_priority(
-    evaluated: &mut EvaluatedPlot,
-    mode: EvaluationMode,
-) {
-    let priority_bias = materialization_priority_bias_for_evaluation_mode(mode);
-    for request in &mut evaluated.materialization_requests {
-        request.priority += priority_bias;
     }
 }
 
@@ -1667,23 +1658,44 @@ impl PlotSession {
                 );
                 continue;
             }
-            let should_start = self
+            match self
                 .materialization_cache
                 .lock()
                 .expect("materialization cache lock poisoned")
-                .mark_running(&request.key);
-            tracing::debug!(
-                target: "avenger_chart::materialization",
-                key = %request.key,
-                kind = %request.kind,
-                priority = request.priority,
-                should_start,
-                "materialization queue decision"
-            );
-            if !should_start {
-                continue;
+                .mark_running_if_ready(&request.key, Instant::now())
+            {
+                MaterializationStart::Started => {
+                    tracing::debug!(
+                        target: "avenger_chart::materialization",
+                        key = %request.key,
+                        kind = %request.kind,
+                        priority = request.priority,
+                        "materialization queue decision: start"
+                    );
+                    starts_remaining = starts_remaining.saturating_sub(1);
+                }
+                MaterializationStart::Deferred { remaining } => {
+                    tracing::debug!(
+                        target: "avenger_chart::materialization",
+                        key = %request.key,
+                        kind = %request.kind,
+                        priority = request.priority,
+                        remaining_ms = remaining.as_secs_f64() * 1000.0,
+                        "materialization queue decision: debounce defer"
+                    );
+                    continue;
+                }
+                MaterializationStart::NotStarted => {
+                    tracing::debug!(
+                        target: "avenger_chart::materialization",
+                        key = %request.key,
+                        kind = %request.kind,
+                        priority = request.priority,
+                        "materialization queue decision: skip"
+                    );
+                    continue;
+                }
             }
-            starts_remaining = starts_remaining.saturating_sub(1);
 
             let request = request.clone();
             let cache = self.materialization_cache.clone();
@@ -1818,10 +1830,9 @@ impl PlotSession {
                     )
                     .await?;
                 preview_attempt_duration += preview_attempt_start.elapsed();
-                if let Some((mut evaluated, mut metrics, layout_profile)) = attempt.reused {
+                if let Some((evaluated, mut metrics, layout_profile)) = attempt.reused {
                     metrics.mode = mode;
                     metrics.record_preview_attempt_duration(preview_attempt_duration);
-                    apply_evaluation_mode_materialization_priority(&mut evaluated, mode);
                     self.commit_root_params(next_params.clone());
                     self.last_request = Some(EvaluationRequestSummary {
                         mode,
@@ -1839,7 +1850,7 @@ impl PlotSession {
                 preview_fallback_reasons.push(PreviewProfileFallbackReason::NoPriorProfile);
             }
 
-            let (mut evaluated, mut metrics, layout_profile) = self
+            let (evaluated, mut metrics, layout_profile) = self
                 .program
                 .evaluate_with_options_and_metrics_with_scale_domain_cache(
                     self.ctx.as_ref(),
@@ -1861,7 +1872,6 @@ impl PlotSession {
             metrics.record_preview_attempt_duration(preview_attempt_duration);
             metrics.record_preview_profile_miss();
             metrics.record_preview_fallback();
-            apply_evaluation_mode_materialization_priority(&mut evaluated, mode);
             if preview_fallback_reasons.iter().any(|reason| {
                 matches!(
                     reason,
@@ -1884,7 +1894,7 @@ impl PlotSession {
             return Ok((evaluated, metrics));
         }
 
-        let (mut evaluated, mut metrics, layout_profile) = self
+        let (evaluated, mut metrics, layout_profile) = self
             .program
             .evaluate_with_options_and_metrics_with_scale_domain_cache(
                 self.ctx.as_ref(),
@@ -1903,7 +1913,6 @@ impl PlotSession {
             )
             .await?;
         metrics.mode = mode;
-        apply_evaluation_mode_materialization_priority(&mut evaluated, mode);
         self.commit_root_params(next_params.clone());
         self.last_request = Some(EvaluationRequestSummary {
             mode,
@@ -3431,57 +3440,65 @@ mod tests {
     async fn compile_pan_scroll_zoom_rasterized_view_scope_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
+        compile_pan_scroll_zoom_rasterized_view_scope_plot_with_policy(ctx, None).await
+    }
+
+    async fn compile_pan_scroll_zoom_rasterized_view_scope_plot_with_policy(
+        ctx: &SessionContext,
+        debounce: Option<Duration>,
+    ) -> Result<CompiledPlot, AvengerChartError> {
         let df = ctx
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0)) AS t(x, y)")
             .await?;
+        let mut view = View::cartesian()
+            .id("density")
+            .x_domain(col("x"))
+            .y_domain(col("y"))
+            .preview_cached(true);
+        if let Some(debounce) = debounce {
+            view = view.debounce(debounce);
+        }
         Plot::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
                 UniformRaster2D::new()
-                    .view(
-                        View::cartesian()
-                            .id("density")
-                            .x_domain(col("x"))
-                            .y_domain(col("y"))
-                            .preview_cached(true),
-                        |mark, view| {
-                            mark.transform(
-                                Rasterize2D::new(col("x"), col("y"))
-                                    .x(|x| {
-                                        x.extent(view.x().domain_start(), view.x().domain_end())
-                                            .bins(2_usize)
-                                    })
-                                    .y(|y| {
-                                        y.extent(view.y().domain_start(), view.y().domain_end())
-                                            .bins(2_usize)
-                                    })
-                                    .agg("count"),
-                                |mark, hist| {
-                                    mark.raster_with(hist.raster(), |raster| {
-                                        raster
-                                            .x_with(hist.x_dim(), |x| {
-                                                x.scale_with::<Linear>(|scale| {
-                                                    scale.nice(false).zero(false)
-                                                })
-                                                .axis(|axis| axis.visible(false))
+                    .view(view, |mark, view| {
+                        mark.transform(
+                            Rasterize2D::new(col("x"), col("y"))
+                                .x(|x| {
+                                    x.extent(view.x().domain_start(), view.x().domain_end())
+                                        .bins(2_usize)
+                                })
+                                .y(|y| {
+                                    y.extent(view.y().domain_start(), view.y().domain_end())
+                                        .bins(2_usize)
+                                })
+                                .agg("count"),
+                            |mark, hist| {
+                                mark.raster_with(hist.raster(), |raster| {
+                                    raster
+                                        .x_with(hist.x_dim(), |x| {
+                                            x.scale_with::<Linear>(|scale| {
+                                                scale.nice(false).zero(false)
                                             })
-                                            .y_with(hist.y_dim(), |y| {
-                                                y.scale_with::<Linear>(|scale| {
-                                                    scale.nice(false).zero(false)
-                                                })
-                                                .axis(|axis| axis.visible(false))
+                                            .axis(|axis| axis.visible(false))
+                                        })
+                                        .y_with(hist.y_dim(), |y| {
+                                            y.scale_with::<Linear>(|scale| {
+                                                scale.nice(false).zero(false)
                                             })
-                                            .fill(|fill| {
-                                                fill.scale_with::<Sqrt>(|scale| {
-                                                    scale.domain((0.0, 4.0)).nice(false).zero(false)
-                                                })
+                                            .axis(|axis| axis.visible(false))
+                                        })
+                                        .fill(|fill| {
+                                            fill.scale_with::<Sqrt>(|scale| {
+                                                scale.domain((0.0, 4.0)).nice(false).zero(false)
                                             })
-                                    })
-                                },
-                            )
-                        },
-                    )
+                                        })
+                                })
+                            },
+                        )
+                    })
                     .smooth(false),
             )
             .tool(PanScrollZoom::cartesian())
@@ -5123,6 +5140,112 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pan_scroll_zoom_debounces_preview_rasterize_then_starts_settled_view()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let debounce = Duration::from_secs(60);
+        let compiled = Arc::new(
+            compile_pan_scroll_zoom_rasterized_view_scope_plot_with_policy(&ctx, Some(debounce))
+                .await?,
+        );
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (warmup, _warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        let initial_request = warmup
+            .materialization_requests
+            .first()
+            .expect("initial rasterization request")
+            .clone();
+        assert!(
+            initial_request.priority > 0.0,
+            "initial exact rasterization should bypass preview debounce"
+        );
+
+        for _ in 0..100 {
+            if session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&initial_request.key)
+                == MaterializationStatus::Ready
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&initial_request.key),
+            MaterializationStatus::Ready
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.5, 1.5),
+        );
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.materialization_requests_emitted, 1);
+        assert_eq!(preview.pipeline.materialization_queued, 1);
+        assert_eq!(preview.pipeline.materialization_stale_fallback_used, 1);
+        assert!(
+            count_image_marks(&preview_plot.scene_graph) > 0,
+            "debounced PanScrollZoom preview should keep drawing the cached raster"
+        );
+
+        let preview_request = preview_plot
+            .materialization_requests
+            .first()
+            .expect("preview rasterization request")
+            .clone();
+        assert!(preview_request.priority < 0.0);
+        assert_eq!(preview_request.policy.debounce, Some(debounce));
+        assert_ne!(initial_request.key, preview_request.key);
+        assert_eq!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&preview_request.key),
+            MaterializationStatus::Queued,
+            "transient PanScrollZoom preview rasterization should remain queued during debounce"
+        );
+
+        let (settled_plot, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(exact.mode, EvaluationMode::Exact);
+        let settled_request = settled_plot
+            .materialization_requests
+            .first()
+            .expect("settled rasterization request");
+        assert_eq!(
+            settled_request.key, preview_request.key,
+            "settled evaluation should promote the final panned viewport request"
+        );
+        assert!(settled_request.priority > preview_request.priority);
+        assert_ne!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&settled_request.key),
+            MaterializationStatus::Queued,
+            "settled PanScrollZoom rasterization should bypass preview debounce and start"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn plot_session_schedules_async_rasterize_materialization()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
@@ -5286,6 +5409,61 @@ mod tests {
         assert_eq!(cache.status(&low.key), MaterializationStatus::Queued);
         assert_ne!(cache.status(&mid.key), MaterializationStatus::Queued);
         assert_ne!(cache.status(&high.key), MaterializationStatus::Queued);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_defers_debounced_preview_materialization() -> Result<(), AvengerChartError>
+    {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .mark(Symbol::new().x(0.0).y(0.0))
+                .compile(ctx.as_ref())
+                .await?,
+        );
+        let session = compiled.instantiate(ctx);
+        let mut request = MaterializationRequest::new(
+            "materialization/debounced",
+            avenger_chart_transforms::RASTERIZE_2D_MATERIALIZATION_KIND,
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity("materialization/debounced")
+        .priority(-1.0);
+        request.policy.debounce = Some(Duration::from_secs(60));
+
+        session
+            .materialization_cache()
+            .lock()
+            .unwrap()
+            .enqueue(request.clone());
+        session.schedule_materialization_requests(std::slice::from_ref(&request));
+        assert_eq!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&request.key),
+            MaterializationStatus::Queued
+        );
+
+        let mut settled = request.clone();
+        settled.priority = 1.0;
+        session
+            .materialization_cache()
+            .lock()
+            .unwrap()
+            .enqueue(settled.clone());
+        session.schedule_materialization_requests(std::slice::from_ref(&settled));
+        assert_ne!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&settled.key),
+            MaterializationStatus::Queued
+        );
 
         Ok(())
     }

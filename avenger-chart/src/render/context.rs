@@ -295,6 +295,8 @@ pub struct EvaluationContext {
     pub(crate) text_measurement_cache: Option<TextMeasurementCacheHandle>,
     /// Optional durable async materialization cache owned by a reusable `PlotSession`.
     pub(crate) materialization_cache: Option<MaterializationCacheHandle>,
+    /// Priority assigned to async materialization requests emitted in this evaluation.
+    pub(crate) materialization_priority: f32,
     /// Optional layout profile used by Preview to reuse measured child frames.
     pub(crate) layout_profile: Option<Arc<LayoutProfileSnapshot>>,
     /// Optional exact-evaluation capture for terminal facet cell rendered components.
@@ -354,6 +356,7 @@ impl EvaluationContext {
             legend_measurement_cache: None,
             text_measurement_cache: None,
             materialization_cache: None,
+            materialization_priority: 0.0,
             layout_profile: None,
             facet_cell_rendered_components_capture: None,
             facet_subtree_snapshot_capture: None,
@@ -517,6 +520,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -554,6 +558,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -596,6 +601,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -645,6 +651,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -681,6 +688,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -721,6 +729,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -761,6 +770,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -797,6 +807,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -840,6 +851,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -888,6 +900,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -946,6 +959,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -984,6 +998,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1020,6 +1035,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1060,6 +1076,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1103,6 +1120,7 @@ impl EvaluationContext {
             legend_measurement_cache: Some(cache),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1143,6 +1161,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: Some(cache),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1169,6 +1188,16 @@ impl EvaluationContext {
 
     pub(crate) fn materialization_cache(&self) -> Option<&MaterializationCacheHandle> {
         self.materialization_cache.as_ref()
+    }
+
+    pub(crate) fn with_materialization_priority(&self, priority: f32) -> Self {
+        let mut ctx = self.clone();
+        ctx.materialization_priority = priority;
+        ctx
+    }
+
+    pub(crate) fn materialization_priority(&self) -> f32 {
+        self.materialization_priority
     }
 
     pub(crate) fn measure_text_bounds(
@@ -1315,6 +1344,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: Some(layout_profile),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1355,6 +1385,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: None,
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1394,6 +1425,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: Some(capture),
             facet_subtree_snapshot_capture: self.facet_subtree_snapshot_capture.clone(),
@@ -1437,6 +1469,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1475,6 +1508,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1528,6 +1562,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture
@@ -1571,6 +1606,7 @@ impl EvaluationContext {
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
+            materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
             facet_cell_rendered_components_capture: self
                 .facet_cell_rendered_components_capture

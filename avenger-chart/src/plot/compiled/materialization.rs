@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use avenger_chart_core::{
@@ -21,10 +22,21 @@ pub(crate) enum MaterializationStatus {
     Error(String),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum MaterializationStart {
+    Started,
+    Deferred { remaining: Duration },
+    NotStarted,
+}
+
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 enum MaterializationCacheEntry {
-    Queued(MaterializationRequest),
+    Queued {
+        request: MaterializationRequest,
+        queued_at: Instant,
+    },
     Running(MaterializationRequest),
     Ready {
         kind: MaterializationKind,
@@ -49,7 +61,7 @@ impl MaterializationCache {
     pub(crate) fn status(&self, key: &MaterializationKey) -> MaterializationStatus {
         match self.entries.get(key) {
             None => MaterializationStatus::Missing,
-            Some(MaterializationCacheEntry::Queued(_)) => MaterializationStatus::Queued,
+            Some(MaterializationCacheEntry::Queued { .. }) => MaterializationStatus::Queued,
             Some(MaterializationCacheEntry::Running(_)) => MaterializationStatus::Running,
             Some(MaterializationCacheEntry::Ready { .. }) => MaterializationStatus::Ready,
             Some(MaterializationCacheEntry::Error { message }) => {
@@ -63,7 +75,7 @@ impl MaterializationCache {
         self.entries.values().any(|entry| {
             matches!(
                 entry,
-                MaterializationCacheEntry::Queued(_) | MaterializationCacheEntry::Running(_)
+                MaterializationCacheEntry::Queued { .. } | MaterializationCacheEntry::Running(_)
             )
         })
     }
@@ -92,13 +104,20 @@ impl MaterializationCache {
             None => {
                 self.entries.insert(
                     request.key.clone(),
-                    MaterializationCacheEntry::Queued(request),
+                    MaterializationCacheEntry::Queued {
+                        request,
+                        queued_at: Instant::now(),
+                    },
                 );
                 MaterializationStatus::Queued
             }
-            Some(MaterializationCacheEntry::Queued(existing)) => {
+            Some(MaterializationCacheEntry::Queued {
+                request: existing,
+                queued_at,
+            }) => {
                 if request.priority > existing.priority {
                     *existing = request;
+                    *queued_at = Instant::now();
                 }
                 MaterializationStatus::Queued
             }
@@ -107,7 +126,10 @@ impl MaterializationCache {
             Some(MaterializationCacheEntry::Error { .. }) => {
                 self.entries.insert(
                     request.key.clone(),
-                    MaterializationCacheEntry::Queued(request),
+                    MaterializationCacheEntry::Queued {
+                        request,
+                        queued_at: Instant::now(),
+                    },
                 );
                 MaterializationStatus::Queued
             }
@@ -125,7 +147,10 @@ impl MaterializationCache {
             }
             !matches!(
                 entry,
-                MaterializationCacheEntry::Queued(existing)
+                MaterializationCacheEntry::Queued {
+                    request: existing,
+                    ..
+                }
                     if existing.identity.as_ref() == Some(identity)
             )
         });
@@ -133,11 +158,38 @@ impl MaterializationCache {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn mark_running_if_ready(
+        &mut self,
+        key: &MaterializationKey,
+        now: Instant,
+    ) -> MaterializationStart {
+        let Some(entry) = self.entries.get_mut(key) else {
+            return MaterializationStart::NotStarted;
+        };
+        if let MaterializationCacheEntry::Queued { request, queued_at } = entry {
+            if request.priority < 0.0
+                && let Some(debounce) = request.policy.debounce
+            {
+                let elapsed = now.saturating_duration_since(*queued_at);
+                if elapsed < debounce {
+                    return MaterializationStart::Deferred {
+                        remaining: debounce - elapsed,
+                    };
+                }
+            }
+            *entry = MaterializationCacheEntry::Running(request.clone());
+            MaterializationStart::Started
+        } else {
+            MaterializationStart::NotStarted
+        }
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn mark_running(&mut self, key: &MaterializationKey) -> bool {
         let Some(entry) = self.entries.get_mut(key) else {
             return false;
         };
-        if let MaterializationCacheEntry::Queued(request) = entry {
+        if let MaterializationCacheEntry::Queued { request, .. } = entry {
             *entry = MaterializationCacheEntry::Running(request.clone());
             true
         } else {
@@ -279,7 +331,7 @@ mod tests {
         assert_eq!(cache.enqueue(low), MaterializationStatus::Queued);
         assert_eq!(cache.enqueue(high.clone()), MaterializationStatus::Queued);
         match cache.entries.get(&high.key).expect("entry") {
-            MaterializationCacheEntry::Queued(request) => {
+            MaterializationCacheEntry::Queued { request, .. } => {
                 assert_eq!(request.priority, 2.0);
             }
             other => panic!("unexpected entry: {other:?}"),
@@ -362,6 +414,44 @@ mod tests {
         assert_eq!(cache.running_count(), 1);
         cache.mark_error(&second, "failed".to_string());
         assert_eq!(cache.running_count(), 0);
+    }
+
+    #[test]
+    fn mark_running_if_ready_defers_debounced_preview_requests() {
+        let mut cache = MaterializationCache::default();
+        let mut debounced = request("key/a", "scope/a", -1.0);
+        debounced.policy.debounce = Some(Duration::from_millis(50));
+        let now = Instant::now();
+
+        cache.enqueue(debounced.clone());
+        match cache.mark_running_if_ready(&debounced.key, now + Duration::from_millis(10)) {
+            MaterializationStart::Deferred { remaining } => {
+                assert!(remaining <= Duration::from_millis(50));
+                assert!(remaining >= Duration::from_millis(30));
+            }
+            other => panic!("expected debounced request to defer, got {other:?}"),
+        }
+        assert_eq!(cache.status(&debounced.key), MaterializationStatus::Queued);
+
+        assert_eq!(
+            cache.mark_running_if_ready(&debounced.key, now + Duration::from_millis(60)),
+            MaterializationStart::Started
+        );
+        assert_eq!(cache.status(&debounced.key), MaterializationStatus::Running);
+    }
+
+    #[test]
+    fn mark_running_if_ready_starts_settled_requests_despite_debounce() {
+        let mut cache = MaterializationCache::default();
+        let mut settled = request("key/a", "scope/a", 1.0);
+        settled.policy.debounce = Some(Duration::from_secs(60));
+
+        cache.enqueue(settled.clone());
+        assert_eq!(
+            cache.mark_running_if_ready(&settled.key, Instant::now()),
+            MaterializationStart::Started
+        );
+        assert_eq!(cache.status(&settled.key), MaterializationStatus::Running);
     }
 
     #[test]

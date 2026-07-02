@@ -260,6 +260,8 @@ fn materialization_policy_for_view(view_scope: &CompiledViewScope) -> Materializ
     let policy = view_scope.spec.policy();
     MaterializationPolicy {
         allow_stale: matches!(policy.stale_policy, ViewStalePolicy::RetargetCached),
+        throttle: policy.throttle,
+        debounce: policy.debounce,
     }
 }
 
@@ -392,7 +394,7 @@ async fn apply_view_mark_data_transforms(
             time_context: eval_ctx.time_context().clone(),
             facet_context: facet_context.as_ref(),
             policy: materialization_policy_for_view(view_scope),
-            priority: 0.0,
+            priority: eval_ctx.materialization_priority(),
         };
         if let Some(mut materialization) =
             transform.view_materialization_request(&dataframe, &materialization_ctx)?
@@ -2286,23 +2288,25 @@ mod tests {
         key: &str,
         identity: &str,
         preview_cached: bool,
+        debounce: Option<std::time::Duration>,
     ) -> Result<(PreparedMarkData, EvaluationContext), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let df = xy_dataframe(&session);
         let plot_node = plot_data_node(&df)?;
-        let mark = Symbol::<Cartesian>::new().view(
-            View::cartesian()
-                .id("materialized")
-                .x_domain(col("x"))
-                .y_domain(col("y"))
-                .preview_cached(preview_cached),
-            |mark, _view| {
-                mark.transform_no_output(FakeMaterializedTransform::new(key, identity), |mark| {
-                    mark.x(ChannelValue::from(col("mx")).no_scale())
-                        .y(ChannelValue::from(col("my")).no_scale())
-                })
-            },
-        );
+        let mut view = View::cartesian()
+            .id("materialized")
+            .x_domain(col("x"))
+            .y_domain(col("y"))
+            .preview_cached(preview_cached);
+        if let Some(debounce) = debounce {
+            view = view.debounce(debounce);
+        }
+        let mark = Symbol::<Cartesian>::new().view(view, |mark, _view| {
+            mark.transform_no_output(FakeMaterializedTransform::new(key, identity), |mark| {
+                mark.x(ChannelValue::from(col("mx")).no_scale())
+                    .y(ChannelValue::from(col("my")).no_scale())
+            })
+        });
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let eval_ctx = eval_context(session.clone()).with_materialization_cache(cache);
         let scales = HashMap::from([
@@ -2689,7 +2693,7 @@ mod tests {
         );
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache, "desired", "scope", true).await?;
+            prepare_fake_materialized_view_mark(cache, "desired", "scope", true, None).await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![1.0, 2.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![3.0, 4.0]);
@@ -2703,7 +2707,8 @@ mod tests {
         let cache = Arc::new(Mutex::new(MaterializationCache::default()));
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache.clone(), "missing", "scope", true).await?;
+            prepare_fake_materialized_view_mark(cache.clone(), "missing", "scope", true, None)
+                .await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert!(values_as_f64(&data_batch, "x").is_empty());
         assert!(values_as_f64(&data_batch, "y").is_empty());
@@ -2737,7 +2742,8 @@ mod tests {
         );
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope", true).await?;
+            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope", true, None)
+                .await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert_eq!(values_as_f64(&data_batch, "x"), vec![9.0]);
         assert_eq!(values_as_f64(&data_batch, "y"), vec![8.0]);
@@ -2771,7 +2777,8 @@ mod tests {
         );
 
         let (prepared, eval_ctx) =
-            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope", false).await?;
+            prepare_fake_materialized_view_mark(cache.clone(), "desired", "scope", false, None)
+                .await?;
         let data_batch = prepared.data_batch.expect("array data");
         assert!(values_as_f64(&data_batch, "x").is_empty());
         assert!(values_as_f64(&data_batch, "y").is_empty());
@@ -2783,6 +2790,28 @@ mod tests {
                 .status(&avenger_chart_core::MaterializationKey::new("desired")),
             MaterializationStatus::Queued
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn prepare_mark_data_propagates_view_materialization_debounce_policy()
+    -> Result<(), AvengerChartError> {
+        let cache = Arc::new(Mutex::new(MaterializationCache::default()));
+        let debounce = std::time::Duration::from_millis(75);
+
+        let (_prepared, eval_ctx) = prepare_fake_materialized_view_mark(
+            cache.clone(),
+            "desired",
+            "scope",
+            true,
+            Some(debounce),
+        )
+        .await?;
+        let requests = eval_ctx.materialization_requests_snapshot();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].policy.debounce, Some(debounce));
+        assert_eq!(requests[0].policy.throttle, None);
+
         Ok(())
     }
 

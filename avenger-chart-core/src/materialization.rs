@@ -118,11 +118,19 @@ impl From<String> for MaterializationKind {
 #[serde(rename_all = "kebab-case")]
 pub struct MaterializationPolicy {
     pub allow_stale: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throttle: Option<Duration>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub debounce: Option<Duration>,
 }
 
 impl Default for MaterializationPolicy {
     fn default() -> Self {
-        Self { allow_stale: true }
+        Self {
+            allow_stale: true,
+            throttle: None,
+            debounce: None,
+        }
     }
 }
 
