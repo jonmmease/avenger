@@ -2163,12 +2163,24 @@ fn scale_domain_dependency_params(
     if let Some(df) = data_override {
         collect_logical_plan_placeholders(df.logical_plan(), &mut names);
     }
-    collect_marks_direct_dependency_placeholders(compiled_marks, ctx, &mut names, &all_param_names);
+    collect_marks_direct_dependency_placeholders(
+        compiled_marks,
+        ctx,
+        &mut names,
+        &all_param_names,
+        DependencyPlaceholderOptions::SCALE_DOMAIN_CACHE,
+    );
 
     for scale_spec in scale_specs.values() {
         match scale_spec {
             PlotScaleSpec::Local(config) => {
-                collect_scale_config_placeholders(config, ctx, &mut names, &all_param_names);
+                collect_scale_config_placeholders_with_options(
+                    config,
+                    ctx,
+                    &mut names,
+                    &all_param_names,
+                    DependencyPlaceholderOptions::SCALE_DOMAIN_CACHE,
+                );
             }
         }
     }
@@ -2288,6 +2300,14 @@ impl DependencyPlaceholderOptions {
     // current scale objects directly, so these params should move marks through
     // affine scale adjustments rather than invalidating the cached cell profile.
     const PROFILE_KEY: Self = Self {
+        include_raw_domain: false,
+    };
+
+    // Scale-domain cache keys intentionally ignore params that are used only
+    // as raw-domain scale overrides. The cached builder stores inferred domain
+    // artifacts; final raw domains are applied later when the builder produces
+    // concrete scales from the current params.
+    const SCALE_DOMAIN_CACHE: Self = Self {
         include_raw_domain: false,
     };
 }
@@ -2462,6 +2482,7 @@ fn collect_marks_direct_dependency_placeholders(
     ctx: &SessionContext,
     names: &mut BTreeSet<String>,
     all_param_names: &BTreeSet<String>,
+    options: DependencyPlaceholderOptions,
 ) {
     for mark in compiled_marks {
         collect_mark_direct_dependency_placeholders(
@@ -2469,7 +2490,7 @@ fn collect_marks_direct_dependency_placeholders(
             ctx,
             names,
             all_param_names,
-            DependencyPlaceholderOptions::ALL,
+            options,
         );
     }
 }
@@ -2589,21 +2610,6 @@ fn collect_facet_subplot_dependency_placeholders(
             );
         }
     }
-}
-
-fn collect_scale_config_placeholders(
-    config: &ScaleConfigSpec,
-    ctx: &SessionContext,
-    names: &mut BTreeSet<String>,
-    all_param_names: &BTreeSet<String>,
-) {
-    collect_scale_config_placeholders_with_options(
-        config,
-        ctx,
-        names,
-        all_param_names,
-        DependencyPlaceholderOptions::ALL,
-    );
 }
 
 fn collect_scale_config_placeholders_with_options(
@@ -3447,6 +3453,20 @@ mod tests {
         ctx: &SessionContext,
         debounce: Option<Duration>,
     ) -> Result<CompiledPlot, AvengerChartError> {
+        compile_pan_scroll_zoom_rasterized_view_scope_plot_with_options(ctx, debounce, true).await
+    }
+
+    async fn compile_pan_scroll_zoom_rasterized_view_scope_plot_without_fill_domain(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        compile_pan_scroll_zoom_rasterized_view_scope_plot_with_options(ctx, None, false).await
+    }
+
+    async fn compile_pan_scroll_zoom_rasterized_view_scope_plot_with_options(
+        ctx: &SessionContext,
+        debounce: Option<Duration>,
+        explicit_fill_domain: bool,
+    ) -> Result<CompiledPlot, AvengerChartError> {
         let df = ctx
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0)) AS t(x, y)")
             .await?;
@@ -3463,7 +3483,7 @@ mod tests {
             .data(df)
             .mark(
                 UniformRaster2D::new()
-                    .view(view, |mark, view| {
+                    .view(view, move |mark, view| {
                         mark.transform(
                             Rasterize2D::new(col("x"), col("y"))
                                 .x(|x| {
@@ -3475,7 +3495,7 @@ mod tests {
                                         .bins(2_usize)
                                 })
                                 .agg("count"),
-                            |mark, hist| {
+                            move |mark, hist| {
                                 mark.raster_with(hist.raster(), |raster| {
                                     raster
                                         .x_with(hist.x_dim(), |x| {
@@ -3490,9 +3510,14 @@ mod tests {
                                             })
                                             .axis(|axis| axis.visible(false))
                                         })
-                                        .fill(|fill| {
-                                            fill.scale_with::<Sqrt>(|scale| {
-                                                scale.domain((0.0, 4.0)).nice(false).zero(false)
+                                        .fill(move |fill| {
+                                            fill.scale_with::<Sqrt>(move |scale| {
+                                                let scale = scale.nice(false).zero(false);
+                                                if explicit_fill_domain {
+                                                    scale.domain((0.0, 4.0))
+                                                } else {
+                                                    scale
+                                                }
                                             })
                                         })
                                 })
@@ -5001,12 +5026,13 @@ mod tests {
         assert_eq!(preview.pipeline.preview_profile_reuses, 1);
         assert_eq!(preview.pipeline.preview_fallbacks, 0);
         assert_eq!(
-            preview.pipeline.preview_data_mark_reuses, 0,
-            "view-scoped materialized marks must rebuild so their request key sees the panned domain"
+            preview.pipeline.preview_data_mark_reuses, 1,
+            "retarget-cacheable view-scoped materialized marks should reuse cached scene marks"
         );
-        assert!(
-            preview.pipeline.mark_data_collects > 0,
-            "PanScrollZoom preview should run the view-local materialization transform"
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 0);
+        assert_eq!(
+            preview.pipeline.mark_data_collects, 0,
+            "PanScrollZoom preview should schedule the view-local materialization without recollecting stale mark data"
         );
         assert_eq!(preview.pipeline.materialization_requests_emitted, 1);
         assert_eq!(preview.pipeline.materialization_queued, 1);
@@ -5116,7 +5142,9 @@ mod tests {
 
         assert_eq!(preview.mode, EvaluationMode::Preview);
         assert_eq!(preview.pipeline.preview_profile_reuses, 1);
-        assert_eq!(preview.pipeline.preview_data_mark_reuses, 0);
+        assert_eq!(preview.pipeline.preview_data_mark_reuses, 1);
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 0);
+        assert_eq!(preview.pipeline.mark_data_collects, 0);
         assert_eq!(preview.pipeline.materialization_requests_emitted, 1);
         assert_eq!(preview.pipeline.materialization_queued, 1);
         assert_eq!(preview.pipeline.materialization_stale_fallback_used, 1);
@@ -5135,6 +5163,82 @@ mod tests {
         );
         assert_ne!(initial_request.key, desired_request.key);
         assert_eq!(initial_request.identity, desired_request.identity);
+
+        Ok(())
+    }
+
+    fn retained_fill_domain(session: &PlotSession) -> Result<(f32, f32), AvengerChartError> {
+        session
+            .layout_profile
+            .as_ref()
+            .and_then(|profile| profile.measurement.scales.get("fill"))
+            .ok_or_else(|| AvengerChartError::InternalError("fill scale not retained".to_string()))?
+            .configured()
+            .numeric_interval_domain()
+            .map_err(AvengerChartError::ScaleError)
+    }
+
+    async fn wait_for_session_materializations(session: &PlotSession) {
+        for _ in 0..100 {
+            if !session.has_pending_materializations() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
+    async fn evaluate_exact_until_settled(
+        session: &mut PlotSession,
+        patch: Option<IndexMap<String, ScalarValue>>,
+    ) -> Result<EvaluationMetrics, AvengerChartError> {
+        let mut latest = None;
+        for _ in 0..16 {
+            let mut request = EvaluationRequest::new().exact();
+            if let Some(patch) = patch.clone() {
+                request = request.param_patch(patch);
+            }
+            let (_plot, metrics) = session.evaluate_with_metrics(request).await?;
+            let ready = metrics.pipeline.materialization_ready_used > 0;
+            latest = Some(metrics);
+            if ready && !session.has_pending_materializations() {
+                break;
+            }
+            wait_for_session_materializations(session).await;
+        }
+        latest.ok_or_else(|| {
+            AvengerChartError::InternalError("settled exact evaluation did not run".to_string())
+        })
+    }
+
+    #[tokio::test]
+    async fn rasterize_view_fill_domain_reinfers_when_ready_raster_changes()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            compile_pan_scroll_zoom_rasterized_view_scope_plot_without_fill_domain(&ctx).await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        let (warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(warmup_metrics.pipeline.materialization_queued >= 1);
+        assert_eq!(count_image_marks(&warmup.scene_graph), 0);
+        assert_eq!(retained_fill_domain(&session)?, (0.0, 1.0));
+
+        let ready = evaluate_exact_until_settled(&mut session, None).await?;
+        assert!(ready.pipeline.materialization_ready_used >= 1);
+        let ready_domain = retained_fill_domain(&session)?;
+        assert_eq!(ready_domain, (0.0, 2.0));
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.5, 1.5),
+        );
+        let updated = evaluate_exact_until_settled(&mut session, Some(patch)).await?;
+        assert!(updated.pipeline.materialization_ready_used >= 1);
+        assert_eq!(retained_fill_domain(&session)?, (0.0, 1.0));
 
         Ok(())
     }
@@ -5499,6 +5603,18 @@ mod tests {
         assert!(
             preview.timings.preview_scale_refresh_us > 0,
             "unit-aspect raw-domain Preview should rebuild scales from the cached builder"
+        );
+        assert_eq!(
+            preview.pipeline.scale_domain_cache_hits, 1,
+            "unit-aspect raw-domain Preview should reuse cached scale-domain metadata"
+        );
+        assert_eq!(
+            preview.pipeline.scale_domain_cache_misses, 0,
+            "raw-domain-only changes should not invalidate scale-domain metadata"
+        );
+        assert_eq!(
+            preview.pipeline.scale_builder_builds, 0,
+            "raw-domain-only changes should not rebuild the scale-domain builder"
         );
         assert!(
             count_symbol_scale_adjustments(&evaluated.scene_graph) > 0,

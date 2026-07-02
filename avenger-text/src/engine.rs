@@ -7,7 +7,9 @@ use crate::{
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     path::{TextPathBuffer, TextPathExtractionConfig, TextPathExtractorImpl},
     pdf::{TextPdfBuffer, TextPdfExtractionConfig, TextPdfExtractorImpl},
-    rasterization::{TextRasterCacheKey, TextRasterizationBuffer, TextRasterizationConfig},
+    rasterization::{
+        TextRasterCacheKey, TextRasterCacheValue, TextRasterizationBuffer, TextRasterizationConfig,
+    },
     text_line::{TextLineMeasurer, TextLineRasterizer},
     types::TextSyntaxMode,
 };
@@ -94,7 +96,7 @@ impl TextEngine {
         cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
     ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
     where
-        CacheValue: Clone,
+        CacheValue: TextRasterCacheValue,
     {
         TextLineRasterizer::<CacheValue>::new(self.typst.clone(), self.math.clone()).rasterize(
             config,
@@ -110,7 +112,7 @@ impl TextEngine {
         cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
     ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
     where
-        CacheValue: Clone,
+        CacheValue: TextRasterCacheValue,
     {
         self.rasterize(config, scale, cached_entries).or_else(|_| {
             let mut plain_config = config.clone();

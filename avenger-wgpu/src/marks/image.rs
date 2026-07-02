@@ -221,6 +221,11 @@ impl ImageAtlasBuilder {
                     "Failed to convert raw image to rgba image".to_string(),
                 )
             }),
+            SceneImageSource::SharedInline(image) => image.to_image().map(Some).ok_or_else(|| {
+                AvengerWgpuError::ConversionError(
+                    "Failed to convert raw image to rgba image".to_string(),
+                )
+            }),
             SceneImageSource::Resource(resource) => {
                 self.resolve_resource_image(entry, resource, config, status)
             }

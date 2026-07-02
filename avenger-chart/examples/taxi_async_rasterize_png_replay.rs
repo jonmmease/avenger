@@ -13,6 +13,9 @@
 //! ```bash
 //! cargo run -p avenger-chart --example taxi_async_rasterize_png_replay --features wgpu --release
 //! ```
+//!
+//! This example expects the HoloViz NYC taxi parquet at
+//! `scratch/data/nyc_taxi_wide.parquet` relative to the workspace root.
 
 use std::{
     path::PathBuf,
@@ -27,12 +30,22 @@ use avenger_chart::{
 };
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
-use datafusion::{prelude::CsvReadOptions, prelude::SessionContext, scalar::ScalarValue};
+use datafusion::{
+    arrow::{compute::concat_batches, record_batch::RecordBatch},
+    dataframe::DataFrame,
+    datasource::MemTable,
+    error::{DataFusionError, Result as DataFusionResult},
+    prelude::{ParquetReadOptions, SessionContext},
+    scalar::ScalarValue,
+};
 
 const PNG_CANVAS_SIZE: [f32; 2] = [960.0, 720.0];
 const PNG_CANVAS_SCALE: f32 = 2.0;
 const PAN_FRAMES: usize = 5;
 
+const TAXI_TABLE: &str = "taxi_pickups";
+const TAXI_MAX_ROWS: usize = 1_000_000;
+const TAXI_BATCH_ROWS: usize = 8192;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -155,21 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn build_plot(
     ctx: &SessionContext,
 ) -> Result<avenger_chart::plot::CompiledPlot, Box<dyn std::error::Error>> {
-    let df = ctx
-        .read_csv(
-            taxi_fixture_path()
-                .to_str()
-                .expect("taxi fixture path should be valid UTF-8"),
-            CsvReadOptions::new(),
-        )
-        .await?
-        .filter(
-            col("pickup_x")
-                .gt_eq(lit(TAXI_X_MIN))
-                .and(col("pickup_x").lt_eq(lit(TAXI_X_MAX)))
-                .and(col("pickup_y").gt_eq(lit(TAXI_Y_MIN)))
-                .and(col("pickup_y").lt_eq(lit(TAXI_Y_MAX))),
-        )?;
+    let df = cached_taxi_dataframe(ctx).await?;
 
     Ok(Plot::with_coord(Cartesian::new().unit_aspect(1.0))
         .title("NYC taxi pickup density")
@@ -215,7 +214,7 @@ async fn build_plot(
                                     })
                                     .fill(|fill| {
                                         fill.scale_with::<Sqrt>(|scale| {
-                                            scale.domain((0.0, 120.0)).nice(false).zero(false)
+                                            scale.nice(false).zero(false)
                                         })
                                         .legend(|legend| legend.title("Trips"))
                                     })
@@ -229,6 +228,89 @@ async fn build_plot(
         .tool(PanScrollZoom::cartesian().settle_exact(true))
         .compile(ctx)
         .await?)
+}
+
+async fn cached_taxi_dataframe(ctx: &SessionContext) -> DataFusionResult<DataFrame> {
+    let df = ctx
+        .read_parquet(
+            taxi_fixture_path()
+                .to_str()
+                .expect("taxi fixture path should be valid UTF-8"),
+            ParquetReadOptions::default(),
+        )
+        .await?
+        .limit(0, Some(TAXI_MAX_ROWS))?
+        .filter(
+            col("pickup_x")
+                .gt_eq(lit(TAXI_X_MIN))
+                .and(col("pickup_x").lt_eq(lit(TAXI_X_MAX)))
+                .and(col("pickup_y").gt_eq(lit(TAXI_Y_MIN)))
+                .and(col("pickup_y").lt_eq(lit(TAXI_Y_MAX))),
+        )?
+        .select_columns(&["pickup_x", "pickup_y"])?;
+    let batches = rechunk_record_batches(df.collect().await?, TAXI_BATCH_ROWS)?;
+    let schema = batches
+        .first()
+        .map(RecordBatch::schema)
+        .ok_or_else(|| DataFusionError::Execution("taxi fixture produced no rows".to_string()))?;
+    let partitions = partition_record_batches(batches, ctx.state().config().target_partitions());
+    let table = Arc::new(MemTable::try_new(schema, partitions)?);
+    ctx.register_table(TAXI_TABLE, table)?;
+    ctx.table(TAXI_TABLE).await
+}
+
+fn rechunk_record_batches(
+    batches: Vec<RecordBatch>,
+    target_rows: usize,
+) -> DataFusionResult<Vec<RecordBatch>> {
+    if target_rows == 0 {
+        return Err(DataFusionError::Execution(
+            "target_rows must be greater than zero".to_string(),
+        ));
+    }
+    let Some(schema) = batches.first().map(RecordBatch::schema) else {
+        return Ok(Vec::new());
+    };
+    let mut output = Vec::new();
+    let mut pending = Vec::new();
+    let mut pending_rows = 0usize;
+
+    for batch in batches {
+        let mut offset = 0usize;
+        while offset < batch.num_rows() {
+            let available = batch.num_rows() - offset;
+            let needed = target_rows - pending_rows;
+            let take = available.min(needed);
+            pending.push(batch.slice(offset, take));
+            pending_rows += take;
+            offset += take;
+
+            if pending_rows == target_rows {
+                output.push(concat_batches(&schema, pending.iter())?);
+                pending.clear();
+                pending_rows = 0;
+            }
+        }
+    }
+    if !pending.is_empty() {
+        output.push(concat_batches(&schema, pending.iter())?);
+    }
+    Ok(output)
+}
+
+fn partition_record_batches(
+    batches: Vec<RecordBatch>,
+    target_partitions: usize,
+) -> Vec<Vec<RecordBatch>> {
+    let partition_count = target_partitions.max(1).min(batches.len().max(1));
+    let mut partitions = vec![Vec::new(); partition_count];
+    for (index, batch) in batches.into_iter().enumerate() {
+        partitions[index % partition_count].push(batch);
+    }
+    partitions
+        .into_iter()
+        .filter(|partition| !partition.is_empty())
+        .collect()
 }
 
 async fn evaluate_settled_exact(
@@ -313,10 +395,21 @@ fn print_metrics(
     metrics: &EvaluationMetrics,
 ) {
     println!(
-        "taxi_async_rasterize_png_replay seq={} mode={} eval={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms requests={} ready={} stale_fallback={} queued={} running={} errors={} preview_reuse={} data_reuse={} mark_collects={} build_ms={:.2} components_ms={:.2}",
+        "taxi_async_rasterize_png_replay seq={} mode={} eval={:.2}ms setup={:.2}ms clone={:.2}ms scales={:.2}ms scale_ctx={:.2}ms scale_key={:.2}ms scale_lookup={:.2}ms scale_build={:.2}ms retarget={:.2}ms facet_override={:.2}ms build={:.2}ms components={:.2}ms set_scene={:.2}ms png_render={:.2}ms frame_total={:.2}ms requests={} ready={} stale_fallback={} queued={} running={} errors={} preview_reuse={} data_reuse={} mark_collects={}",
         seq,
         mode,
         ms(eval_elapsed),
+        us_to_ms(metrics.timings.preview_layout_setup_us),
+        us_to_ms(metrics.timings.preview_measurement_clone_us),
+        us_to_ms(metrics.timings.preview_scale_refresh_us),
+        us_to_ms(metrics.timings.preview_scale_context_setup_us),
+        us_to_ms(metrics.timings.preview_scale_cache_key_us),
+        us_to_ms(metrics.timings.preview_scale_cache_lookup_us),
+        us_to_ms(metrics.timings.preview_scale_build_us),
+        us_to_ms(metrics.timings.preview_measurement_retarget_us),
+        us_to_ms(metrics.timings.preview_facet_domain_override_us),
+        us_to_ms(metrics.timings.build_plot_components_us),
+        us_to_ms(metrics.timings.components_to_evaluated_plot_us),
         ms(set_scene_elapsed),
         ms(render_elapsed),
         ms(eval_elapsed + set_scene_elapsed + render_elapsed),
@@ -329,8 +422,6 @@ fn print_metrics(
         metrics.pipeline.preview_profile_reuses,
         metrics.pipeline.preview_data_mark_reuses,
         metrics.pipeline.mark_data_collects,
-        us_to_ms(metrics.timings.build_plot_components_us),
-        us_to_ms(metrics.timings.components_to_evaluated_plot_us),
     );
 }
 
@@ -371,7 +462,7 @@ fn no_scene_rtree_request(request: EvaluationRequest) -> EvaluationRequest {
 }
 
 fn taxi_fixture_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/nyc_taxi_2015/nyc_taxi.csv")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scratch/data/nyc_taxi_wide.parquet")
 }
 
 fn ms(duration: Duration) -> f64 {

@@ -17,6 +17,9 @@
 //! Set `RUST_LOG=avenger_chart::transforms::rasterize_2d=debug,avenger_chart::marks::uniform_raster_2d=debug`
 //! for query/raster construction diagnostics. The app also prints per-frame
 //! evaluation metrics, including materialization request and fallback counters.
+//!
+//! This example expects the HoloViz NYC taxi parquet at
+//! `scratch/data/nyc_taxi_wide.parquet` relative to the workspace root.
 
 use std::{path::PathBuf, sync::Arc};
 
@@ -28,9 +31,18 @@ use avenger_chart_app::{
 };
 use avenger_image::ImageResourceCache;
 use avenger_resource::RenderInvalidationHub;
-use datafusion::prelude::{CsvReadOptions, SessionContext};
+use datafusion::{
+    arrow::{compute::concat_batches, record_batch::RecordBatch},
+    dataframe::DataFrame,
+    datasource::MemTable,
+    error::{DataFusionError, Result as DataFusionResult},
+    prelude::{ParquetReadOptions, SessionContext},
+};
 use winit::window::WindowAttributes;
 
+const TAXI_TABLE: &str = "taxi_pickups";
+const TAXI_MAX_ROWS: usize = 1_000_000;
+const TAXI_BATCH_ROWS: usize = 8192;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -38,7 +50,8 @@ const TAXI_Y_MAX: f64 = 4_983_000.0;
 
 fn main() {
     init_diagnostics();
-    let tokio_runtime = tokio::runtime::Builder::new_current_thread()
+    let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
         .build()
         .expect("build tokio runtime");
     let invalidations = RenderInvalidationHub::default();
@@ -72,24 +85,9 @@ async fn build_app(
     runtime_resources: ChartRuntimeResources,
 ) -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
-    let taxi_path = taxi_fixture_path();
-    let df = ctx
-        .read_csv(
-            taxi_path
-                .to_str()
-                .expect("taxi fixture path should be valid UTF-8"),
-            CsvReadOptions::new(),
-        )
+    let df = cached_taxi_dataframe(&ctx)
         .await
-        .expect("load NYC taxi fixture")
-        .filter(
-            col("pickup_x")
-                .gt_eq(lit(TAXI_X_MIN))
-                .and(col("pickup_x").lt_eq(lit(TAXI_X_MAX)))
-                .and(col("pickup_y").gt_eq(lit(TAXI_Y_MIN)))
-                .and(col("pickup_y").lt_eq(lit(TAXI_Y_MAX))),
-        )
-        .expect("filter taxi fixture to valid projected pickup coordinates");
+        .expect("load cached NYC taxi fixture");
 
     let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
         .title("NYC taxi pickup density")
@@ -135,7 +133,7 @@ async fn build_app(
                                     })
                                     .fill(|fill| {
                                         fill.scale_with::<Sqrt>(|scale| {
-                                            scale.domain((0.0, 120.0)).nice(false).zero(false)
+                                            scale.nice(false).zero(false)
                                         })
                                         .legend(|legend| legend.title("Trips"))
                                     })
@@ -164,9 +162,92 @@ async fn build_app(
     .expect("build chart app")
 }
 
+async fn cached_taxi_dataframe(ctx: &SessionContext) -> DataFusionResult<DataFrame> {
+    let taxi_path = taxi_fixture_path();
+    let df = ctx
+        .read_parquet(
+            taxi_path
+                .to_str()
+                .expect("taxi fixture path should be valid UTF-8"),
+            ParquetReadOptions::default(),
+        )
+        .await?
+        .limit(0, Some(TAXI_MAX_ROWS))?
+        .filter(
+            col("pickup_x")
+                .gt_eq(lit(TAXI_X_MIN))
+                .and(col("pickup_x").lt_eq(lit(TAXI_X_MAX)))
+                .and(col("pickup_y").gt_eq(lit(TAXI_Y_MIN)))
+                .and(col("pickup_y").lt_eq(lit(TAXI_Y_MAX))),
+        )?
+        .select_columns(&["pickup_x", "pickup_y"])?;
+    let batches = rechunk_record_batches(df.collect().await?, TAXI_BATCH_ROWS)?;
+    let schema = batches
+        .first()
+        .map(RecordBatch::schema)
+        .ok_or_else(|| DataFusionError::Execution("taxi fixture produced no rows".to_string()))?;
+    let partitions = partition_record_batches(batches, ctx.state().config().target_partitions());
+    let table = Arc::new(MemTable::try_new(schema, partitions)?);
+    ctx.register_table(TAXI_TABLE, table)?;
+    ctx.table(TAXI_TABLE).await
+}
+
+fn rechunk_record_batches(
+    batches: Vec<RecordBatch>,
+    target_rows: usize,
+) -> DataFusionResult<Vec<RecordBatch>> {
+    if target_rows == 0 {
+        return Err(DataFusionError::Execution(
+            "target_rows must be greater than zero".to_string(),
+        ));
+    }
+    let Some(schema) = batches.first().map(RecordBatch::schema) else {
+        return Ok(Vec::new());
+    };
+    let mut output = Vec::new();
+    let mut pending = Vec::new();
+    let mut pending_rows = 0usize;
+
+    for batch in batches {
+        let mut offset = 0usize;
+        while offset < batch.num_rows() {
+            let available = batch.num_rows() - offset;
+            let needed = target_rows - pending_rows;
+            let take = available.min(needed);
+            pending.push(batch.slice(offset, take));
+            pending_rows += take;
+            offset += take;
+
+            if pending_rows == target_rows {
+                output.push(concat_batches(&schema, pending.iter())?);
+                pending.clear();
+                pending_rows = 0;
+            }
+        }
+    }
+    if !pending.is_empty() {
+        output.push(concat_batches(&schema, pending.iter())?);
+    }
+    Ok(output)
+}
+
+fn partition_record_batches(
+    batches: Vec<RecordBatch>,
+    target_partitions: usize,
+) -> Vec<Vec<RecordBatch>> {
+    let partition_count = target_partitions.max(1).min(batches.len().max(1));
+    let mut partitions = vec![Vec::new(); partition_count];
+    for (index, batch) in batches.into_iter().enumerate() {
+        partitions[index % partition_count].push(batch);
+    }
+    partitions
+        .into_iter()
+        .filter(|partition| !partition.is_empty())
+        .collect()
+}
+
 fn taxi_fixture_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../avenger-chart/tests/data/nyc_taxi_2015/nyc_taxi.csv")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scratch/data/nyc_taxi_wide.parquet")
 }
 
 fn init_diagnostics() {

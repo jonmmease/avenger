@@ -1,13 +1,18 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use datafusion::{common::ScalarValue, prelude::SessionContext};
+use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use avenger_chart_core::AvengerChartError;
 use avenger_chart_scales::{ConfiguredScaleWithSpec, ScaleBuilder};
 
-use crate::plot::compiled::CompiledPlot;
+use crate::{
+    plot::compiled::{
+        CompiledPlot, scales::build_scale_builder_from_compiled_plot_with_view_materialized_data,
+    },
+    render::EvaluationContext,
+};
 
 /// Provides configured scales for a given plot area size.
 ///
@@ -52,6 +57,62 @@ impl<'a> ScaleProvider for DynamicScaleProvider<'a> {
     ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
         Box::pin(self.plot.build_scales_from_builder(
             self.builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+        ))
+        .await
+    }
+}
+
+/// Scale provider for plots with view-local transforms.
+///
+/// View transforms can depend on scale domains, plot-area ranges, and pixel
+/// dimensions. This provider first builds provisional scales from the ordinary
+/// domain builder, then prepares view-local mark data with those scales so
+/// non-position channels can infer domains from the materialized view output.
+pub struct ViewAwareScaleProvider<'a> {
+    pub builder: &'a ScaleBuilder,
+    pub plot: &'a CompiledPlot,
+    pub eval_ctx: &'a EvaluationContext,
+    pub data_override: Option<&'a DataFrame>,
+    pub facet_path: &'a [ScalarValue],
+}
+
+#[async_trait]
+impl<'a> ScaleProvider for ViewAwareScaleProvider<'a> {
+    async fn build_scales(
+        &self,
+        plot_area_width: f32,
+        plot_area_height: f32,
+        ctx: &SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<HashMap<String, ConfiguredScaleWithSpec>, AvengerChartError> {
+        let base_scales = Box::pin(self.plot.build_scales_from_builder(
+            self.builder,
+            plot_area_width,
+            plot_area_height,
+            ctx,
+            params,
+        ))
+        .await?;
+        let view_eval_ctx = self.eval_ctx.with_params(params.clone());
+        let view_builder = Box::pin(
+            build_scale_builder_from_compiled_plot_with_view_materialized_data(
+                self.plot,
+                self.data_override.cloned(),
+                &view_eval_ctx,
+                &base_scales,
+                plot_area_width,
+                plot_area_height,
+                self.facet_path,
+                self.plot.get_theme().as_ref(),
+            ),
+        )
+        .await?;
+        Box::pin(self.plot.build_scales_from_builder(
+            &view_builder,
             plot_area_width,
             plot_area_height,
             ctx,

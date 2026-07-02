@@ -3499,17 +3499,19 @@ async fn cache_numeric_data(
         }
     }
 
-    if let (Some(min_val), Some(max_val)) = (global_min_val, global_max_val) {
-        let extents = DataExtents::Interval(min_val, max_val);
-        builder.add_standard(
-            channel.to_string(),
-            spec.clone_box(),
-            extents,
-            options,
-            derived_scalars,
-        );
-        builder.set_channel_data_type(channel.to_string(), dt.clone());
-    }
+    let extents = match (global_min_val, global_max_val) {
+        (Some(min_val), Some(max_val)) => DataExtents::Interval(min_val, max_val),
+        _ if !data_expressions.is_empty() => DataExtents::Interval(0.0, 1.0),
+        _ => return Ok(()),
+    };
+    builder.add_standard(
+        channel.to_string(),
+        spec.clone_box(),
+        extents,
+        options,
+        derived_scalars,
+    );
+    builder.set_channel_data_type(channel.to_string(), dt.clone());
 
     Ok(())
 }

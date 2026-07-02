@@ -69,6 +69,7 @@ struct RenderInvalidationHubInner {
     epoch: u64,
     next_callback_id: usize,
     callbacks: Vec<(usize, RenderInvalidationCallback)>,
+    latest_invalidation: Option<RenderInvalidation>,
 }
 
 impl RenderInvalidationHub {
@@ -77,6 +78,14 @@ impl RenderInvalidationHub {
             .lock()
             .expect("render invalidation hub lock poisoned")
             .epoch
+    }
+
+    pub fn latest_invalidation(&self) -> Option<RenderInvalidation> {
+        self.inner
+            .lock()
+            .expect("render invalidation hub lock poisoned")
+            .latest_invalidation
+            .clone()
     }
 
     pub fn subscribe(
@@ -110,6 +119,7 @@ impl RenderInvalidationSink for RenderInvalidationHub {
                 reason: request.reason,
                 schedule: request.schedule,
             };
+            inner.latest_invalidation = Some(invalidation.clone());
             let callbacks = inner
                 .callbacks
                 .iter()
@@ -151,6 +161,39 @@ mod tests {
 
         assert_eq!(*seen.lock().expect("seen lock poisoned"), vec![1, 2]);
         assert_eq!(hub.epoch(), 2);
+    }
+
+    #[test]
+    fn latest_invalidation_tracks_most_recent_request() {
+        let hub = RenderInvalidationHub::default();
+
+        assert!(hub.latest_invalidation().is_none());
+
+        hub.request_render(test_request());
+        let first = hub
+            .latest_invalidation()
+            .expect("first latest invalidation");
+        assert_eq!(first.epoch, 1);
+        assert_eq!(
+            first.reason,
+            RenderInvalidationReason::ResourceChanged { kind: "test" }
+        );
+
+        hub.request_render(RenderInvalidationRequest::now(
+            RenderInvalidationReason::EvaluationChanged {
+                kind: "materialization:rasterize-2d".to_string(),
+            },
+        ));
+        let second = hub
+            .latest_invalidation()
+            .expect("second latest invalidation");
+        assert_eq!(second.epoch, 2);
+        assert_eq!(
+            second.reason,
+            RenderInvalidationReason::EvaluationChanged {
+                kind: "materialization:rasterize-2d".to_string(),
+            }
+        );
     }
 
     #[test]

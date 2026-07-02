@@ -94,7 +94,7 @@ fn truncate_text_to_limit(
     datetime_locale_specs: &avenger_text::DateTimeLocaleSpecs,
     text_engine: &TextEngine,
 ) -> String {
-    if !limit.is_finite() {
+    if !limit.is_finite() || limit <= 0.0 {
         return text.to_string();
     }
 
@@ -342,12 +342,11 @@ pub trait Canvas {
         group_clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
         // Register every text line into the shared per-canvas atlas before marks are
-        // batched, then reuse the same configured text engine for leader geometry.
+        // batched. Text leader geometry is rare, so construct its measurement
+        // engine lazily only when a leader is present.
         let dimensions = self.dimensions();
-        let text_engine =
-            TextEngine::with_font_resolution(self.font_resolution()).map_err(|err| {
-                AvengerWgpuError::TextError(format!("failed to initialize text engine: {err}"))
-            })?;
+        let font_resolution = self.font_resolution().clone();
+        let mut leader_text_engine: Option<TextEngine> = None;
         let leader_stroke_dash_values = mark
             .leader_stroke_dash
             .as_ref()
@@ -441,6 +440,16 @@ pub trait Canvas {
                     use_nearest_filter,
                 };
                 if *leader {
+                    if leader_text_engine.is_none() {
+                        leader_text_engine = Some(
+                            TextEngine::with_font_resolution(&font_resolution).map_err(|err| {
+                                AvengerWgpuError::TextError(format!(
+                                    "failed to initialize text engine: {err}"
+                                ))
+                            })?,
+                        );
+                    }
+                    let text_engine = leader_text_engine.as_ref().expect("leader text engine");
                     let rendered_text = truncate_text_to_limit(
                         text,
                         *limit,
@@ -660,16 +669,28 @@ pub trait Canvas {
     #[tracing::instrument(skip_all)]
     fn set_scene(&mut self, scene_graph: &SceneGraph) -> Result<(), AvengerWgpuError> {
         let start = Instant::now();
+        let clear_start = Instant::now();
         // Clear existing marks
         self.clear_mark_renderer();
         self.set_current_zindex(0);
+        let clear_elapsed = clear_start.elapsed();
 
         // Process display items in document order. Z-index sorting happens during rendering.
         let chart_bounds = PatternRect::new(0.0, 0.0, scene_graph.width, scene_graph.height);
+        let display_list_start = Instant::now();
         let display_list = SceneDisplayList::from_scene_graph(scene_graph);
+        let display_list_elapsed = display_list_start.elapsed();
         let item_count = display_list.items.len();
+        let mut image_ms = 0.0;
+        let mut text_ms = 0.0;
+        let mut other_ms = 0.0;
+        let mut text_mark_count = 0u64;
+        let mut text_instance_count = 0u64;
+        let mut text_leader_count = 0u64;
         for item in &display_list.items {
             self.set_current_zindex(item.zindex);
+            let item_start = Instant::now();
+            let mut item_kind = "other";
             match &item.mark {
                 SceneDisplayMark::OwnedGroupPath(mark) => {
                     self.add_path_mark(
@@ -736,13 +757,25 @@ pub trait Canvas {
                         )?;
                     }
                     SceneMark::Text(mark) => {
+                        item_kind = "text";
+                        text_mark_count += 1;
+                        text_instance_count += u64::from(mark.len);
+                        text_leader_count +=
+                            mark.leader_iter().filter(|leader| **leader).count() as u64;
                         self.add_text_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Image(mark) => {
+                        item_kind = "image";
                         self.add_image_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Group(_) => {}
                 },
+            }
+            let elapsed_ms = item_start.elapsed().as_secs_f64() * 1000.0;
+            match item_kind {
+                "image" => image_ms += elapsed_ms,
+                "text" => text_ms += elapsed_ms,
+                _ => other_ms += elapsed_ms,
             }
         }
         self.set_current_zindex(0);
@@ -750,6 +783,14 @@ pub trait Canvas {
         tracing::debug!(
             target: "avenger_wgpu::resize",
             set_scene_ms = start.elapsed().as_secs_f64() * 1000.0,
+            clear_ms = clear_elapsed.as_secs_f64() * 1000.0,
+            display_list_ms = display_list_elapsed.as_secs_f64() * 1000.0,
+            image_ms,
+            text_ms,
+            other_ms,
+            text_mark_count,
+            text_instance_count,
+            text_leader_count,
             item_count,
             scene_width = scene_graph.width,
             scene_height = scene_graph.height,

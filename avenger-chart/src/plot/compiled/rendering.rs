@@ -103,8 +103,9 @@ use super::{
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     materialization::{MaterializationCache, MaterializationCacheHandle},
     prepare_mark_data_runtime,
-    scale_provider::{DynamicScaleProvider, ScaleProvider},
+    scale_provider::{DynamicScaleProvider, ScaleProvider, ViewAwareScaleProvider},
     scales::build_scale_builder_from_compiled_plot,
+    schedule_view_materializations_for_mark,
     session::{
         FacetScaleBuilderPrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
         LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
@@ -1996,6 +1997,29 @@ impl CompiledPlot {
         self.marks.iter().any(|mark| mark.state().view.is_some())
     }
 
+    fn needs_view_materialized_scale_inference(
+        &self,
+        scale_builder: &avenger_chart_scales::ScaleBuilder,
+    ) -> bool {
+        self.marks.iter().any(|mark| {
+            let Some(view_scope) = mark.state().view.as_ref() else {
+                return false;
+            };
+            if mark.state().exclude_from_scale_domains {
+                return false;
+            }
+            view_scope.data.channels().iter().any(|(channel, value)| {
+                if channel == "x" || channel == "y" {
+                    return false;
+                }
+                let Some(scale_name) = value.get_scale_name(channel) else {
+                    return false;
+                };
+                !scale_builder.channel_has_explicit_domain(&scale_name)
+            })
+        })
+    }
+
     /// Evaluate a single mark with an optional provided plot-level DataFrame fallback.
     /// If `provided_plot_df` is Some, it is used when the mark has no explicit data and
     /// the channels reference columns. Otherwise, falls back to this CompiledPlot's plot-level data.
@@ -2046,6 +2070,64 @@ impl CompiledPlot {
             self.validate_positional_channel_types(&prepared.data_batch, &prepared.scalar_batch)?;
         }
         Ok(prepared)
+    }
+
+    async fn schedule_view_materializations_for_cached_preview(
+        &self,
+        eval_ctx: &EvaluationContext,
+        measurement: &ComponentsMeasurement,
+        data_override: Option<&DataFrame>,
+        facet_path: &[ScalarValue],
+    ) -> Result<bool, AvengerChartError> {
+        let mut saw_view_scoped_mark = false;
+        let mut scheduled_request_count = 0;
+        for mark in &self.marks {
+            if mark.state().view.is_none() {
+                continue;
+            }
+            saw_view_scoped_mark = true;
+            let prepared_base = match self.data_group_index_for_mark(mark.state().mark_index()) {
+                Some(group_index) => Some(
+                    Box::pin(self.prepare_mark_group_base_data(
+                        group_index,
+                        eval_ctx,
+                        data_override,
+                        facet_path,
+                    ))
+                    .await?,
+                ),
+                None => None,
+            };
+            let schedule = schedule_view_materializations_for_mark(MarkDataRequest {
+                mark: mark.as_ref(),
+                coord_transform: Some(self.coord_transform.as_ref()),
+                plot_data: self.data.as_ref(),
+                provided_plot_df: data_override,
+                facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+                    eval_ctx.facet_tree.as_ref(),
+                    eval_ctx.facet_data_root(),
+                    facet_path,
+                )),
+                prepared_logical: None,
+                prepared_base: prepared_base.as_deref(),
+                eval_ctx,
+                evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
+                scales: &measurement.scales,
+                plot_width: measurement.plot_area_width,
+                plot_height: measurement.plot_area_height,
+            })
+            .await?;
+            if !schedule.can_retarget_cached_scene {
+                return Ok(false);
+            }
+            scheduled_request_count += schedule.request_count;
+        }
+        tracing::debug!(
+            target: "avenger_chart::resize",
+            scheduled_request_count,
+            "scheduled view materializations for cached preview retarget"
+        );
+        Ok(saw_view_scoped_mark)
     }
 
     /// Render a single mark to scene marks.
@@ -4949,6 +5031,7 @@ impl CompiledPlot {
         dimensions_are_plot_area: bool,
         facet_path: &[ScalarValue],
         cached_components: &PlotComponents,
+        allow_view_scoped_marks: bool,
     ) -> Result<Option<PlotComponents>, AvengerChartError> {
         // Child-frame containers synthesize interaction scopes by rendering
         // their children. Reusing only the cached data marks would preserve the
@@ -4956,7 +5039,7 @@ impl CompiledPlot {
         // without coordinate scopes for nested concat/repeat/facet tools.
         if measurement.child_frame_container_view()?.is_some()
             || self.has_render_stage_derived_marks()
-            || self.has_view_scoped_marks()
+            || (self.has_view_scoped_marks() && !allow_view_scoped_marks)
         {
             return Ok(None);
         }
@@ -6424,11 +6507,6 @@ impl CompiledPlot {
             )
         };
 
-        let provider = DynamicScaleProvider {
-            builder: scale_builder.as_ref(),
-            plot: self,
-        };
-
         let inherited_facet_cell_profiles = layout_profile
             .as_ref()
             .map(|profile| profile.facet_cell_profiles.clone());
@@ -6505,11 +6583,30 @@ impl CompiledPlot {
             trace!("Facet empty-cell policy `auto` resolved to `hole` for this evaluation");
         }
 
+        let dynamic_provider = DynamicScaleProvider {
+            builder: scale_builder.as_ref(),
+            plot: self,
+        };
+        let view_provider;
+        let provider: &dyn ScaleProvider =
+            if self.needs_view_materialized_scale_inference(scale_builder.as_ref()) {
+                view_provider = ViewAwareScaleProvider {
+                    builder: scale_builder.as_ref(),
+                    plot: self,
+                    eval_ctx: &eval_ctx,
+                    data_override: None,
+                    facet_path: &[],
+                };
+                &view_provider
+            } else {
+                &dynamic_provider
+            };
+
         // Measure plot components
         let measurement = Box::pin(self.measure_plot_components(
             &eval_ctx,
             &measured_layout_spec,
-            &provider,
+            provider,
             None, // No data override for top-level plots
             &[],  // Empty facet path for top-level plots
         ))
@@ -6539,7 +6636,7 @@ impl CompiledPlot {
                         &mut measurement,
                         &eval_ctx,
                         &measured_layout_spec,
-                        &provider,
+                        provider,
                         resolved_chart_sizing,
                     ))
                     .await?;
@@ -6550,7 +6647,7 @@ impl CompiledPlot {
                         &mut measurement,
                         &eval_ctx,
                         &measured_layout_spec,
-                        &provider,
+                        provider,
                         resolved_chart_sizing,
                     ))
                     .await?;
@@ -6570,7 +6667,7 @@ impl CompiledPlot {
             &mut measurement,
             &eval_ctx,
             &measured_layout_spec,
-            &provider,
+            provider,
             resolved_chart_sizing,
         ))
         .await?;
@@ -7231,10 +7328,33 @@ impl CompiledPlot {
             layout_profile.selection_revision_fingerprint == current_selection_revision_fingerprint;
         let store_revisions_match =
             layout_profile.store_revision_fingerprint == current_store_revision_fingerprint;
+        let has_view_scoped_marks = self.has_view_scoped_marks();
+        // If the cached profile contains only the initial async fallback, a
+        // ready stale materialization may still exist in the cache. Rebuild in
+        // that case so the stale result can be drawn instead of retargeting an
+        // empty cached scene.
+        let has_cached_data_marks = layout_profile
+            .rendered_components
+            .as_ref()
+            .is_some_and(|components| !components.data_marks.is_empty());
         let can_reuse_top_level_data_marks = measurement.child_frame_container_view()?.is_none()
             && selection_revisions_match
             && store_revisions_match
             && (changed_params_are_layout_size_only || changed_params_are_profile_retarget_only);
+        let view_scoped_marks_scheduled_for_retarget =
+            if can_reuse_top_level_data_marks && has_view_scoped_marks && has_cached_data_marks {
+                Box::pin(self.schedule_view_materializations_for_cached_preview(
+                    &eval_ctx,
+                    &measurement,
+                    None,
+                    &[],
+                ))
+                .await?
+            } else {
+                false
+            };
+        let can_reuse_top_level_data_marks = can_reuse_top_level_data_marks
+            && (!has_view_scoped_marks || view_scoped_marks_scheduled_for_retarget);
         let components = if can_reuse_top_level_data_marks {
             if let Some(cached_components) = &layout_profile.rendered_components {
                 match Box::pin(self.build_plot_components_reusing_data_marks(
@@ -7245,6 +7365,7 @@ impl CompiledPlot {
                     false,
                     &[],
                     cached_components,
+                    view_scoped_marks_scheduled_for_retarget,
                 ))
                 .await?
                 {

@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use avenger_common::{canvas::CanvasDimensions, types::PathTransform};
 use avenger_text::{
     engine::TextEngine,
-    rasterization::{TextRasterBBox, TextRasterCacheKey, TextRasterizationConfig},
+    rasterization::{
+        CachedTextRasterization, TextRasterBBox, TextRasterCacheKey, TextRasterizationConfig,
+    },
     types::{FontStyle, FontWeight, TextAlign, TextBaseline, TextSyntaxMode},
     LabelParams,
 };
@@ -17,6 +19,7 @@ use crate::{
 };
 
 const DEFAULT_TEXT_ATLAS_EDGE: u32 = 1024;
+const TEXT_RASTER_CACHE_CAPACITY: usize = 1024;
 
 #[derive(Clone)]
 pub struct TextRasterBBoxAndAtlasCoords {
@@ -41,6 +44,8 @@ pub trait TextAtlasBuilderTrait {
     ) -> Result<Vec<TextAtlasRegistration>, AvengerWgpuError>;
 
     fn build(&self) -> (Extent3d, Vec<DynamicImage>);
+
+    fn reset(&mut self) {}
 }
 
 #[derive(Clone)]
@@ -75,6 +80,7 @@ pub struct TextAtlasBuilder {
     extent: Extent3d,
     next_atlas: image::RgbaImage,
     next_cache: HashMap<TextRasterCacheKey, TextRasterBBoxAndAtlasCoords>,
+    raster_cache: HashMap<TextRasterCacheKey, CachedTextRasterization>,
     atlases: Vec<DynamicImage>,
     initialized: bool,
     allocator: etagere::AtlasAllocator,
@@ -91,6 +97,7 @@ impl TextAtlasBuilder {
             },
             next_atlas: image::RgbaImage::new(1, 1),
             next_cache: Default::default(),
+            raster_cache: Default::default(),
             atlases: vec![],
             initialized: false,
             allocator: etagere::AtlasAllocator::new(etagere::Size::new(1, 1)),
@@ -99,6 +106,19 @@ impl TextAtlasBuilder {
 }
 
 impl TextAtlasBuilderTrait for TextAtlasBuilder {
+    fn reset(&mut self) {
+        self.extent = Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        self.next_atlas = image::RgbaImage::new(1, 1);
+        self.next_cache.clear();
+        self.atlases.clear();
+        self.initialized = false;
+        self.allocator = etagere::AtlasAllocator::new(etagere::Size::new(1, 1));
+    }
+
     fn register_text(
         &mut self,
         text: TextInstance,
@@ -152,8 +172,9 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
                 datetime_locale_specs: Some(text.datetime_locale_specs),
             },
             dimensions.scale,
-            &self.next_cache,
+            &self.raster_cache,
         )?;
+        self.remember_text_rasters(&buffer);
 
         let [buffer_left, buffer_top] = buffer
             .text_bounds
@@ -357,6 +378,29 @@ impl TextAtlasBuilderTrait for TextAtlasBuilder {
         let mut images = self.atlases.clone();
         images.push(image::DynamicImage::ImageRgba8(self.next_atlas.clone()));
         (self.extent, images)
+    }
+}
+
+impl TextAtlasBuilder {
+    fn remember_text_rasters(
+        &mut self,
+        buffer: &avenger_text::rasterization::TextRasterizationBuffer<TextRasterCacheKey>,
+    ) {
+        for (entry, position) in &buffer.entries {
+            if entry.image.is_none() || self.raster_cache.contains_key(&entry.cache_key) {
+                continue;
+            }
+            if self.raster_cache.len() >= TEXT_RASTER_CACHE_CAPACITY {
+                self.raster_cache.clear();
+            }
+            self.raster_cache.insert(
+                entry.cache_key.clone(),
+                CachedTextRasterization {
+                    entries: vec![(entry.clone(), position.clone())],
+                    text_bounds: buffer.text_bounds.clone(),
+                },
+            );
+        }
     }
 }
 

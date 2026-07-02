@@ -53,6 +53,7 @@ enum MaterializationCacheEntry {
 pub(crate) struct MaterializationCache {
     entries: HashMap<MaterializationKey, MaterializationCacheEntry>,
     last_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
+    last_settled_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
     completion_invalidation_pending: bool,
 }
 
@@ -215,6 +216,21 @@ impl MaterializationCache {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn stale_fallback_ready(
+        &self,
+        identity: &MaterializationIdentity,
+        request_priority: f32,
+    ) -> Option<(MaterializationKey, MaterializationResult)> {
+        if request_priority < 0.0
+            && let Some(key) = self.last_settled_ready_by_identity.get(identity)
+            && let Some(result) = self.get_ready(key)
+        {
+            return Some((key.clone(), result));
+        }
+        self.last_ready(identity)
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn mark_ready(
         &mut self,
         request: &MaterializationRequest,
@@ -231,6 +247,10 @@ impl MaterializationCache {
         if let Some(identity) = &request.identity {
             self.last_ready_by_identity
                 .insert(identity.clone(), request.key.clone());
+            if request.priority >= 0.0 {
+                self.last_settled_ready_by_identity
+                    .insert(identity.clone(), request.key.clone());
+            }
         }
     }
 

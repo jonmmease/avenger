@@ -258,6 +258,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             WindowEvent::WindowMoved(e) => Some(SceneGraphEvent::WindowMoved(e.clone())),
             WindowEvent::WindowFocused(focused) => Some(SceneGraphEvent::WindowFocused(*focused)),
             WindowEvent::WindowCloseRequested => Some(SceneGraphEvent::WindowCloseRequested),
+            WindowEvent::InteractionSettled { .. } => Some(SceneGraphEvent::InteractionSettled),
             WindowEvent::FileChanged(e) => {
                 Some(SceneGraphEvent::FileChanged(SceneFileChangedEvent {
                     file_path: e.file_path.clone(),

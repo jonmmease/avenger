@@ -55,6 +55,7 @@ chart stack.
 | [pattern-fill-requirements.md](pattern-fill-requirements.md) | Draft requirements for pattern fill overlays, including scenegraph/chart integration, CSS theme parsing, legend behavior, and renderer-facing constraints. |
 | [number-formatting.md](number-formatting.md) | Master formatting plan; creates `avenger-format-number`, owns built-in locales and locale registration, defines the layered d3-style string plus override/context API, and adds CLDR-backed `S`, `L`, and `C[ISO]` types. |
 | [datetime-formatting.md](datetime-formatting.md) | Master datetime formatting plan; creates `avenger-format-datetime`, uses LDML patterns plus `{datetime:medium}`-style CLDR presets, adds custom serde locales, `#datefmt`, and temporal axis tick-label fragments. |
+| [geo-coordinate-system.md](geo-coordinate-system.md) | Ready for staged implementation planning; creates a d3-geo-style `avenger-geo` projection engine and an `avenger-chart-geo` coordinate system scoped to blendable (cylindrical/pseudocylindrical/conic) projections, with graticule/fit guides, `GeometrySpace`-aware geo lines, WKB-backed GeoJSON marks, Mapbox-style pan/zoom that adaptively blends toward Web Mercator, warped raster tile layers, and eventual replacement of `avenger-chart-webmercator`. |
 
 ## Readiness Scale
 

@@ -233,6 +233,7 @@ async fn build_one_facet_cell(
                     true,
                     &full_path,
                     &cached_components,
+                    false,
                 ))
                 .await?
             }

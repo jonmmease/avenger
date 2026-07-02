@@ -283,6 +283,7 @@ impl ChartTool<Cartesian> for PanScrollZoom {
                 &event_targets,
                 self.zoom_base,
                 self.consume_wheel,
+                self.settle_exact,
             ));
         }
         expansion = expansion.event_binding(reset_view_binding(&enabled.name, &event_targets));
@@ -1907,6 +1908,7 @@ fn scroll_zoom_binding(
     targets: &[(Vec<String>, Param)],
     zoom_base: f64,
     consume_wheel: bool,
+    settle_exact: bool,
 ) -> ChartEventBinding {
     let factor = power(lit(zoom_base), lit(-1.0_f64) * ev::wheel_delta_y());
     let mut binding = ChartEventBinding::on(ChartEventType::MouseWheel)
@@ -1922,7 +1924,11 @@ fn scroll_zoom_binding(
             .set_param(param, zoom_interval(channel, factor.clone()));
     }
 
-    binding
+    if settle_exact {
+        binding.settle_exact()
+    } else {
+        binding
+    }
 }
 
 fn reset_view_binding(enabled_param: &str, targets: &[(Vec<String>, Param)]) -> ChartEventBinding {
@@ -2173,6 +2179,28 @@ mod tests {
                 .iter()
                 .any(|p| p.param.name == "__tool_nav__y_domain")
         );
+    }
+
+    #[test]
+    fn pan_scroll_zoom_settle_exact_marks_drag_and_wheel_preview_bindings() {
+        let tool = PanScrollZoom::cartesian().settle_exact(true);
+        let expansion = tool
+            .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
+            .expect("expand");
+
+        assert_eq!(expansion.event_bindings.len(), 3);
+        let drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::CursorMoved)
+            .expect("drag binding");
+        let wheel = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| binding.event_type == ChartEventType::MouseWheel)
+            .expect("wheel binding");
+        assert!(drag.settle_exact);
+        assert!(wheel.settle_exact);
     }
 
     #[test]

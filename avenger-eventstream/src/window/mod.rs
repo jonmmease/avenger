@@ -19,6 +19,7 @@ pub enum WindowEvent {
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
     Touch(WindowTouch),
+    InteractionSettled { generation: u64 },
     FileChanged(WindowFileChangedEvent),
 }
 
@@ -37,6 +38,7 @@ impl WindowEvent {
             Self::MouseInput(_)
                 | Self::KeyboardInput(_)
                 | Self::FileChanged(_)
+                | Self::InteractionSettled { .. }
                 | Self::WindowResizeSettled(_)
                 | Self::CanvasResizeSettled(_)
         )

@@ -90,7 +90,7 @@ fn resolve_image_source(
     };
 
     match resolver.image_state(&resource.key) {
-        ImageResourceState::Ready(image) => Ok(SceneImageSource::Inline(image.as_ref().clone())),
+        ImageResourceState::Ready(image) => Ok(SceneImageSource::SharedInline(image)),
         ImageResourceState::Pending => Err(AvengerSceneGraphError::ImageResourcePending(
             resource.key.clone(),
         )),
@@ -151,7 +151,7 @@ mod tests {
             panic!("expected image mark");
         };
         let source = image.image.first().expect("image source");
-        assert!(matches!(source, SceneImageSource::Inline(_)));
+        assert!(source.inline_image().is_some());
     }
 
     #[test]

@@ -77,6 +77,11 @@ Avenger's internal and public representation aligned: a raster produced by
 - The UDAF owns coordinate binning and per-cell aggregation.
 - The UDAF final result is the full uniform raster struct.
 - The UDAF intermediate state is values-only dense grid data.
+- Move `RasterDim` and `dim(...)` from `avenger-chart-marks` to the shared chart
+  core/common layer before implementing this transform. The transform output
+  handle should be able to return dimension selectors without introducing a
+  dependency from transforms to marks.
+- The transform output handle exposes `raster()`, `x_dim()`, and `y_dim()`.
 - Final-bin closure is required: values exactly on the stop edge are included
   in the last bin.
 - The v1 transform only targets uniform rasters with `"linear"` sampling.
@@ -97,7 +102,7 @@ UniformRaster2D::new().transform(
         .agg("count"),
     |mark, hist| {
         mark.raster_with(hist.raster(), |r| {
-            r.x(dim("x")).y(dim("y"))
+            r.x(hist.x_dim()).y(hist.y_dim())
         })
     },
 )
@@ -114,8 +119,8 @@ UniformRaster2D::new().transform(
         .agg(param("raster_agg")),
     |mark, hist| {
         mark.raster_with(hist.raster(), |r| {
-            r.x(dim("x"))
-             .y(dim("y"))
+            r.x(hist.x_dim())
+             .y(hist.y_dim())
              .fill(|fill| fill.legend(|legend| legend.title("Density")))
         })
     },
@@ -124,6 +129,11 @@ UniformRaster2D::new().transform(
 
 `partition_by(...)` outputs one raster row per group and preserves grouping
 columns for faceting, styling, filtering, ordering, and hover data.
+
+The transform's `.x(|x| ...)` and `.y(|y| ...)` builders configure
+rasterization bins/extents only. Rendered axis titles, scale names, explicit
+scale domains, and domain-sharing options are configured on the raster mark with
+`raster_with(...).x_with(...)` / `y_with(...)`.
 
 ## Transform Plan Shape
 
@@ -170,6 +180,74 @@ partitioned rasters share geometry. Per-partition extents are plausible later,
 but they make overlays and comparisons harder because each output raster has a
 different grid.
 
+## Dimension Names And Output Handle
+
+Dimension names should be resolved with DataFusion's own expression naming
+logic. Use `Expr::name_for_alias()` / `Expr::schema_name()` rather than an
+Avenger-specific pretty-name helper. Aliased expressions should use the alias as
+the dimension name; unaliased expressions should use the same name DataFusion
+would use for a projection output field.
+
+The public output handle should store the resolved x/y dimension names:
+
+```rust
+pub struct RasterizeUniform2DOutput {
+    raster_name: String,
+    x_dim_name: String,
+    y_dim_name: String,
+}
+
+impl RasterizeUniform2DOutput {
+    pub fn raster(&self) -> Expr;
+    pub fn x_dim(&self) -> RasterDim;
+    pub fn y_dim(&self) -> RasterDim;
+}
+```
+
+This is why `RasterDim` / `dim(...)` need to live in the shared chart
+core/common layer. Both `avenger-chart-marks` and `avenger-chart-transforms`
+should depend on that shared selector type.
+
+Validation:
+
+```text
+x_dim_name is non-empty
+y_dim_name is non-empty
+x_dim_name != y_dim_name
+raster output name does not conflict with input columns or grouping columns
+```
+
+If x and y resolve to the same name, require the author to alias one expression.
+Do not silently invent suffixes, because the dimension names are part of the
+public raster metadata.
+
+## UDAF API Preflight
+
+Before implementing the full transform, add a narrow DataFusion 48 UDAF spike in
+the transform crate:
+
+```text
+goal: aggregate x/y into one fixed-size dummy raster struct
+```
+
+This preflight should prove the concrete APIs and crate wiring before the real
+binning logic lands:
+
+- construct an `AggregateUDFImpl` inside `CompiledRasterizeUniform2D::apply`;
+- define struct return fields matching `geometry.dimensions` and `values.dims`;
+- define list-based intermediate state fields;
+- implement both scalar `Accumulator` and `GroupsAccumulator`;
+- return `ScalarValue::Struct(...)` from scalar `evaluate`;
+- return a `StructArray` directly from grouped `evaluate`;
+- verify `state`, `merge_batch`, `evaluate`, `EmitTo::All`, and `EmitTo::First`;
+- implement `size()` with dense-grid byte accounting;
+- validate that the output field is accepted by `UniformRaster2D` schema
+  validation.
+
+Keep this spike as production code if it naturally becomes the first
+`count_rows` implementation; otherwise land it as focused unit tests before
+building the public builder surface.
+
 ## UDAF Shape
 
 Use `AggregateUDFImpl`, not the simple `create_udaf` helper. The implementation
@@ -201,8 +279,9 @@ y_sampling: "linear"
 ```
 
 `CountRows` receives x/y only. `CountValues` receives x/y/value and counts
-non-null value rows after coordinate filtering. `SumValues` receives x/y/value
-and sums valid numeric values after coordinate filtering.
+non-null values after coordinate filtering, skipping non-finite numeric values.
+`SumValues` receives x/y/value and sums valid numeric values after coordinate
+filtering.
 
 The return type is the current uniform raster struct:
 
@@ -228,10 +307,11 @@ Struct<
 >
 ```
 
-V1 should emit `geometry.kind = "grid"`, two uniform dimensions named from the
-DataFusion x/y expression display names, and `values.dims = [y_dim_name,
+V1 should emit `geometry.kind = "grid"`, two uniform dimensions named from
+DataFusion's expression output names, and `values.dims = [y_dim_name,
 x_dim_name]` so the data list is row-major y/x storage. The mark still binds the
-plot axes explicitly with `r.x(dim(...)).y(dim(...))`.
+plot axes explicitly with `r.x(hist.x_dim()).y(hist.y_dim())` or equivalent
+`dim(...)` selectors.
 
 Do not add value-domain extrema, `null_count`, or `non_finite_count` fields to
 the transform output. Downstream domain inference should inspect `values.data`
@@ -290,8 +370,10 @@ outside extent -> skip row
 
 `CountRows` counts every remaining row.
 
-`CountValues` follows SQL/DataFusion count-expression intuition: it counts
-non-null value rows. A floating `NaN` value is not null, so it is counted.
+`CountValues` follows SQL/DataFusion count-expression intuition for nulls, but
+uses raster-specific non-finite handling for numeric values. It counts non-null
+value rows after coordinate filtering, except that non-finite numeric values are
+skipped.
 
 `SumValues` requires a numeric value expression. Null and non-finite numeric
 values are skipped so one `NaN` does not poison the cell aggregate.
@@ -710,25 +792,35 @@ should be reused by scalar and grouped accumulator paths.
 transform's explicit `partition_by` expressions are user-visible grouping
 columns.
 
+For v1, `partition_by(...)` accepts simple column references only. This matches
+the current KDE transform's conservative grouping model and keeps output-column
+preservation straightforward. Authors who need computed grouping keys should add
+them with `Calculate`/`Select` before rasterization.
+
 The implementation also needs to account for `DataTransformFacetContext` when a
 transform runs at a sharing level above the final mark. It must not collapse
 data that should remain separate for downstream facet cells. Follow the KDE
 transform pattern: add required `facet_context.partition_exprs` to the effective
 grouping set when they are not already present.
 
-For v1, facet partition expressions may be limited to simple column references
-if that keeps aliasing and output-column preservation tractable.
+Facet partition expressions are also simple-column-only in v1. Return a clear
+error if a facet partition expression is not a simple column reference.
 
 ## Domain Behavior
 
-The output raster struct contains enough geometry and value data for ordinary
-raster mark domain inference:
+The output raster struct contains enough geometry and value data for the raster
+mark's domain inference:
 
 ```text
 x domain    <- geometry.dimensions[name = x_dim].coords.start/stop
 y domain    <- geometry.dimensions[name = y_dim].coords.start/stop
 fill domain <- values.data
 ```
+
+This is not ordinary render-channel inference for x/y. `UniformRaster2D`
+contributes mark-owned `MarkScaleDomainSource`s for x/y using the selected
+`RasterDim`s. Fill remains the normal scaled hidden fill channel and uses
+flattened `values.data` through generic ListArray domain inference.
 
 For inferred global extents, all partitioned output rasters should share the
 same x/y geometry. For explicit extents, the output geometry should exactly
@@ -829,6 +921,12 @@ Planned baselines:
       Evaluate with a fixed param set in the visual test. This baseline is less
       visually unique than the first two, but it catches the integration between
       param evaluation, configured UDAF creation, and final raster rendering.
+- [ ] `aliased_dimension_output_handle`
+      Use aliased or computed x/y expressions, for example
+      `(col("Weight_in_lbs") / lit(1000.0)).alias("Weight (klbs)")` and
+      `col("Miles_per_Gallon").alias("MPG")`. Render with
+      `r.x(hist.x_dim()).y(hist.y_dim())` to prove dimension naming and output
+      handle selectors stay aligned.
 
 Avoid adding baselines for every edge case. Use core/unit tests for exact cell
 values, invalid inputs, `GroupsAccumulator` behavior, and `EmitTo::First`.
@@ -844,9 +942,16 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
       are skipped.
 - [ ] Transform unit test: inferred extents produce expected geometry
       start/stop/count fields.
+- [ ] Transform unit test: x/y dimension names use
+      `Expr::name_for_alias()` / `Expr::schema_name()` for simple, aliased, and
+      computed expressions.
+- [ ] Transform unit test: duplicate x/y dimension names are rejected and the
+      error asks the author to alias one expression.
+- [ ] Transform unit test: output handle `x_dim()` / `y_dim()` returns selectors
+      matching the generated raster metadata.
 - [ ] Transform unit test: output raster schema includes `geometry` and
-      `values.data`, and does not include value extrema or diagnostic count
-      fields.
+      `values.dims` / `values.data`, and does not include value extrema or
+      diagnostic count fields.
 - [ ] Transform unit test: reversed explicit extents preserve orientation and
       still bin correctly.
 - [ ] Transform unit test: row-major cell order is stable.
@@ -854,6 +959,8 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
 - [ ] Transform unit test: `count` empty cells are zero.
 - [ ] Transform unit test: `count` with `value(...)` counts non-null value
       rows.
+- [ ] Transform unit test: `count` with numeric `value(...)` skips non-finite
+      values.
 - [ ] Transform unit test: `value(None)` and literal `Null` behave like omitted
       value for `count`.
 - [ ] Transform unit test: `sum` creates one raster row with `Float64` values.
@@ -861,14 +968,21 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
 - [ ] Transform unit test: `sum` skips null and non-finite values.
 - [ ] Transform unit test: partitioned rasterization returns one row per
       partition and preserves partition columns.
+- [ ] Transform unit test: `partition_by(...)` rejects non-column expressions in
+      v1 with a clear error.
 - [ ] Transform unit test: facet context partition expressions are included in
       effective grouping when needed.
+- [ ] Transform unit test: non-column facet partition expressions are rejected
+      in v1 with a clear error.
 - [ ] Transform unit test: null x/y rows are skipped.
 - [ ] Transform unit test: non-finite x/y rows are skipped.
 - [ ] Transform unit test: all-empty `sum` raster has all-null `values.data`
       and no fill/color domain contribution through ListArray inference.
 - [ ] UDAF unit test: scalar `Accumulator` and `GroupsAccumulator` produce the
       same output for the same input.
+- [ ] UDAF preflight test: a minimal configured aggregate can return a
+      `Struct<geometry, values>` raster through both scalar and grouped
+      accumulator paths.
 - [ ] UDAF unit test: partial state merge matches single-pass aggregation.
 - [ ] UDAF unit test: `GroupsAccumulator` handles increasing
       `total_num_groups`.
@@ -884,14 +998,21 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
 
 ## Implementation Checklist
 
+- [ ] Move `RasterDim` and `dim(...)` to the shared chart core/common layer and
+      re-export them from marks and the top-level prelude.
 - [ ] Add `RasterizeUniform2D` authoring builder and output handle.
+- [ ] Add `RasterizeUniform2DOutput::{raster, x_dim, y_dim}`.
 - [ ] Add serializable `CompiledRasterizeUniform2D` transform spec.
-- [ ] Add builder options for x/y axis builders, optional value, aggregate op,
-      output name, explicit extents, and partition/group expressions.
+- [ ] Add builder options for x/y rasterization builders, optional value,
+      aggregate op, output name, explicit extents, and partition/group
+      expressions.
 - [ ] Add validation for generated output names and duplicate partition/output
       names.
+- [ ] Resolve x/y dimension names with DataFusion `Expr::name_for_alias()` /
+      `Expr::schema_name()` and reject duplicates.
 - [ ] Resolve scalar controls with existing param evaluation helpers.
 - [ ] Add inferred-extent scalar prepass.
+- [ ] Add the narrow DataFusion UDAF preflight described above.
 - [ ] Build configured `AggregateUDFImpl` instance inside transform `apply`.
 - [ ] Implement DataFusion return type and state field definitions.
 - [ ] Implement scalar `Accumulator`.
@@ -900,7 +1021,8 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
 - [ ] Implement sum state fields and merge logic.
 - [ ] Add dense Arrow list/struct builders for uniform raster output.
 - [ ] Add shared helpers for finite numeric checks and cell index computation.
-- [ ] Add effective partition handling, including facet-context columns.
+- [ ] Add simple-column-only effective partition handling, including
+      facet-context columns.
 - [ ] Add transform tests listed above.
 - [ ] Add public re-exports in `avenger-chart/src/prelude.rs` when the public
       transform type lands.
@@ -922,6 +1044,3 @@ Visual baselines should focus on end-to-end transform plus raster rendering.
 - What max cell count should the transform enforce by default?
 - Should `sum` use DataFusion's exact sum coercion rules in v1, or is `Float64`
   output the right first implementation for predictable raster scaling?
-- Should `CountValues` count floating `NaN` values for strict SQL consistency,
-  or should rasterization treat all non-finite values as invalid regardless of
-  aggregation mode?

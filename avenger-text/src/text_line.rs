@@ -6,8 +6,8 @@ use crate::{
     error::AvengerTextError,
     measurement::{FontMetrics, FontMetricsConfig, TextBounds, TextMeasurementConfig},
     rasterization::{
-        TextRasterBBox, TextRasterCacheKey, TextRasterEntry, TextRasterPosition,
-        TextRasterizationBuffer, TextRasterizationConfig,
+        TextRasterBBox, TextRasterCacheKey, TextRasterCacheValue, TextRasterEntry,
+        TextRasterPosition, TextRasterizationBuffer, TextRasterizationConfig,
     },
     types::{FontStyle, FontWeight, FontWeightNameSpec},
 };
@@ -81,7 +81,7 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         cached_entries: &HashMap<TextRasterCacheKey, CacheValue>,
     ) -> Result<TextRasterizationBuffer<TextRasterCacheKey>, AvengerTextError>
     where
-        CacheValue: Clone,
+        CacheValue: TextRasterCacheValue,
     {
         let math = self.math.with_syntax_mode(config.syntax_mode);
         let raster_text = truncate_raster_text(config, |candidate| {
@@ -119,6 +119,35 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
         }
 
         let fill = color_key(&config.color);
+        let cache_key = TextRasterCacheKey {
+            text: raster_text.clone(),
+            font: config.font.to_string(),
+            font_size: OrderedFloat(config.font_size),
+            font_weight: format!("{:?}", config.font_weight),
+            font_style: format!("{:?}", config.font_style),
+            fill,
+            scale: OrderedFloat(scale),
+            markup: format!("{:?}", math),
+            params: crate::math::label_params_fingerprint(config.params),
+            number_locale: config.number_locale.map(str::to_string),
+            number_locale_specs: config
+                .number_locale_specs
+                .map(crate::math::number_locale_specs_fingerprint)
+                .unwrap_or_default(),
+            datetime_locale: config.datetime_locale.map(str::to_string),
+            datetime_timezone: config.datetime_timezone.map(str::to_string),
+            datetime_locale_specs: config
+                .datetime_locale_specs
+                .map(crate::math::datetime_locale_specs_fingerprint)
+                .unwrap_or_default(),
+        };
+        if let Some(cached) = cached_entries
+            .get(&cache_key)
+            .and_then(TextRasterCacheValue::cached_text_rasterization)
+        {
+            return Ok(cached);
+        }
+
         let result = typeset_line(
             &self.typst,
             &math,
@@ -145,28 +174,6 @@ impl<CacheValue> TextLineRasterizer<CacheValue> {
             &result.label,
             &avenger_typst_label::RasterOptions { scale },
         )?;
-        let cache_key = TextRasterCacheKey {
-            text: raster_text,
-            font: config.font.to_string(),
-            font_size: OrderedFloat(config.font_size),
-            font_weight: format!("{:?}", config.font_weight),
-            font_style: format!("{:?}", config.font_style),
-            fill,
-            scale: OrderedFloat(scale),
-            markup: format!("{:?}", math),
-            params: crate::math::label_params_fingerprint(config.params),
-            number_locale: config.number_locale.map(str::to_string),
-            number_locale_specs: config
-                .number_locale_specs
-                .map(crate::math::number_locale_specs_fingerprint)
-                .unwrap_or_default(),
-            datetime_locale: config.datetime_locale.map(str::to_string),
-            datetime_timezone: config.datetime_timezone.map(str::to_string),
-            datetime_locale_specs: config
-                .datetime_locale_specs
-                .map(crate::math::datetime_locale_specs_fingerprint)
-                .unwrap_or_default(),
-        };
         let image = if cached_entries.contains_key(&cache_key) {
             None
         } else {
@@ -310,7 +317,7 @@ fn truncate_raster_text(
     config: &TextRasterizationConfig,
     measure_width: impl FnMut(&str) -> Result<f32, AvengerTextError>,
 ) -> Result<String, AvengerTextError> {
-    if config.limit.is_finite() {
+    if config.limit.is_finite() && config.limit > 0.0 {
         crate::measurement::truncate_text_to_limit_with(config.text, config.limit, measure_width)
     } else {
         Ok(config.text.to_string())
@@ -667,6 +674,39 @@ mod tests {
         .expect("datefmt label");
 
         assert_eq!(result.label.semantic_text(), "2024~01~05");
+    }
+
+    #[test]
+    fn raster_text_limit_zero_and_infinity_skip_measurement() {
+        let text = "Price $7".to_string();
+        let font = "sans-serif".to_string();
+        let color = [0.0, 0.0, 0.0, 1.0];
+
+        for limit in [0.0, f32::INFINITY] {
+            let config = TextRasterizationConfig {
+                text: &text,
+                color,
+                font: &font,
+                font_size: 12.0,
+                font_weight: WEIGHT,
+                font_style: STYLE,
+                limit,
+                syntax_mode: TextSyntaxMode::Plain,
+                params: crate::empty_label_params(),
+                number_locale: None,
+                number_locale_specs: None,
+                datetime_locale: None,
+                datetime_timezone: None,
+                datetime_locale_specs: None,
+            };
+
+            let raster_text = truncate_raster_text(&config, |_candidate| {
+                panic!("no-limit text should not be measured for truncation")
+            })
+            .unwrap();
+
+            assert_eq!(raster_text, text);
+        }
     }
 
     #[test]

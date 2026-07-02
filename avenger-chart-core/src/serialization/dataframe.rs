@@ -18,7 +18,7 @@ use datafusion::{
     datasource::{MemTable, TableProvider},
     error::{DataFusionError, Result as DataFusionResult},
     execution::context::TaskContext,
-    logical_expr::{Extension, LogicalPlan, ScalarUDF},
+    logical_expr::{Extension, LogicalPlan, ScalarUDF, UNNAMED_TABLE},
     prelude::SessionContext,
 };
 use datafusion_common::TableReference;
@@ -34,6 +34,8 @@ use crate::AvengerChartError;
 
 /// Magic header for identifying serialized in-memory tables.
 const MEMTABLE_MAGIC: &[u8] = b"MEMTABLE_V1";
+/// Magic header for identifying named in-session in-memory table references.
+const MEMTABLE_REF_MAGIC: &[u8] = b"MEMTABLE_REF_V1";
 
 /// Extension codec for core logical-plan serialization.
 ///
@@ -81,7 +83,9 @@ impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
         schema: SchemaRef,
         ctx: &SessionContext,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
-        if buf.starts_with(MEMTABLE_MAGIC) {
+        if buf.starts_with(MEMTABLE_REF_MAGIC) {
+            futures::executor::block_on(ctx.table_provider(table_ref.clone()))
+        } else if buf.starts_with(MEMTABLE_MAGIC) {
             let buf = &buf[MEMTABLE_MAGIC.len()..];
             if buf.len() < 8 {
                 return datafusion_common::plan_err!(
@@ -120,6 +124,11 @@ impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
         buf: &mut Vec<u8>,
     ) -> DataFusionResult<()> {
         if let Some(mem_table) = node.as_any().downcast_ref::<MemTable>() {
+            if table_ref.table() != UNNAMED_TABLE {
+                buf.extend_from_slice(MEMTABLE_REF_MAGIC);
+                return Ok(());
+            }
+
             buf.extend_from_slice(MEMTABLE_MAGIC);
 
             let state = SessionContext::new().state();
@@ -279,9 +288,26 @@ impl<'de> Deserialize<'de> for SerializableDataFrame {
 
 #[cfg(test)]
 mod tests {
-    use datafusion::prelude::SessionContext;
+    use std::sync::Arc;
+
+    use datafusion::{
+        arrow::{
+            array::{Int32Array, RecordBatch},
+            datatypes::{DataType, Field, Schema},
+        },
+        datasource::MemTable,
+        prelude::SessionContext,
+    };
 
     use super::*;
+
+    fn int_batch(values: Vec<i32>) -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, false)])),
+            vec![Arc::new(Int32Array::from(values))],
+        )
+        .unwrap()
+    }
 
     #[tokio::test]
     async fn serializable_dataframe_roundtrips_through_json() {
@@ -317,5 +343,46 @@ mod tests {
         let json = serde_json::to_string(&some_df).unwrap();
         let deserialized: Option<SerializableDataFrame> = serde_json::from_str(&json).unwrap();
         assert!(deserialized.is_some());
+    }
+
+    #[tokio::test]
+    async fn named_memtable_serializes_as_session_table_reference() {
+        let ctx = SessionContext::new();
+        ctx.register_batch("cached_values", int_batch(vec![1, 2, 3]))
+            .unwrap();
+        let df = ctx.table("cached_values").await.unwrap();
+
+        let serializable = SerializableDataFrame::from_dataframe(df).unwrap();
+        assert!(contains_bytes(&serializable.0, MEMTABLE_REF_MAGIC));
+        assert!(!contains_bytes(&serializable.0, MEMTABLE_MAGIC));
+
+        let restored = serializable.to_dataframe(&ctx).unwrap();
+        let batches = restored.collect().await.unwrap();
+        assert_eq!(batches[0].num_rows(), 3);
+
+        let missing_ctx = SessionContext::new();
+        assert!(serializable.to_dataframe(&missing_ctx).is_err());
+    }
+
+    #[tokio::test]
+    async fn unnamed_memtable_still_serializes_inline() {
+        let ctx = SessionContext::new();
+        let batch = int_batch(vec![4, 5, 6]);
+        let table = Arc::new(MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap());
+        let df = ctx.read_table(table).unwrap();
+
+        let serializable = SerializableDataFrame::from_dataframe(df).unwrap();
+        assert!(contains_bytes(&serializable.0, MEMTABLE_MAGIC));
+        assert!(!contains_bytes(&serializable.0, MEMTABLE_REF_MAGIC));
+
+        let restored = serializable.to_dataframe(&SessionContext::new()).unwrap();
+        let batches = restored.collect().await.unwrap();
+        assert_eq!(batches[0].num_rows(), 3);
+    }
+
+    fn contains_bytes(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack
+            .windows(needle.len())
+            .any(|window| window == needle)
     }
 }

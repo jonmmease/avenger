@@ -314,7 +314,8 @@ fn dataframe_for_materialization_display(
 
     if materialization.request.policy.allow_stale
         && let Some(identity) = &materialization.request.identity
-        && let Some((_key, result)) = cache.last_ready(identity)
+        && let Some((_key, result)) =
+            cache.stale_fallback_ready(identity, materialization.request.priority)
     {
         eval_ctx.record_materialization_stale_fallback_used();
         return dataframe_from_materialization_result(result, ctx);
@@ -1473,7 +1474,7 @@ fn resolved_view_params(
     }
 }
 
-fn eval_ctx_with_view_params(
+pub(crate) fn eval_ctx_with_view_params(
     eval_ctx: &EvaluationContext,
     view_scope: &CompiledViewScope,
     scales: &HashMap<String, ConfiguredScaleWithSpec>,
@@ -1490,7 +1491,7 @@ fn eval_ctx_with_view_params(
     Ok(eval_ctx.with_params(params))
 }
 
-async fn prepare_view_logical_mark_data(
+pub(crate) async fn prepare_view_logical_mark_data(
     mark: &dyn CompiledMark,
     view_scope: &CompiledViewScope,
     base_prepared: &PreparedLogicalMarkData,
@@ -1541,6 +1542,169 @@ async fn prepare_view_logical_mark_data(
     let mut channels = base_prepared.channels.clone();
     channels.extend(view_channels);
     finalize_logical_mark_data(dataframe, channels, derived_scalars, ctx).await
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ViewMaterializationSchedule {
+    pub(crate) request_count: usize,
+    pub(crate) can_retarget_cached_scene: bool,
+}
+
+pub(crate) async fn schedule_view_materializations_for_mark(
+    request: MarkDataRequest<'_>,
+) -> Result<ViewMaterializationSchedule, AvengerChartError> {
+    let mark = request.mark;
+    let Some(view_scope) = mark.state().view.as_ref() else {
+        return Ok(ViewMaterializationSchedule::default());
+    };
+    if !matches!(
+        view_scope.spec.policy().stale_policy,
+        ViewStalePolicy::RetargetCached
+    ) {
+        return Ok(ViewMaterializationSchedule::default());
+    }
+
+    let prepared_storage;
+    let base_prepared = if let Some(prepared) = request.prepared_logical {
+        prepared
+    } else {
+        prepared_storage = prepare_logical_mark_data(LogicalMarkDataRequest {
+            mark,
+            plot_data: request.plot_data,
+            provided_plot_df: request.provided_plot_df,
+            facet_data_scope: request.facet_data_scope,
+            prepared_base: request.prepared_base,
+            eval_ctx: request.eval_ctx,
+        })
+        .await?;
+        &prepared_storage
+    };
+
+    let view_eval_ctx = eval_ctx_with_view_params(
+        request.eval_ctx,
+        view_scope,
+        request.scales,
+        request.plot_width,
+        request.plot_height,
+    )?;
+    let request_count = schedule_view_materialization_transforms(
+        mark,
+        view_scope,
+        base_prepared,
+        &request,
+        &view_eval_ctx,
+    )
+    .await?;
+
+    Ok(ViewMaterializationSchedule {
+        request_count,
+        can_retarget_cached_scene: request_count > 0,
+    })
+}
+
+async fn schedule_view_materialization_transforms(
+    mark: &dyn CompiledMark,
+    view_scope: &CompiledViewScope,
+    base_prepared: &PreparedLogicalMarkData,
+    request: &MarkDataRequest<'_>,
+    view_eval_ctx: &EvaluationContext,
+) -> Result<usize, AvengerChartError> {
+    let ctx = request.eval_ctx.session_context.as_ref();
+    if view_scope.data.transforms().is_empty() {
+        return Ok(0);
+    }
+
+    let dataframe = if let Some(store_data) = view_scope.data.store_data() {
+        Some(store_dataframe(
+            store_data,
+            request.facet_data_scope,
+            view_eval_ctx,
+        )?)
+    } else if let Some(dataframe) = view_scope.data.dataframe_with_context(ctx) {
+        Some(dataframe)
+    } else {
+        base_prepared.dataframe.clone()
+    };
+
+    let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
+    let transforms =
+        scoped_transform_stages(view_scope.data.transforms(), mark.state().facet_data_scope)?;
+    let mut dataframe = dataframe;
+    let mut current_level = transforms
+        .first()
+        .map(|stage| stage.level)
+        .unwrap_or_else(|| mark.state().facet_data_scope.sharing_level());
+
+    dataframe = filter_dataframe_to_transform_scope(
+        dataframe,
+        request.facet_data_scope,
+        current_level,
+        "initial view transform scope",
+    )?;
+
+    let mut request_count = 0;
+    for stage in transforms {
+        if stage.level > current_level {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Transform stage scope {:?} is broader than the preceding stage scope {:?}; transform scopes must stay the same or get narrower through a chain",
+                stage.level, current_level
+            )));
+        }
+        if stage.level < current_level {
+            dataframe = filter_dataframe_to_transform_scope(
+                dataframe,
+                request.facet_data_scope,
+                stage.level,
+                "narrower view transform scope",
+            )?;
+            current_level = stage.level;
+        }
+
+        let available_columns = dataframe
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>();
+        let transform = stage.transform.map_exprs(&mut |expr| {
+            expand_selection_predicates(expr, view_eval_ctx, Some(&available_columns))
+        })?;
+        let facet_context = transform_facet_context(
+            request.facet_data_scope,
+            current_level,
+            mark.state().facet_data_scope,
+        );
+        let transform_ctx = DataTransformExecutionContext {
+            session_context: ctx,
+            params: view_eval_ctx.params(),
+            time_context: view_eval_ctx.time_context().clone(),
+            facet_context: facet_context.clone(),
+        };
+        let materialization_ctx = ViewMaterializationContext {
+            session_context: ctx,
+            params: view_eval_ctx.params(),
+            time_context: view_eval_ctx.time_context().clone(),
+            facet_context: facet_context.as_ref(),
+            policy: materialization_policy_for_view(view_scope),
+            priority: view_eval_ctx.materialization_priority(),
+        };
+        if let Some(mut materialization) =
+            transform.view_materialization_request(&dataframe, &materialization_ctx)?
+        {
+            materialization.request.policy = materialization_ctx.policy;
+            materialization.request.priority = materialization_ctx.priority;
+            view_eval_ctx.request_materialization(materialization.request.clone());
+            dataframe =
+                dataframe_for_materialization_display(&materialization, ctx, view_eval_ctx)?;
+            request_count += 1;
+            continue;
+        }
+
+        let result = transform.apply(dataframe, &transform_ctx).await?;
+        dataframe = result.dataframe;
+    }
+
+    Ok(request_count)
 }
 
 /// Apply a scale transformation to a channel expression.

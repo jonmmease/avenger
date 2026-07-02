@@ -153,15 +153,13 @@ fn event_streams_for_bindings_with_coord_types(
         ));
 
         if binding.settle_exact {
-            if let Some(between) = &binding.between {
-                let end_config =
-                    stream_config_for_chart_stream(&between.end, None, false, ctx, param_specs)?;
-                streams.push((
-                    end_config,
-                    Arc::new(ChartEventExactOnlyHandler)
-                        as Arc<dyn EventStreamHandler<ChartAppState>>,
-                ));
-            }
+            streams.push((
+                EventStreamConfig {
+                    types: vec![SceneGraphEventType::InteractionSettled],
+                    ..Default::default()
+                },
+                Arc::new(ChartEventExactOnlyHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
+            ));
         }
     }
     Ok(streams)
@@ -176,6 +174,7 @@ struct CompiledChartEventBinding {
     store_assignments: Vec<CompiledStoreAssignment>,
     selection_assignments: Vec<CompiledSelectionAssignment>,
     evaluation_mode: ChartEventEvaluationMode,
+    settle_exact: bool,
     interaction_requests: InteractionColumnRequests,
     event_path_min_distance_px: f32,
     scope_target: Option<ChartEventScopeTarget>,
@@ -775,6 +774,7 @@ impl CompiledChartEventBinding {
             store_assignments,
             selection_assignments,
             evaluation_mode: binding.evaluation_mode,
+            settle_exact: binding.settle_exact,
             interaction_requests,
             event_path_min_distance_px: binding
                 .event_path_min_distance_px
@@ -2307,6 +2307,11 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             ChartEventEvaluationMode::Preview => EvaluationMode::Preview,
             ChartEventEvaluationMode::Exact => EvaluationMode::Exact,
         };
+        if self.runtime.settle_exact
+            && self.runtime.evaluation_mode == ChartEventEvaluationMode::Preview
+        {
+            app.interaction_settle_exact_pending = true;
+        }
         trace_chart_event_patch(
             self.runtime.binding_index,
             event,
@@ -3258,6 +3263,10 @@ impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
         state.drain_pending_params_into_runtime(&mut app);
+        if !app.interaction_settle_exact_pending {
+            return UpdateStatus::default();
+        }
+        app.interaction_settle_exact_pending = false;
         app.next_evaluation_mode = EvaluationMode::Exact;
         UpdateStatus {
             rerender: true,
@@ -4460,6 +4469,7 @@ fn event_type_name(event_type: SceneGraphEventType) -> &'static str {
         SceneGraphEventType::WindowMoved => "window_moved",
         SceneGraphEventType::WindowFocused => "window_focused",
         SceneGraphEventType::WindowCloseRequested => "window_close_requested",
+        SceneGraphEventType::InteractionSettled => "interaction_settled",
         SceneGraphEventType::FileChanged(_) => "file_changed",
     }
 }
@@ -5365,6 +5375,12 @@ mod tests {
         status
     }
 
+    async fn interaction_settle(state: &mut ChartAppState) -> UpdateStatus {
+        ChartEventExactOnlyHandler
+            .handle(&SceneGraphEvent::InteractionSettled, state, &empty_rtree())
+            .await
+    }
+
     fn compile_handler_for_event_type(
         compiled: &CompiledPlot,
         ctx: &SessionContext,
@@ -6115,6 +6131,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pan_scroll_zoom_interaction_settled_runs_exact_after_preview() {
+        let (compiled, ctx) = repeat_pan_compiled(CoordinationScope::Shared, true).await;
+        let policy = compiled.resize_policy();
+        let wheel_handlers =
+            compile_handlers_for_event_type(&compiled, &ctx, ChartEventType::MouseWheel);
+        let session = Arc::new(compiled).instantiate(ctx);
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial repeat build");
+        let scopes = state.interaction_scopes().await;
+        let active = repeat_scope(&scopes, "repeat_cell:b:a").clone();
+        let center = scope_center(&active);
+
+        let idle_status = interaction_settle(&mut state).await;
+        assert!(
+            !idle_status.rerender,
+            "settled interaction should no-op before preview work"
+        );
+
+        let preview_status = wheel_zoom_all(&mut state, &wheel_handlers, center, 6.0).await;
+        assert!(preview_status.rerender, "wheel preview should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after wheel preview");
+        assert_eq!(
+            state.last_metrics().await.expect("preview metrics").mode,
+            EvaluationMode::Preview
+        );
+
+        let settled_status = interaction_settle(&mut state).await;
+        assert!(settled_status.rerender, "settled wheel should rerender");
+        crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build after settled wheel");
+        assert_eq!(
+            state.last_metrics().await.expect("settled metrics").mode,
+            EvaluationMode::Exact
+        );
+    }
+
+    #[tokio::test]
     async fn repeat_free_pan_updates_only_active_cell_domains() {
         let (mut state, drag_handlers, _) =
             repeat_pan_state_and_handlers(CoordinationScope::Free, false).await;
@@ -6405,17 +6467,14 @@ mod tests {
         );
         let settle_status = manager
             .dispatch_event(
-                &WindowEvent::MouseInput(WindowMouseInput {
-                    state: ElementState::Released,
-                    button: MouseButton::Left,
-                }),
+                &WindowEvent::InteractionSettled { generation: 1 },
                 &rtree,
-                instant + Duration::from_millis(32),
+                instant + Duration::from_millis(120),
             )
             .await;
         assert!(
             settle_status.rebuild_geometry,
-            "mouse-up settle should request Exact evaluation"
+            "interaction settle should request Exact evaluation"
         );
         crate::ChartSceneGraphBuilder
             .build(manager.state_mut())

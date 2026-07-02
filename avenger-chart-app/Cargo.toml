@@ -32,7 +32,7 @@ datafusion-proto = "48.0.1"
 indexmap = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync"] }
 tracing = { workspace = true }
 typetag = "0.2"
 winit = { workspace = true, optional = true }
@@ -40,7 +40,7 @@ winit = { workspace = true, optional = true }
 [dev-dependencies]
 avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 env_logger = "0.10"
-tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]

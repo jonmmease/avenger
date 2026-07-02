@@ -26,6 +26,7 @@ pub enum SceneGraphEvent {
     WindowMoved(WindowMovedEvent),
     WindowFocused(bool),
     WindowCloseRequested,
+    InteractionSettled,
     FileChanged(SceneFileChangedEvent),
 }
 
@@ -81,6 +82,7 @@ impl SceneGraphEvent {
             Self::WindowMoved(..) => SceneGraphEventType::WindowMoved,
             Self::WindowFocused(..) => SceneGraphEventType::WindowFocused,
             Self::WindowCloseRequested => SceneGraphEventType::WindowCloseRequested,
+            Self::InteractionSettled => SceneGraphEventType::InteractionSettled,
             Self::FileChanged(SceneFileChangedEvent { file_path, .. }) => {
                 SceneGraphEventType::FileChanged(file_path.clone())
             }
@@ -107,6 +109,7 @@ pub enum SceneGraphEventType {
     WindowMoved,
     WindowFocused,
     WindowCloseRequested,
+    InteractionSettled,
     FileChanged(PathBuf),
 }
 

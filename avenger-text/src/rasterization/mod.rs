@@ -80,3 +80,34 @@ pub struct TextRasterizationBuffer<CacheKey: Hash + Eq + Clone> {
     pub entries: Vec<(TextRasterEntry<CacheKey>, TextRasterPosition)>,
     pub text_bounds: TextBounds,
 }
+
+#[derive(Clone)]
+pub struct CachedTextRasterization {
+    pub entries: Vec<(TextRasterEntry<TextRasterCacheKey>, TextRasterPosition)>,
+    pub text_bounds: TextBounds,
+}
+
+impl CachedTextRasterization {
+    pub fn as_buffer(&self) -> TextRasterizationBuffer<TextRasterCacheKey> {
+        TextRasterizationBuffer {
+            entries: self.entries.clone(),
+            text_bounds: self.text_bounds.clone(),
+        }
+    }
+}
+
+pub trait TextRasterCacheValue: Clone {
+    fn cached_text_rasterization(&self) -> Option<TextRasterizationBuffer<TextRasterCacheKey>>;
+}
+
+impl TextRasterCacheValue for () {
+    fn cached_text_rasterization(&self) -> Option<TextRasterizationBuffer<TextRasterCacheKey>> {
+        None
+    }
+}
+
+impl TextRasterCacheValue for CachedTextRasterization {
+    fn cached_text_rasterization(&self) -> Option<TextRasterizationBuffer<TextRasterCacheKey>> {
+        Some(self.as_buffer())
+    }
+}

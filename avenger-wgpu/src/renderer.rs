@@ -574,11 +574,9 @@ impl AvengerRendererCore {
         self.run_start = 0;
         self.marks.clear();
 
-        // Reset the shared text atlas so each frame starts clean (matches the old
-        // per-renderer reset-per-frame semantics). `TextAtlasBuilder` has no reset
-        // method, so replace it with a fresh builder via the same ctor.
-        self.text_atlas_builder =
-            make_text_atlas_builder(&self.config.text_builder_ctor, &self.config.font_resolution);
+        // Reset atlas contents while retaining expensive builder-owned services
+        // such as the text engine/font database.
+        self.text_atlas_builder.reset();
     }
 
     pub(crate) fn make_frame_overlay_command(

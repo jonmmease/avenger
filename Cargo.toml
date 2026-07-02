@@ -87,7 +87,7 @@ strip = "symbols"
 incremental = false
 
 [workspace.dependencies]
-serde = { version = "^1.0", features = ["derive"] }
+serde = { version = "^1.0", features = ["derive", "rc"] }
 serde_json = "^1.0"
 thiserror = "2.0.12"
 lyon_path = "1.0.7"

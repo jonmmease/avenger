@@ -1,6 +1,8 @@
 use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
+    collections::{HashMap, HashSet, VecDeque},
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use avenger_chart_core::{
@@ -29,8 +31,8 @@ use avenger_scenegraph::marks::{
 use datafusion::{
     arrow::{
         array::{
-            Array, ArrayRef, AsArray, Float64Array, ListBuilder, StringArray, StringBuilder,
-            StructArray,
+            Array, ArrayData, ArrayRef, AsArray, Float64Array, ListBuilder, StringArray,
+            StringBuilder, StructArray,
         },
         datatypes::{DataType, Field, Float32Type, Float64Type},
         record_batch::RecordBatch,
@@ -61,6 +63,7 @@ impl Mark<Cartesian> for UniformRaster2D<Cartesian> {
         Ok(Arc::new(CompiledCartesianUniformRaster2D {
             state: compiled_state,
             options: self.raster_options().clone(),
+            image_cache: default_uniform_raster_image_cache(),
         }))
     }
 
@@ -89,6 +92,100 @@ impl Mark<Cartesian> for UniformRaster2D<Cartesian> {
 pub struct CompiledCartesianUniformRaster2D {
     pub(crate) state: CompiledMarkState,
     pub(crate) options: UniformRaster2DOptions,
+    #[serde(skip, default = "default_uniform_raster_image_cache")]
+    image_cache: UniformRasterImageCacheHandle,
+}
+
+type UniformRasterImageCacheHandle = Arc<Mutex<UniformRasterImageCache>>;
+
+fn default_uniform_raster_image_cache() -> UniformRasterImageCacheHandle {
+    Arc::new(Mutex::new(UniformRasterImageCache::default()))
+}
+
+const UNIFORM_RASTER_IMAGE_CACHE_CAPACITY: usize = 16;
+
+#[derive(Default)]
+struct UniformRasterImageCache {
+    entries: HashMap<UniformRasterImageKey, Arc<RgbaImage>>,
+    order: VecDeque<UniformRasterImageKey>,
+    identity_entries: HashMap<UniformRasterImageIdentityKey, Arc<RgbaImage>>,
+    identity_order: VecDeque<UniformRasterImageIdentityKey>,
+}
+
+impl UniformRasterImageCache {
+    fn get(&self, key: &UniformRasterImageKey) -> Option<Arc<RgbaImage>> {
+        self.entries.get(key).cloned()
+    }
+
+    fn get_identity(&self, key: &UniformRasterImageIdentityKey) -> Option<Arc<RgbaImage>> {
+        self.identity_entries.get(key).cloned()
+    }
+
+    fn insert_identity(&mut self, key: UniformRasterImageIdentityKey, image: Arc<RgbaImage>) {
+        if self.identity_entries.contains_key(&key) {
+            self.identity_entries.insert(key, image);
+            return;
+        }
+
+        self.identity_entries.insert(key.clone(), image);
+        self.identity_order.push_back(key);
+
+        while self.identity_entries.len() > UNIFORM_RASTER_IMAGE_CACHE_CAPACITY {
+            if let Some(oldest) = self.identity_order.pop_front() {
+                self.identity_entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn insert(&mut self, key: UniformRasterImageKey, image: Arc<RgbaImage>) {
+        if self.entries.contains_key(&key) {
+            self.entries.insert(key, image);
+            return;
+        }
+
+        self.entries.insert(key.clone(), image);
+        self.order.push_back(key);
+
+        while self.entries.len() > UNIFORM_RASTER_IMAGE_CACHE_CAPACITY {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct UniformRasterImageIdentityKey {
+    raster_values_identity: u64,
+    fill_values_identity: u64,
+    x_dim: String,
+    y_dim: String,
+    x_indices_hash: u64,
+    y_indices_hash: u64,
+    flip_x: bool,
+    flip_y: bool,
+    opacity: u32,
+    null_color: [u32; 4],
+    non_finite_color: [u32; 4],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct UniformRasterImageKey {
+    raster_values_hash: u64,
+    fill_values_hash: u64,
+    x_dim: String,
+    y_dim: String,
+    x_indices_hash: u64,
+    y_indices_hash: u64,
+    flip_x: bool,
+    flip_y: bool,
+    opacity: u32,
+    null_color: [u32; 4],
+    non_finite_color: [u32; 4],
 }
 
 impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
@@ -337,10 +434,9 @@ impl CompiledCartesianUniformRaster2D {
                 )));
             }
 
-            let colors = coerce_cell_colors(&fill_values)?;
             let row_marks = build_scene_marks_for_raster(
                 &raster,
-                &colors,
+                &fill_values,
                 null_color,
                 non_finite_color,
                 opacity_values[row],
@@ -348,6 +444,7 @@ impl CompiledCartesianUniformRaster2D {
                 y_position,
                 self.options.smooth,
                 self.state.zindex,
+                &self.image_cache,
                 context,
                 coord,
             )?;
@@ -367,7 +464,7 @@ impl CompiledCartesianUniformRaster2D {
 
 fn build_scene_marks_for_raster(
     raster: &GridRasterRow,
-    colors: &[[f32; 4]],
+    fill_values: &ArrayRef,
     null_color: [f32; 4],
     non_finite_color: [f32; 4],
     opacity: f32,
@@ -375,6 +472,7 @@ fn build_scene_marks_for_raster(
     y_position: &avenger_chart_marks::RasterPositionSpec,
     smooth: bool,
     zindex: Option<i32>,
+    image_cache: &UniformRasterImageCacheHandle,
     context: &dyn MarkRuntimeContext,
     coord: &dyn CoordinateSystemTransformCore,
 ) -> Result<Vec<SceneMark>, AvengerChartError> {
@@ -411,9 +509,9 @@ fn build_scene_marks_for_raster(
             let height = (scaled_y1 - scaled_y0).abs();
             let x_indices = (0..*x_count as usize).collect::<Vec<_>>();
             let y_indices = (0..*y_count as usize).collect::<Vec<_>>();
-            let image = build_rgba_image(
+            let image = build_or_reuse_rgba_image(
                 raster,
-                colors,
+                fill_values,
                 null_color,
                 non_finite_color,
                 opacity,
@@ -423,6 +521,7 @@ fn build_scene_marks_for_raster(
                 &y_indices,
                 flip_x,
                 flip_y,
+                image_cache,
             )?;
 
             trace!(
@@ -468,9 +567,9 @@ fn build_scene_marks_for_raster(
                 let height = (scaled_y1 - scaled_y0).abs();
                 let x_indices = (0..*x_count as usize).collect::<Vec<_>>();
                 let y_indices = vec![y_index];
-                let image = build_rgba_image(
+                let image = build_or_reuse_rgba_image(
                     raster,
-                    colors,
+                    fill_values,
                     null_color,
                     non_finite_color,
                     opacity,
@@ -480,6 +579,7 @@ fn build_scene_marks_for_raster(
                     &y_indices,
                     flip_x,
                     false,
+                    image_cache,
                 )?;
                 marks.push(scene_image_mark(image, x, y, width, height, smooth, zindex));
             }
@@ -509,9 +609,9 @@ fn build_scene_marks_for_raster(
                 let height = (scaled_y1 - scaled_y0).abs();
                 let x_indices = vec![x_index];
                 let y_indices = (0..*y_count as usize).collect::<Vec<_>>();
-                let image = build_rgba_image(
+                let image = build_or_reuse_rgba_image(
                     raster,
-                    colors,
+                    fill_values,
                     null_color,
                     non_finite_color,
                     opacity,
@@ -521,6 +621,7 @@ fn build_scene_marks_for_raster(
                     &y_indices,
                     false,
                     flip_y,
+                    image_cache,
                 )?;
                 marks.push(scene_image_mark(image, x, y, width, height, smooth, zindex));
             }
@@ -536,7 +637,7 @@ fn build_scene_marks_for_raster(
 }
 
 fn scene_image_mark(
-    image: RgbaImage,
+    image: Arc<RgbaImage>,
     x: f32,
     y: f32,
     width: f32,
@@ -551,7 +652,7 @@ fn scene_image_mark(
         len: 1,
         aspect: false,
         smooth,
-        image: ScalarOrArray::new_scalar(SceneImageSource::Inline(image)),
+        image: ScalarOrArray::new_scalar(SceneImageSource::shared_inline(image)),
         x: ScalarOrArray::new_scalar(x),
         y: ScalarOrArray::new_scalar(y),
         width: ScalarOrArray::new_scalar(width),
@@ -1463,6 +1564,134 @@ fn transform_extent(
     Ok((x[0], y[0], x[1], y[1]))
 }
 
+fn build_or_reuse_rgba_image(
+    raster: &GridRasterRow,
+    fill_values: &ArrayRef,
+    null_color: [f32; 4],
+    non_finite_color: [f32; 4],
+    opacity: f32,
+    x_dim: &str,
+    y_dim: &str,
+    x_indices: &[usize],
+    y_indices: &[usize],
+    flip_x: bool,
+    flip_y: bool,
+    image_cache: &UniformRasterImageCacheHandle,
+) -> Result<Arc<RgbaImage>, AvengerChartError> {
+    let identity_key_start = Instant::now();
+    let identity_key = UniformRasterImageIdentityKey {
+        raster_values_identity: hash_array_identity(&raster.values),
+        fill_values_identity: hash_array_identity(fill_values),
+        x_dim: x_dim.to_string(),
+        y_dim: y_dim.to_string(),
+        x_indices_hash: hash_indices(x_indices),
+        y_indices_hash: hash_indices(y_indices),
+        flip_x,
+        flip_y,
+        opacity: opacity.to_bits(),
+        null_color: color_bits(null_color),
+        non_finite_color: color_bits(non_finite_color),
+    };
+    let identity_key_elapsed = identity_key_start.elapsed();
+
+    if let Some(image) = image_cache
+        .lock()
+        .expect("uniform raster image cache lock poisoned")
+        .get_identity(&identity_key)
+    {
+        debug!(
+            target: "avenger_chart::raster",
+            x_dim,
+            y_dim,
+            width = x_indices.len(),
+            height = y_indices.len(),
+            identity_key_ms = identity_key_elapsed.as_secs_f64() * 1000.0,
+            "uniform raster RGBA image identity cache hit"
+        );
+        return Ok(image);
+    }
+
+    let key_start = Instant::now();
+    let key = UniformRasterImageKey {
+        raster_values_hash: hash_array_contents(&raster.values),
+        fill_values_hash: hash_array_contents(fill_values),
+        x_dim: x_dim.to_string(),
+        y_dim: y_dim.to_string(),
+        x_indices_hash: hash_indices(x_indices),
+        y_indices_hash: hash_indices(y_indices),
+        flip_x,
+        flip_y,
+        opacity: opacity.to_bits(),
+        null_color: color_bits(null_color),
+        non_finite_color: color_bits(non_finite_color),
+    };
+    let key_elapsed = key_start.elapsed();
+
+    let content_cached_image = {
+        let mut cache = image_cache
+            .lock()
+            .expect("uniform raster image cache lock poisoned");
+        let image = cache.get(&key);
+        if let Some(image) = &image {
+            cache.insert_identity(identity_key.clone(), image.clone());
+        }
+        image
+    };
+    if let Some(image) = content_cached_image {
+        debug!(
+            target: "avenger_chart::raster",
+            x_dim,
+            y_dim,
+            width = x_indices.len(),
+            height = y_indices.len(),
+            identity_key_ms = identity_key_elapsed.as_secs_f64() * 1000.0,
+            content_key_ms = key_elapsed.as_secs_f64() * 1000.0,
+            "uniform raster RGBA image cache hit"
+        );
+        return Ok(image);
+    }
+
+    let coerce_start = Instant::now();
+    let colors = coerce_cell_colors(fill_values)?;
+    let coerce_elapsed = coerce_start.elapsed();
+    let build_start = Instant::now();
+    let image = Arc::new(build_rgba_image(
+        raster,
+        &colors,
+        null_color,
+        non_finite_color,
+        opacity,
+        x_dim,
+        y_dim,
+        x_indices,
+        y_indices,
+        flip_x,
+        flip_y,
+    )?);
+    let build_elapsed = build_start.elapsed();
+
+    {
+        let mut cache = image_cache
+            .lock()
+            .expect("uniform raster image cache lock poisoned");
+        cache.insert(key, image.clone());
+        cache.insert_identity(identity_key, image.clone());
+    }
+    debug!(
+        target: "avenger_chart::raster",
+        x_dim,
+        y_dim,
+        width = x_indices.len(),
+        height = y_indices.len(),
+        identity_key_ms = identity_key_elapsed.as_secs_f64() * 1000.0,
+        content_key_ms = key_elapsed.as_secs_f64() * 1000.0,
+        coerce_ms = coerce_elapsed.as_secs_f64() * 1000.0,
+        build_ms = build_elapsed.as_secs_f64() * 1000.0,
+        "uniform raster RGBA image cache miss"
+    );
+    Ok(image)
+}
+
 fn build_rgba_image(
     raster: &GridRasterRow,
     colors: &[[f32; 4]],
@@ -1522,6 +1751,72 @@ fn build_rgba_image(
     })
 }
 
+fn color_bits(color: [f32; 4]) -> [u32; 4] {
+    [
+        color[0].to_bits(),
+        color[1].to_bits(),
+        color[2].to_bits(),
+        color[3].to_bits(),
+    ]
+}
+
+fn hash_indices(indices: &[usize]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    indices.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn hash_array_contents(array: &ArrayRef) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_array_data(&array.to_data(), &mut hasher);
+    hasher.finish()
+}
+
+fn hash_array_identity(array: &ArrayRef) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    hash_array_data_identity(&array.to_data(), &mut hasher);
+    hasher.finish()
+}
+
+fn hash_array_data(data: &ArrayData, hasher: &mut impl Hasher) {
+    format!("{:?}", data.data_type()).hash(hasher);
+    data.len().hash(hasher);
+    data.offset().hash(hasher);
+    data.null_count().hash(hasher);
+
+    if let Some(nulls) = data.nulls() {
+        nulls.buffer().as_slice().hash(hasher);
+    }
+    for buffer in data.buffers() {
+        buffer.as_slice().hash(hasher);
+    }
+    for child in data.child_data() {
+        hash_array_data(child, hasher);
+    }
+}
+
+fn hash_array_data_identity(data: &ArrayData, hasher: &mut impl Hasher) {
+    format!("{:?}", data.data_type()).hash(hasher);
+    data.len().hash(hasher);
+    data.offset().hash(hasher);
+    data.null_count().hash(hasher);
+
+    if let Some(nulls) = data.nulls() {
+        hash_buffer_identity(nulls.buffer().as_slice(), hasher);
+    }
+    for buffer in data.buffers() {
+        hash_buffer_identity(buffer.as_slice(), hasher);
+    }
+    for child in data.child_data() {
+        hash_array_data_identity(child, hasher);
+    }
+}
+
+fn hash_buffer_identity<T>(slice: &[T], hasher: &mut impl Hasher) {
+    (slice.as_ptr() as usize).hash(hasher);
+    slice.len().hash(hasher);
+}
+
 fn cell_is_non_finite(array: &ArrayRef, index: usize) -> Result<bool, AvengerChartError> {
     match array.data_type() {
         DataType::Float32 => {
@@ -1559,7 +1854,7 @@ mod tests {
     use avenger_scales::scales::{
         ConfiguredScale, band::BandScale, linear::LinearScale, ordinal::OrdinalScale,
     };
-    use avenger_scenegraph::marks::{image::SceneImageSource, mark::SceneMark};
+    use avenger_scenegraph::marks::mark::SceneMark;
     use datafusion::{
         arrow::{
             array::{
@@ -1987,6 +2282,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options,
+            image_cache: default_uniform_raster_image_cache(),
         };
         let scalars =
             RecordBatch::new_empty(Arc::new(datafusion::arrow::datatypes::Schema::empty()));
@@ -2038,6 +2334,7 @@ mod tests {
         let compiled = CompiledCartesianUniformRaster2D {
             state: CompiledMarkState::from_mark_state(mark.state(), Some(df.clone())),
             options: mark.raster_options().clone(),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let sources = compiled
             .scale_domain_sources(Some(&df), &ctx)
@@ -2062,6 +2359,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options: raster_options("x", "y"),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let data = raster_batch();
         let scalars =
@@ -2082,9 +2380,12 @@ mod tests {
         assert_eq!(*image_mark.width.first().expect("width"), 200.0);
         assert_eq!(*image_mark.height.first().expect("height"), 200.0);
 
-        let SceneImageSource::Inline(image) = image_mark.image.first().expect("image") else {
-            panic!("expected inline image");
-        };
+        let image = image_mark
+            .image
+            .first()
+            .expect("image")
+            .inline_image()
+            .expect("inline image");
         assert_eq!(image.width, 2);
         assert_eq!(image.height, 2);
         assert_eq!(
@@ -2174,6 +2475,7 @@ mod tests {
                 y_position: Some(position("y", "y")),
                 ..options
             },
+            image_cache: default_uniform_raster_image_cache(),
         };
         let values_data = float64_list(&[Some(0.0), None, Some(f64::NAN), Some(f64::INFINITY)]);
         let fill_data = rgba_list(&[
@@ -2202,9 +2504,12 @@ mod tests {
         let SceneMark::Image(image_mark) = &rendered.marks[0] else {
             panic!("expected image mark");
         };
-        let SceneImageSource::Inline(image) = image_mark.image.first().expect("image") else {
-            panic!("expected inline image");
-        };
+        let image = image_mark
+            .image
+            .first()
+            .expect("image")
+            .inline_image()
+            .expect("inline image");
         assert_eq!(
             image.data,
             vec![
@@ -2218,6 +2523,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options: raster_options("x", "y"),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let values_data = string_list(&[
             "#ff0000", "#00ff00", "#0000ff", "#ffffff", "#000000", "#ffff00",
@@ -2242,9 +2548,12 @@ mod tests {
         let SceneMark::Image(image_mark) = &rendered.marks[0] else {
             panic!("expected image mark");
         };
-        let SceneImageSource::Inline(image) = image_mark.image.first().expect("image") else {
-            panic!("expected inline image");
-        };
+        let image = image_mark
+            .image
+            .first()
+            .expect("image")
+            .inline_image()
+            .expect("inline image");
         assert_eq!(image.width, 2);
         assert_eq!(image.height, 3);
         assert_eq!(
@@ -2261,6 +2570,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options: raster_options("x", "group"),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let values_data = string_list(&["#ff0000", "#00ff00", "#0000ff", "#ffffff"]);
         let data = raster_batch_from_parts(
@@ -2290,9 +2600,12 @@ mod tests {
         assert_eq!(*first_strip.y.first().expect("y"), 100.0);
         assert_eq!(*first_strip.width.first().expect("width"), 200.0);
         assert_eq!(*first_strip.height.first().expect("height"), 100.0);
-        let SceneImageSource::Inline(image) = first_strip.image.first().expect("image") else {
-            panic!("expected inline image");
-        };
+        let image = first_strip
+            .image
+            .first()
+            .expect("image")
+            .inline_image()
+            .expect("inline image");
         assert_eq!(image.width, 2);
         assert_eq!(image.height, 1);
         assert_eq!(image.data, vec![255, 0, 0, 255, 0, 255, 0, 255]);
@@ -2303,6 +2616,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options: raster_options("group", "y"),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let values_data = string_list(&["#ff0000", "#00ff00", "#0000ff", "#ffffff"]);
         let data = raster_batch_from_parts(
@@ -2332,9 +2646,12 @@ mod tests {
         assert_eq!(*first_strip.y.first().expect("y"), 0.0);
         assert_eq!(*first_strip.width.first().expect("width"), 100.0);
         assert_eq!(*first_strip.height.first().expect("height"), 200.0);
-        let SceneImageSource::Inline(image) = first_strip.image.first().expect("image") else {
-            panic!("expected inline image");
-        };
+        let image = first_strip
+            .image
+            .first()
+            .expect("image")
+            .inline_image()
+            .expect("inline image");
         assert_eq!(image.width, 1);
         assert_eq!(image.height, 2);
         assert_eq!(image.data, vec![0, 0, 255, 255, 255, 0, 0, 255]);
@@ -2345,6 +2662,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options: raster_options("x", "y"),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let linear = LinearScale::configured((0.0, 1.0), (0.0, 1.0));
         let ordinal =
@@ -2367,6 +2685,7 @@ mod tests {
         let mark = CompiledCartesianUniformRaster2D {
             state: compiled_state(),
             options: raster_options("x", "y"),
+            image_cache: default_uniform_raster_image_cache(),
         };
         let data = raster_batch_with_sampling(Some("log10"), None);
         let scalars =

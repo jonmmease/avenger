@@ -335,6 +335,7 @@ struct ChartAppRuntime {
     resize_binding: ChartResizeBinding,
     exact_on_resize_settle: bool,
     next_evaluation_mode: EvaluationMode,
+    interaction_settle_exact_pending: bool,
     log_metrics: bool,
     trace_resize: bool,
     last_metrics: Option<EvaluationMetrics>,
@@ -380,6 +381,7 @@ impl ChartAppState {
                 resize_binding: options.resize_binding,
                 exact_on_resize_settle: options.exact_on_resize_settle,
                 next_evaluation_mode: EvaluationMode::Exact,
+                interaction_settle_exact_pending: false,
                 log_metrics: options.log_metrics,
                 trace_resize: std::env::var_os("AVENGER_TRACE_RESIZE").is_some(),
                 last_metrics: None,
@@ -575,11 +577,14 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         let mut runtime = state.runtime.lock().await;
         let pending_params = state.drain_pending_params_into_runtime(&mut runtime);
         let mode = if pending_params {
+            runtime.next_evaluation_mode = EvaluationMode::Exact;
             EvaluationMode::Exact
         } else {
             runtime.next_evaluation_mode
         };
-        runtime.next_evaluation_mode = EvaluationMode::Exact;
+        if mode == EvaluationMode::Exact {
+            runtime.interaction_settle_exact_pending = false;
+        }
         let evaluation_param_revision = state.param_revision();
 
         let start = Instant::now();
@@ -1060,6 +1065,7 @@ mod tests {
         RenderInvalidationHub, ResourceCachePolicy, ResourceKey, ResourceKind,
         ResourceRequestPurpose, ResourceSource,
     };
+    use avenger_scenegraph::marks::mark::SceneMark;
     use avenger_scenegraph::scene_graph::SceneGraph;
 
     use super::*;
@@ -1274,6 +1280,27 @@ mod tests {
             1,
             "completed raster materialization should wake the render host once"
         );
+
+        let ready_scene = ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build ready async raster scene");
+        assert!(
+            count_image_marks(&ready_scene) > 0,
+            "scene rebuilt after materialization should contain a raster image mark"
+        );
+    }
+
+    fn count_image_marks(scene: &SceneGraph) -> usize {
+        scene.marks.iter().map(count_image_marks_in_mark).sum()
+    }
+
+    fn count_image_marks_in_mark(mark: &SceneMark) -> usize {
+        match mark {
+            SceneMark::Image(_) => 1,
+            SceneMark::Group(group) => group.marks.iter().map(count_image_marks_in_mark).sum(),
+            _ => 0,
+        }
     }
 
     fn empty_rtree() -> SceneGraphRTree {
@@ -1586,6 +1613,71 @@ mod tests {
             .expect("exact build");
         assert_eq!(
             state.last_metrics().await.expect("exact metrics").mode,
+            EvaluationMode::Exact
+        );
+    }
+
+    #[tokio::test]
+    async fn preview_policy_persists_across_non_param_rebuilds_until_settle() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let mut state = resize_test_state().await;
+        let rtree = empty_rtree();
+        ChartResizeHandler
+            .handle(
+                &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("first preview build");
+        assert_eq!(
+            state
+                .last_metrics()
+                .await
+                .expect("first preview metrics")
+                .mode,
+            EvaluationMode::Preview
+        );
+        assert_eq!(
+            state.runtime.lock().await.next_evaluation_mode,
+            EvaluationMode::Preview
+        );
+
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("second preview build");
+        assert_eq!(
+            state
+                .last_metrics()
+                .await
+                .expect("second preview metrics")
+                .mode,
+            EvaluationMode::Preview
+        );
+
+        ChartResizeSettleHandler
+            .handle(
+                &SceneGraphEvent::CanvasResizeSettled(CanvasResizeEvent {
+                    size: [800.0, 600.0],
+                }),
+                &mut state,
+                &rtree,
+            )
+            .await;
+        ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("settled exact build");
+        assert_eq!(
+            state.last_metrics().await.expect("settled metrics").mode,
             EvaluationMode::Exact
         );
     }

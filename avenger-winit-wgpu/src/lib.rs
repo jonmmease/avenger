@@ -4,8 +4,8 @@ use avenger_eventstream::window::{
     CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
 };
 use avenger_resource::{
-    RenderInvalidation, RenderInvalidationHub, RenderInvalidationSchedule,
-    RenderInvalidationSubscription,
+    RenderInvalidation, RenderInvalidationHub, RenderInvalidationReason,
+    RenderInvalidationSchedule, RenderInvalidationSubscription,
 };
 pub use avenger_wgpu::{
     canvas::CanvasConfig,
@@ -15,7 +15,13 @@ use avenger_wgpu::{
     canvas::{Canvas, CanvasFrameOverlay, WindowCanvas},
     error::AvengerWgpuError,
 };
-use std::{sync::Arc, time::Instant as StdInstant};
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Instant as StdInstant,
+};
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
@@ -338,6 +344,7 @@ pub struct WinitWgpuAvengerAppOptions {
     pub window_attributes: WindowAttributes,
     pub window_scene_sizing: WindowSceneSizing,
     pub resize_settle_delay_ms: Option<u64>,
+    pub interaction_settle_delay_ms: Option<u64>,
     pub canvas_frame: Option<CanvasFrameOptions>,
     pub canvas_config: CanvasConfig,
     pub render_invalidation_hub: Option<RenderInvalidationHub>,
@@ -350,6 +357,7 @@ impl WinitWgpuAvengerAppOptions {
             window_attributes: WindowAttributes::default().with_resizable(false),
             window_scene_sizing: WindowSceneSizing::SurfaceFollowsWindow,
             resize_settle_delay_ms: None,
+            interaction_settle_delay_ms: Some(120),
             canvas_frame: None,
             canvas_config: CanvasConfig::default(),
             render_invalidation_hub: None,
@@ -368,6 +376,11 @@ impl WinitWgpuAvengerAppOptions {
 
     pub fn resize_settle_delay_ms(mut self, resize_settle_delay_ms: Option<u64>) -> Self {
         self.resize_settle_delay_ms = resize_settle_delay_ms;
+        self
+    }
+
+    pub fn interaction_settle_delay_ms(mut self, interaction_settle_delay_ms: Option<u64>) -> Self {
+        self.interaction_settle_delay_ms = interaction_settle_delay_ms;
         self
     }
 
@@ -396,6 +409,8 @@ where
     window_attributes: WindowAttributes,
     window_scene_sizing: WindowSceneSizing,
     resize_settle_delay_ms: Option<u64>,
+    interaction_settle_delay_ms: Option<u64>,
+    interaction_settle_generation: Arc<AtomicU64>,
     canvas_frame: Option<CanvasFrameState>,
     canvas_config: CanvasConfig,
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
@@ -449,10 +464,17 @@ where
         let event_proxy = event_loop.create_proxy();
         let render_invalidation_subscription =
             options.render_invalidation_hub.as_ref().map(|hub| {
-                let event_proxy = event_proxy.clone();
-                hub.subscribe(Arc::new(move |invalidation| {
+                let event_proxy_for_subscription = event_proxy.clone();
+                let subscription = hub.subscribe(Arc::new(move |invalidation| {
+                    send_render_invalidation_event(
+                        event_proxy_for_subscription.clone(),
+                        invalidation,
+                    );
+                }));
+                if let Some(invalidation) = hub.latest_invalidation() {
                     send_render_invalidation_event(event_proxy.clone(), invalidation);
-                }))
+                }
+                subscription
             });
 
         // File watching is only supported on desktop
@@ -477,6 +499,8 @@ where
             window_attributes: options.window_attributes,
             window_scene_sizing: options.window_scene_sizing,
             resize_settle_delay_ms: options.resize_settle_delay_ms,
+            interaction_settle_delay_ms: options.interaction_settle_delay_ms,
+            interaction_settle_generation: Arc::new(AtomicU64::new(0)),
             canvas_frame: options.canvas_frame.map(CanvasFrameState::new),
             canvas_config: options.canvas_config,
             event_proxy,
@@ -616,8 +640,18 @@ where
         {
             return;
         }
+
+        if matches!(
+            &invalidation.reason,
+            RenderInvalidationReason::EvaluationChanged { .. }
+        ) && !self.rebuild_scene_graph_for_render_invalidation(&invalidation)
+        {
+            return;
+        }
+
         let canvas = self.canvas.borrow();
         let Some(canvas) = canvas.as_ref() else {
+            self.last_requested_render_invalidation_epoch = invalidation.epoch;
             return;
         };
         self.last_requested_render_invalidation_epoch = invalidation.epoch;
@@ -629,6 +663,87 @@ where
             schedule = ?invalidation.schedule,
             "winit render invalidated"
         );
+    }
+
+    fn rebuild_scene_graph_for_render_invalidation(
+        &mut self,
+        invalidation: &RenderInvalidation,
+    ) -> bool {
+        let window_scene_sizing = self.window_scene_sizing;
+        let scale = self.scale;
+
+        cfg_if::cfg_if! {
+            if #[cfg(target_arch = "wasm32")] {
+                let app_clone = self.avenger_app.clone();
+                let canvas_shared = self.canvas.clone();
+                let invalidation_epoch = invalidation.epoch;
+                #[allow(clippy::await_holding_refcell_ref)]
+                spawn_local(async move {
+                    let scene_graph = match app_clone.borrow_mut().rebuild_scene_graph(true).await {
+                        Ok(scene_graph) => scene_graph,
+                        Err(err) => {
+                            log::error!("Failed to rebuild scene graph after render invalidation: {err:?}");
+                            return;
+                        }
+                    };
+                    let mut canvas_borrowed = canvas_shared.borrow_mut();
+                    let Some(canvas) = canvas_borrowed.as_mut() else {
+                        return;
+                    };
+                    if let Err(err) = install_scene_graph(
+                        canvas,
+                        &scene_graph,
+                        window_scene_sizing,
+                        scale,
+                        None,
+                    ) {
+                        log::error!("Failed to set invalidated scene graph: {err:?}");
+                        return;
+                    }
+                    tracing::debug!(
+                        target: "avenger_winit_wgpu::resize",
+                        epoch = invalidation_epoch,
+                        "winit render invalidation rebuilt scene"
+                    );
+                });
+                true
+            } else {
+                let rebuild_start = StdInstant::now();
+                let scene_graph = {
+                    let mut app = self.avenger_app.borrow_mut();
+                    match self.tokio_runtime.block_on(app.rebuild_scene_graph(true)) {
+                        Ok(scene_graph) => scene_graph,
+                        Err(err) => {
+                            log::error!("Failed to rebuild scene graph after render invalidation: {err:?}");
+                            return false;
+                        }
+                    }
+                };
+
+                if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+                    let install_start = StdInstant::now();
+                    if let Err(err) = install_scene_graph(
+                        canvas,
+                        &scene_graph,
+                        window_scene_sizing,
+                        scale,
+                        self.canvas_frame.as_mut(),
+                    ) {
+                        log::error!("Failed to set invalidated scene graph: {err:?}");
+                        return false;
+                    }
+                    tracing::debug!(
+                        target: "avenger_winit_wgpu::resize",
+                        epoch = invalidation.epoch,
+                        rebuild_ms = rebuild_start.elapsed().as_secs_f64() * 1000.0,
+                        set_scene_ms = install_start.elapsed().as_secs_f64() * 1000.0,
+                        "winit render invalidation rebuilt scene"
+                    );
+                    self.render_pending = true;
+                }
+                true
+            }
+        }
     }
 
     fn dispatch_pending_canvas_resize(&mut self) {
@@ -679,6 +794,37 @@ where
         }
     }
 
+    fn schedule_interaction_settle(&self) {
+        let Some(delay_ms) = self.interaction_settle_delay_ms else {
+            return;
+        };
+        let generation = self
+            .interaction_settle_generation
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let event_proxy = self.event_proxy.clone();
+            let settle_generation = self.interaction_settle_generation.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                if settle_generation.load(Ordering::Relaxed) != generation {
+                    return;
+                }
+                let _ = event_proxy.send_event(WinitWgpuEvent::App(
+                    AvengerWindowEvent::InteractionSettled { generation },
+                ));
+            });
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = delay_ms;
+            let _ = generation;
+        }
+    }
+
     fn user_event_force(&mut self, event: &AvengerWindowEvent) -> Option<bool> {
         match event {
             AvengerWindowEvent::CanvasResize(event) => {
@@ -715,6 +861,9 @@ where
                     );
                     None
                 }),
+            AvengerWindowEvent::InteractionSettled { generation } => (*generation
+                == self.interaction_settle_generation.load(Ordering::Relaxed))
+            .then_some(true),
             _ => Some(false),
         }
     }
@@ -1037,6 +1186,9 @@ where
                 }
                 event => {
                     if let Some(event) = AvengerWindowEvent::from_winit_event(event, self.scale) {
+                        if event_schedules_interaction_settle(&event) {
+                            self.schedule_interaction_settle();
+                        }
                         self.dispatch_avenger_event(event, false);
                     }
                 }
@@ -1218,6 +1370,7 @@ fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
         AvengerWindowEvent::MouseWheel(_) => "MouseWheel",
         AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
         AvengerWindowEvent::Touch(_) => "Touch",
+        AvengerWindowEvent::InteractionSettled { .. } => "InteractionSettled",
         AvengerWindowEvent::WindowResize(_) => "WindowResize",
         AvengerWindowEvent::WindowResizeSettled(_) => "WindowResizeSettled",
         AvengerWindowEvent::CanvasResize(_) => "CanvasResize",
@@ -1229,10 +1382,21 @@ fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
     }
 }
 
+fn event_schedules_interaction_settle(event: &AvengerWindowEvent) -> bool {
+    matches!(
+        event,
+        AvengerWindowEvent::CursorMoved(_)
+            | AvengerWindowEvent::MouseInput(_)
+            | AvengerWindowEvent::MouseWheel(_)
+            | AvengerWindowEvent::Touch(_)
+    )
+}
+
 fn winit_event_kind_label(event: &WindowEvent) -> &'static str {
     match event {
         WindowEvent::CursorMoved { .. } => "CursorMoved",
         WindowEvent::CursorLeft { .. } => "CursorLeft",
+        WindowEvent::MouseWheel { .. } => "MouseWheel",
         WindowEvent::MouseInput { .. } => "MouseInput",
         WindowEvent::Resized(_) => "Resized",
         WindowEvent::RedrawRequested => "RedrawRequested",

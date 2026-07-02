@@ -1,6 +1,6 @@
 //! Facade compatibility for scale building owned by `avenger-chart-scales`.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
     arrow::datatypes::DataType as ArrowDataType, common::ScalarValue, dataframe::DataFrame,
@@ -12,14 +12,15 @@ use avenger_chart_core::{
     EvaluationContext as CoreEvaluationContext, MarkScaleDomainSource, ResolvedDomain, ScaleRange,
     Theme, resolve_all_channel_refs,
 };
-use avenger_chart_scales::{PreparedScaleMark, ScaleBuilder};
+use avenger_chart_scales::{ConfiguredScaleWithSpec, PreparedScaleMark, ScaleBuilder};
 use avenger_scales::scales::ScaleImpl;
 
 use crate::{facet::evaluated_facet_tree::EvaluatedFacetTree, serialization::LogicalExprNodeExt};
 
 use super::{
-    CompiledPlot, LogicalMarkDataRequest,
+    CompiledPlot, LogicalMarkDataRequest, MarkDataRequest,
     mark_data_runtime::PreparedLogicalMarkData,
+    mark_data_runtime::{eval_ctx_with_view_params, prepare_view_logical_mark_data},
     prepare_logical_mark_data,
     session::{ScaleDomainCacheScope, scale_domain_cache_key_for_parts_with_scope},
 };
@@ -139,6 +140,103 @@ async fn prepare_scale_mark_for_plot(
     .with_scale_inference_hints(plot.scale_inference_hints_for_mark(mark.state().mark_index())?))
 }
 
+async fn prepare_view_materialized_scale_mark_for_plot(
+    plot: &CompiledPlot,
+    mark: &Arc<dyn CompiledMark>,
+    df_override: Option<&DataFrame>,
+    eval_ctx: &crate::render::EvaluationContext,
+    base_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+    facet_path: &[ScalarValue],
+) -> Result<PreparedScaleMark, AvengerChartError> {
+    let prepared_base = match plot.data_group_index_for_mark(mark.state().mark_index()) {
+        Some(group_index) => Some(
+            Box::pin(plot.prepare_mark_group_base_data(
+                group_index,
+                eval_ctx,
+                df_override,
+                facet_path,
+            ))
+            .await?,
+        ),
+        None => None,
+    };
+    let base_prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+        mark: mark.as_ref(),
+        plot_data: plot.data.as_ref(),
+        provided_plot_df: df_override,
+        facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+            eval_ctx.facet_tree.as_ref(),
+            eval_ctx.facet_data_root(),
+            facet_path,
+        )),
+        prepared_base: prepared_base.as_deref(),
+        eval_ctx,
+    }))
+    .await?;
+
+    let (prepared, domain_channels, extra_domain_sources) = if let Some(view_scope) =
+        mark.state().view.as_ref()
+    {
+        let view_eval_ctx =
+            eval_ctx_with_view_params(eval_ctx, view_scope, base_scales, plot_width, plot_height)?;
+        let request = MarkDataRequest {
+            mark: mark.as_ref(),
+            coord_transform: Some(plot.coord_transform.as_ref()),
+            plot_data: plot.data.as_ref(),
+            provided_plot_df: df_override,
+            facet_data_scope: Some(crate::facet::data_scope::FacetDataScopeContext::new(
+                eval_ctx.facet_tree.as_ref(),
+                eval_ctx.facet_data_root(),
+                facet_path,
+            )),
+            prepared_logical: Some(&base_prepared),
+            prepared_base: prepared_base.as_deref(),
+            eval_ctx,
+            evaluation_metrics: eval_ctx.evaluation_metrics.clone(),
+            scales: base_scales,
+            plot_width,
+            plot_height,
+        };
+        let view_prepared = Box::pin(prepare_view_logical_mark_data(
+            mark.as_ref(),
+            view_scope,
+            &base_prepared,
+            &request,
+            &view_eval_ctx,
+        ))
+        .await?;
+        let mut domain_channels = view_prepared.domain_channels.clone();
+        domain_channels.shift_remove("x");
+        domain_channels.shift_remove("y");
+        let extra_domain_sources = view_domain_sources(
+            view_scope,
+            &view_prepared,
+            &base_prepared,
+            eval_ctx.session_context.as_ref(),
+        )?;
+        (view_prepared, domain_channels, extra_domain_sources)
+    } else {
+        (
+            base_prepared.clone(),
+            base_prepared.domain_channels.clone(),
+            Vec::new(),
+        )
+    };
+
+    Ok(PreparedScaleMark::new_with_domain_source(
+        mark.clone(),
+        prepared.dataframe,
+        prepared.channels,
+        prepared.domain_dataframe,
+        domain_channels,
+        prepared.derived_scalars,
+    )
+    .with_extra_domain_sources(extra_domain_sources)
+    .with_scale_inference_hints(plot.scale_inference_hints_for_mark(mark.state().mark_index())?))
+}
+
 pub(crate) async fn build_scale_builder_from_compiled_plot(
     plot: &CompiledPlot,
     df_override: Option<DataFrame>,
@@ -176,6 +274,45 @@ pub(crate) async fn build_scale_builder_from_compiled_plot_with_render_context(
                 df_override.as_ref(),
                 eval_ctx,
                 &[],
+            ))
+            .await?,
+        );
+    }
+
+    Box::pin(
+        avenger_chart_scales::build_scale_builder_from_prepared_marks(
+            &prepared_marks,
+            &plot.scale_specs,
+            plot.coord_transform.as_ref(),
+            eval_ctx,
+            theme,
+        ),
+    )
+    .await
+}
+
+pub(crate) async fn build_scale_builder_from_compiled_plot_with_view_materialized_data(
+    plot: &CompiledPlot,
+    df_override: Option<DataFrame>,
+    eval_ctx: &crate::render::EvaluationContext,
+    base_scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    plot_width: f32,
+    plot_height: f32,
+    facet_path: &[ScalarValue],
+    theme: &Theme,
+) -> Result<ScaleBuilder, AvengerChartError> {
+    let mut prepared_marks = Vec::with_capacity(plot.marks.len());
+    for mark in &plot.marks {
+        prepared_marks.push(
+            Box::pin(prepare_view_materialized_scale_mark_for_plot(
+                plot,
+                mark,
+                df_override.as_ref(),
+                eval_ctx,
+                base_scales,
+                plot_width,
+                plot_height,
+                facet_path,
             ))
             .await?,
         );

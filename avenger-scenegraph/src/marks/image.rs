@@ -19,6 +19,7 @@ use super::mark::{default_interactive, SceneMark};
 #[serde(untagged)]
 pub enum SceneImageSource {
     Inline(RgbaImage),
+    SharedInline(Arc<RgbaImage>),
     Resource(SceneImageResource),
 }
 
@@ -27,16 +28,21 @@ impl SceneImageSource {
         Self::Inline(image)
     }
 
+    pub fn shared_inline(image: Arc<RgbaImage>) -> Self {
+        Self::SharedInline(image)
+    }
+
     pub fn intrinsic_size(&self) -> [u32; 2] {
         match self {
             Self::Inline(image) => [image.width, image.height],
+            Self::SharedInline(image) => [image.width, image.height],
             Self::Resource(resource) => [resource.intrinsic_width, resource.intrinsic_height],
         }
     }
 
     pub fn resource_key(&self) -> Option<&ResourceKey> {
         match self {
-            Self::Inline(_) => None,
+            Self::Inline(_) | Self::SharedInline(_) => None,
             Self::Resource(resource) => Some(&resource.key),
         }
     }
@@ -44,6 +50,7 @@ impl SceneImageSource {
     pub fn inline_image(&self) -> Option<&RgbaImage> {
         match self {
             Self::Inline(image) => Some(image),
+            Self::SharedInline(image) => Some(image.as_ref()),
             Self::Resource(_) => None,
         }
     }

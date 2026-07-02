@@ -112,6 +112,7 @@ use self::legends::PreparedLegendPlan;
 pub(crate) use self::mark_data_runtime::{
     BaseDataRequest, LogicalMarkDataRequest, MarkDataRequest, PreparedBaseData, PreparedMarkData,
     prepare_base_data, prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
+    schedule_view_materializations_for_mark,
 };
 pub(crate) use self::materialization::MaterializationCacheHandle;
 #[cfg(test)]
