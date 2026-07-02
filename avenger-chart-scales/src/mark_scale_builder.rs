@@ -39,8 +39,8 @@ use avenger_chart_core::{
     NestScope, NestedBandSpec, RadiusExpression, ScalarValueHelpers, ScaleInferenceHint,
     ScaleOrderingSpec, ScaleRange, ScaleTypePreference, Theme, TimeContext, array_value_to_f64,
     collect_derived_scalar_ids, contains_aggregate, default_channel_value_for_eval,
-    eval_to_scalars, params_to_datafusion, resolve_all_channel_refs, resolve_derived_scalars,
-    scalar_total_cmp, strip_trailing_numbers,
+    default_scale_type_for_data_type, eval_to_scalars, params_to_datafusion,
+    resolve_all_channel_refs, resolve_derived_scalars, scalar_total_cmp, strip_trailing_numbers,
 };
 
 use crate::{
@@ -132,6 +132,75 @@ fn scale_input_data_type(data_type: &ArrowDataType) -> ArrowDataType {
         ArrowDataType::List(field) => field.data_type().clone(),
         _ => data_type.clone(),
     }
+}
+
+fn infer_scale_domain_expr_type(
+    node: &datafusion_proto::protobuf::LogicalExprNode,
+    ctx: &SessionContext,
+) -> Option<ArrowDataType> {
+    node.to_expr(ctx)
+        .ok()
+        .and_then(|expr| expr.get_type(&DFSchema::empty()).ok())
+        .filter(|data_type| !matches!(data_type, ArrowDataType::Null))
+}
+
+fn infer_scale_domain_data_type(
+    domain: &ScaleDomain,
+    ctx: &SessionContext,
+) -> Option<ArrowDataType> {
+    match &domain.default_domain {
+        ScaleDefaultDomain::Interval(start, end) => infer_scale_domain_expr_type(start, ctx)
+            .or_else(|| infer_scale_domain_expr_type(end, ctx))
+            .or(Some(ArrowDataType::Float64)),
+        ScaleDefaultDomain::Discrete(values) => values
+            .iter()
+            .find_map(|value| infer_scale_domain_expr_type(value, ctx)),
+        ScaleDefaultDomain::DomainExprs(_) | ScaleDefaultDomain::NoDefault => None,
+    }
+}
+
+fn preferred_scale_spec_for_data_type<C>(
+    channel: &str,
+    data_type: &ArrowDataType,
+    prepared_marks: &[PreparedScaleMark],
+    coord_transform: &C,
+    ctx: &SessionContext,
+) -> Result<Option<Box<dyn ScaleSpec>>, AvengerChartError>
+where
+    C: CoordinateSystemTransformCore + ?Sized,
+{
+    if let Some(preference) = coord_transform.preferred_scale_type(channel, data_type) {
+        return Ok(Some(scale_spec_for_preference(preference)));
+    }
+
+    for prepared in prepared_marks {
+        let resolved = resolve_all_channel_refs(&prepared.channels, ctx)
+            .unwrap_or_else(|_| prepared.channels.clone());
+        for (channel_name, channel_value) in &resolved {
+            if channel_maps_to_scale(coord_transform, channel_name, channel_value, channel)
+                && let Some(preference) =
+                    prepared.mark.preferred_scale_type(channel_name, data_type)
+            {
+                return Ok(Some(scale_spec_for_preference(preference)));
+            }
+        }
+
+        for source in mark_scale_domain_sources(prepared, ctx)? {
+            if channel_maps_to_scale(
+                coord_transform,
+                &source.channel,
+                &source.channel_value,
+                channel,
+            ) && let Some(preference) = prepared
+                .mark
+                .preferred_scale_type(&source.channel, data_type)
+            {
+                return Ok(Some(scale_spec_for_preference(preference)));
+            }
+        }
+    }
+
+    Ok(default_scale_type_for_data_type(data_type).map(scale_spec_for_preference))
 }
 
 fn prepared_radius_from_serialized(
@@ -873,6 +942,15 @@ where
         }
     }
 
+    if data_type.is_none()
+        && let Some(domain) = chosen_scale_config
+            .as_ref()
+            .and_then(|scale| scale.get_domain())
+            .filter(|domain| !domain.is_raw_only())
+    {
+        data_type = infer_scale_domain_data_type(domain, ctx);
+    }
+
     // If user provided an explicit scale type, prefer it over mark/data-type inference
     let mut user_selected_scale_type = false;
     if let Some(user_scale) = &chosen_scale_config {
@@ -893,6 +971,14 @@ where
             chosen_spec = Some(scale_spec_for_preference(ScaleTypePreference::NestedBand));
         } else if let Some(preference) = matching_scale_hint(channel, prepared_marks)? {
             chosen_spec = Some(scale_spec_for_preference(preference));
+        } else if let Some(dt) = data_type.as_ref() {
+            chosen_spec = preferred_scale_spec_for_data_type(
+                channel,
+                dt,
+                prepared_marks,
+                coord_transform,
+                ctx,
+            )?;
         }
     }
 
@@ -3913,6 +3999,38 @@ mod tests {
             .numeric_interval_domain()
             .expect("x numeric domain");
         assert_eq!(x_domain, (-2.0, 10.0));
+    }
+
+    #[tokio::test]
+    async fn explicit_domain_scale_builds_without_dataframe() {
+        let ctx = SessionContext::new();
+        let data = df(&ctx, vec![], vec![]).unwrap();
+        let mut channels = IndexMap::new();
+        channels.insert(
+            "fill".to_string(),
+            ChannelValue::from(col("density"))
+                .scale_with::<Linear>(|scale| scale.domain((0.0, 10.0))),
+        );
+        let mark = Arc::new(TestCompiledMark::new(data, IndexMap::new())) as Arc<dyn CompiledMark>;
+        let prepared = PreparedScaleMark::new_with_domain_source(
+            mark,
+            None,
+            channels.clone(),
+            None,
+            channels,
+            DerivedScalarMap::new(),
+        );
+
+        let scales = configured_scales_for_prepared(&ctx, vec![prepared], HashMap::new())
+            .await
+            .unwrap();
+        let fill_domain = scales
+            .get("fill")
+            .expect("fill scale")
+            .configured()
+            .numeric_interval_domain()
+            .expect("fill numeric domain");
+        assert_eq!(fill_domain, (0.0, 10.0));
     }
 
     #[tokio::test]

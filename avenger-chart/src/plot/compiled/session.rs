@@ -2829,6 +2829,18 @@ mod tests {
         }
     }
 
+    fn count_image_marks(scene: &SceneGraph) -> usize {
+        fn count_from_mark(mark: &SceneMark) -> usize {
+            match mark {
+                SceneMark::Group(group) => group.marks.iter().map(count_from_mark).sum(),
+                SceneMark::Image(_) => 1,
+                _ => 0,
+            }
+        }
+
+        scene.marks.iter().map(count_from_mark).sum()
+    }
+
     fn evaluated_unit_aspect_ratio(evaluated: &EvaluatedPlot) -> f32 {
         let scope = evaluated
             .interaction
@@ -3316,6 +3328,67 @@ mod tests {
                         )
                     },
                 ),
+            )
+            .tool(PanScrollZoom::cartesian())
+            .compile(ctx)
+            .await
+    }
+
+    async fn compile_pan_scroll_zoom_rasterized_view_scope_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                UniformRaster2D::new()
+                    .view(
+                        View::cartesian()
+                            .id("density")
+                            .x_domain(col("x"))
+                            .y_domain(col("y"))
+                            .preview_cached(true),
+                        |mark, view| {
+                            mark.transform(
+                                Rasterize2D::new(col("x"), col("y"))
+                                    .x(|x| {
+                                        x.extent(view.x().domain_start(), view.x().domain_end())
+                                            .bins(2_usize)
+                                    })
+                                    .y(|y| {
+                                        y.extent(view.y().domain_start(), view.y().domain_end())
+                                            .bins(2_usize)
+                                    })
+                                    .agg("count"),
+                                |mark, hist| {
+                                    mark.raster_with(hist.raster(), |raster| {
+                                        raster
+                                            .x_with(hist.x_dim(), |x| {
+                                                x.scale_with::<Linear>(|scale| {
+                                                    scale.nice(false).zero(false)
+                                                })
+                                                .axis(|axis| axis.visible(false))
+                                            })
+                                            .y_with(hist.y_dim(), |y| {
+                                                y.scale_with::<Linear>(|scale| {
+                                                    scale.nice(false).zero(false)
+                                                })
+                                                .axis(|axis| axis.visible(false))
+                                            })
+                                            .fill(|fill| {
+                                                fill.scale_with::<Sqrt>(|scale| {
+                                                    scale.domain((0.0, 4.0)).nice(false).zero(false)
+                                                })
+                                            })
+                                    })
+                                },
+                            )
+                        },
+                    )
+                    .smooth(false),
             )
             .tool(PanScrollZoom::cartesian())
             .compile(ctx)
@@ -4848,6 +4921,93 @@ mod tests {
             initial_positions, preview_positions,
             "stale materialized data should still move through the PanScrollZoom-updated scales"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_preview_uses_stale_rasterize_view_for_pan_scroll_zoom()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_pan_scroll_zoom_rasterized_view_scope_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        let (warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(warmup_metrics.pipeline.materialization_queued, 1);
+        assert_eq!(
+            warmup_metrics.pipeline.materialization_stale_fallback_used,
+            0
+        );
+        assert_eq!(
+            count_image_marks(&warmup.scene_graph),
+            0,
+            "the initial async fallback has no raster rows to draw"
+        );
+        let initial_request = warmup
+            .materialization_requests
+            .first()
+            .expect("initial rasterization request")
+            .clone();
+
+        for _ in 0..100 {
+            if session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&initial_request.key)
+                == MaterializationStatus::Ready
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&initial_request.key),
+            MaterializationStatus::Ready
+        );
+
+        let (ready_plot, exact) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(exact.pipeline.materialization_ready_used, 1);
+        assert_eq!(exact.pipeline.materialization_stale_fallback_used, 0);
+        assert!(
+            count_image_marks(&ready_plot.scene_graph) > 0,
+            "ready Rasterize2D output should render as image marks"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.5, 1.5),
+        );
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+        assert_eq!(preview.pipeline.preview_data_mark_reuses, 0);
+        assert_eq!(preview.pipeline.materialization_requests_emitted, 1);
+        assert_eq!(preview.pipeline.materialization_queued, 1);
+        assert_eq!(preview.pipeline.materialization_stale_fallback_used, 1);
+        assert!(
+            count_image_marks(&preview_plot.scene_graph) > 0,
+            "panned Preview should keep rendering the stale ready raster through updated scales"
+        );
+
+        let desired_request = preview_plot
+            .materialization_requests
+            .first()
+            .expect("panned rasterization request");
+        assert_ne!(initial_request.key, desired_request.key);
+        assert_eq!(initial_request.identity, desired_request.identity);
 
         Ok(())
     }

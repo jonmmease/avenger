@@ -4,7 +4,7 @@ use datafusion::prelude::SessionContext;
 
 use crate::{
     AvengerChartError, CompiledMark, CompiledMarkState, CoordinateSystemCore, DataContext,
-    MarkState,
+    MarkScaleDomainChannel, MarkState,
 };
 
 /// Erased compile-time context passed through subplot compilation.
@@ -25,6 +25,15 @@ pub trait Mark<C: CoordinateSystemCore>: Send + Sync + 'static {
 
     /// Get the mark's construction-time data/channel context.
     fn data_context(&self) -> &DataContext;
+
+    /// Return mark-owned scale-domain channels that are not ordinary render
+    /// channels.
+    ///
+    /// This mirrors the compiled-mark hook and lets compile-time features such
+    /// as tools discover scale targets before marks are compiled.
+    fn scale_domain_channels(&self) -> Result<Vec<MarkScaleDomainChannel>, AvengerChartError> {
+        Ok(Vec::new())
+    }
 
     /// Compile this mark into a render-capable object-safe compiled mark.
     async fn compile(

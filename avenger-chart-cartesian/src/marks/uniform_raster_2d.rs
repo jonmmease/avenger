@@ -63,6 +63,26 @@ impl Mark<Cartesian> for UniformRaster2D<Cartesian> {
             options: self.raster_options().clone(),
         }))
     }
+
+    fn scale_domain_channels(&self) -> Result<Vec<MarkScaleDomainChannel>, AvengerChartError> {
+        if self.state().exclude_from_scale_domains {
+            return Ok(Vec::new());
+        }
+
+        let x_position = required_position(&self.raster_options().x_position, "x")?;
+        let y_position = required_position(&self.raster_options().y_position, "y")?;
+
+        Ok(vec![
+            MarkScaleDomainChannel {
+                channel: "x".to_string(),
+                channel_value: x_position.channel_value.clone(),
+            },
+            MarkScaleDomainChannel {
+                channel: "y".to_string(),
+                channel_value: y_position.channel_value.clone(),
+            },
+        ])
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

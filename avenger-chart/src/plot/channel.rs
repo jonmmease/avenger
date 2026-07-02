@@ -10,7 +10,7 @@ use indexmap::IndexMap;
 
 use avenger_chart_core::{
     Auto, AvengerChartError, Axis, AxisSpec, ChannelValue, CompiledMark, CoordinateSystemCore,
-    CoordinateSystemTransformCore, Legend, MarkState, Scale, resolve_all_channel_refs,
+    CoordinateSystemTransformCore, Legend, Mark, MarkState, Scale, resolve_all_channel_refs,
     strip_trailing_numbers,
 };
 use avenger_chart_scales::PlotScaleSpec as ScaleSpec;
@@ -206,6 +206,30 @@ pub(crate) fn extract_channel_configs_from_compiled_domain_channels(
     scale_to_coord_channel: &mut HashMap<String, String>,
 ) -> Result<(), AvengerChartError> {
     for mark in compiled_marks {
+        for source in mark.scale_domain_channels()? {
+            extract_channel_config_from_value(
+                &source.channel,
+                &source.channel_value,
+                coord_transform,
+                axis_specs,
+                legends,
+                scale_specs,
+                scale_to_coord_channel,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn extract_channel_configs_from_mark_domain_channels<C: CoordinateSystemCore>(
+    marks: &[Arc<dyn Mark<C>>],
+    coord_transform: &dyn CoordinateSystemTransformCore,
+    axis_specs: &mut HashMap<String, AxisSpec>,
+    legends: &mut IndexMap<String, Legend>,
+    scale_specs: &mut HashMap<String, ScaleSpec>,
+    scale_to_coord_channel: &mut HashMap<String, String>,
+) -> Result<(), AvengerChartError> {
+    for mark in marks {
         for source in mark.scale_domain_channels()? {
             extract_channel_config_from_value(
                 &source.channel,
