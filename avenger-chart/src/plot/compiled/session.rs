@@ -8,12 +8,15 @@ use std::{
 
 use avenger_chart_core::{
     ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CoordinationScope,
-    DefaultLogicalExprNodeExt, FacetWrapColumnMode, LegendChannel, LegendPosition,
-    LogicalPlanNodeExt, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
+    DefaultLogicalExprNodeExt, EvaluationInvalidationCallback, EvaluationInvalidationHub,
+    EvaluationInvalidationSubscription, FacetWrapColumnMode, LegendChannel, LegendPosition,
+    LogicalPlanNodeExt, MaterializationExecutionContext, MaterializationExecutorRegistry,
+    MaterializationRequest, Maybe, RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
     STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause,
     SerializableExpr, StoreData, StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
+use avenger_chart_transforms::Rasterize2DExecutor;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_text::{
     measurement::TextBounds,
@@ -1401,6 +1404,8 @@ pub struct PlotSession {
     text_measurement_cache: TextMeasurementCacheHandle,
     #[allow(dead_code)]
     materialization_cache: MaterializationCacheHandle,
+    materialization_registry: MaterializationExecutorRegistry,
+    materialization_invalidation_hub: EvaluationInvalidationHub,
 }
 
 impl PlotSession {
@@ -1420,6 +1425,8 @@ impl PlotSession {
             legend_measurement_cache,
             text_measurement_cache,
         ) = new_plot_session_cache_handles();
+        let materialization_registry = MaterializationExecutorRegistry::default();
+        materialization_registry.register(Rasterize2DExecutor);
         Self {
             program,
             ctx,
@@ -1438,6 +1445,8 @@ impl PlotSession {
             legend_measurement_cache,
             text_measurement_cache,
             materialization_cache: Arc::new(Mutex::new(MaterializationCache::default())),
+            materialization_registry,
+            materialization_invalidation_hub: EvaluationInvalidationHub::default(),
         }
     }
 
@@ -1578,6 +1587,68 @@ impl PlotSession {
         self.materialization_cache.clone()
     }
 
+    #[doc(hidden)]
+    pub fn subscribe_to_evaluation_invalidations(
+        &self,
+        callback: EvaluationInvalidationCallback,
+    ) -> EvaluationInvalidationSubscription {
+        self.materialization_invalidation_hub.subscribe(callback)
+    }
+
+    #[doc(hidden)]
+    pub fn evaluation_invalidation_epoch(&self) -> u64 {
+        self.materialization_invalidation_hub.epoch()
+    }
+
+    fn clear_materialization_completion_invalidation_pending(&self) {
+        self.materialization_cache
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .clear_completion_invalidation_pending();
+    }
+
+    fn schedule_materialization_requests(&self, requests: &[MaterializationRequest]) {
+        for request in requests {
+            let Some(executor) = self.materialization_registry.get(&request.kind) else {
+                continue;
+            };
+            let should_start = self
+                .materialization_cache
+                .lock()
+                .expect("materialization cache lock poisoned")
+                .mark_running(&request.key);
+            if !should_start {
+                continue;
+            }
+
+            let request = request.clone();
+            let cache = self.materialization_cache.clone();
+            let session_context = self.ctx.clone();
+            let invalidation_hub = self.materialization_invalidation_hub.clone();
+            tokio::spawn(async move {
+                let params = IndexMap::new();
+                let result = executor
+                    .run(
+                        request.clone(),
+                        MaterializationExecutionContext {
+                            session_context: session_context.as_ref(),
+                            params: &params,
+                        },
+                    )
+                    .await;
+                let mut cache = cache.lock().expect("materialization cache lock poisoned");
+                match result {
+                    Ok(result) => cache.mark_ready_and_request_invalidation(
+                        &request,
+                        result,
+                        &invalidation_hub,
+                    ),
+                    Err(err) => cache.mark_error(&request, err.to_string()),
+                }
+            });
+        }
+    }
+
     pub fn set_options(&mut self, options: PlotSessionOptions) {
         if self.options != options {
             self.options = options;
@@ -1621,6 +1692,7 @@ impl PlotSession {
         &mut self,
         request: EvaluationRequest,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
+        self.clear_materialization_completion_invalidation_pending();
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
         let options = options_for_evaluation_mode(mode, request.options);
@@ -1666,6 +1738,7 @@ impl PlotSession {
                     if let Some(layout_profile) = layout_profile {
                         self.layout_profile = Some(layout_profile);
                     }
+                    self.schedule_materialization_requests(&evaluated.materialization_requests);
                     self.last_metrics = Some(metrics.clone());
                     return Ok((evaluated, metrics));
                 }
@@ -1713,6 +1786,7 @@ impl PlotSession {
                 params: next_params,
             });
             self.layout_profile = layout_profile;
+            self.schedule_materialization_requests(&evaluated.materialization_requests);
             self.last_metrics = Some(metrics.clone());
             return Ok((evaluated, metrics));
         }
@@ -1742,6 +1816,7 @@ impl PlotSession {
             params: next_params,
         });
         self.layout_profile = layout_profile;
+        self.schedule_materialization_requests(&evaluated.materialization_requests);
         self.last_metrics = Some(metrics.clone());
         Ok((evaluated, metrics))
     }
@@ -2568,14 +2643,19 @@ fn collect_expr_placeholders(expr: &Expr, names: &mut BTreeSet<String>) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use async_trait::async_trait;
     use avenger_chart_core::{
         CompiledDataTransform, DataTransformExecutionContext, DataTransformResult,
-        MaterializationResult, ViewMaterializationContext, ViewMaterializationRequest,
+        MaterializationPolicy, MaterializationResult, ViewMaterializationContext,
+        ViewMaterializationRequest,
     };
     use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
     use datafusion::{
-        arrow::array::{ArrayRef, Float64Array, StringArray, StructArray},
+        arrow::array::{
+            Array, ArrayRef, Float64Array, ListArray, StringArray, StructArray, UInt64Array,
+        },
         prelude::SessionContext,
         scalar::ScalarValue,
     };
@@ -3085,6 +3165,34 @@ mod tests {
             ],
         )
         .expect("materialized view batch")
+    }
+
+    fn raster_count_values(batch: &RecordBatch, row: usize) -> Vec<u64> {
+        let raster = batch
+            .column_by_name("raster")
+            .expect("raster column")
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("raster struct");
+        let values = raster
+            .column_by_name("values")
+            .expect("values field")
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .expect("values struct");
+        let data = values
+            .column_by_name("data")
+            .expect("data field")
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .expect("data list");
+        let row_values = data.value(row);
+        row_values
+            .as_any()
+            .downcast_ref::<UInt64Array>()
+            .expect("count values")
+            .values()
+            .to_vec()
     }
 
     fn empty_materialized_view_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
@@ -4740,6 +4848,90 @@ mod tests {
             initial_positions, preview_positions,
             "stale materialized data should still move through the PanScrollZoom-updated scales"
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_schedules_async_rasterize_materialization()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let source = ctx
+            .sql("SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0)) AS t(x, y)")
+            .await?;
+        let (compiled_transform, _) = Rasterize2D::new(col("x"), col("y"))
+            .x(|x| x.extent(0.0, 2.0).bins(2))
+            .y(|y| y.extent(0.0, 2.0).bins(2))
+            .agg("count")
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))?;
+        let params = IndexMap::new();
+        let materialization_ctx = ViewMaterializationContext {
+            session_context: ctx.as_ref(),
+            params: &params,
+            time_context: TimeContext::default(),
+            facet_context: None,
+            policy: MaterializationPolicy::default(),
+            priority: 0.0,
+        };
+        let request = compiled_transform
+            .view_materialization_request(&source, &materialization_ctx)?
+            .expect("Rasterize2D should opt into materialization")
+            .request;
+
+        let compiled = Arc::new(
+            Plot::<Cartesian>::new()
+                .mark(Symbol::new().x(0.0).y(0.0))
+                .compile(ctx.as_ref())
+                .await?,
+        );
+        let session = compiled.instantiate(ctx);
+        let invalidation_count = Arc::new(AtomicUsize::new(0));
+        let invalidation_count_callback = invalidation_count.clone();
+        let _subscription = session.subscribe_to_evaluation_invalidations(Arc::new(move |_| {
+            invalidation_count_callback.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        session
+            .materialization_cache()
+            .lock()
+            .unwrap()
+            .enqueue(request.clone());
+        session.schedule_materialization_requests(std::slice::from_ref(&request));
+
+        for _ in 0..100 {
+            if session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&request.key)
+                == MaterializationStatus::Ready
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(
+            session
+                .materialization_cache()
+                .lock()
+                .unwrap()
+                .status(&request.key),
+            MaterializationStatus::Ready
+        );
+        assert_eq!(invalidation_count.load(Ordering::SeqCst), 1);
+        assert_eq!(session.evaluation_invalidation_epoch(), 1);
+
+        let result = session
+            .materialization_cache()
+            .lock()
+            .unwrap()
+            .get_ready(&request.key)
+            .expect("ready rasterize result");
+        let MaterializationResult::RecordBatch(batch) = result else {
+            panic!("expected record batch materialization result");
+        };
+        assert_eq!(batch.num_rows(), 1);
+        assert_eq!(raster_count_values(&batch, 0), vec![2, 0, 0, 2]);
 
         Ok(())
     }

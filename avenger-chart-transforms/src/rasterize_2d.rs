@@ -6,16 +6,22 @@ use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
     DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
-    RasterDim, SerializableExpr, dim, eval_to_scalars, params_to_datafusion,
+    MaterializationExecutionContext, MaterializationExecutor, MaterializationIdentity,
+    MaterializationKey, MaterializationOutputKind, MaterializationRequest, MaterializationResult,
+    RasterDim, SerializableDataFrame, SerializableExpr, SerializableScalarMap, TimeContext,
+    ViewMaterializationContext, ViewMaterializationRequest, dim, eval_to_scalars,
+    params_to_datafusion,
 };
 use datafusion::{
     arrow::{
         array::{
             Array, ArrayRef, BooleanArray, Float64Array, ListArray, ListBuilder, StringArray,
-            StringBuilder, StructArray, UInt32Array, UInt64Array,
+            StringBuilder, StructArray, UInt32Array, UInt64Array, new_empty_array,
         },
         buffer::OffsetBuffer,
-        datatypes::{DataType, Field, FieldRef, Fields},
+        compute::concat_batches,
+        datatypes::{DataType, Field, FieldRef, Fields, Schema},
+        record_batch::RecordBatch,
     },
     common::{DataFusionError, Result as DataFusionResult, ScalarValue},
     dataframe::DataFrame,
@@ -28,6 +34,7 @@ use datafusion::{
     prelude::{col, lit},
 };
 use datafusion_proto::protobuf::LogicalExprNode;
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::{
@@ -39,6 +46,8 @@ use std::{
     sync::Arc,
     time::Instant,
 };
+
+pub const RASTERIZE_2D_MATERIALIZATION_KIND: &str = "rasterize-2d";
 
 const RASTERIZE_X: &str = "__avenger_rasterize2d_x";
 const RASTERIZE_Y: &str = "__avenger_rasterize2d_y";
@@ -65,6 +74,111 @@ pub struct CompiledRasterize2DTransform {
     pub raster_name: String,
     pub x_dim_name: String,
     pub y_dim_name: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Rasterize2DMaterializationSpec {
+    pub version: u32,
+    pub source: SerializableDataFrame,
+    pub transform: CompiledRasterize2DTransform,
+    pub params: SerializableScalarMap,
+}
+
+impl Rasterize2DMaterializationSpec {
+    pub fn new(
+        source: DataFrame,
+        transform: CompiledRasterize2DTransform,
+        params: SerializableScalarMap,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            version: 1,
+            source: SerializableDataFrame::from_dataframe(source)?,
+            transform,
+            params,
+        })
+    }
+
+    fn key(&self) -> Result<MaterializationKey, AvengerChartError> {
+        let bytes = serde_json::to_vec(self).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "Failed to serialize Rasterize2D materialization spec: {err}"
+            ))
+        })?;
+        Ok(MaterializationKey::new(format!(
+            "{RASTERIZE_2D_MATERIALIZATION_KIND}/v{}/{}",
+            self.version,
+            stable_hash_hex(&bytes)
+        )))
+    }
+
+    fn identity(&self) -> Result<MaterializationIdentity, AvengerChartError> {
+        let fingerprint = Rasterize2DMaterializationIdentity {
+            version: self.version,
+            source: self.source.clone(),
+            transform: self.transform.clone(),
+        };
+        let bytes = serde_json::to_vec(&fingerprint).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "Failed to serialize Rasterize2D materialization identity: {err}"
+            ))
+        })?;
+        Ok(MaterializationIdentity::new(format!(
+            "{RASTERIZE_2D_MATERIALIZATION_KIND}/v{}/{}",
+            self.version,
+            stable_hash_hex(&bytes)
+        )))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct Rasterize2DMaterializationIdentity {
+    version: u32,
+    source: SerializableDataFrame,
+    transform: CompiledRasterize2DTransform,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Rasterize2DExecutor;
+
+#[async_trait]
+impl MaterializationExecutor for Rasterize2DExecutor {
+    fn kind(&self) -> &'static str {
+        RASTERIZE_2D_MATERIALIZATION_KIND
+    }
+
+    async fn run(
+        &self,
+        request: MaterializationRequest,
+        ctx: MaterializationExecutionContext<'_>,
+    ) -> Result<MaterializationResult, AvengerChartError> {
+        let spec: Rasterize2DMaterializationSpec = serde_json::from_value(request.spec.clone())
+            .map_err(|err| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Invalid Rasterize2D materialization spec: {err}"
+                ))
+            })?;
+        if spec.version != 1 {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Unsupported Rasterize2D materialization spec version {}",
+                spec.version
+            )));
+        }
+
+        let params = IndexMap::from(spec.params.clone());
+        let dataframe = spec.source.to_dataframe(ctx.session_context)?;
+        let transform_ctx = DataTransformExecutionContext {
+            session_context: ctx.session_context,
+            params: &params,
+            time_context: TimeContext::default(),
+            facet_context: None,
+        };
+        let result = spec
+            .transform
+            .apply_to_dataframe(dataframe, &transform_ctx)
+            .await?;
+        let batch = collect_single_batch(result.dataframe, &params).await?;
+        Ok(MaterializationResult::RecordBatch(batch))
+    }
 }
 
 #[serde_as]
@@ -338,32 +452,8 @@ impl Rasterize2DOutput {
     }
 }
 
-#[typetag::serde(name = "rasterize_2d")]
-#[async_trait]
-impl CompiledDataTransform for CompiledRasterize2DTransform {
-    fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
-        Box::new(self.clone())
-    }
-
-    fn map_exprs(
-        &self,
-        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
-    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
-        Ok(Box::new(Self {
-            x: map_expr_node(&self.x, f)?,
-            y: map_expr_node(&self.y, f)?,
-            x_dim: map_dimension_spec(&self.x_dim, f)?,
-            y_dim: map_dimension_spec(&self.y_dim, f)?,
-            value: map_optional_expr_node(&self.value, f)?,
-            agg: self.agg,
-            partition_by: map_expr_nodes(&self.partition_by, f)?,
-            raster_name: self.raster_name.clone(),
-            x_dim_name: self.x_dim_name.clone(),
-            y_dim_name: self.y_dim_name.clone(),
-        }))
-    }
-
-    async fn apply(
+impl CompiledRasterize2DTransform {
+    async fn apply_to_dataframe(
         &self,
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
@@ -448,6 +538,124 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
             .map_err(AvengerChartError::DataFusionError)?;
 
         Ok(DataTransformResult::dataframe(dataframe))
+    }
+
+    fn materialization_spec(
+        &self,
+        dataframe: DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Rasterize2DMaterializationSpec, AvengerChartError> {
+        Rasterize2DMaterializationSpec::new(
+            dataframe,
+            self.clone(),
+            SerializableScalarMap::from(ctx.params.clone()),
+        )
+    }
+
+    fn empty_materialized_dataframe(
+        &self,
+        source: &DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<DataFrame, AvengerChartError> {
+        let mut fields = Vec::new();
+        for expr_node in &self.partition_by {
+            let expr = expr_node.to_default_expr(ctx.session_context)?;
+            let name = simple_column_name(&expr).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(
+                    "Rasterize2D materialization partition expressions must be simple columns"
+                        .to_string(),
+                )
+            })?;
+            let field = source
+                .schema()
+                .fields()
+                .iter()
+                .find(|field| field.name().as_str() == name.as_str())
+                .ok_or_else(|| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Rasterize2D partition column \"{name}\" was not found in the input"
+                    ))
+                })?;
+            fields.push(Field::new(
+                name,
+                field.data_type().clone(),
+                field.is_nullable(),
+            ));
+        }
+        fields.push(Field::new(
+            self.raster_name.clone(),
+            raster_data_type(self.agg.output_cell_type(), self.agg.output_cell_nullable()),
+            false,
+        ));
+        let schema = Arc::new(Schema::new(fields));
+        let columns = schema
+            .fields()
+            .iter()
+            .map(|field| new_empty_array(field.data_type()))
+            .collect::<Vec<_>>();
+        let batch = RecordBatch::try_new(schema, columns).map_err(AvengerChartError::ArrowError)?;
+        ctx.session_context
+            .read_batch(batch)
+            .map_err(AvengerChartError::DataFusionError)
+    }
+}
+
+#[typetag::serde(name = "rasterize_2d")]
+#[async_trait]
+impl CompiledDataTransform for CompiledRasterize2DTransform {
+    fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
+        Box::new(self.clone())
+    }
+
+    fn map_exprs(
+        &self,
+        f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Box<dyn CompiledDataTransform>, AvengerChartError> {
+        Ok(Box::new(Self {
+            x: map_expr_node(&self.x, f)?,
+            y: map_expr_node(&self.y, f)?,
+            x_dim: map_dimension_spec(&self.x_dim, f)?,
+            y_dim: map_dimension_spec(&self.y_dim, f)?,
+            value: map_optional_expr_node(&self.value, f)?,
+            agg: self.agg,
+            partition_by: map_expr_nodes(&self.partition_by, f)?,
+            raster_name: self.raster_name.clone(),
+            x_dim_name: self.x_dim_name.clone(),
+            y_dim_name: self.y_dim_name.clone(),
+        }))
+    }
+
+    async fn apply(
+        &self,
+        dataframe: DataFrame,
+        ctx: &DataTransformExecutionContext<'_>,
+    ) -> Result<DataTransformResult, AvengerChartError> {
+        self.apply_to_dataframe(dataframe, ctx).await
+    }
+
+    fn view_materialization_request(
+        &self,
+        dataframe: &DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<ViewMaterializationRequest>, AvengerChartError> {
+        let spec = self.materialization_spec(dataframe.clone(), ctx)?;
+        let request = MaterializationRequest::new(
+            spec.key()?,
+            RASTERIZE_2D_MATERIALIZATION_KIND,
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity(spec.identity()?)
+        .priority(ctx.priority)
+        .policy(ctx.policy.clone())
+        .spec(serde_json::to_value(&spec).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "Failed to encode Rasterize2D materialization spec: {err}"
+            ))
+        })?);
+        Ok(Some(ViewMaterializationRequest {
+            request,
+            empty_dataframe: Some(self.empty_materialized_dataframe(dataframe, ctx)?),
+        }))
     }
 }
 
@@ -1721,6 +1929,29 @@ fn list_array_from_lengths(
     ) as ArrayRef
 }
 
+async fn collect_single_batch(
+    dataframe: DataFrame,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<RecordBatch, AvengerChartError> {
+    let dataframe = if let Some(param_values) = params_to_datafusion(params) {
+        dataframe
+            .with_param_values(param_values)
+            .map_err(AvengerChartError::DataFusionError)?
+    } else {
+        dataframe
+    };
+    let batches = dataframe
+        .collect()
+        .await
+        .map_err(AvengerChartError::DataFusionError)?;
+    let Some(first) = batches.first() else {
+        return Err(AvengerChartError::InternalError(
+            "Rasterize2D materialization produced no RecordBatches".to_string(),
+        ));
+    };
+    concat_batches(&first.schema(), &batches).map_err(AvengerChartError::ArrowError)
+}
+
 fn cast_to_f64(expr: Expr, dataframe: &DataFrame) -> Result<Expr, AvengerChartError> {
     expr.cast_to(&DataType::Float64, dataframe.schema())
         .map_err(AvengerChartError::DataFusionError)
@@ -1890,6 +2121,15 @@ fn scalar_to_u64(scalar: &ScalarValue, label: &str) -> Result<u64, AvengerChartE
             "{label} must be a non-negative integer, got {other:?}"
         ))),
     }
+}
+
+fn stable_hash_hex(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 #[cfg(test)]

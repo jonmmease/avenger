@@ -29,8 +29,9 @@ pub use join_aggregate::{CompiledJoinAggregateTransform, JoinAggregate};
 pub use kde::{CompiledKdeTransform, Kde, KdeOutput, KdeResolve};
 pub use lump::{CompiledLumpTransform, Lump, LumpOtherMode, LumpOutput};
 pub use rasterize_2d::{
-    CompiledRasterize2DTransform, Rasterize2D, Rasterize2DAgg, Rasterize2DDimension,
-    Rasterize2DDimensionSpec, Rasterize2DExtentSpec, Rasterize2DOutput,
+    CompiledRasterize2DTransform, RASTERIZE_2D_MATERIALIZATION_KIND, Rasterize2D, Rasterize2DAgg,
+    Rasterize2DDimension, Rasterize2DDimensionSpec, Rasterize2DExecutor, Rasterize2DExtentSpec,
+    Rasterize2DMaterializationSpec, Rasterize2DOutput,
 };
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
@@ -56,8 +57,10 @@ mod tests {
     use avenger_chart_core::{
         AvengerChartError, ChannelValue, CoordinationScope, DataTransform,
         DataTransformCompileContext, DataTransformExecutionContext, DataTransformFacetContext,
-        DataTransformStage, DefaultLogicalExprNodeExt, Param, SharingLevel, TimeContext, WeekStart,
-        collect_derived_scalar_ids, eval_to_scalars,
+        DataTransformStage, DefaultLogicalExprNodeExt, MaterializationExecutionContext,
+        MaterializationExecutor, MaterializationOutputKind, MaterializationPolicy,
+        MaterializationResult, Param, SharingLevel, TimeContext, ViewMaterializationContext,
+        WeekStart, collect_derived_scalar_ids, eval_to_scalars,
     };
     use datafusion::common::ScalarValue;
     use datafusion::dataframe::DataFrame;
@@ -485,6 +488,51 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    async fn rasterize_executor_batch(
+        ctx: &SessionContext,
+        dataframe: DataFrame,
+        transform: Rasterize2D,
+        params: IndexMap<String, ScalarValue>,
+    ) -> RecordBatch {
+        let (stage, _) = compile_transform(transform);
+        let materialization_ctx = ViewMaterializationContext {
+            session_context: ctx,
+            params: &params,
+            time_context: TimeContext::default(),
+            facet_context: None,
+            policy: MaterializationPolicy::default(),
+            priority: 0.0,
+        };
+        let materialization = stage
+            .transform
+            .view_materialization_request(&dataframe, &materialization_ctx)
+            .unwrap()
+            .expect("Rasterize2D should opt into view materialization");
+        assert_eq!(
+            materialization.request.kind.as_ref(),
+            RASTERIZE_2D_MATERIALIZATION_KIND
+        );
+        assert_eq!(
+            materialization.request.output_kind,
+            MaterializationOutputKind::RecordBatch
+        );
+        assert!(materialization.empty_dataframe.is_some());
+        let result = Rasterize2DExecutor
+            .run(
+                materialization.request,
+                MaterializationExecutionContext {
+                    session_context: ctx,
+                    params: &IndexMap::new(),
+                },
+            )
+            .await
+            .unwrap();
+        match result {
+            MaterializationResult::RecordBatch(batch) => batch,
+            other => panic!("expected record batch result, got {other:?}"),
+        }
     }
 
     fn assert_option_f64_close(actual: &[Option<f64>], expected: &[Option<f64>]) {
@@ -4670,6 +4718,97 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rasterize_2d_executor_count_matches_sync_transform() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![None; 10],
+            vec![
+                Some(0.0),
+                Some(0.49),
+                Some(1.0),
+                Some(2.0),
+                Some(2.0),
+                Some(-1.0),
+                Some(f64::INFINITY),
+                Some(f64::NAN),
+                None,
+                Some(0.0),
+            ],
+            vec![
+                Some(0.0),
+                Some(0.49),
+                Some(1.0),
+                Some(2.0),
+                Some(0.0),
+                Some(0.0),
+                Some(1.0),
+                Some(1.0),
+                Some(0.0),
+                None,
+            ],
+            vec![Some(1.0); 10],
+        );
+        let batch = rasterize_executor_batch(
+            &ctx,
+            dataframe,
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .agg("count"),
+            IndexMap::new(),
+        )
+        .await;
+
+        assert_eq!(batch.num_rows(), 1);
+        assert_eq!(raster_count_values(&batch, 0), vec![2, 1, 0, 2]);
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_executor_uses_embedded_view_params() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![None; 5],
+            vec![Some(0.0), Some(0.49), Some(1.0), Some(2.0), Some(2.0)],
+            vec![Some(0.0), Some(0.49), Some(1.0), Some(2.0), Some(0.0)],
+            vec![Some(1.0); 5],
+        );
+        let params = IndexMap::from([
+            ("x0".to_string(), ScalarValue::Float64(Some(0.0))),
+            ("x1".to_string(), ScalarValue::Float64(Some(2.0))),
+            ("xbins".to_string(), ScalarValue::UInt32(Some(2))),
+            ("y0".to_string(), ScalarValue::Float64(Some(0.0))),
+            ("y1".to_string(), ScalarValue::Float64(Some(2.0))),
+            ("ybins".to_string(), ScalarValue::UInt32(Some(2))),
+        ]);
+        let batch = rasterize_executor_batch(
+            &ctx,
+            dataframe,
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| {
+                    x.extent(
+                        Param::new("x0", ScalarValue::Float64(Some(-1.0))).expr(),
+                        Param::new("x1", ScalarValue::Float64(Some(1.0))).expr(),
+                    )
+                    .bins(Param::new("xbins", ScalarValue::UInt32(Some(1))).expr())
+                })
+                .y(|y| {
+                    y.extent(
+                        Param::new("y0", ScalarValue::Float64(Some(-1.0))).expr(),
+                        Param::new("y1", ScalarValue::Float64(Some(1.0))).expr(),
+                    )
+                    .bins(Param::new("ybins", ScalarValue::UInt32(Some(1))).expr())
+                })
+                .agg("count"),
+            params,
+        )
+        .await;
+
+        assert_eq!(raster_count_values(&batch, 0), vec![2, 1, 0, 2]);
+    }
+
+    #[tokio::test]
     async fn rasterize_2d_infers_extents_with_datafusion_prepass() {
         let ctx = SessionContext::new();
         let dataframe = rasterize_dataframe(
@@ -4737,6 +4876,44 @@ mod tests {
                     raster_count_values(batch, row),
                 );
             }
+        }
+        assert_eq!(counts_by_group["A"], vec![1, 0, 0, 1]);
+        assert_eq!(counts_by_group["B"], vec![1, 1, 0, 1]);
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_executor_partitioned_output_returns_one_raster_per_group() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![Some("A"), Some("A"), Some("B"), Some("B"), Some("B")],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(1.0), Some(2.0)],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(1.0), Some(0.0)],
+            vec![Some(1.0); 5],
+        );
+        let batch = rasterize_executor_batch(
+            &ctx,
+            dataframe,
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .partition_by([col("group")])
+                .agg("count"),
+            IndexMap::new(),
+        )
+        .await;
+        let groups = batch
+            .column_by_name("group")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let mut counts_by_group = IndexMap::new();
+        for row in 0..batch.num_rows() {
+            counts_by_group.insert(
+                groups.value(row).to_string(),
+                raster_count_values(&batch, row),
+            );
         }
         assert_eq!(counts_by_group["A"], vec![1, 0, 0, 1]);
         assert_eq!(counts_by_group["B"], vec![1, 1, 0, 1]);
@@ -4841,6 +5018,40 @@ mod tests {
             &rasterize_value_reducer_values(&ctx, "stddev_samp").await,
             &[Some(2.0_f64.sqrt()), None, None, Some(2.0)],
         );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_executor_value_reducers_match_sync_transform() {
+        let ctx = SessionContext::new();
+        for (agg, expected) in [
+            ("sum", vec![Some(4.0), Some(-2.0), None, Some(21.0)]),
+            ("min", vec![Some(1.0), Some(-2.0), None, Some(5.0)]),
+            ("max", vec![Some(3.0), Some(-2.0), None, Some(9.0)]),
+            ("mean", vec![Some(2.0), Some(-2.0), None, Some(7.0)]),
+            ("var_pop", vec![Some(1.0), Some(0.0), None, Some(8.0 / 3.0)]),
+            ("var_samp", vec![Some(2.0), None, None, Some(4.0)]),
+            (
+                "stddev_pop",
+                vec![Some(1.0), Some(0.0), None, Some((8.0_f64 / 3.0).sqrt())],
+            ),
+            (
+                "stddev_samp",
+                vec![Some(2.0_f64.sqrt()), None, None, Some(2.0)],
+            ),
+        ] {
+            let batch = rasterize_executor_batch(
+                &ctx,
+                rasterize_value_reducer_dataframe(&ctx),
+                Rasterize2D::new(col("x"), col("y"))
+                    .x(|x| x.extent(0.0, 2.0).bins(2))
+                    .y(|y| y.extent(0.0, 2.0).bins(2))
+                    .value(col("value"))
+                    .agg(agg),
+                IndexMap::new(),
+            )
+            .await;
+            assert_option_f64_close(&raster_f64_values(&batch, 0), &expected);
+        }
     }
 
     #[tokio::test]
