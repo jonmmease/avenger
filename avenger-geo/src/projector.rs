@@ -204,6 +204,77 @@ impl Projection {
         }
     }
 
+    /// Build a projector for a *view*: spherical degrees in, y-down pixels
+    /// out, with `center` — in raw planar units, the space produced by
+    /// [`Projection::project_raw_units`] — at the plot midpoint and
+    /// `units_per_pixel` resolution. The pipeline clips to the plot
+    /// rectangle. This is the chart-view analog of d3's scale/translate:
+    /// `scale = 1/upp`, translate solved so the view center lands mid-plot.
+    pub fn build_view(
+        &self,
+        center: (f64, f64),
+        units_per_pixel: f64,
+        plot_width: f64,
+        plot_height: f64,
+    ) -> Projector {
+        let raw = self.kind.raw();
+        let k = 1.0 / units_per_pixel;
+        // x' = k·u_x + dx, y' = dy − k·u_y (Affine with b = 0):
+        // center maps to the plot midpoint.
+        let transform = Affine::new(
+            k,
+            plot_width / 2.0 - k * center.0,
+            plot_height / 2.0 + k * center.1,
+            0.0,
+        );
+        // Clip to the plot rectangle; for mercator additionally bound by
+        // the world square (raw ±π), the d3 `reclip()` behavior — without
+        // it the poles stretch to infinity.
+        let mut clip = [[0.0, 0.0], [plot_width, plot_height]];
+        if matches!(self.kind, ProjectionKind::Mercator) {
+            let limit = std::f64::consts::PI;
+            let (wx0, wy1) = transform.apply((-limit, -limit));
+            let (wx1, wy0) = transform.apply((limit, limit));
+            clip[0][0] = clip[0][0].max(wx0);
+            clip[0][1] = clip[0][1].max(wy0);
+            clip[1][0] = clip[1][0].min(wx1);
+            clip[1][1] = clip[1][1].min(wy1);
+        }
+        Projector {
+            raw,
+            rotation: Rotation::from_degrees(self.rotate),
+            transform,
+            delta2: self.precision * self.precision,
+            clip_extent: Some(clip),
+            identity: self.kind.is_identity(),
+        }
+    }
+
+    /// Project spherical degrees to raw planar units (rotation applied, no
+    /// scale/translate, y-up). This is the coordinate space that view scales
+    /// map to pixels; see `build_view`.
+    pub fn project_raw_units(&self, lon: f64, lat: f64) -> (f64, f64) {
+        let raw = self.kind.raw();
+        if self.kind.is_identity() {
+            return raw.project(lon, lat);
+        }
+        let rotation = Rotation::from_degrees(self.rotate);
+        let (l, p) = rotation.rotate(lon * RADIANS, lat * RADIANS);
+        raw.project(l, p)
+    }
+
+    /// Invert raw planar units back to spherical degrees where defined.
+    pub fn invert_raw_units(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let raw = self.kind.raw();
+        if self.kind.is_identity() {
+            return raw.invert(x, y);
+        }
+        let rotation = Rotation::from_degrees(self.rotate);
+        let (l, p) = raw.invert(x, y)?;
+        let (l, p) = rotation.invert(l, p);
+        Some((l * DEGREES, p * DEGREES))
+    }
+
     /// Solve scale+translate so `object`'s projected bounds fill `extent`
     /// (d3 `fitExtent`).
     pub fn fit_extent(

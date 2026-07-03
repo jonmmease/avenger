@@ -186,11 +186,18 @@ boundary (consistent with WebMercator's approach; scenegraph is f32).
 `Geo` implements `CoordinateSystemCore` / `CoordinateSystem`, patterned on
 `avenger-chart-webmercator/src/coord.rs`:
 
-- `required_channels()` → `["longitude", "latitude"]`. These channels do
-  **not** get positional scales; the projection is the transform. (Contrast
-  WebMercator, which projects via per-channel DataFusion expressions and
-  linear x/y scales — a trick only available because Mercator is separable.
-  General projections are not: x depends on both lon and lat.)
+- **Positional architecture (as implemented — scratch/geo decision 1)**:
+  `required_channels()` is `["x", "y"]` in the authored projection's raw
+  planar units, mapped to pixels by coordinate-owned linear domains —
+  exactly the WebMercator machinery, generalized. There are no
+  *user-facing* positional scales: marks author positions as
+  `.longitude(expr)` / `.latitude(expr)`, which bind x/y to fields of a
+  per-projection `geo_project(lon, lat) → struct{x, y}` DataFusion UDF
+  (general projections are not separable, so the per-channel expression
+  trick WebMercator uses is replaced by the two-argument UDF). Geometry
+  that needs great-circle resampling (graticules, geodesic lines,
+  GeoShape) bypasses the UDF and streams render-side through the
+  `avenger-geo` pipeline into pixels.
 - Configuration: projection kind, rotate/center, `precision`, and either
   explicit scale/translate or fit-to-data.
 - `CoordinateDomainProvider` / `CoordinateMeasurementProvider`: realize the

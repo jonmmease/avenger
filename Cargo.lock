@@ -760,6 +760,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-geo"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-core",
+ "avenger-chart-marks",
+ "avenger-color",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geo",
+ "avenger-image",
+ "avenger-resource",
+ "avenger-scales",
+ "avenger-scenegraph",
+ "avenger-text",
+ "avenger-wgpu",
+ "bincode",
+ "datafusion",
+ "datafusion-proto",
+ "image",
+ "image-compare",
+ "indexmap 2.14.0",
+ "lyon_path",
+ "serde",
+ "serde_json",
+ "tokio",
+ "typetag",
+]
+
+[[package]]
 name = "avenger-chart-legend"
 version = "0.1.0"
 dependencies = [

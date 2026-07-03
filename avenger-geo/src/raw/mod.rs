@@ -36,7 +36,7 @@ pub trait RawProjection: Send + Sync {
 /// The catalog of supported projections (doc §4). All are "blendable":
 /// injective over the antimeridian-cut sphere with finite output.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 pub enum ProjectionKind {
     Equirectangular,
     Mercator,
