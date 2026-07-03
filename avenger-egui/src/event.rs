@@ -34,7 +34,8 @@ fn render_pending_event_key(event: &WindowEvent) -> RenderPendingEventKey {
         | WindowEvent::KeyboardInput(_)
         | WindowEvent::FileChanged(_)
         | WindowEvent::WindowResizeSettled(_)
-        | WindowEvent::CanvasResizeSettled(_) => RenderPendingEventKey::Immediate,
+        | WindowEvent::CanvasResizeSettled(_)
+        | WindowEvent::InteractionSettled { .. } => RenderPendingEventKey::Immediate,
     }
 }
 

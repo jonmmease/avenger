@@ -524,30 +524,41 @@ async fn tiles_required_attribution() {
 }
 
 /// Phase-7 replacement gate: every ported baseline must match the retired
-/// WebMercator suite's baseline image at ≥ 0.9999 similarity. Run with
-/// `--nocapture` to record the scores.
+/// WebMercator suite's baseline image. Run with `--nocapture` to record the
+/// scores.
+///
+/// Attribution-bearing tile scenes carry a relaxed threshold: the map
+/// attribution text became italic after the port (`b20e86d30`), an
+/// intentional geo-side styling change the retired WebMercator baselines
+/// never received. Their divergence is confined to the attribution strip
+/// (measured parity 0.994-0.997); everything else must stay at >= 0.9999.
 #[test]
 fn ported_baselines_match_webmercator_originals() {
+    const FULL_PARITY: f64 = 0.9999;
+    const ITALIC_ATTRIBUTION_PARITY: f64 = 0.99;
     let names = [
-        "symbol_lon_lat_fit",
-        "symbol_authored_center_zoom",
-        "symbol_fixed_center_fit_zoom",
-        "symbol_wide_vs_tall_same_zoom",
-        "facet_shared_viewport",
-        "facet_free_viewports",
-        "repeat_shared_fit",
-        "tiles_wide_square_pixels",
-        "tiles_placeholder",
-        "tiles_ready_resource",
-        "tiles_smooth_zoom_ready_fallback_pending_target",
-        "tiles_tall_square_pixels",
-        "tiles_partial_panned",
-        "tiles_overzoom_max_zoom",
-        "tiles_required_attribution",
+        ("symbol_lon_lat_fit", FULL_PARITY),
+        ("symbol_authored_center_zoom", FULL_PARITY),
+        ("symbol_fixed_center_fit_zoom", FULL_PARITY),
+        ("symbol_wide_vs_tall_same_zoom", FULL_PARITY),
+        ("facet_shared_viewport", FULL_PARITY),
+        ("facet_free_viewports", FULL_PARITY),
+        ("repeat_shared_fit", FULL_PARITY),
+        ("tiles_wide_square_pixels", ITALIC_ATTRIBUTION_PARITY),
+        ("tiles_placeholder", ITALIC_ATTRIBUTION_PARITY),
+        ("tiles_ready_resource", ITALIC_ATTRIBUTION_PARITY),
+        (
+            "tiles_smooth_zoom_ready_fallback_pending_target",
+            FULL_PARITY,
+        ),
+        ("tiles_tall_square_pixels", ITALIC_ATTRIBUTION_PARITY),
+        ("tiles_partial_panned", ITALIC_ATTRIBUTION_PARITY),
+        ("tiles_overzoom_max_zoom", ITALIC_ATTRIBUTION_PARITY),
+        ("tiles_required_attribution", ITALIC_ATTRIBUTION_PARITY),
     ];
     let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/baselines");
     let mut failures = Vec::new();
-    for name in names {
+    for (name, threshold) in names {
         let old_path = base.join("webmercator").join(format!("{name}.png"));
         let new_path = base.join(CATEGORY).join(format!("{name}.png"));
         let old = image::open(&old_path)
@@ -568,8 +579,8 @@ fn ported_baselines_match_webmercator_originals() {
             .expect("image comparison")
             .score;
         println!("webmercator parity {name}: {score:.6}");
-        if score < 0.9999 {
-            failures.push(format!("{name}: {score:.6} < 0.9999"));
+        if score < threshold {
+            failures.push(format!("{name}: {score:.6} < {threshold}"));
         }
     }
     assert!(
