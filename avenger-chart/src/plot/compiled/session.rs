@@ -5089,6 +5089,108 @@ mod tests {
         Ok(())
     }
 
+    async fn compile_materialized_view_with_follower_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
+            .await?;
+        Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new().view(
+                    View::cartesian()
+                        .id("viewport")
+                        .x_domain(col("x"))
+                        .y_domain(col("y"))
+                        .preview_cached(true),
+                    |mark, _view| {
+                        mark.transform_no_output(
+                            ViewDomainMaterializedTransform::new("viewport", "viewport-follower"),
+                            |mark| {
+                                mark.transform(
+                                    // Follower stage: applies to whatever the
+                                    // materialization display path yields
+                                    // (pending-empty, ready, or stale).
+                                    Filter::new(col("mx").lt_eq(lit(5.0))),
+                                    |mark, _| mark,
+                                )
+                                .x_with(col("mx"), |c| {
+                                    c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                        .axis(|a| a.visible(false))
+                                })
+                                .y_with(col("my"), |c| {
+                                    c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                        .axis(|a| a.visible(false))
+                                })
+                                .size(20.0)
+                            },
+                        )
+                    },
+                ),
+            )
+            .tool(PanScrollZoom::cartesian())
+            .compile(ctx)
+            .await
+    }
+
+    #[tokio::test]
+    async fn view_transforms_after_materialized_transform_apply_to_display_data()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_materialized_view_with_follower_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx.clone());
+
+        // Pending: the display path yields the transform's empty dataframe;
+        // the follower filter applies to it and nothing renders.
+        let (warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(warmup_metrics.pipeline.materialization_queued, 1);
+        assert_eq!(collect_symbol_positions(&warmup.scene_graph).len(), 0);
+        let initial_request = warmup
+            .materialization_requests
+            .first()
+            .expect("initial materialization request")
+            .clone();
+
+        // Ready: the follower filters the materialized rows (mx <= 5 keeps
+        // 1.0 and 3.0, drops 8.0).
+        session.materialization_cache().lock().unwrap().mark_ready(
+            &initial_request,
+            MaterializationResult::RecordBatch(materialized_view_batch(
+                vec![1.0, 3.0, 8.0],
+                vec![2.0, 3.0, 5.0],
+            )),
+        );
+        let (ready, ready_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert_eq!(ready_metrics.pipeline.materialization_ready_used, 1);
+        assert_eq!(collect_symbol_positions(&ready.scene_graph).len(), 2);
+
+        // Stale preview: pan so the desired key changes; the stale fallback
+        // batch flows through the follower on the schedule/display path.
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(2.0, 6.0),
+        );
+        let (preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.materialization_requests_emitted, 1);
+        assert_eq!(
+            collect_symbol_positions(&preview_plot.scene_graph).len(),
+            2,
+            "the stale fallback batch must pass through the follower filter"
+        );
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn plot_session_preview_uses_stale_rasterize_view_for_pan_scroll_zoom()
     -> Result<(), AvengerChartError> {
