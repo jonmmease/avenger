@@ -22,6 +22,7 @@ use avenger_geo::graticule::Graticule;
 use avenger_geo::sinks::LyonPathSink;
 use avenger_geo::streamable::Sphere;
 use avenger_scales::scales::ConfiguredScale;
+use avenger_text::types::FontStyle;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     image::{SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy},
@@ -337,6 +338,7 @@ fn attribution_mark(
         x: ScalarOrArray::new_scalar(4.0),
         y: ScalarOrArray::new_scalar(plot_height - 4.0 - 12.0 * attribution_index as f32),
         font_size: ScalarOrArray::new_scalar(10.0),
+        font_style: ScalarOrArray::new_scalar(FontStyle::Italic),
         zindex: Some(100),
         ..Default::default()
     }
