@@ -197,3 +197,215 @@ fn save_image(path: &Path, image: &RgbaImage) {
     }
     image.save(path).expect("save image");
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3: point and line marks
+// ---------------------------------------------------------------------------
+
+mod phase3 {
+    use super::*;
+    use avenger_chart_core::GeometrySpace;
+    use avenger_chart_geo::{GeoGeometrySpace, GeoPositionChannels, Line, Symbol};
+    use datafusion::prelude::{DataFrame, col, lit};
+
+    fn airports_path() -> String {
+        format!(
+            "{}/../avenger-chart/tests/data/airports.parquet",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    async fn conus_airports(ctx: &SessionContext) -> DataFrame {
+        ctx.read_parquet(airports_path(), Default::default())
+            .await
+            .expect("read airports")
+            .filter(
+                col("latitude")
+                    .gt_eq(lit(20.0))
+                    .and(col("latitude").lt_eq(lit(55.0)))
+                    .and(col("longitude").gt_eq(lit(-130.0)))
+                    .and(col("longitude").lt_eq(lit(-60.0))),
+            )
+            .expect("filter airports")
+    }
+
+    /// JFK to five destinations; SYD crosses the antimeridian westward.
+    async fn routes(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "SELECT * FROM (VALUES
+                ('JFK-LHR', 0, -73.78, 40.64), ('JFK-LHR', 1, -0.45, 51.47),
+                ('JFK-NRT', 0, -73.78, 40.64), ('JFK-NRT', 1, 140.39, 35.76),
+                ('JFK-SYD', 0, -73.78, 40.64), ('JFK-SYD', 1, 151.18, -33.95),
+                ('JFK-GRU', 0, -73.78, 40.64), ('JFK-GRU', 1, -46.47, -23.43),
+                ('JFK-SIN', 0, -73.78, 40.64), ('JFK-SIN', 1, 103.99, 1.36)
+            ) AS t(route, seq, lon, lat)",
+        )
+        .await
+        .expect("route data")
+    }
+
+    async fn sfo_syd(ctx: &SessionContext) -> DataFrame {
+        ctx.sql(
+            "SELECT * FROM (VALUES
+                ('SFO-SYD', 0, -122.38, 37.62), ('SFO-SYD', 1, 151.18, -33.95)
+            ) AS t(route, seq, lon, lat)",
+        )
+        .await
+        .expect("route data")
+    }
+
+    #[tokio::test]
+    async fn symbol_airports_albers_conus() {
+        let ctx = SessionContext::new();
+        let df = conus_airports(&ctx).await;
+        let geo = Geo::albers_usa_conus().graticule(GraticuleStyle::default());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(520.0, 360.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .lon_lat(&geo, "longitude", "latitude")
+                    .size(6.0)
+                    .fill("#1d4ed8")
+                    .stroke_width(0.0)
+                    .opacity(0.55),
+            );
+        assert_visual_match_ctx(&ctx, plot, "symbol_airports_albers_conus").await;
+    }
+
+    #[tokio::test]
+    async fn symbol_airports_equal_earth() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_parquet(airports_path(), Default::default())
+            .await
+            .expect("read airports");
+        let geo = furnished(Geo::equal_earth());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(520.0, 320.0)
+            .data(df)
+            .mark(
+                Symbol::new()
+                    .lon_lat(&geo, "longitude", "latitude")
+                    .size(4.0)
+                    .fill("#b91c1c")
+                    .stroke_width(0.0)
+                    .opacity(0.5),
+            );
+        assert_visual_match_ctx(&ctx, plot, "symbol_airports_equal_earth").await;
+    }
+
+    #[tokio::test]
+    async fn line_great_circles_equal_earth() {
+        let ctx = SessionContext::new();
+        let df = routes(&ctx).await;
+        // World view: great-circle arcs bulge poleward beyond their
+        // endpoints' bbox, so fit-to-data would crop them.
+        let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(520.0, 320.0)
+            .data(df.clone())
+            .mark(
+                Line::new()
+                    .lon_lat(&geo, "lon", "lat")
+                    .details(["route"])
+                    .order(col("seq"))
+                    .stroke(col("route"))
+                    .stroke_width(1.6),
+            )
+            .mark(
+                Symbol::new()
+                    .lon_lat(&geo, "lon", "lat")
+                    .size(24.0)
+                    .fill("#111827"),
+            );
+        assert_visual_match_ctx(&ctx, plot, "line_great_circles_equal_earth").await;
+    }
+
+    #[tokio::test]
+    async fn line_antimeridian_route_equal_earth() {
+        let ctx = SessionContext::new();
+        let df = sfo_syd(&ctx).await;
+        let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(520.0, 320.0)
+            .data(df)
+            .mark(
+                Line::new()
+                    .lon_lat(&geo, "lon", "lat")
+                    .order(col("seq"))
+                    .stroke("#dc2626")
+                    .stroke_width(2.0),
+            );
+        assert_visual_match_ctx(&ctx, plot, "line_antimeridian_route_equal_earth").await;
+    }
+
+    #[tokio::test]
+    async fn line_geometry_space_comparison_albers() {
+        // Same routes twice: dashed straight display-space lines vs solid
+        // great-circle arcs, on the CONUS albers view.
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('SEA-MIA', 0, -122.31, 47.45), ('SEA-MIA', 1, -80.29, 25.79),
+                    ('LAX-JFK', 0, -118.41, 33.94), ('LAX-JFK', 1, -73.78, 40.64),
+                    ('SFO-BOS', 0, -122.38, 37.62), ('SFO-BOS', 1, -71.01, 42.36)
+                ) AS t(route, seq, lon, lat)",
+            )
+            .await
+            .expect("route data");
+        let geo = Geo::albers_usa_conus()
+            .center_projected(0.0031, 0.6410)
+            .zoom(3.4)
+            .graticule(GraticuleStyle::default());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(520.0, 360.0)
+            .data(df)
+            .mark(
+                Line::new()
+                    .lon_lat(&geo, "lon", "lat")
+                    .details(["route"])
+                    .order(col("seq"))
+                    .geometry_space(GeometrySpace::Display)
+                    .stroke("#9ca3af")
+                    .stroke_dash("dashed")
+                    .stroke_width(1.4),
+            )
+            .mark(
+                Line::new()
+                    .lon_lat(&geo, "lon", "lat")
+                    .details(["route"])
+                    .order(col("seq"))
+                    .stroke("#1d4ed8")
+                    .stroke_width(1.8),
+            )
+            .mark(
+                Symbol::new()
+                    .lon_lat(&geo, "lon", "lat")
+                    .size(28.0)
+                    .fill("#111827"),
+            );
+        assert_visual_match_ctx(&ctx, plot, "line_geometry_space_comparison_albers").await;
+    }
+}
+
+/// Like assert_visual_match but with a caller-provided SessionContext (for
+/// plots whose DataFrames were built on it).
+async fn assert_visual_match_ctx<C>(ctx: &SessionContext, plot: Plot<C>, baseline_name: &str)
+where
+    C: CoordinateSystem,
+{
+    let compiled = plot.compile(ctx).await.expect("compile geo plot");
+    let evaluated = compiled
+        .evaluate(ctx, None)
+        .await
+        .expect("evaluate geo plot");
+    let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
+    let baseline_path = PathBuf::from(BASELINE_DIR).join(format!("{baseline_name}.png"));
+    if std::env::var_os(BLESS_ENV).is_some() {
+        save_image(&baseline_path, &image);
+        return;
+    }
+    compare_image(&baseline_path, baseline_name, &image, DEFAULT_THRESHOLD);
+}

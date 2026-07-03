@@ -116,7 +116,9 @@ impl CompiledGuide for GeoGuide {
                         ColorOrGradient::Color(style.fill),
                         ColorOrGradient::Color(style.stroke),
                         Some(style.stroke_width),
-                        0,
+                        // Between the canvas background (-100) and data
+                        // marks (0), like axis grid lines (-1).
+                        -3,
                     )
                     .into(),
                 );
@@ -138,7 +140,7 @@ impl CompiledGuide for GeoGuide {
                         ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]),
                         ColorOrGradient::Color(style.stroke),
                         Some(style.stroke_width),
-                        1,
+                        -2,
                     )
                     .into(),
                 );

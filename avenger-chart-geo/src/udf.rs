@@ -129,6 +129,30 @@ pub fn register_geo_project_udf(ctx: &SessionContext, projection: &Projection) -
     udf
 }
 
+/// Register every `geo_project_*` UDF referenced by the mark's channel
+/// expressions on the session context, so proto-serialized channel programs
+/// can resolve them by name (marks call this from `Mark::compile`).
+pub fn register_geo_udfs_from_channels(
+    ctx: &SessionContext,
+    data_context: &avenger_chart_core::DataContext,
+) {
+    use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
+    use datafusion::logical_expr::Expr;
+    for value in data_context.channels().values() {
+        let Some(expr) = value.expr(ctx) else {
+            continue;
+        };
+        let _ = expr.apply(|node| {
+            if let Expr::ScalarFunction(func) = node
+                && func.func.name().starts_with("geo_project_")
+            {
+                ctx.register_udf(func.func.as_ref().clone());
+            }
+            Ok(TreeNodeRecursion::Continue)
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

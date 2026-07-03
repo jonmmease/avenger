@@ -478,3 +478,101 @@ fn avenger_chart_geo_world_span(projection: &avenger_geo::projector::Projection)
     let world = avenger_chart_geo::view::world_span(projection);
     world.width.max(world.height)
 }
+
+#[tokio::test]
+#[ignore]
+async fn debug_route_plot_scene() {
+    use avenger_chart_geo::{GeoPositionChannels, GraticuleStyle, SphereStyle};
+    use avenger_chart_marks::{Line, Symbol};
+    use datafusion::prelude::col;
+
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT * FROM (VALUES
+                ('JFK-LHR', 0, -73.78, 40.64), ('JFK-LHR', 1, -0.45, 51.47),
+                ('JFK-NRT', 0, -73.78, 40.64), ('JFK-NRT', 1, 140.39, 35.76)
+            ) AS t(route, seq, lon, lat)",
+        )
+        .await
+        .expect("route data");
+    let geo = Geo::equal_earth()
+        .sphere(SphereStyle::default())
+        .graticule(GraticuleStyle::default());
+    let plot = Plot::with_coord(geo.clone())
+        .plot_size(520.0, 320.0)
+        .data(df)
+        .mark(
+            Line::new()
+                .lon_lat(&geo, "lon", "lat")
+                .details(["route"])
+                .order(col("seq"))
+                .stroke("#1d4ed8")
+                .stroke_width(1.6),
+        )
+        .mark(
+            Symbol::new()
+                .lon_lat(&geo, "lon", "lat")
+                .size(24.0)
+                .fill("#111827"),
+        );
+    let compiled = plot.compile(&ctx).await.expect("compile");
+    let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+
+    fn dump(marks: &[avenger_scenegraph::marks::mark::SceneMark], depth: usize) {
+        use avenger_scenegraph::marks::mark::SceneMark;
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => {
+                    println!(
+                        "{:indent$}group '{}' origin {:?}",
+                        "",
+                        group.name,
+                        group.origin,
+                        indent = depth * 2
+                    );
+                    dump(&group.marks, depth + 1);
+                }
+                SceneMark::Line(line) => {
+                    let xs = line.x.as_vec(line.len as usize, None);
+                    let ys = line.y.as_vec(line.len as usize, None);
+                    println!(
+                        "{:indent$}line '{}' len {} first {:?} defined {:?}",
+                        "",
+                        line.name,
+                        line.len,
+                        xs.iter().zip(ys.iter()).take(3).collect::<Vec<_>>(),
+                        line.defined
+                            .as_vec(line.len as usize, None)
+                            .iter()
+                            .take(6)
+                            .collect::<Vec<_>>(),
+                        indent = depth * 2
+                    );
+                }
+                SceneMark::Symbol(sym) => {
+                    let xs = sym.x.as_vec(sym.len as usize, None);
+                    let ys = sym.y.as_vec(sym.len as usize, None);
+                    println!(
+                        "{:indent$}symbol '{}' len {} xy {:?}",
+                        "",
+                        sym.name,
+                        sym.len,
+                        xs.iter().zip(ys.iter()).take(4).collect::<Vec<_>>(),
+                        indent = depth * 2
+                    );
+                }
+                other => {
+                    let s = format!("{other:?}");
+                    println!(
+                        "{:indent$}other {}",
+                        "",
+                        &s[..60.min(s.len())],
+                        indent = depth * 2
+                    );
+                }
+            }
+        }
+    }
+    dump(&evaluated.scene_graph.marks, 0);
+}

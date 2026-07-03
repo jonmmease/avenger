@@ -10,14 +10,17 @@
 //! implementation plan: `scratch/geo/`.
 
 pub mod coord;
+pub mod expr;
 pub mod guide;
 pub mod marks;
 pub mod tools;
 pub mod udf;
 pub mod view;
 
+pub use avenger_chart_marks::{Line, Symbol};
 pub use avenger_geo::raw::ProjectionKind;
 pub use coord::{Geo, GraticuleStyle, SphereStyle};
 pub use guide::GeoGuide;
+pub use marks::{CompiledGeoLine, CompiledGeoSymbol, GeoGeometrySpace, GeoPositionChannels};
 pub use udf::{GeoProjectUdf, geo_project_udf_name, register_geo_project_udf};
 pub use view::{GeoCoordMeasurement, GeoView, GeoViewport};
