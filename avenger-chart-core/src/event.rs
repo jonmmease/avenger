@@ -16,7 +16,7 @@ use avenger_common::cursor::CursorStyle;
 use datafusion::{
     functions_array::expr_fn::{array_element, make_array},
     logical_expr::expr::Placeholder,
-    prelude::{Expr, SessionContext, col, lit, when},
+    prelude::{Expr, SessionContext, coalesce, col, lit, when},
 };
 use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
@@ -40,7 +40,10 @@ pub const EVENT_CONTROL_FIELD: &str = "__event_control";
 pub const EVENT_ALT_FIELD: &str = "__event_alt";
 pub const EVENT_META_FIELD: &str = "__event_meta";
 
+pub const EVENT_SCOPE_FRAME_FIELD: &str = "__event_scope_frame";
+
 pub const START_X_FIELD: &str = "__start_x";
+pub const START_SCOPE_FRAME_FIELD: &str = "__start_scope_frame";
 pub const START_Y_FIELD: &str = "__start_y";
 pub const START_CANVAS_WIDTH_FIELD: &str = "__start_canvas_width";
 pub const START_CANVAS_HEIGHT_FIELD: &str = "__start_canvas_height";
@@ -1103,6 +1106,32 @@ pub fn interval_end(interval: impl IntoExpr) -> Expr {
     array_element(interval.into_expr(), lit(2_i64))
 }
 
+/// The interaction frame of the scope under the current event: a
+/// row-major 2×2 matrix `[m00, m01, m10, m11]` (four-element Float64
+/// list) mapping axis-aligned domain-unit deltas of the DISPLAYED plane
+/// onto the plane the coordinate's viewport params are expressed in.
+/// Identity unless the coordinate displays through a rotated/blended
+/// frame (see `CoordinateSystemTransformCore::interaction_frame`).
+pub fn event_scope_frame() -> Expr {
+    col(EVENT_SCOPE_FRAME_FIELD)
+}
+
+/// The interaction frame of the gesture-start scope
+/// (see [`event_scope_frame`]).
+pub fn start_scope_frame() -> Expr {
+    col(START_SCOPE_FRAME_FIELD)
+}
+
+/// Extract element `index` (0-based) from a four-element frame list,
+/// falling back to the identity matrix's entry when the frame is null.
+pub fn scope_frame_element(frame: impl IntoExpr, index: usize) -> Expr {
+    let identity = [1.0_f64, 0.0, 0.0, 1.0][index];
+    coalesce(vec![
+        array_element(frame.into_expr(), lit(index as i64 + 1)),
+        lit(identity),
+    ])
+}
+
 pub fn rewrite_reserved_event_binding_local_datums(
     mut binding: ChartEventBinding,
     ctx: &SessionContext,
@@ -1361,6 +1390,8 @@ pub struct InteractionColumnRequests {
     pub current_datum: BTreeSet<String>,
     pub current_plot_size: bool,
     pub start_plot_size: bool,
+    pub current_scope_frame: bool,
+    pub start_scope_frame: bool,
     pub current_scope_id: bool,
     pub start_scope_id: bool,
     pub start_event_id: bool,
@@ -1382,6 +1413,8 @@ impl InteractionColumnRequests {
             && self.current_datum.is_empty()
             && !self.current_plot_size
             && !self.start_plot_size
+            && !self.current_scope_frame
+            && !self.start_scope_frame
             && !self.current_scope_id
             && !self.start_scope_id
             && !self.start_event_id
@@ -1424,6 +1457,10 @@ impl InteractionColumnRequests {
             self.start_domain.insert(channel.to_string());
         } else if let Some(field) = name.strip_prefix(EVENT_DATUM_PREFIX) {
             self.current_datum.insert(field.to_string());
+        } else if name == EVENT_SCOPE_FRAME_FIELD {
+            self.current_scope_frame = true;
+        } else if name == START_SCOPE_FRAME_FIELD {
+            self.start_scope_frame = true;
         } else if name == EVENT_PLOT_WIDTH_FIELD || name == EVENT_PLOT_HEIGHT_FIELD {
             self.current_plot_size = true;
         } else if name == START_PLOT_WIDTH_FIELD || name == START_PLOT_HEIGHT_FIELD {

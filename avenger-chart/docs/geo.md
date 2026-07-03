@@ -67,7 +67,11 @@ bounds:
 
 `GeoPanZoom` updates generated viewport params for pan, wheel zoom,
 reset, and Shift-drag box zoom; the box-zoom preview matches the final
-camera aspect. Shared viewports are supported for generated facet/repeat
+camera aspect. Under an active blend the gestures map screen-space
+deltas through the coordinate's interaction frame (the residual
+rotation between the displayed plane and the authored param plane), so
+dragging right always moves the map right even when the view is mid-way
+between the authored orientation and north-up. Shared viewports are supported for generated facet/repeat
 groups; authored concat/grid shared viewport domains are rejected.
 
 `GeoCoordMeasurement::invert_pixel(x, y)` inverts plot pixels back to

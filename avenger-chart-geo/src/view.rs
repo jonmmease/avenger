@@ -285,7 +285,12 @@ impl GeoCoordMeasurement {
         self.view_projector().invert(f64::from(x), f64::from(y))
     }
 
-    fn blended_view_projector(&self, t: f64) -> Option<avenger_geo::projector::Projector> {
+    /// The corrected blended raw for parameter `t`, plus the anchor in
+    /// the rotated spherical frame (degrees) it was corrected at.
+    fn corrected_blend_raw(
+        &self,
+        t: f64,
+    ) -> Option<(avenger_geo::blend::CorrectedBlendRaw, (f64, f64))> {
         use avenger_geo::blend::{BlendRaw, CorrectedBlendRaw, anchoring_similarity_north_up};
         use avenger_geo::math::{DEGREES, RADIANS};
         use avenger_geo::raw::ProjectionKind;
@@ -319,7 +324,14 @@ impl GeoCoordMeasurement {
             anchor_rot_lat,
             t,
         );
-        let corrected = CorrectedBlendRaw { blend, correction };
+        Some((
+            CorrectedBlendRaw { blend, correction },
+            (anchor_rot_lon, anchor_rot_lat),
+        ))
+    }
+
+    fn blended_view_projector(&self, t: f64) -> Option<avenger_geo::projector::Projector> {
+        let (corrected, _anchor) = self.corrected_blend_raw(t)?;
         Some(self.projection.build_view_with_raw(
             Box::new(corrected),
             (self.view.center_x, self.view.center_y),
@@ -327,6 +339,52 @@ impl GeoCoordMeasurement {
             f64::from(self.view.plot_width),
             f64::from(self.view.plot_height),
         ))
+    }
+
+    /// The interaction frame for gesture tools: a row-major 2×2 matrix
+    /// mapping axis-aligned domain-unit deltas of the DISPLAYED (blended,
+    /// bearing-eased) plane onto authored-plane deltas — the plane the
+    /// viewport params are expressed in. `None` when the blend is
+    /// inactive (the planes coincide).
+    ///
+    /// Derivation: near the view center, `authored(p) − authored(anchor)
+    /// = Fa · d` and `displayed(p) − displayed(anchor) = Fc · d` for the
+    /// same small spherical step `d`, so `Δauthored = Fa · Fc⁻¹ ·
+    /// Δdisplayed`.
+    pub fn interaction_frame(&self) -> Option<[f64; 4]> {
+        use avenger_geo::blend::local_frame;
+
+        let t = self.blend_t();
+        if t <= 0.0 {
+            return None;
+        }
+        let (corrected, (anchor_rot_lon, anchor_rot_lat)) = self.corrected_blend_raw(t)?;
+        let authored = self.projection.kind.raw();
+        let fc = local_frame(&corrected, anchor_rot_lon, anchor_rot_lat);
+        let fa = local_frame(authored.as_ref(), anchor_rot_lon, anchor_rot_lat);
+        // Fa · Fc⁻¹ with F = [east north] column matrices.
+        let det = fc.east.0 * fc.north.1 - fc.north.0 * fc.east.1;
+        if !det.is_finite() || det.abs() < 1e-30 {
+            return None;
+        }
+        let inv = [
+            fc.north.1 / det,
+            -fc.north.0 / det,
+            -fc.east.1 / det,
+            fc.east.0 / det,
+        ];
+        let fa_m = [fa.east.0, fa.north.0, fa.east.1, fa.north.1];
+        let m = [
+            fa_m[0] * inv[0] + fa_m[1] * inv[2],
+            fa_m[0] * inv[1] + fa_m[1] * inv[3],
+            fa_m[2] * inv[0] + fa_m[3] * inv[2],
+            fa_m[2] * inv[1] + fa_m[3] * inv[3],
+        ];
+        if m.iter().all(|value| value.is_finite()) {
+            Some(m)
+        } else {
+            None
+        }
     }
 }
 

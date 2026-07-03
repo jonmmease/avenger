@@ -43,10 +43,10 @@ use datafusion::{
 use winit::window::WindowAttributes;
 
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 1_000_000;
+const TAXI_MAX_ROWS: usize = 11_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 // Taxi coordinates are projected meters; keep deep-zoom raster cells aggregating nearby trips.
-const MIN_RASTER_PIXEL_DOMAIN_SIZE: f64 = 20.0;
+const MIN_RASTER_PIXEL_DOMAIN_SIZE: f64 = 10.0;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;

@@ -23,6 +23,7 @@ use avenger_chart_core::{
 use avenger_common::value::ScalarOrArray;
 use avenger_geo::projector::Projection;
 use avenger_geo::raw::ProjectionKind;
+use avenger_scales::scales::ConfiguredScale;
 use avenger_scales::scales::{DomainKind, RangeKind, ScaleImpl};
 use datafusion::common::ScalarValue;
 use indexmap::IndexMap;
@@ -392,6 +393,49 @@ impl CoordinateSystemTransformCore for Geo {
             })?
             .clone();
         Ok(Box::new(PointGeometry { x, y }))
+    }
+
+    fn interaction_frame(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Option<[f64; 4]> {
+        // Only meaningful when the adaptive blend can be active.
+        self.blend?;
+        // Reconstruct the realized view from the evaluated x/y domains
+        // (the domains ARE the view: symmetric around the center at
+        // units_per_pixel resolution).
+        let (x_min, x_max) = scales.get("x")?.numeric_interval_domain().ok()?;
+        let (y_min, y_max) = scales.get("y")?.numeric_interval_domain().ok()?;
+        if plot_width <= 0.0 || plot_height <= 0.0 {
+            return None;
+        }
+        let center_x = f64::from(x_min + x_max) / 2.0;
+        let center_y = f64::from(y_min + y_max) / 2.0;
+        let units_per_pixel = f64::from(x_max - x_min) / f64::from(plot_width);
+        if !units_per_pixel.is_finite() || units_per_pixel <= 0.0 {
+            return None;
+        }
+        let projection = self.projection();
+        let world = world_span(&projection);
+        let measurement = GeoCoordMeasurement {
+            viewport_id: self.viewport_id.clone(),
+            view: crate::view::GeoView::new(
+                center_x,
+                center_y,
+                units_per_pixel,
+                plot_width,
+                plot_height,
+                world,
+            ),
+            projection,
+            graticule: None,
+            sphere: None,
+            blend: self.blend,
+            tile_layers: Vec::new(),
+        };
+        measurement.interaction_frame()
     }
 
     fn default_range_binding(&self, channel: &str) -> Option<ScaleRangeBinding> {

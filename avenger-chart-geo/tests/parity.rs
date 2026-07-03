@@ -926,6 +926,114 @@ mod tool {
         assert_close(y.1, -0.5 + half_height);
     }
 
+    /// The interaction frame is identity (None) without a blend and a
+    /// ~15° rotation for a fully blended Albers view over California.
+    #[tokio::test]
+    async fn interaction_frame_reports_blend_rotation() {
+        use avenger_chart_core::{
+            CoordinateMeasureRequest, CoordinateMeasurementProvider, CoordinateSystemTransformCore,
+        };
+        use avenger_chart_geo::{BlendConfig, GeoCoordMeasurement};
+
+        async fn measurement_for(geo: Geo) -> avenger_chart_geo::GeoCoordMeasurement {
+            let ctx = SessionContext::new();
+            let measurement = geo
+                .measure_coordinate(CoordinateMeasureRequest {
+                    plot_width: 500.0,
+                    plot_height: 420.0,
+                    params: &Default::default(),
+                    session_context: &ctx,
+                    data: None,
+                    compiled_marks: &[],
+                    facet_path: &[],
+                    scales: Default::default(),
+                })
+                .await
+                .expect("measure")
+                .expect("geo measurement");
+            GeoCoordMeasurement::downcast(measurement.as_ref())
+                .expect("downcast")
+                .clone()
+        }
+
+        // No blend: identity frame.
+        let unblended = measurement_for(
+            Geo::albers_usa_conus()
+                .center_lon_lat(-121.5, 38.0)
+                .zoom(6.5),
+        )
+        .await;
+        assert!(unblended.interaction_frame().is_none());
+
+        // Fully blended: the frame maps display deltas (north-up plane)
+        // into authored Albers deltas — a rotation by the meridian
+        // convergence at the anchor (~15.4° at 121.5°W).
+        let blended = measurement_for(
+            Geo::albers_usa_conus()
+                .center_lon_lat(-121.5, 38.0)
+                .zoom(6.5)
+                .adaptive_blend(BlendConfig {
+                    force_t: Some(1.0),
+                    ..Default::default()
+                }),
+        )
+        .await;
+        let frame = blended.interaction_frame().expect("active frame");
+        // Near-similarity: the determinant is the authored/displayed area
+        // ratio at the anchor — close to 1 but carrying the small
+        // equal-area-vs-conformal anisotropy.
+        let det = frame[0] * frame[3] - frame[1] * frame[2];
+        assert!((det - 1.0).abs() < 0.05, "det {det}");
+        let angle = frame[2].atan2(frame[0]).to_degrees();
+        assert!(
+            (angle.abs() - 15.37).abs() < 0.5,
+            "expected ~15.4° of frame rotation, got {angle}"
+        );
+
+        // The trait entry point reconstructs the same frame from scales.
+        let linear_scale = |domain: (f32, f32), range: (f32, f32)| {
+            use avenger_scales::scales::{ConfiguredScale, ScaleConfig, linear::LinearScale};
+            ConfiguredScale {
+                scale_impl: std::sync::Arc::new(LinearScale),
+                config: ScaleConfig::empty(),
+            }
+            .with_domain_interval(domain)
+            .with_range_interval(range)
+        };
+        let scales = {
+            let mut scales = std::collections::HashMap::new();
+            let view = blended.view;
+            scales.insert(
+                "x".to_string(),
+                linear_scale(
+                    (view.x_domain.0 as f32, view.x_domain.1 as f32),
+                    (0.0, 500.0),
+                ),
+            );
+            scales.insert(
+                "y".to_string(),
+                linear_scale(
+                    (view.y_domain.0 as f32, view.y_domain.1 as f32),
+                    (420.0, 0.0),
+                ),
+            );
+            scales
+        };
+        let geo = Geo::albers_usa_conus()
+            .center_lon_lat(-121.5, 38.0)
+            .zoom(6.5)
+            .adaptive_blend(BlendConfig {
+                force_t: Some(1.0),
+                ..Default::default()
+            });
+        let via_trait = geo
+            .interaction_frame(&scales, 500.0, 420.0)
+            .expect("trait frame");
+        for (a, b) in frame.iter().zip(via_trait.iter()) {
+            assert!((a - b).abs() < 1e-6, "trait frame mismatch: {a} vs {b}");
+        }
+    }
+
     /// Interaction inversion (the tooltip path): the measurement inverts
     /// plot pixels back to lon/lat.
     #[tokio::test]
@@ -1315,11 +1423,105 @@ mod tool_app {
         );
     }
 
+    /// Pan under a fully-blended (north-up) Albers view: the drag must
+    /// move the view to the geography that was under the dragged-from
+    /// point, i.e. gesture deltas are mapped through the rotated frame
+    /// rather than applied along authored axes.
+    #[tokio::test]
+    async fn pan_drag_tracks_geography_under_active_blend() {
+        use avenger_chart_core::{CoordinateMeasureRequest, CoordinateMeasurementProvider};
+        use avenger_chart_geo::{BlendConfig, GeoCoordMeasurement};
+
+        let geo = || {
+            Geo::albers_usa_conus()
+                .viewport_id(VIEWPORT_ID)
+                .center_lon_lat(-121.5, 38.0)
+                .zoom(6.5)
+                .adaptive_blend(BlendConfig {
+                    force_t: Some(1.0),
+                    ..Default::default()
+                })
+        };
+        let (mut app, state) = app_with_geo_pan_zoom_for_coord(geo()).await;
+        let scope = coordinate_scope(&state).await;
+        let center = scope_center(&scope);
+        let start = Instant::now();
+
+        // Ground truth: the geography currently displayed 40px left and
+        // 20px below the plot center (screen coords), via the blended
+        // inverse of the same measurement the app realized.
+        let ctx = SessionContext::new();
+        let measurement = geo()
+            .measure_coordinate(CoordinateMeasureRequest {
+                plot_width: scope.plot_area_width,
+                plot_height: scope.plot_area_height,
+                params: &Default::default(),
+                session_context: &ctx,
+                data: None,
+                compiled_marks: &[],
+                facet_path: &[],
+                scales: Default::default(),
+            })
+            .await
+            .expect("measure")
+            .expect("geo measurement");
+        let measurement = GeoCoordMeasurement::downcast(measurement.as_ref()).expect("downcast");
+        let (lon, lat) = measurement
+            .invert_pixel(
+                scope.plot_area_width / 2.0 - 40.0,
+                scope.plot_area_height / 2.0 + 20.0,
+            )
+            .expect("invert drag origin");
+        let expected = measurement.projection.project_raw_units(lon, lat);
+
+        // Drag right 40px and up 20px.
+        dispatch_cursor(&mut app, center, start).await;
+        dispatch_left_mouse(&mut app, ElementState::Pressed, start).await;
+        dispatch_cursor(
+            &mut app,
+            [center[0] + 40.0, center[1] - 20.0],
+            start + Duration::from_millis(16),
+        )
+        .await;
+        dispatch_left_mouse(
+            &mut app,
+            ElementState::Released,
+            start + Duration::from_millis(32),
+        )
+        .await;
+
+        let actual = (
+            param_f64(&state, CENTER_X_PARAM),
+            param_f64(&state, CENTER_Y_PARAM),
+        );
+        // First-order frame accuracy over a 45px displacement: allow a
+        // small fraction of the drag distance in authored units.
+        let upp = units_per_pixel(&coordinate_scope(&state).await);
+        let tolerance = 45.0 * upp * 0.02;
+        assert!(
+            (actual.0 - expected.0).abs() < tolerance && (actual.1 - expected.1).abs() < tolerance,
+            "panned center {actual:?} should track geography at {expected:?} (tolerance {tolerance})"
+        );
+        // And the naive axis-aligned update would have been ~15° off:
+        // ensure we are meaningfully closer than that error would allow.
+        let naive_error = (40.0_f64.hypot(20.0)) * upp * (15.0_f64.to_radians().sin());
+        assert!(
+            (actual.0 - expected.0).hypot(actual.1 - expected.1) < naive_error / 3.0,
+            "frame correction should beat the naive update"
+        );
+    }
+
     async fn app_with_geo_pan_zoom() -> (AvengerApp<ChartAppState>, ChartAppState) {
         let coord = Geo::mercator()
             .viewport_id(VIEWPORT_ID)
             .center_projected(0.0, 0.0)
             .zoom(1.0);
+        app_with_geo_pan_zoom_for_coord(coord).await
+    }
+
+    async fn app_with_geo_pan_zoom_for_coord(
+        coord: Geo,
+    ) -> (AvengerApp<ChartAppState>, ChartAppState) {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Plot::with_coord(coord)
             .plot_size(400.0, 200.0)

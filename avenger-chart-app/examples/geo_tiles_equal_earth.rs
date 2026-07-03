@@ -106,12 +106,9 @@ async fn build_app(
         .sphere(SphereStyle::default())
         .graticule(GraticuleStyle::default())
         .tiles(tiles)
-        // Wider-than-default blend window (default z0=4, z1=7): spreads
-        // the warp and the ease to north-up over five zoom levels so the
-        // rotation reads as part of the zoom rather than a swing.
         .adaptive_blend(BlendConfig {
             z0: 4.0,
-            z1: 9.0,
+            z1: 12.0,
             ..Default::default()
         });
     let plot = Plot::with_coord(geo.clone())

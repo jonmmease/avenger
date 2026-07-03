@@ -90,6 +90,24 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         true
     }
 
+    /// The interaction frame at the current view: a row-major 2×2 matrix
+    /// `[m00, m01, m10, m11]` mapping axis-aligned domain-unit deltas of
+    /// the DISPLAYED plane onto the plane this coordinate's viewport
+    /// params are expressed in. `None` means identity — correct for any
+    /// coordinate whose display axes coincide with its param axes. A
+    /// coordinate that renders through a rotated/blended frame (e.g. the
+    /// geo adaptive Mercator blend) overrides this so gesture tools can
+    /// convert screen-space deltas into param-space deltas.
+    fn interaction_frame(
+        &self,
+        scales: &HashMap<String, ConfiguredScale>,
+        plot_width: f32,
+        plot_height: f32,
+    ) -> Option<[f64; 4]> {
+        let _ = (scales, plot_width, plot_height);
+        None
+    }
+
     /// Whether a scale/channel name should be treated as positional.
     ///
     /// The default preserves the legacy static-channel contract. Coordinates

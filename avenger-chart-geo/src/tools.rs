@@ -361,12 +361,22 @@ fn drag_pan_binding(
         .set_param_at_start_scope(
             &viewport.center_x,
             domain_center(ev::start_domain("x"))
-                - (ev::event_at_start_coord("x") - ev::start_coord("x")),
+                - frame_delta(
+                    ev::start_scope_frame(),
+                    0,
+                    ev::event_at_start_coord("x") - ev::start_coord("x"),
+                    ev::event_at_start_coord("y") - ev::start_coord("y"),
+                ),
         )
         .set_param_at_start_scope(
             &viewport.center_y,
             domain_center(ev::start_domain("y"))
-                - (ev::event_at_start_coord("y") - ev::start_coord("y")),
+                - frame_delta(
+                    ev::start_scope_frame(),
+                    1,
+                    ev::event_at_start_coord("x") - ev::start_coord("x"),
+                    ev::event_at_start_coord("y") - ev::start_coord("y"),
+                ),
         )
         .set_param_at_start_scope(
             &viewport.units_per_pixel,
@@ -393,14 +403,8 @@ fn scroll_zoom_binding(
         .filter(ev::event_coord("x").is_not_null())
         .filter(ev::event_coord("y").is_not_null())
         .filter(ev::event_plot_width().gt(lit(0.0_f64)))
-        .set_param(
-            &viewport.center_x,
-            anchored_zoom_center("x", factor.clone()),
-        )
-        .set_param(
-            &viewport.center_y,
-            anchored_zoom_center("y", factor.clone()),
-        )
+        .set_param(&viewport.center_x, anchored_zoom_center(0, factor.clone()))
+        .set_param(&viewport.center_y, anchored_zoom_center(1, factor.clone()))
         .set_param(
             &viewport.units_per_pixel,
             domain_span(ev::event_domain("x")) / ev::event_plot_width() * factor,
@@ -540,11 +544,27 @@ fn box_zoom_release_binding(
     .filter(geo_box_distance_squared_px(&endpoints).gt_eq(lit(min_size_px * min_size_px)))
     .set_param_at_start_scope(
         &viewport.center_x,
-        (ev::start_coord("x") + endpoints.x1.clone()) / lit(2.0_f64),
+        domain_center(ev::start_domain("x"))
+            + frame_delta(
+                ev::start_scope_frame(),
+                0,
+                (ev::start_coord("x") + endpoints.x1.clone()) / lit(2.0_f64)
+                    - domain_center(ev::start_domain("x")),
+                (ev::start_coord("y") + endpoints.y1.clone()) / lit(2.0_f64)
+                    - domain_center(ev::start_domain("y")),
+            ),
     )
     .set_param_at_start_scope(
         &viewport.center_y,
-        (ev::start_coord("y") + endpoints.y1.clone()) / lit(2.0_f64),
+        domain_center(ev::start_domain("y"))
+            + frame_delta(
+                ev::start_scope_frame(),
+                1,
+                (ev::start_coord("x") + endpoints.x1.clone()) / lit(2.0_f64)
+                    - domain_center(ev::start_domain("x")),
+                (ev::start_coord("y") + endpoints.y1.clone()) / lit(2.0_f64)
+                    - domain_center(ev::start_domain("y")),
+            ),
     )
     .set_param_at_start_scope(
         &viewport.units_per_pixel,
@@ -568,9 +588,31 @@ fn box_zoom_drag_end_stream(drag_button: &str) -> ChartEventStream {
         .filter(ev::button().eq(lit(drag_button.to_string())))
 }
 
-fn anchored_zoom_center(channel: &str, factor: Expr) -> Expr {
-    let anchor = ev::event_coord(channel);
-    anchor.clone() + (domain_center(ev::event_domain(channel)) - anchor) * factor
+/// Cursor-anchored zoom: the new view center in param units for `row`
+/// (0 = x, 1 = y). The displayed-plane displacement from the current
+/// center, `(anchor − center)·(1 − factor)` per axis, is mapped into
+/// param units through the scope's interaction frame.
+fn anchored_zoom_center(row: usize, factor: Expr) -> Expr {
+    let displayed_delta = |channel: &str| {
+        (ev::event_coord(channel) - domain_center(ev::event_domain(channel)))
+            * (lit(1.0_f64) - factor.clone())
+    };
+    let channel = if row == 0 { "x" } else { "y" };
+    domain_center(ev::event_domain(channel))
+        + frame_delta(
+            ev::event_scope_frame(),
+            row,
+            displayed_delta("x"),
+            displayed_delta("y"),
+        )
+}
+
+/// Row `row` (0 = x, 1 = y) of the scope frame matrix applied to a
+/// displayed-plane delta: `m_r0·dx + m_r1·dy`. The frame is identity for
+/// coordinates without a display/param frame mismatch.
+fn frame_delta(frame: Expr, row: usize, dx: Expr, dy: Expr) -> Expr {
+    ev::scope_frame_element(frame.clone(), row * 2) * dx
+        + ev::scope_frame_element(frame, row * 2 + 1) * dy
 }
 
 fn domain_center(domain: Expr) -> Expr {

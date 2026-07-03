@@ -3372,6 +3372,15 @@ fn invert_scene_point(
         .ok()
 }
 
+/// Build a four-element `List(Float64)` interaction-frame scalar.
+fn frame_list_scalar(frame: [f64; 4]) -> ScalarValue {
+    ScalarValue::List(ScalarValue::new_list(
+        &frame.map(|value| ScalarValue::Float64(Some(value))),
+        &DataType::Float64,
+        true,
+    ))
+}
+
 /// Build a two-element `List(Float64)` domain scalar.
 fn domain_list_scalar(min: f32, max: f32) -> ScalarValue {
     ScalarValue::List(ScalarValue::new_list(
@@ -3501,6 +3510,35 @@ fn compute_interaction_values(
         &requests.start_domain,
         start_scope,
         event::start_domain_column_name,
+    );
+
+    let fill_scope_frame = |values: &mut HashMap<String, ScalarValue>,
+                            requested: bool,
+                            scope: Option<&EvaluatedInteractionScope>,
+                            name: &str| {
+        if !requested {
+            return;
+        }
+        let Some(scope) = scope else {
+            return;
+        };
+        let frame = scope
+            .coord_transform
+            .interaction_frame(&scope.scales, scope.plot_area_width, scope.plot_area_height)
+            .unwrap_or([1.0, 0.0, 0.0, 1.0]);
+        values.insert(name.to_string(), frame_list_scalar(frame));
+    };
+    fill_scope_frame(
+        &mut values,
+        requests.current_scope_frame,
+        current_scope,
+        event::EVENT_SCOPE_FRAME_FIELD,
+    );
+    fill_scope_frame(
+        &mut values,
+        requests.start_scope_frame,
+        start_scope,
+        event::START_SCOPE_FRAME_FIELD,
     );
 
     let fill_scope_values = |values: &mut HashMap<String, ScalarValue>,
@@ -4098,6 +4136,20 @@ fn event_schema(
     for channel in interaction.start_domain.iter() {
         fields.push(Field::new(
             event::start_domain_column_name(channel),
+            domain_list_type.clone(),
+            true,
+        ));
+    }
+    if interaction.current_scope_frame {
+        fields.push(Field::new(
+            event::EVENT_SCOPE_FRAME_FIELD,
+            domain_list_type.clone(),
+            true,
+        ));
+    }
+    if interaction.start_scope_frame {
+        fields.push(Field::new(
+            event::START_SCOPE_FRAME_FIELD,
             domain_list_type.clone(),
             true,
         ));
