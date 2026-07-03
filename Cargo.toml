@@ -96,7 +96,7 @@ lyon_extra = "1.0.3"
 lyon_algorithms = "1.0.5"
 lyon_tessellation = "1.0.15"
 lyon = "1.0.1"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg"] }
 png = "0.18.1"
 lazy_static = "1.5.0"
 pyo3 = "0.25.1"

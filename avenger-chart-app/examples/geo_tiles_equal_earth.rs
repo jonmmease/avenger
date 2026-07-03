@@ -1,19 +1,19 @@
-//! Warped satellite tiles on the CONUS Albers projection with pan/zoom
+//! Warped satellite tiles on the Equal Earth projection with pan/zoom
 //! and the adaptive Mercator blend (scratch/geo phase 6).
 //!
-//! At the fitted view the imagery tiles are warped through the Albers
-//! projection (curved tile edges follow the graticule); zooming in past
-//! the blend threshold morphs the projection into Web Mercator, where
-//! the tiles become ordinary slippy-map squares. Markers call out a few
-//! landmarks to fly to.
+//! The whole world's imagery tiles are warped onto Equal Earth — tile
+//! edges curve with the graticule and vanish outside the sphere outline.
+//! Zooming into a region past the blend threshold morphs the projection
+//! into Web Mercator, where the tiles become ordinary slippy-map
+//! squares. Markers call out a few world landmarks to fly to.
 //!
 //! Pan with the left mouse button, scroll to zoom around the pointer,
-//! Shift-drag to box zoom, and double-click to reset to the fitted view.
+//! Shift-drag to box zoom, and double-click to reset to the world view.
 //! Requires network access for the Esri World Imagery tile service.
 //!
 //! Run with:
 //! ```bash
-//! cargo run --release -p avenger-chart-app --example geo_tiles_albers --features winit-wgpu
+//! cargo run --release -p avenger-chart-app --example geo_tiles_equal_earth --features winit-wgpu
 //! ```
 
 use std::sync::Arc;
@@ -25,7 +25,8 @@ use avenger_chart_app::{
     WinitWgpuAvengerAppOptions, chart_avenger_app_with_runtime_resources,
 };
 use avenger_chart_geo::{
-    BlendConfig, Geo, GeoPanZoom, GeoPositionChannels, GraticuleStyle, RasterTileLayer, Symbol,
+    BlendConfig, Geo, GeoPanZoom, GeoPositionChannels, GraticuleStyle, RasterTileLayer,
+    SphereStyle, Symbol,
 };
 use avenger_image::ImageResourceCache;
 use avenger_resource::RenderInvalidationHub;
@@ -61,7 +62,7 @@ fn main() {
     let options = WinitWgpuAvengerAppOptions::new(2.0)
         .window_attributes(
             WindowAttributes::default()
-                .with_title("avenger-chart Geo: warped satellite tiles on Albers")
+                .with_title("avenger-chart Geo: warped satellite tiles on Equal Earth")
                 .with_resizable(false),
         )
         .canvas_config(canvas_config)
@@ -78,13 +79,14 @@ async fn build_app(
     let landmarks = ctx
         .sql(
             "SELECT * FROM (VALUES
-                ('Grand Canyon',         -112.11, 36.11, '#f59e0b'),
-                ('Old Faithful',         -110.83, 44.46, '#22c55e'),
-                ('Golden Gate Bridge',   -122.48, 37.82, '#ef4444'),
-                ('Niagara Falls',         -79.07, 43.08, '#3b82f6'),
-                ('French Quarter',        -90.07, 29.95, '#a855f7'),
-                ('Kennedy Space Center',  -80.65, 28.57, '#ec4899'),
-                ('Mount Rushmore',       -103.46, 43.88, '#14b8a6')
+                ('Reykjavík',        -21.94,  64.15, '#38bdf8'),
+                ('Machu Picchu',     -72.55, -13.16, '#f59e0b'),
+                ('Pyramids of Giza',  31.13,  29.98, '#eab308'),
+                ('Taj Mahal',         78.04,  27.17, '#ec4899'),
+                ('Sydney Opera House',151.21, -33.86, '#ef4444'),
+                ('Mount Fuji',       138.73,  35.36, '#a855f7'),
+                ('Table Mountain',    18.40, -33.96, '#22c55e'),
+                ('Christ the Redeemer',-43.21,-22.95, '#14b8a6')
             ) AS t(name, lon, lat, color)",
         )
         .await
@@ -96,16 +98,18 @@ async fn build_app(
         .attribution("© Esri, Maxar, Earthstar Geographics")
         .smooth_zoom();
 
-    let geo = Geo::albers_usa_conus()
-        .viewport_id("us")
-        .center_lon_lat(-96.0, 38.5)
-        .zoom(4.4)
+    let geo = Geo::equal_earth()
+        .viewport_id("world")
+        // World view (fit-to-data would crop to the landmark extents).
+        .center_projected(0.0, 0.0)
+        .zoom(1.8)
+        .sphere(SphereStyle::default())
         .graticule(GraticuleStyle::default())
         .tiles(tiles)
         .adaptive_blend(BlendConfig::default());
     let plot = Plot::with_coord(geo.clone())
-        .canvas_size(860.0, 600.0)
-        .title("Warped satellite tiles — zoom in to morph into Mercator")
+        .canvas_size(900.0, 560.0)
+        .title("Equal Earth satellite tiles — zoom in to morph into Mercator")
         .data(landmarks)
         .mark(
             Symbol::new()
@@ -115,9 +119,9 @@ async fn build_app(
                 })
                 .stroke("#ffffff")
                 .stroke_width(1.6)
-                .size(110.0),
+                .size(100.0),
         )
-        .tool(GeoPanZoom::new().viewport_id("us").settle_exact(true));
+        .tool(GeoPanZoom::new().viewport_id("world").settle_exact(true));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app_with_runtime_resources(
