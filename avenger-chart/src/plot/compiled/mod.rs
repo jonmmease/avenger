@@ -44,6 +44,7 @@ use serde_with::{FromInto, serde_as};
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
+    CompiledViewScope,
     CompiledSubplotPayload, CoordMeasurement, CoordinateDomainResolvedState,
     CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec,
     FacetDataScope, FormattingContext, Legend, LogicalPlanNodeExt, MarkDataMode,
@@ -149,6 +150,11 @@ pub(crate) struct CompiledMarkGroupState {
     #[serde(default)]
     pub(crate) data_mode: MarkDataMode,
     pub(crate) facet_data_scope: FacetDataScope,
+    /// Group view scope: the spec is lowered onto each child mark at compile
+    /// time; the view-local data context stored here is the group's shared
+    /// view chain, executed once per evaluation.
+    #[serde(default)]
+    pub(crate) view: Option<CompiledViewScope>,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
@@ -171,6 +177,7 @@ fn is_data_transparent_group(group: &CompiledMarkGroupState) -> bool {
         && group.data.transforms().is_empty()
         && group.data_mode == MarkDataMode::Inherit
         && group.facet_data_scope == FacetDataScope::FILTERED
+        && group.view.is_none()
 }
 
 #[serde_as]

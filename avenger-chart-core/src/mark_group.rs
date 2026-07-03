@@ -5,7 +5,7 @@ use datafusion::dataframe::DataFrame;
 use crate::{
     AvengerChartError, CoordinateSystemCore, CoordinationScope, DataContext, DataTransform,
     DataTransformCompileContext, FacetDataScope, Mark, MarkDataMode, ScaleInferenceHint, StoreData,
-    validate_structural_id,
+    ViewRef, ViewScopeState, ViewSpec, validate_structural_id,
 };
 
 /// A recursive chart-layer container for marks that share data preparation.
@@ -23,6 +23,7 @@ pub struct MarkGroup<C: CoordinateSystemCore> {
     pub(crate) facet_data_scope: FacetDataScope,
     pub(crate) children: Vec<PlotMark<C>>,
     pub(crate) scale_inference_hints: Vec<ScaleInferenceHint>,
+    pub(crate) view: Option<ViewScopeState>,
     _phantom: PhantomData<fn() -> C>,
 }
 
@@ -35,6 +36,7 @@ impl<C: CoordinateSystemCore> Default for MarkGroup<C> {
             facet_data_scope: FacetDataScope::FILTERED,
             children: Vec::new(),
             scale_inference_hints: Vec::new(),
+            view: None,
             _phantom: PhantomData,
         }
     }
@@ -169,6 +171,47 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
         F: FnOnce(Self) -> Self,
     {
         self.transform_with_scope(scope, transform, |group, ()| f(group))
+    }
+
+    /// Configure a view scope shared by every child mark of this group.
+    ///
+    /// Transforms applied to the group **outside** this closure remain
+    /// pre-view: they feed positional domain inference and are prepared once
+    /// as shared group base data. Transforms applied to the group **inside**
+    /// the closure form the group's view-local chain: it runs once per
+    /// evaluation after scale resolution and its output dataframe and
+    /// derived scalars are shared by all child marks. Child marks inside the
+    /// scope are view-scoped: their own transforms and channels are
+    /// view-local, and their x/y render channels do not contribute to
+    /// positional domain inference (the view's `x_domain`/`y_domain`
+    /// declarations do).
+    pub fn view<V, F>(mut self, view: V, f: F) -> Self
+    where
+        V: ViewSpec,
+        F: FnOnce(Self, ViewRef) -> Self,
+    {
+        if self.view.is_some() {
+            panic!("Nested group view(...) scopes are not supported");
+        }
+
+        let (compiled_view, view_ref) = view
+            .into_compiled_and_ref()
+            .expect("Failed to build view scope");
+        let base_data = std::mem::take(&mut self.data);
+        let mut group = f(self, view_ref);
+
+        if group.view.is_some() {
+            panic!("Nested group view(...) scopes are not supported");
+        }
+
+        let view_data = std::mem::replace(&mut group.data, base_data);
+        group.view = Some(ViewScopeState::new(compiled_view, view_data));
+        group
+    }
+
+    /// The view scope configured via [`MarkGroup::view`], if any.
+    pub fn view_scope_state(&self) -> Option<&ViewScopeState> {
+        self.view.as_ref()
     }
 
     /// Control how this group's inherited data is selected in faceted plots.

@@ -466,8 +466,10 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut pre_tool_scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut pre_tool_scale_to_coord_channel: HashMap<String, String> = HashMap::new();
         let pre_tool_flat_marks = flatten_plot_marks(&self.marks, tool_context.repeat_context())?;
-        let pre_tool_mark_states =
+        let mut pre_tool_mark_states =
             resolve_mark_states(&pre_tool_flat_marks.marks, tool_context.repeat_context())?;
+        lower_group_views(&pre_tool_flat_marks, &mut pre_tool_mark_states)?;
+        let pre_tool_mark_states = pre_tool_mark_states;
         let pre_tool_coord_system = coord_system.resolve_from_mark_states(&pre_tool_mark_states)?;
         pre_tool_coord_system.validate()?;
         let pre_tool_coord_transform = pre_tool_coord_system.create_transform();
@@ -550,8 +552,10 @@ impl<C: CoordinateSystem> Plot<C> {
             );
         }
         let flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
-        let resolved_mark_states =
+        let mut resolved_mark_states =
             resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
+        lower_group_views(&flat_marks, &mut resolved_mark_states)?;
+        let resolved_mark_states = resolved_mark_states;
         let coord_system = coord_system.resolve_from_mark_states(&resolved_mark_states)?;
         coord_system.validate()?;
         let coord_transform = coord_system.create_transform();
@@ -1261,6 +1265,7 @@ struct AuthoringMarkGroupState {
     data: DataContext,
     data_mode: MarkDataMode,
     facet_data_scope: avenger_chart_core::FacetDataScope,
+    view: Option<avenger_chart_core::ViewScopeState>,
 }
 
 struct FlattenedPlotMarks<C: CoordinateSystem> {
@@ -1407,6 +1412,10 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                     data: group.data_context().resolve_repeat(repeat_context)?,
                     data_mode: group.data_mode(),
                     facet_data_scope: group.facet_data_scope_value(),
+                    view: group
+                        .view_scope_state()
+                        .map(|view| view.resolve_repeat(repeat_context))
+                        .transpose()?,
                 });
                 let group_descendants = flatten_plot_mark_elements(
                     group.children(),
@@ -1539,6 +1548,86 @@ fn resolve_mark_target_paths(
     Ok(paths)
 }
 
+/// Lower group view scopes onto child marks.
+///
+/// A mark inside a viewed group becomes a view-scoped mark: its ordinary
+/// data context (transforms and channels authored on the child) moves into a
+/// per-mark view scope sharing the group's compiled view spec. Every
+/// existing view consumer (domain-inference gating, view param resolution,
+/// tool target discovery, preview rebuild forcing) then applies to group
+/// children without further threading. The group's own view-local chain is
+/// retained on the group state and executed once per evaluation by the mark
+/// data runtime, which feeds its output to the children as their view-chain
+/// input.
+fn lower_group_views<C: CoordinateSystem>(
+    flat: &FlattenedPlotMarks<C>,
+    mark_states: &mut [MarkState],
+) -> Result<(), AvengerChartError> {
+    // Validate that view ids are unique across the plot (group scopes plus
+    // mark-level scopes), and that viewed groups do not nest.
+    let mut seen_view_ids: HashSet<String> = HashSet::new();
+    let mut register_view_id = |id: &str| -> Result<(), AvengerChartError> {
+        if !seen_view_ids.insert(id.to_string()) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Duplicate view id '{id}': view scopes must be unique within a plot"
+            )));
+        }
+        Ok(())
+    };
+    for group in &flat.group_states {
+        let Some(view) = group.view.as_ref() else {
+            continue;
+        };
+        register_view_id(view.spec.id())?;
+        let mut ancestor = group.parent_group_index;
+        while let Some(index) = ancestor {
+            let parent = &flat.group_states[index];
+            if let Some(parent_view) = parent.view.as_ref() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Group view scope '{}' is nested inside group view scope '{}'; nested view scopes are not supported",
+                    view.spec.id(),
+                    parent_view.spec.id()
+                )));
+            }
+            ancestor = parent.parent_group_index;
+        }
+    }
+    for state in mark_states.iter() {
+        if let Some(view) = state.view.as_ref() {
+            register_view_id(view.spec.id())?;
+        }
+    }
+
+    for (mark_index, state) in mark_states.iter_mut().enumerate() {
+        let mut ancestor = flat.mark_group_indices[mark_index];
+        let mut group_view = None;
+        while let Some(index) = ancestor {
+            let group = &flat.group_states[index];
+            if let Some(view) = group.view.as_ref() {
+                group_view = Some(view);
+                break;
+            }
+            ancestor = group.parent_group_index;
+        }
+        let Some(group_view) = group_view else {
+            continue;
+        };
+        if let Some(mark_view) = state.view.as_ref() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Mark view scope '{}' is nested inside group view scope '{}'; nested view scopes are not supported",
+                mark_view.spec.id(),
+                group_view.spec.id()
+            )));
+        }
+        let view_data = std::mem::take(&mut state.data);
+        state.view = Some(avenger_chart_core::ViewScopeState::new(
+            group_view.spec.clone(),
+            view_data,
+        ));
+    }
+    Ok(())
+}
+
 fn compile_mark_group_states(
     groups: &[AuthoringMarkGroupState],
 ) -> Vec<super::compiled::CompiledMarkGroupState> {
@@ -1565,6 +1654,10 @@ fn compile_mark_group_states(
                 data,
                 data_mode: group.data_mode,
                 facet_data_scope: group.facet_data_scope,
+                view: group
+                    .view
+                    .as_ref()
+                    .map(avenger_chart_core::CompiledViewScope::from_view_scope_state),
             }
         })
         .collect()
