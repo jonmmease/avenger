@@ -167,7 +167,8 @@ pub use datafusion_utils::{
 };
 pub use derived_scalar::{
     DerivedScalarMap, DerivedScalarsByChannel, collect_derived_scalar_ids, derived_scalar,
-    derived_scalar_id_from_placeholder, resolve_derived_scalars,
+    derived_scalar_id_from_placeholder, resolve_derived_scalars, resolve_known_derived_scalars,
+    resolve_known_derived_scalars_in_channel_value,
 };
 pub use detail_columns::DetailColumns;
 pub use domain_coordination::{

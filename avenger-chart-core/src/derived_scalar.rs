@@ -63,6 +63,129 @@ pub fn resolve_derived_scalars(
     .map_err(AvengerChartError::DataFusionError)
 }
 
+/// Resolve derived-scalar placeholders whose ids are present in
+/// `derived_scalars`, leaving unknown derived-scalar placeholders untouched.
+///
+/// Transform-chain executors use this to substitute scalars produced by
+/// earlier stages into later stage expressions. An id missing from the map is
+/// not an error here: it may be produced by a later stage and consumed by
+/// channels, where the strict [`resolve_derived_scalars`] runs during channel
+/// finalization and reports genuinely unproduced references.
+pub fn resolve_known_derived_scalars(
+    expr: Expr,
+    derived_scalars: &DerivedScalarMap,
+) -> Result<Expr, AvengerChartError> {
+    if derived_scalars.is_empty() {
+        return Ok(expr);
+    }
+    expr.transform(|candidate| {
+        if let Expr::Placeholder(placeholder) = &candidate
+            && let Some(id) = derived_scalar_id_from_placeholder(&placeholder.id)
+            && let Some(replacement) = derived_scalars.get(id)
+        {
+            return Ok(Transformed::yes(replacement.clone()));
+        }
+
+        Ok(Transformed::no(candidate))
+    })
+    .map(|transformed| transformed.data)
+    .map_err(AvengerChartError::DataFusionError)
+}
+
+/// Resolve known derived-scalar placeholders inside a channel value's data
+/// expressions (`Scaled`/`Value` expressions and `Conditional`
+/// conditions/branches). Scale, axis, and legend configuration expressions
+/// are left untouched: those resolve later through the scale builder's own
+/// derived-scalar handling.
+///
+/// Channel expressions are stored in protobuf form, so a resolved expression
+/// containing a scalar subquery fails to re-encode on DataFusion versions
+/// without subquery serialization support; callers surface that error with
+/// actionable guidance.
+pub fn resolve_known_derived_scalars_in_channel_value(
+    value: crate::ChannelValue,
+    derived_scalars: &DerivedScalarMap,
+    ctx: &datafusion::prelude::SessionContext,
+) -> Result<crate::ChannelValue, AvengerChartError> {
+    use crate::{ChannelValue, ConditionalValue, DefaultLogicalExprNodeExt};
+    use datafusion_proto::protobuf::LogicalExprNode;
+
+    if derived_scalars.is_empty() {
+        return Ok(value);
+    }
+
+    let resolve_node = |node: LogicalExprNode| -> Result<LogicalExprNode, AvengerChartError> {
+        let expr = node.to_expr(ctx)?;
+        if collect_derived_scalar_ids(&expr)?.is_empty() {
+            return Ok(node);
+        }
+        let resolved = resolve_known_derived_scalars(expr, derived_scalars)?;
+        LogicalExprNode::from_default_expr(resolved)
+    };
+    let resolve_conditional =
+        |value: ConditionalValue| -> Result<ConditionalValue, AvengerChartError> {
+            Ok(match value {
+                ConditionalValue::Scaled { expr } => ConditionalValue::Scaled {
+                    expr: resolve_node(expr)?,
+                },
+                ConditionalValue::Value { expr } => ConditionalValue::Value {
+                    expr: resolve_node(expr)?,
+                },
+            })
+        };
+
+    Ok(match value {
+        ChannelValue::Scaled {
+            expr,
+            scale_name,
+            position_boundary,
+            scale_config,
+            nested_band_config,
+            legend_config,
+            axis_config,
+            domain_coordination,
+            transform_scope,
+        } => ChannelValue::Scaled {
+            expr: resolve_node(expr)?,
+            scale_name,
+            position_boundary,
+            scale_config,
+            nested_band_config,
+            legend_config,
+            axis_config,
+            domain_coordination,
+            transform_scope,
+        },
+        ChannelValue::Value { expr } => ChannelValue::Value {
+            expr: resolve_node(expr)?,
+        },
+        ChannelValue::Conditional {
+            conditions,
+            otherwise,
+            scale_config,
+            nested_band_config,
+            legend_config,
+            axis_config,
+            domain_coordination,
+            transform_scope,
+        } => ChannelValue::Conditional {
+            conditions: conditions
+                .into_iter()
+                .map(|(condition, branch)| {
+                    Ok((resolve_node(condition)?, resolve_conditional(branch)?))
+                })
+                .collect::<Result<Vec<_>, AvengerChartError>>()?,
+            otherwise: resolve_conditional(otherwise)?,
+            scale_config,
+            nested_band_config,
+            legend_config,
+            axis_config,
+            domain_coordination,
+            transform_scope,
+        },
+    })
+}
+
 /// Collect derived scalar ids referenced by an expression.
 pub fn collect_derived_scalar_ids(expr: &Expr) -> Result<Vec<String>, AvengerChartError> {
     let mut ids = IndexMap::<String, ()>::new();

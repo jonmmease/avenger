@@ -31,9 +31,10 @@ use avenger_chart_core::{
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformStage, DerivedScalarMap,
     FacetDataScope, MarkDataMode, MaterializationPolicy, MaterializationResult, SelectionClause,
     SelectionCombine, SelectionPredicateSpec, SharingLevel, ViewMaterializationContext,
-    ViewMaterializationRequest, ViewStalePolicy, contains_aggregate, detail_array_column_name,
-    item_frame_column_refs, params_to_datafusion, selection_clause_value_id_from_placeholder,
-    selection_id_from_predicate_placeholder,
+    ViewMaterializationRequest, ViewStalePolicy, collect_derived_scalar_ids, contains_aggregate,
+    detail_array_column_name, item_frame_column_refs, params_to_datafusion,
+    resolve_known_derived_scalars, resolve_known_derived_scalars_in_channel_value,
+    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
 
 use crate::{
@@ -254,6 +255,7 @@ async fn apply_mark_data_transforms(
     eval_ctx: &EvaluationContext,
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     mark_facet_data_scope: FacetDataScope,
+    seed_derived_scalars: &DerivedScalarMap,
 ) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
     let outcome = execute_transform_chain(
         dataframe,
@@ -262,6 +264,7 @@ async fn apply_mark_data_transforms(
         facet_data_scope,
         mark_facet_data_scope,
         TransformChainMode::Ordinary { eval_ctx },
+        seed_derived_scalars,
     )
     .await?;
     Ok((outcome.dataframe, outcome.derived_scalars))
@@ -274,6 +277,7 @@ async fn execute_transform_chain(
     facet_data_scope: Option<FacetDataScopeContext<'_>>,
     mark_facet_data_scope: FacetDataScope,
     mode: TransformChainMode<'_>,
+    seed_derived_scalars: &DerivedScalarMap,
 ) -> Result<TransformChainOutcome, AvengerChartError> {
     if transforms.is_empty() {
         return Ok(TransformChainOutcome {
@@ -285,7 +289,12 @@ async fn execute_transform_chain(
     let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
     let transforms = scoped_transform_stages(transforms, mark_facet_data_scope)?;
     let mut dataframe = dataframe;
+    // Chain-produced scalars only. The seed (scalars inherited from prepared
+    // base / mark-group data) participates in stage-expr resolution and
+    // collision detection via `known_derived_scalars`, but is never returned:
+    // call sites merge inherited scalars themselves after the chain.
     let mut derived_scalars = DerivedScalarMap::new();
+    let mut known_derived_scalars = seed_derived_scalars.clone();
     let mut materialization_request_count = 0;
     let mut current_level = transforms
         .first()
@@ -322,9 +331,24 @@ async fn execute_transform_chain(
             .iter()
             .map(|field| field.name().clone())
             .collect::<HashSet<_>>();
-        let transform = stage.transform.map_exprs(&mut |expr| {
-            expand_selection_predicates(expr, mode.eval_ctx(), Some(&available_columns))
-        })?;
+        let transform = stage
+            .transform
+            .map_exprs(&mut |expr| {
+                let expr = resolve_known_derived_scalars(expr, &known_derived_scalars)?;
+                // Stages run in order, so a derived-scalar reference that is
+                // still unresolved here can never be satisfied (unlike
+                // channels, which may consume scalars produced by later
+                // stages).
+                if let Some(id) = collect_derived_scalar_ids(&expr)?.into_iter().next() {
+                    return Err(AvengerChartError::DataFusionError(
+                        datafusion::error::DataFusionError::Plan(format!(
+                            "Derived scalar '{id}' was referenced but not produced in this data scope"
+                        )),
+                    ));
+                }
+                expand_selection_predicates(expr, mode.eval_ctx(), Some(&available_columns))
+            })
+            .map_err(explain_stage_subquery_serialization_error)?;
         let facet_context =
             transform_facet_context(facet_data_scope, current_level, mark_facet_data_scope);
         let transform_ctx = DataTransformExecutionContext {
@@ -370,11 +394,15 @@ async fn execute_transform_chain(
         let result = transform.apply(dataframe, &transform_ctx).await?;
         dataframe = result.dataframe;
         for (id, expr) in result.derived_scalars {
-            if derived_scalars.insert(id.clone(), expr).is_some() {
+            if known_derived_scalars
+                .insert(id.clone(), expr.clone())
+                .is_some()
+            {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Derived scalar '{id}' was produced more than once in the same data scope"
                 )));
             }
+            derived_scalars.insert(id, expr);
         }
     }
 
@@ -481,6 +509,7 @@ async fn apply_view_mark_data_transforms(
     mark_facet_data_scope: FacetDataScope,
     view_scope: &CompiledViewScope,
     materialization_handling: ViewMaterializationHandling,
+    seed_derived_scalars: &DerivedScalarMap,
 ) -> Result<(Option<DataFrame>, DerivedScalarMap), AvengerChartError> {
     let outcome = execute_transform_chain(
         dataframe,
@@ -493,9 +522,30 @@ async fn apply_view_mark_data_transforms(
             view_scope,
             materialization_handling,
         },
+        seed_derived_scalars,
     )
     .await?;
     Ok((outcome.dataframe, outcome.derived_scalars))
+}
+
+/// Compiled transform and channel expressions are stored in protobuf form,
+/// which the pinned DataFusion version cannot serialize scalar subqueries
+/// into. When a lazy `ScalarAggregate` scalar gets resolved into a stage or
+/// channel expression, the rewrite fails with an opaque proto error — map it
+/// to an actionable message. (DataFusion >= 54 serializes `ScalarSubquery`,
+/// at which point these paths succeed and the wrapper is inert.)
+fn explain_stage_subquery_serialization_error(err: AvengerChartError) -> AvengerChartError {
+    let message = err.to_string();
+    if message.contains("ScalarSubquery") && message.contains("Proto serialization") {
+        AvengerChartError::InvalidArgument(format!(
+            "A lazily evaluated derived scalar (for example a lazy ScalarAggregate measure) \
+             was referenced by a transform stage or channel expression, but compiled \
+             expressions cannot represent scalar subqueries in this DataFusion version. \
+             Use the default eager evaluation mode. Underlying error: {message}"
+        ))
+    } else {
+        err
+    }
 }
 
 fn merge_derived_scalars(
@@ -1217,6 +1267,11 @@ pub(crate) async fn prepare_base_data(
 ) -> Result<PreparedBaseData, AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
     let dataframe = dataframe_for_base_data(&request, ctx)?;
+    let empty_seed = DerivedScalarMap::new();
+    let seed_derived_scalars = request
+        .inherited_base
+        .map(|inherited| &inherited.derived_scalars)
+        .unwrap_or(&empty_seed);
     let (dataframe, derived_scalars) = apply_mark_data_transforms(
         dataframe,
         request.data_context.transforms(),
@@ -1224,6 +1279,7 @@ pub(crate) async fn prepare_base_data(
         request.eval_ctx,
         request.facet_data_scope_context,
         request.facet_data_scope,
+        seed_derived_scalars,
     )
     .await?;
     let derived_scalars = match request.inherited_base {
@@ -1255,6 +1311,25 @@ async fn finalize_logical_mark_data(
     derived_scalars: DerivedScalarMap,
     ctx: &SessionContext,
 ) -> Result<PreparedLogicalMarkData, AvengerChartError> {
+    // Resolve chain-produced derived scalars into channel data expressions
+    // once, so every downstream consumer (domain inference, render channel
+    // collection, sorting, aggregate preparation) sees resolved values.
+    let channels = if derived_scalars.is_empty() {
+        channels
+    } else {
+        channels
+            .into_iter()
+            .map(|(name, value)| {
+                let value = resolve_known_derived_scalars_in_channel_value(
+                    value,
+                    &derived_scalars,
+                    ctx,
+                )
+                .map_err(explain_stage_subquery_serialization_error)?;
+                Ok((name, value))
+            })
+            .collect::<Result<IndexMap<_, _>, AvengerChartError>>()?
+    };
     let domain_dataframe = dataframe.clone();
     let domain_channels = channels.clone();
 
@@ -1437,6 +1512,7 @@ pub(crate) async fn prepare_logical_mark_data(
         request.eval_ctx,
         request.facet_data_scope,
         request.mark.state().facet_data_scope,
+        &inherited_derived_scalars,
     )
     .await?;
     let derived_scalars = merge_derived_scalars(inherited_derived_scalars, derived_scalars)?;
@@ -1591,6 +1667,7 @@ pub(crate) async fn prepare_view_logical_mark_data(
         mark.state().facet_data_scope,
         view_scope,
         materialization_handling,
+        &base_prepared.derived_scalars,
     )
     .await?;
     let derived_scalars =
@@ -1706,6 +1783,10 @@ async fn schedule_view_materialization_transforms(
             view_scope,
             materialization_handling: ViewMaterializationHandling::PreviewRetargetScheduleOnly,
         },
+        // Seed with the same inherited scalars as full view evaluation so the
+        // schedule-only path resolves identical stage expressions and thus
+        // computes identical materialization keys.
+        &base_prepared.derived_scalars,
     )
     .await?;
 

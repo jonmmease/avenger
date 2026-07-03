@@ -140,6 +140,15 @@ impl DataTransformResult {
     }
 }
 
+/// Apply a transform chain, accumulating derived scalars with duplicate
+/// detection and resolving already-produced scalars into later stage
+/// expressions.
+///
+/// This core helper resolves within-chain scalars only. Inherited-scalar
+/// seeding (scalars produced by prepared base / mark-group data) is a
+/// facade-runtime concept handled by the scoped chain executor in
+/// `avenger-chart`'s `plot::compiled::mark_data_runtime`; this helper's
+/// callers have no inheritance source.
 pub async fn apply_compiled_data_transforms(
     mut dataframe: DataFrame,
     transforms: &[DataTransformStage],
@@ -147,7 +156,18 @@ pub async fn apply_compiled_data_transforms(
 ) -> Result<DataTransformResult, AvengerChartError> {
     let mut derived_scalars = DerivedScalarMap::new();
     for stage in transforms {
-        let result = stage.transform.apply(dataframe, ctx).await?;
+        let transform = stage.transform.map_exprs(&mut |expr| {
+            let expr = crate::resolve_known_derived_scalars(expr, &derived_scalars)?;
+            // Stages run in order: a still-unresolved derived-scalar
+            // reference can never be satisfied by a later stage.
+            if let Some(id) = crate::collect_derived_scalar_ids(&expr)?.into_iter().next() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Derived scalar '{id}' was referenced but not produced in this data scope"
+                )));
+            }
+            Ok(expr)
+        })?;
+        let result = transform.apply(dataframe, ctx).await?;
         dataframe = result.dataframe;
         for (id, expr) in result.derived_scalars {
             if derived_scalars.insert(id.clone(), expr).is_some() {
