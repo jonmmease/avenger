@@ -1,4 +1,4 @@
-//! WebMercator app example with URL-loaded raster map tiles.
+//! Geo (mercator) app example with URL-loaded raster map tiles.
 //!
 //! Pan with the left mouse button, scroll to zoom around the pointer, Shift-drag
 //! to box zoom, and double-click to reset the inferred/authored view. Tiles are
@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo run --release -p avenger-chart-app --example webmercator_tiles --features winit-wgpu
+//! cargo run --release -p avenger-chart-app --example geo_mercator_tiles --features winit-wgpu
 //! ```
 
 use std::sync::Arc;
@@ -18,9 +18,7 @@ use avenger_chart_app::{
     WgpuImageResourceConfig, WgpuMissingImagePolicy, WinitWgpuAvengerApp,
     WinitWgpuAvengerAppOptions, chart_avenger_app_with_runtime_resources,
 };
-use avenger_chart_webmercator::{
-    RasterTileLayer, Symbol, WebMercator, WebMercatorPanZoom, WebMercatorSymbolPositionChannels,
-};
+use avenger_chart_geo::{Geo, GeoPanZoom, GeoPositionChannels, RasterTileLayer, Symbol};
 use avenger_image::ImageResourceCache;
 use avenger_resource::RenderInvalidationHub;
 use datafusion::prelude::SessionContext;
@@ -50,7 +48,7 @@ fn main() {
     let options = WinitWgpuAvengerAppOptions::new(2.0)
         .window_attributes(
             WindowAttributes::default()
-                .with_title("avenger-chart WebMercator tiles")
+                .with_title("avenger-chart Geo mercator tiles")
                 .with_resizable(false),
         )
         .canvas_config(canvas_config)
@@ -82,18 +80,17 @@ async fn build_app(
         .attribution("OpenStreetMap contributors")
         .zindex(-10)
         .smooth_zoom();
-    let coord = WebMercator::new()
+    let coord = Geo::mercator()
         .viewport_id("nyc")
         .center_lon_lat(-73.9857, 40.7484)
         .zoom(12.0)
         .tiles(tiles);
-    let plot = Plot::with_coord(coord)
+    let plot = Plot::with_coord(coord.clone())
         .canvas_size(800.0, 560.0)
         .data(df)
         .mark(
             Symbol::new()
-                .longitude(col("lon"))
-                .latitude(col("lat"))
+                .lon_lat(&coord, col("lon"), col("lat"))
                 .fill_with(col("color"), |fill| {
                     fill.no_scale().legend(|legend| legend.visible(false))
                 })
@@ -101,11 +98,7 @@ async fn build_app(
                 .stroke_width(1.5)
                 .size(160.0),
         )
-        .tool(
-            WebMercatorPanZoom::new()
-                .viewport_id("nyc")
-                .settle_exact(true),
-        );
+        .tool(GeoPanZoom::new().viewport_id("nyc").settle_exact(true));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app_with_runtime_resources(

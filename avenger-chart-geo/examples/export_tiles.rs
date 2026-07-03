@@ -1,11 +1,11 @@
-//! Render a WebMercator tile plot to SVG and PDF.
+//! Render a Geo (mercator) tile plot to SVG and PDF.
 //!
 //! The tile layer uses an inline data URI so the example is deterministic and
 //! does not require network access. Pass an output directory as the first
 //! argument, or use `target/examples/webmercator-export` by default.
 //!
 //! ```bash
-//! cargo run -p avenger-chart-webmercator --example export_tiles --release
+//! cargo run -p avenger-chart-geo --example export_tiles --release
 //! ```
 
 use std::{error::Error, fs, path::PathBuf};
@@ -14,9 +14,7 @@ use avenger_chart::{
     prelude::*,
     render::{PdfRenderer, SvgRenderer},
 };
-use avenger_chart_webmercator::{
-    RasterTileLayer, Symbol, WebMercator, WebMercatorSymbolPositionChannels, WebMercatorViewport,
-};
+use avenger_chart_geo::{Geo, GeoPositionChannels, RasterTileLayer, Symbol};
 use datafusion::prelude::SessionContext;
 
 const TINY_PNG_DATA_URI: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAG0lEQVR4nGO4o6b2XzX59X8GscVe/3+dEf0PAE8fCXZKLiUkAAAAAElFTkSuQmCC";
@@ -26,7 +24,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let out_dir = std::env::args()
         .nth(1)
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("target/examples/webmercator-export"));
+        .unwrap_or_else(|| PathBuf::from("target/examples/geo-export"));
     fs::create_dir_all(&out_dir)?;
 
     let ctx = SessionContext::new();
@@ -40,25 +38,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
         .await?;
 
-    let coord = WebMercator::new()
-        .viewport(
-            WebMercatorViewport::new()
-                .center_lon_lat(0.0, 20.0)
-                .zoom(0.0),
-        )
-        .tiles(
-            RasterTileLayer::xyz(TINY_PNG_DATA_URI)
-                .id("inline")
-                .max_zoom(0)
-                .attribution("Example inline tile"),
-        );
-    let plot = Plot::with_coord(coord)
+    let coord = Geo::mercator().center_lon_lat(0.0, 20.0).zoom(0.0).tiles(
+        RasterTileLayer::xyz(TINY_PNG_DATA_URI)
+            .id("inline")
+            .max_zoom(0)
+            .attribution("Example inline tile"),
+    );
+    let plot = Plot::with_coord(coord.clone())
         .canvas_size(640.0, 420.0)
         .data(data)
         .mark(
             Symbol::new()
-                .longitude(col("lon"))
-                .latitude(col("lat"))
+                .lon_lat(&coord, col("lon"), col("lat"))
                 .fill_with(col("color"), |fill| {
                     fill.no_scale().legend(|legend| legend.visible(false))
                 })
@@ -71,8 +62,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let svg = SvgRenderer::new().render_evaluated_plot(&evaluated)?;
     let pdf = PdfRenderer::new().render_evaluated_plot(&evaluated)?;
 
-    let svg_path = out_dir.join("webmercator-export.svg");
-    let pdf_path = out_dir.join("webmercator-export.pdf");
+    let svg_path = out_dir.join("geo-export.svg");
+    let pdf_path = out_dir.join("geo-export.pdf");
     fs::write(&svg_path, svg)?;
     fs::write(&pdf_path, pdf)?;
 

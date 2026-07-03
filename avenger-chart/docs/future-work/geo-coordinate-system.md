@@ -1,5 +1,14 @@
 # Geo Coordinate System
 
+> **Status (2026-07-03): implemented.** All seven phases of the
+> implementation plan are complete: the `avenger-geo` projection engine
+> (d3-geo parity), the `avenger-chart-geo` coordinate system with
+> graticule/sphere guides and GeoJSON/WKB `GeoShape` marks, pan/zoom
+> tools, the adaptive Web Mercator blend (§8), warped raster tile layers
+> (§10) via the new `SceneWarpedImageMark`, and the replacement of
+> `avenger-chart-webmercator` (§9, §11) gated at ≥0.9999 image parity.
+> Authoring reference: [`../geo.md`](../geo.md).
+
 Master design note for general geographic coordinate systems in Avenger: a
 d3-geo-style projection engine crate (`avenger-geo`), a `Geo` coordinate
 system crate (`avenger-chart-geo`) with graticule/sphere guides and

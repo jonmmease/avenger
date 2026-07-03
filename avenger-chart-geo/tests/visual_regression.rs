@@ -1187,62 +1187,22 @@ mod phase6 {
         assert_visual_match_resolved(&ctx, plot, "tiles_equal_earth_world").await;
     }
 
-    /// Geo(mercator) tiles take the identity fast path and must match the
-    /// WebMercator coordinate system pixel-for-pixel.
+    /// Geo(mercator) tiles take the identity fast path: plain axis-aligned
+    /// image marks. Pixel parity with the retired WebMercator coordinate
+    /// system was gated at ≥0.9999 before retirement (see the
+    /// ported_baselines_match_webmercator_originals gate in avenger-chart's
+    /// test_geo_mercator.rs); this baseline pins the fast-path rendering.
     #[tokio::test]
-    async fn tiles_mercator_identity_parity() {
-        use avenger_chart_webmercator::WebMercator;
-
+    async fn tiles_mercator_identity() {
         let ctx = SessionContext::new();
         let geo = Geo::mercator()
             .center_lon_lat(0.0, 30.0)
             .zoom(1.0)
             .tiles(carto_layer(1));
-        let geo_plot = Plot::with_coord(geo)
+        let plot = Plot::with_coord(geo)
             .plot_size(512.0, 256.0)
             .title("Identity parity");
-        let geo_scene = resolved_scene_graph(&ctx, geo_plot).await;
-        let geo_image = render_scene_graph_to_wgpu_image(&geo_scene).await;
-
-        let webmercator = WebMercator::new()
-            .center_lon_lat(0.0, 30.0)
-            .zoom(1.0)
-            .tiles(
-                avenger_chart_webmercator::RasterTileLayer::xyz(
-                    "https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png",
-                )
-                .id("carto")
-                .min_zoom(1)
-                .max_zoom(1)
-                .attribution("© OpenStreetMap contributors © CARTO"),
-            );
-        let reference_plot = Plot::with_coord(webmercator)
-            .plot_size(512.0, 256.0)
-            .title("Identity parity");
-        let reference_scene = resolved_scene_graph(&ctx, reference_plot).await;
-        let reference_image = render_scene_graph_to_wgpu_image(&reference_scene).await;
-
-        let result = image_compare::rgba_hybrid_compare(&reference_image, &geo_image)
-            .expect("image comparison");
-        if result.score < 0.9999 {
-            save_image(
-                &PathBuf::from(FAILURE_DIR).join("identity_parity_geo.png"),
-                &geo_image,
-            );
-            save_image(
-                &PathBuf::from(FAILURE_DIR).join("identity_parity_webmercator.png"),
-                &reference_image,
-            );
-            save_image(
-                &PathBuf::from(FAILURE_DIR).join("identity_parity_diff.png"),
-                &result.image.to_color_map().into_rgba8(),
-            );
-        }
-        assert!(
-            result.score >= 0.9999,
-            "identity parity {:.6} below 0.9999",
-            result.score
-        );
+        assert_visual_match_resolved(&ctx, plot, "tiles_mercator_identity").await;
     }
 
     /// Static export: the SVG rendering of the warped-tiles hero (tiles

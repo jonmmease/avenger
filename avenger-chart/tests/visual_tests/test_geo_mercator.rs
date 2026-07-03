@@ -1,3 +1,11 @@
+//! `Geo::mercator()` visual suite (scratch/geo phase 7): the
+//! test_webmercator.rs scenes ported to the Geo coordinate system.
+//!
+//! Plot construction (including title strings) intentionally matches the
+//! WebMercator originals so `ported_baselines_match_webmercator_originals`
+//! can gate every baseline against the retired coordinate system's image
+//! at ≥ 0.9999 similarity.
+
 use std::{collections::HashMap, sync::Arc};
 
 use super::helpers::{
@@ -6,9 +14,7 @@ use super::helpers::{
 };
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart::prelude::*;
-use avenger_chart_webmercator::{
-    Symbol, TileLoadingPolicy, WebMercator, WebMercatorSymbolPositionChannels,
-};
+use avenger_chart_geo::{Geo, GeoPositionChannels, Symbol, TileLoadingPolicy};
 use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage as AvengerRgbaImage};
 use avenger_resource::ResourceKey;
 use avenger_wgpu::{
@@ -17,7 +23,7 @@ use avenger_wgpu::{
 };
 use datafusion::prelude::{SessionContext, col};
 
-const CATEGORY: &str = "webmercator";
+const CATEGORY: &str = "geo_mercator";
 
 async fn landmarks(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
     ctx.sql(
@@ -42,7 +48,7 @@ async fn facet_points(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
         ) AS t(panel, lon, lat, color, size)",
     )
     .await
-    .expect("facet WebMercator data")
+    .expect("facet Geo data")
 }
 
 async fn repeat_points(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
@@ -53,13 +59,12 @@ async fn repeat_points(ctx: &SessionContext) -> datafusion::prelude::DataFrame {
         ) AS t(near_lon, far_lon, south_lat, north_lat)",
     )
     .await
-    .expect("repeat WebMercator data")
+    .expect("repeat Geo data")
 }
 
-fn landmark_symbols() -> Symbol<WebMercator> {
+fn landmark_symbols(geo: &Geo) -> Symbol<Geo> {
     Symbol::new()
-        .longitude(col("lon"))
-        .latitude(col("lat"))
+        .lon_lat(geo, col("lon"), col("lat"))
         .size(col("size"))
         .fill_with(col("color"), |fill| {
             fill.no_scale().legend(|legend| legend.visible(false))
@@ -68,85 +73,69 @@ fn landmark_symbols() -> Symbol<WebMercator> {
         .stroke_width(1.5)
 }
 
-fn colored_symbols() -> Symbol<WebMercator> {
-    Symbol::new()
-        .longitude(col("lon"))
-        .latitude(col("lat"))
-        .size(col("size"))
-        .fill_with(col("color"), |fill| {
-            fill.no_scale().legend(|legend| legend.visible(false))
-        })
-        .stroke("#111827")
-        .stroke_width(1.2)
-}
-
-fn webmercator_child(coord: WebMercator) -> Plot<WebMercator> {
+fn geo_child(coord: Geo) -> Plot<Geo> {
+    let symbols = landmark_symbols(&coord);
     Plot::with_coord(coord)
         .plot_size(260.0, 220.0)
-        .mark(landmark_symbols())
+        .mark(symbols)
 }
 
-fn osm_tile_layer() -> avenger_chart_webmercator::RasterTileLayer {
-    avenger_chart_webmercator::RasterTileLayer::xyz(
-        "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    )
-    .id("osm")
-    .min_zoom(1)
-    .max_zoom(1)
-    .attribution("OpenStreetMap contributors")
-    .zindex(-100)
+fn osm_tile_layer() -> avenger_chart_geo::RasterTileLayer {
+    avenger_chart_geo::RasterTileLayer::xyz("https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+        .id("osm")
+        .min_zoom(1)
+        .max_zoom(1)
+        .attribution("OpenStreetMap contributors")
+        .zindex(-100)
 }
 
-fn osm_tile_reference_plot(title: &'static str) -> Plot<WebMercator> {
-    Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(0.0, 30.0)
-            .zoom(1.0)
-            .tiles(osm_tile_layer()),
-    )
-    .plot_size(512.0, 256.0)
-    .canvas_size(560.0, 340.0)
-    .title(title)
-    .mark(
-        Symbol::new()
-            .longitude(0.0)
-            .latitude(0.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
-    )
+fn osm_tile_reference_plot(title: &'static str) -> Plot<Geo> {
+    let geo = Geo::mercator()
+        .center_lon_lat(0.0, 30.0)
+        .zoom(1.0)
+        .tiles(osm_tile_layer());
+    let marker = Symbol::new()
+        .lon_lat(&geo, 0.0, 0.0)
+        .size(140.0)
+        .fill("#dc2626")
+        .stroke("#111827");
+    Plot::with_coord(geo)
+        .plot_size(512.0, 256.0)
+        .canvas_size(560.0, 340.0)
+        .title(title)
+        .mark(marker)
 }
 
 #[tokio::test]
 async fn symbol_lon_lat_fit() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(WebMercator::new())
+    let geo = Geo::mercator();
+    let symbols = landmark_symbols(&geo);
+    let plot = Plot::with_coord(geo)
         .canvas_size(420.0, 340.0)
         .title("WebMercator fit")
         .data(landmarks(&ctx).await)
-        .mark(landmark_symbols());
+        .mark(symbols);
 
-    let compiled = plot.compile(&ctx).await.expect("compile WebMercator fit");
+    let compiled = plot.compile(&ctx).await.expect("compile Geo mercator fit");
     assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "symbol_lon_lat_fit").await;
 }
 
 #[tokio::test]
 async fn symbol_authored_center_zoom() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(-73.9857, 40.7484)
-            .zoom(12.0),
-    )
-    .canvas_size(420.0, 340.0)
-    .title("Authored center/zoom")
-    .data(landmarks(&ctx).await)
-    .mark(landmark_symbols());
+    let geo = Geo::mercator().center_lon_lat(-73.9857, 40.7484).zoom(12.0);
+    let symbols = landmark_symbols(&geo);
+    let plot = Plot::with_coord(geo)
+        .canvas_size(420.0, 340.0)
+        .title("Authored center/zoom")
+        .data(landmarks(&ctx).await)
+        .mark(symbols);
 
     let compiled = plot
         .compile(&ctx)
         .await
-        .expect("compile authored WebMercator view");
+        .expect("compile authored Geo mercator view");
     assert_visual_match_default(
         &compiled,
         &ctx,
@@ -160,16 +149,18 @@ async fn symbol_authored_center_zoom() {
 #[tokio::test]
 async fn symbol_fixed_center_fit_zoom() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(WebMercator::new().center_lon_lat(-73.9857, 40.7484))
+    let geo = Geo::mercator().center_lon_lat(-73.9857, 40.7484);
+    let symbols = landmark_symbols(&geo);
+    let plot = Plot::with_coord(geo)
         .canvas_size(420.0, 340.0)
         .title("Fixed center, inferred zoom")
         .data(landmarks(&ctx).await)
-        .mark(landmark_symbols());
+        .mark(symbols);
 
     let compiled = plot
         .compile(&ctx)
         .await
-        .expect("compile fixed-center WebMercator view");
+        .expect("compile fixed-center Geo mercator view");
     assert_visual_match_default(
         &compiled,
         &ctx,
@@ -183,29 +174,23 @@ async fn symbol_fixed_center_fit_zoom() {
 #[tokio::test]
 async fn symbol_wide_vs_tall_same_zoom() {
     let ctx = SessionContext::new();
-    let coord = WebMercator::new()
-        .center_lon_lat(-73.9857, 40.7484)
-        .zoom(12.0);
+    let coord = Geo::mercator().center_lon_lat(-73.9857, 40.7484).zoom(12.0);
     let plot = Plot::<HConcat>::new()
         .canvas_size(640.0, 360.0)
         .widths([TrackSizing::Px(360.0), TrackSizing::Px(150.0)])
         .title("Same center/zoom, different plot shapes")
         .data(landmarks(&ctx).await)
         .mark(
-            Subplot::new(webmercator_child(coord.clone()))
+            Subplot::new(geo_child(coord.clone()))
                 .key("wide")
                 .label("Wide"),
         )
-        .mark(
-            Subplot::new(webmercator_child(coord))
-                .key("tall")
-                .label("Tall"),
-        );
+        .mark(Subplot::new(geo_child(coord)).key("tall").label("Tall"));
 
     let compiled = plot
         .compile(&ctx)
         .await
-        .expect("compile WebMercator shape comparison");
+        .expect("compile Geo mercator shape comparison");
     assert_visual_match_default(
         &compiled,
         &ctx,
@@ -216,18 +201,29 @@ async fn symbol_wide_vs_tall_same_zoom() {
     .await;
 }
 
+fn faceted_symbols(geo: &Geo, scope: CoordinationScope) -> Symbol<Geo> {
+    Symbol::new()
+        .lon_lat_with(
+            geo,
+            col("lon"),
+            col("lat"),
+            |x| x.with_domain_scope(scope),
+            |y| y.with_domain_scope(scope),
+        )
+        .size(col("size"))
+        .fill_with(col("color"), |fill| {
+            fill.no_scale().legend(|legend| legend.visible(false))
+        })
+        .stroke("#111827")
+        .stroke_width(1.2)
+}
+
 #[tokio::test]
 async fn facet_shared_viewport() {
     let ctx = SessionContext::new();
-    let child = Plot::with_coord(WebMercator::new()).mark(
-        colored_symbols()
-            .longitude_with(col("lon"), |x| {
-                x.with_domain_scope(CoordinationScope::Shared)
-            })
-            .latitude_with(col("lat"), |y| {
-                y.with_domain_scope(CoordinationScope::Shared)
-            }),
-    );
+    let geo = Geo::mercator();
+    let child =
+        Plot::with_coord(geo.clone()).mark(faceted_symbols(&geo, CoordinationScope::Shared));
     let plot = Plot::<FacetColumn>::new()
         .plot_size(250.0, 190.0)
         .title("Shared WebMercator viewport")
@@ -237,18 +233,15 @@ async fn facet_shared_viewport() {
     let compiled = plot
         .compile(&ctx)
         .await
-        .expect("compile shared WebMercator facet");
+        .expect("compile shared Geo mercator facet");
     assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "facet_shared_viewport").await;
 }
 
 #[tokio::test]
 async fn facet_free_viewports() {
     let ctx = SessionContext::new();
-    let child = Plot::with_coord(WebMercator::new()).mark(
-        colored_symbols()
-            .longitude_with(col("lon"), |x| x.with_domain_scope(CoordinationScope::Free))
-            .latitude_with(col("lat"), |y| y.with_domain_scope(CoordinationScope::Free)),
-    );
+    let geo = Geo::mercator();
+    let child = Plot::with_coord(geo.clone()).mark(faceted_symbols(&geo, CoordinationScope::Free));
     let plot = Plot::<FacetColumn>::new()
         .plot_size(250.0, 190.0)
         .title("Free WebMercator viewports")
@@ -258,24 +251,22 @@ async fn facet_free_viewports() {
     let compiled = plot
         .compile(&ctx)
         .await
-        .expect("compile free WebMercator facet");
+        .expect("compile free Geo mercator facet");
     assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "facet_free_viewports").await;
 }
 
 #[tokio::test]
 async fn repeat_shared_fit() {
     let ctx = SessionContext::new();
-    let cell = Plot::with_coord(WebMercator::new())
-        .plot_size(190.0, 150.0)
-        .mark(
-            Symbol::new()
-                .longitude(repeat::column())
-                .latitude(repeat::row())
-                .size(150.0)
-                .fill("#0f766e")
-                .stroke("#111827")
-                .stroke_width(1.2),
-        );
+    let geo = Geo::mercator();
+    let cell = Plot::with_coord(geo.clone()).plot_size(190.0, 150.0).mark(
+        Symbol::new()
+            .lon_lat(&geo, repeat::column(), repeat::row())
+            .size(150.0)
+            .fill("#0f766e")
+            .stroke("#111827")
+            .stroke_width(1.2),
+    );
     let plot = Plot::<RepeatGrid>::new()
         .canvas_size(560.0, 420.0)
         .title("Repeat WebMercator shared fit")
@@ -294,7 +285,7 @@ async fn repeat_shared_fit() {
     let compiled = plot
         .compile(&ctx)
         .await
-        .expect("compile repeated WebMercator grid");
+        .expect("compile repeated Geo mercator grid");
     assert_visual_match_default(&compiled, &ctx, None, CATEGORY, "repeat_shared_fit").await;
 }
 
@@ -379,11 +370,8 @@ async fn tiles_ready_resource() {
 #[tokio::test]
 async fn tiles_smooth_zoom_ready_fallback_pending_target() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new().center_lon_lat(0.0, 0.0).zoom(1.0).tiles(
-            avenger_chart_webmercator::RasterTileLayer::xyz(
-                "https://tiles.example/{z}/{x}/{y}.png",
-            )
+    let geo = Geo::mercator().center_lon_lat(0.0, 0.0).zoom(1.0).tiles(
+        avenger_chart_geo::RasterTileLayer::xyz("https://tiles.example/{z}/{x}/{y}.png")
             .id("smooth")
             .max_zoom(2)
             .loading_policy(TileLoadingPolicy::SmoothZoom {
@@ -395,19 +383,17 @@ async fn tiles_smooth_zoom_ready_fallback_pending_target() {
                 max_rendered_fallback_tiles: 128,
                 max_prefetch_tiles: 128,
             }),
-        ),
-    )
-    .plot_size(256.0, 256.0)
-    .canvas_size(320.0, 330.0)
-    .title("Smooth tile fallback")
-    .mark(
-        Symbol::new()
-            .longitude(0.0)
-            .latitude(0.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
     );
+    let marker = Symbol::new()
+        .lon_lat(&geo, 0.0, 0.0)
+        .size(140.0)
+        .fill("#dc2626")
+        .stroke("#111827");
+    let plot = Plot::with_coord(geo)
+        .plot_size(256.0, 256.0)
+        .canvas_size(320.0, 330.0)
+        .title("Smooth tile fallback")
+        .mark(marker);
     let compiled = plot
         .compile(&ctx)
         .await
@@ -443,23 +429,20 @@ async fn tiles_smooth_zoom_ready_fallback_pending_target() {
 #[tokio::test]
 async fn tiles_tall_square_pixels() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(0.0, 0.0)
-            .zoom(1.0)
-            .tiles(osm_tile_layer()),
-    )
-    .plot_size(256.0, 512.0)
-    .canvas_size(340.0, 590.0)
-    .title("OSM tall viewport")
-    .mark(
-        Symbol::new()
-            .longitude(0.0)
-            .latitude(0.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
-    );
+    let geo = Geo::mercator()
+        .center_lon_lat(0.0, 0.0)
+        .zoom(1.0)
+        .tiles(osm_tile_layer());
+    let marker = Symbol::new()
+        .lon_lat(&geo, 0.0, 0.0)
+        .size(140.0)
+        .fill("#dc2626")
+        .stroke("#111827");
+    let plot = Plot::with_coord(geo)
+        .plot_size(256.0, 512.0)
+        .canvas_size(340.0, 590.0)
+        .title("OSM tall viewport")
+        .mark(marker);
 
     let compiled = plot.compile(&ctx).await.expect("compile tall OSM tiles");
     assert_osm_tile_visual(&compiled, &ctx, "tiles_tall_square_pixels").await;
@@ -468,23 +451,20 @@ async fn tiles_tall_square_pixels() {
 #[tokio::test]
 async fn tiles_partial_panned() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(55.0, 20.0)
-            .zoom(1.0)
-            .tiles(osm_tile_layer()),
-    )
-    .plot_size(360.0, 260.0)
-    .canvas_size(430.0, 350.0)
-    .title("OSM partial pan")
-    .mark(
-        Symbol::new()
-            .longitude(55.0)
-            .latitude(20.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
-    );
+    let geo = Geo::mercator()
+        .center_lon_lat(55.0, 20.0)
+        .zoom(1.0)
+        .tiles(osm_tile_layer());
+    let marker = Symbol::new()
+        .lon_lat(&geo, 55.0, 20.0)
+        .size(140.0)
+        .fill("#dc2626")
+        .stroke("#111827");
+    let plot = Plot::with_coord(geo)
+        .plot_size(360.0, 260.0)
+        .canvas_size(430.0, 350.0)
+        .title("OSM partial pan")
+        .mark(marker);
 
     let compiled = plot
         .compile(&ctx)
@@ -496,23 +476,20 @@ async fn tiles_partial_panned() {
 #[tokio::test]
 async fn tiles_overzoom_max_zoom() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(0.0, 0.0)
-            .zoom(3.0)
-            .tiles(osm_tile_layer()),
-    )
-    .plot_size(360.0, 260.0)
-    .canvas_size(430.0, 350.0)
-    .title("OSM overzoomed from z=1")
-    .mark(
-        Symbol::new()
-            .longitude(0.0)
-            .latitude(0.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
-    );
+    let geo = Geo::mercator()
+        .center_lon_lat(0.0, 0.0)
+        .zoom(3.0)
+        .tiles(osm_tile_layer());
+    let marker = Symbol::new()
+        .lon_lat(&geo, 0.0, 0.0)
+        .size(140.0)
+        .fill("#dc2626")
+        .stroke("#111827");
+    let plot = Plot::with_coord(geo)
+        .plot_size(360.0, 260.0)
+        .canvas_size(430.0, 350.0)
+        .title("OSM overzoomed from z=1")
+        .mark(marker);
 
     let compiled = plot
         .compile(&ctx)
@@ -524,29 +501,82 @@ async fn tiles_overzoom_max_zoom() {
 #[tokio::test]
 async fn tiles_required_attribution() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
-        WebMercator::new()
-            .center_lon_lat(0.0, 0.0)
-            .zoom(1.0)
-            .tiles(osm_tile_layer()),
-    )
-    .plot_size(512.0, 512.0)
-    .canvas_size(580.0, 600.0)
-    .title("OSM attribution")
-    .mark(
-        Symbol::new()
-            .longitude(0.0)
-            .latitude(0.0)
-            .size(140.0)
-            .fill("#dc2626")
-            .stroke("#111827"),
-    );
+    let geo = Geo::mercator()
+        .center_lon_lat(0.0, 0.0)
+        .zoom(1.0)
+        .tiles(osm_tile_layer());
+    let marker = Symbol::new()
+        .lon_lat(&geo, 0.0, 0.0)
+        .size(140.0)
+        .fill("#dc2626")
+        .stroke("#111827");
+    let plot = Plot::with_coord(geo)
+        .plot_size(512.0, 512.0)
+        .canvas_size(580.0, 600.0)
+        .title("OSM attribution")
+        .mark(marker);
 
     let compiled = plot
         .compile(&ctx)
         .await
         .expect("compile OSM attribution tiles");
     assert_osm_tile_visual(&compiled, &ctx, "tiles_required_attribution").await;
+}
+
+/// Phase-7 replacement gate: every ported baseline must match the retired
+/// WebMercator suite's baseline image at ≥ 0.9999 similarity. Run with
+/// `--nocapture` to record the scores.
+#[test]
+fn ported_baselines_match_webmercator_originals() {
+    let names = [
+        "symbol_lon_lat_fit",
+        "symbol_authored_center_zoom",
+        "symbol_fixed_center_fit_zoom",
+        "symbol_wide_vs_tall_same_zoom",
+        "facet_shared_viewport",
+        "facet_free_viewports",
+        "repeat_shared_fit",
+        "tiles_wide_square_pixels",
+        "tiles_placeholder",
+        "tiles_ready_resource",
+        "tiles_smooth_zoom_ready_fallback_pending_target",
+        "tiles_tall_square_pixels",
+        "tiles_partial_panned",
+        "tiles_overzoom_max_zoom",
+        "tiles_required_attribution",
+    ];
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/baselines");
+    let mut failures = Vec::new();
+    for name in names {
+        let old_path = base.join("webmercator").join(format!("{name}.png"));
+        let new_path = base.join(CATEGORY).join(format!("{name}.png"));
+        let old = image::open(&old_path)
+            .unwrap_or_else(|err| panic!("load {}: {err}", old_path.display()))
+            .into_rgba8();
+        let new = image::open(&new_path)
+            .unwrap_or_else(|err| panic!("load {}: {err}", new_path.display()))
+            .into_rgba8();
+        if old.dimensions() != new.dimensions() {
+            failures.push(format!(
+                "{name}: dimensions {:?} vs {:?}",
+                old.dimensions(),
+                new.dimensions()
+            ));
+            continue;
+        }
+        let score = image_compare::rgba_hybrid_compare(&old, &new)
+            .expect("image comparison")
+            .score;
+        println!("webmercator parity {name}: {score:.6}");
+        if score < 0.9999 {
+            failures.push(format!("{name}: {score:.6} < 0.9999"));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "ported baselines diverge from webmercator originals:\n{}",
+        failures.join("\n")
+    );
 }
 
 async fn assert_osm_tile_visual(
@@ -600,7 +630,7 @@ impl OsmFixtureResolver {
                 .expect("decode OSM tile fixture")
                 .into_rgba8();
             images.insert(
-                ResourceKey::new(format!("webmercator/osm/1/{x}/{y}/256")),
+                ResourceKey::new(format!("geo/osm/1/{x}/{y}/256")),
                 Arc::new(AvengerRgbaImage::from_image(&image)),
             );
         }
@@ -644,7 +674,7 @@ impl SmoothZoomFallbackResolver {
 
 impl ImageResourceResolver for SmoothZoomFallbackResolver {
     fn image_state(&self, key: &ResourceKey) -> ImageResourceState {
-        if key == &ResourceKey::new("webmercator/smooth/0/0/0/256") {
+        if key == &ResourceKey::new("geo/smooth/0/0/0/256") {
             ImageResourceState::Ready(self.fallback.clone())
         } else {
             ImageResourceState::Pending

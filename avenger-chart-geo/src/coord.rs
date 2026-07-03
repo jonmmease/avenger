@@ -351,6 +351,9 @@ impl CoordinateSystemCore for Geo {
                 graticule.step
             )));
         }
+        for layer in &self.tile_layers {
+            layer.validate()?;
+        }
         Ok(())
     }
 }

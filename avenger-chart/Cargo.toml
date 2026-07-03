@@ -25,7 +25,7 @@ visual-tests = [
     "dep:resvg",
     "dep:tiny-skia",
     "dep:usvg",
-    "dep:avenger-chart-webmercator",
+    "dep:avenger-chart-geo",
 ]
 
 [dependencies]
@@ -41,7 +41,7 @@ avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-polar = { path = "../avenger-chart-polar" }
 avenger-chart-parallel = { path = "../avenger-chart-parallel", optional = true }
-avenger-chart-webmercator = { path = "../avenger-chart-webmercator", optional = true }
+avenger-chart-geo = { path = "../avenger-chart-geo", optional = true }
 avenger-layout = { path = "../avenger-layout" }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

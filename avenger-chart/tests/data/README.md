@@ -24,7 +24,7 @@ See: https://github.com/vega/vega-datasets/blob/main/LICENSE
 - **unemployment.parquet** - US unemployment rates by county
 - **movies.parquet** - IMDB movie ratings and metadata
 - **nyc_taxi_2015/** - NYC taxi fixture from Datashader for rasterization and
-  WebMercator-style baselines
+  map-tile baselines (originally for the retired WebMercator suite, now the geo_mercator parity suite)
 
 ## Updating
 

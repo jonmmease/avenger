@@ -2,22 +2,15 @@
 
 ## Status
 
-Implementation has started. The current detailed checklist lives in
-`scratch/web-mercator-coordinate-implementation-plan.md`.
-
-The generic resource/image and guide-resource substrate now exists: scenegraph
-images can reference resources, chart SVG/PDF/static export can resolve and
-inline those resources, WGPU can render unresolved images with placeholders,
-image cache completion can request host redraw, and coordinate guides receive a
-`GuideRenderContext` that can collect resource requests.
-
-Implementation has landed in the external `avenger-chart-webmercator` crate.
-The current slice includes projection and viewport realization,
-coordinate-owned raster tile configuration, a guide-rendered resource tile
-layer, `Symbol<WebMercator>`, pan/wheel/reset plus Shift+drag box-zoom viewport
-tools with preview coverage, container/shared-viewport coverage, static export
-coverage, examples, and visual baselines. See
-[`../webmercator.md`](../webmercator.md) for the current authoring surface.
+Implemented. The design below was first realized in the external
+`avenger-chart-webmercator` crate; that crate has since been retired and
+replaced by `avenger-chart-geo`, whose `Geo` coordinate system carries
+the same tile-layer surface generalized to arbitrary projections (tiles
+render as warped textured meshes off-Mercator, and as plain image marks
+on the Mercator identity fast path). See [`../geo.md`](../geo.md) for
+the current authoring surface. The remainder of this document is the
+original design discussion, retained for background; `WebMercator` reads
+map to today's `Geo::mercator()`.
 
 ## Goal
 

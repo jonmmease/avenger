@@ -30,7 +30,6 @@ avenger-app = { path = "../avenger-app" }
 avenger-chart = { path = "../avenger-chart", features = ["renderers"] }
 avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-eventstream = { path = "../avenger-eventstream" }
-avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 avenger-svg = { path = "../avenger-svg" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 arrow = { workspace = true }

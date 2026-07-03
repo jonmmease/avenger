@@ -385,13 +385,7 @@ impl RasterTileLayer {
         scope: &TileViewScope,
     ) -> Result<Vec<VisibleGeoTile>, AvengerChartError> {
         self.validate()?;
-        let mut tiles = Vec::new();
-        let n0 = MercatorTileGrid::tile_count(0);
-        for x in 0..n0 {
-            for y in 0..n0 {
-                self.descend(scope, 0, x, y, 0, &mut tiles);
-            }
-        }
+        let mut tiles = self.enumerate_tiles(scope, 0);
         if tiles.len() > DEFAULT_MAX_RENDERED_TILES {
             tracing::warn!(
                 layer = %self.id,
@@ -402,6 +396,53 @@ impl RasterTileLayer {
             tiles.truncate(DEFAULT_MAX_RENDERED_TILES);
         }
         Ok(tiles)
+    }
+
+    fn enumerate_tiles(&self, scope: &TileViewScope, zoom_offset: i8) -> Vec<VisibleGeoTile> {
+        if let Some(view) = &scope.identity_view {
+            return self.identity_range_tiles(view, zoom_offset);
+        }
+        let mut tiles = Vec::new();
+        let n0 = MercatorTileGrid::tile_count(0);
+        for x in 0..n0 {
+            for y in 0..n0 {
+                self.descend(scope, 0, x, y, zoom_offset, &mut tiles);
+            }
+        }
+        tiles
+    }
+
+    /// Identity fast path: the view's raw-unit domains ARE mercator
+    /// units, so intersect them with the grid directly (the webmercator
+    /// algorithm) — exact, and x wraps across antimeridian world copies
+    /// via unwrapped columns.
+    fn identity_range_tiles(
+        &self,
+        view: &crate::view::GeoView,
+        zoom_offset: i8,
+    ) -> Vec<VisibleGeoTile> {
+        let zoom = ((2.0 * PI / (view.units_per_pixel * f64::from(self.tile_size)))
+            .log2()
+            .round() as i16
+            + i16::from(zoom_offset))
+        .clamp(i16::from(self.min_zoom), i16::from(self.max_zoom)) as u8;
+        let n = MercatorTileGrid::tile_count(zoom);
+        let span = 2.0 * PI / n as f64;
+        let tile_floor = |value: f64| value.floor() as i64;
+        let tile_ceil_exclusive = |value: f64| (value - 1e-12).ceil() as i64 - 1;
+        let x_start = tile_floor((view.x_domain.0 + PI) / span);
+        let x_end = tile_ceil_exclusive((view.x_domain.1 + PI) / span).max(x_start);
+        let y_start = tile_floor((PI - view.y_domain.1) / span).max(0);
+        let y_end = tile_ceil_exclusive((PI - view.y_domain.0) / span)
+            .min(n - 1)
+            .max(y_start);
+        let mut tiles = Vec::new();
+        for y in y_start..=y_end {
+            for unwrapped_x in x_start..=x_end {
+                tiles.push(self.visible_tile(zoom, unwrapped_x.rem_euclid(n), y, unwrapped_x));
+            }
+        }
+        tiles
     }
 
     fn descend(
@@ -436,14 +477,7 @@ impl RasterTileLayer {
         scope: &TileViewScope,
         zoom_offset: i8,
     ) -> Vec<VisibleGeoTile> {
-        let mut tiles = Vec::new();
-        let n0 = MercatorTileGrid::tile_count(0);
-        for x in 0..n0 {
-            for y in 0..n0 {
-                self.descend(scope, 0, x, y, zoom_offset, &mut tiles);
-            }
-        }
-        tiles
+        self.enumerate_tiles(scope, zoom_offset)
     }
 
     /// The full per-frame plan: rendered tiles (fallback zooms first so
@@ -615,11 +649,14 @@ pub enum PlannedTileUnavailablePolicy {
 // ---------------------------------------------------------------------------
 
 /// Everything tile discovery needs about the current view: the pixel
-/// projector, the plot rectangle, and a visibility margin.
+/// projector, the plot rectangle, and a visibility margin. On the
+/// identity fast path the raw-unit view is carried too, enabling exact
+/// analytic enumeration with antimeridian world copies (unwrapped x).
 pub struct TileViewScope {
     projector: Projector,
     plot_width: f64,
     plot_height: f64,
+    identity_view: Option<crate::view::GeoView>,
 }
 
 impl TileViewScope {
@@ -628,6 +665,7 @@ impl TileViewScope {
             projector: measurement.view_projector(),
             plot_width: f64::from(measurement.view.plot_width),
             plot_height: f64::from(measurement.view.plot_height),
+            identity_view: is_identity_fast_path(measurement).then_some(measurement.view),
         }
     }
 

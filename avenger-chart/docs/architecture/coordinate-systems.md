@@ -87,12 +87,16 @@ Default range bindings map `theta` to a fixed `0..2pi` interval and `r` to
 half the minimum plot-area dimension. Polar positioned subplots use `r` and
 `theta`.
 
-`avenger-chart-webmercator` owns `WebMercator`, `WebMercatorGuide`, projected
-and longitude/latitude position helpers for map symbols, coordinate-owned
-raster tile layers, and WebMercator pan/zoom tools. It is implemented as an
-external coordinate crate rather than as facade-specific code. See
-[`webmercator.md`](../webmercator.md) for authoring, tile, export, and
-interaction details.
+`avenger-chart-geo` owns `Geo` (general map projections: Equal Earth,
+Albers and other conics, Mercator, and more), `GeoGuide` (sphere,
+graticule, and warped raster tile layers), projected and
+longitude/latitude position helpers, `GeoShape` for GeoJSON/WKB polygon
+geometry, geo pan/zoom tools, and an opt-in adaptive Web Mercator blend.
+It is implemented as an external coordinate crate rather than as
+facade-specific code, on top of the `avenger-geo` projection engine.
+`Geo::mercator()` replaced the retired `avenger-chart-webmercator`
+coordinate system at pixel parity. See [`geo.md`](../geo.md) for
+authoring, tile, export, and interaction details.
 
 `avenger-chart-parallel` owns `Parallel`, `ParallelAxis`, `ParallelGuide`,
 `ParallelLine`, `ParallelSymbol`, `ParallelAxisOverlay`, and parallel frame

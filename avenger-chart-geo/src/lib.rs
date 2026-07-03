@@ -3,8 +3,10 @@
 //! General geographic map projections for avenger charts: the [`Geo`]
 //! coordinate system (Equal Earth, Natural Earth, Winkel Tripel, Albers and
 //! other conics, mercator, equirectangular), graticule/sphere guides,
-//! fit-to-data view realization, and (in later phases) geo marks, pan/zoom
-//! tools, and warped raster tiles.
+//! fit-to-data view realization, geo marks (symbols, great-circle lines,
+//! GeoJSON/WKB shapes), pan/zoom tools with an adaptive Web Mercator
+//! blend, and warped raster tile layers. `Geo::mercator()` replaced the
+//! retired `avenger-chart-webmercator` coordinate system at pixel parity.
 //!
 //! Design reference: `avenger-chart/docs/future-work/geo-coordinate-system.md`;
 //! implementation plan: `scratch/geo/`.
@@ -26,7 +28,7 @@ pub use data::{geojson_to_record_batch, register_geojson};
 pub use guide::GeoGuide;
 pub use marks::{
     CompiledGeoLine, CompiledGeoRect, CompiledGeoShape, CompiledGeoSymbol, GeoGeometrySpace,
-    GeoPositionChannels, GeoShape,
+    GeoPositionChannels, GeoPositionConfig, GeoShape, IntoGeoExpr,
 };
 pub use tiles::{RasterTileLayer, TileLoadingPolicy};
 pub use tools::GeoPanZoom;

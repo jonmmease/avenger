@@ -40,7 +40,6 @@ winit = { workspace = true, optional = true }
 [dev-dependencies]
 avenger-chart-geo = { path = "../avenger-chart-geo" }
 palette = { workspace = true }
-avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -98,7 +97,7 @@ name = "cartesian_store_sharing_selection"
 required-features = ["winit-wgpu"]
 
 [[example]]
-name = "webmercator_tiles"
+name = "geo_mercator_tiles"
 required-features = ["winit-wgpu"]
 
 [[example]]

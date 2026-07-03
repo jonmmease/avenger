@@ -31,7 +31,6 @@ members = [
     "avenger-chart-cartesian",
     "avenger-chart-polar",
     "avenger-chart-parallel",
-    "avenger-chart-webmercator",
     "avenger-chart-geo",
     "avenger-chart-treemap",
     "avenger-chart",

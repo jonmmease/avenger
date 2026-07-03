@@ -27,6 +27,7 @@ still useful.
 | Document | Current state |
 | --- | --- |
 | [mark-effects.md](mark-effects.md) | Implemented v1 surface plus remaining follow-ups for richer mark effects, derived outputs, and compound-mark encapsulation. |
+| [geo-coordinate-system.md](geo-coordinate-system.md) | Implemented: the `avenger-geo` projection engine (d3-geo parity) and the `avenger-chart-geo` coordinate system — graticule/sphere guides, WKB-backed GeoJSON marks, great-circle lines, pan/zoom with the adaptive Web Mercator blend, warped raster tile layers, and the retirement of `avenger-chart-webmercator` at ≥0.9999 pixel parity. |
 | [polar-geometry-space.md](polar-geometry-space.md) | Implemented v1 pieces exist; remaining work is mostly coordinate-vs-display geometry polish for Polar line and text marks. |
 | [polar-line-implementation-plan.md](polar-line-implementation-plan.md) | Phase checklist for `Line<Polar>` and the `geometry_space` option; several implementation phases have landed and remaining phases are tracked in the note. |
 | [transform-system.md](transform-system.md) | Core transform system and several transforms exist; remaining work covers additional built-ins, time/bin refinements, pushdown, caching, and user docs. |
@@ -55,7 +56,6 @@ chart stack.
 | [pattern-fill-requirements.md](pattern-fill-requirements.md) | Draft requirements for pattern fill overlays, including scenegraph/chart integration, CSS theme parsing, legend behavior, and renderer-facing constraints. |
 | [number-formatting.md](number-formatting.md) | Master formatting plan; creates `avenger-format-number`, owns built-in locales and locale registration, defines the layered d3-style string plus override/context API, and adds CLDR-backed `S`, `L`, and `C[ISO]` types. |
 | [datetime-formatting.md](datetime-formatting.md) | Master datetime formatting plan; creates `avenger-format-datetime`, uses LDML patterns plus `{datetime:medium}`-style CLDR presets, adds custom serde locales, `#datefmt`, and temporal axis tick-label fragments. |
-| [geo-coordinate-system.md](geo-coordinate-system.md) | Ready for staged implementation planning; creates a d3-geo-style `avenger-geo` projection engine and an `avenger-chart-geo` coordinate system scoped to blendable (cylindrical/pseudocylindrical/conic) projections, with graticule/fit guides, `GeometrySpace`-aware geo lines, WKB-backed GeoJSON marks, Mapbox-style pan/zoom that adaptively blends toward Web Mercator, warped raster tile layers, and eventual replacement of `avenger-chart-webmercator`. |
 
 ## Readiness Scale
 

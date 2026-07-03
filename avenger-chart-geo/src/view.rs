@@ -278,6 +278,13 @@ impl GeoCoordMeasurement {
         )
     }
 
+    /// Invert a plot-relative pixel position to `(lon, lat)` degrees —
+    /// the tooltip/interaction inversion. Blend-aware: under an active
+    /// blend this uses the blended projector's Newton inversion.
+    pub fn invert_pixel(&self, x: f32, y: f32) -> Option<(f64, f64)> {
+        self.view_projector().invert(f64::from(x), f64::from(y))
+    }
+
     fn blended_view_projector(&self, t: f64) -> Option<avenger_geo::projector::Projector> {
         use avenger_geo::blend::{BlendRaw, CorrectedBlendRaw, anchoring_similarity};
         use avenger_geo::math::{DEGREES, RADIANS};
@@ -570,6 +577,58 @@ mod tests {
         assert_close(view.units_per_pixel, 0.5);
         assert_close(view.x_domain.0, -50.0);
         assert_close(view.x_domain.1, 50.0);
+    }
+
+    #[test]
+    fn negative_or_degenerate_dimensions_fall_back_to_sane_view() {
+        // Ported from webmercator viewport.rs edge cases: negative plot
+        // dimensions clamp to 1px, degenerate/NaN resolutions fall back.
+        let world = test_world();
+        let view = GeoView::new(0.0, 0.0, 1.0, -10.0, f32::NAN, world);
+        assert_eq!(view.plot_width, 1.0);
+        assert_eq!(view.plot_height, 1.0);
+
+        let degenerate = GeoView::new(0.0, 0.0, 0.0, 100.0, 100.0, world);
+        assert!(degenerate.units_per_pixel > 0.0);
+        let nan = GeoView::new(0.0, 0.0, f64::NAN, 100.0, 100.0, world);
+        assert!(nan.units_per_pixel.is_finite() && nan.units_per_pixel > 0.0);
+    }
+
+    #[test]
+    fn degenerate_data_extents_fall_back_to_positive_resolution() {
+        // A single point (zero span) must not produce a zero/NaN fit.
+        let x = DomainExtent::numeric(5.0, 5.0);
+        let y = DomainExtent::numeric(-3.0, -3.0);
+        let view = realize_view(
+            ViewAuthoring::default(),
+            Some(&x),
+            Some(&y),
+            200.0,
+            100.0,
+            test_world(),
+        )
+        .expect("view");
+        assert_close(view.center_x, 5.0);
+        assert_close(view.center_y, -3.0);
+        assert!(view.units_per_pixel.is_finite() && view.units_per_pixel > 0.0);
+    }
+
+    #[test]
+    fn non_finite_extents_fall_back_to_world_fit() {
+        let x = DomainExtent::numeric(f64::NEG_INFINITY, f64::INFINITY);
+        let y = DomainExtent::numeric(0.0, 1.0);
+        let view = realize_view(
+            ViewAuthoring::default(),
+            Some(&x),
+            Some(&y),
+            200.0,
+            100.0,
+            test_world(),
+        )
+        .expect("view");
+        // World is 100 wide / 50 tall into 200x100 plot: 0.5 units/px.
+        assert_close(view.units_per_pixel, 0.5);
+        assert_close(view.center_x, 0.0);
     }
 
     #[test]
