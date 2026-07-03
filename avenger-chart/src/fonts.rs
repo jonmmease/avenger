@@ -9,6 +9,7 @@ pub fn default_font_resolution() -> FontResolutionOptions {
 /// Chart themes measure and render text with the bundled default families, so
 /// chart-level renderers must always be able to resolve them even when a
 /// caller supplies its own font resolution options.
+#[cfg(any(feature = "pdf", feature = "svg"))]
 pub(crate) fn with_chart_font_defaults(
     mut font_resolution: FontResolutionOptions,
 ) -> FontResolutionOptions {
