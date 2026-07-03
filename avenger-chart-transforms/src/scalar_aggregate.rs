@@ -28,6 +28,15 @@
 //!   a pure plan-builder and the value is computed wherever consumers
 //!   evaluate; each reference site inlines a clone of the subquery plan.
 //!
+//!   Lazy caveat at the pinned DataFusion version: compiled transform and
+//!   channel expressions are stored in protobuf form, which cannot represent
+//!   scalar subqueries. Referencing a lazy scalar from a later transform
+//!   stage or a channel expression therefore fails with an actionable error;
+//!   lazy scalars are only consumable by contexts that resolve derived
+//!   scalars at evaluation time (scale options and guide configuration).
+//!   Newer DataFusion versions (>= 54) serialize scalar subqueries, at which
+//!   point the stage and channel paths work in lazy mode too.
+//!
 //! Empty input yields `count = 0` and `NULL` for the other measures, in both
 //! modes.
 //!

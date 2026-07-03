@@ -93,6 +93,7 @@ pub mod test_positioned_subplot_scale_sharing;
 pub mod test_rect_legend;
 pub mod test_repeat;
 pub mod test_right_axis;
+pub mod test_scalar_aggregate;
 pub mod test_serialization_path;
 pub mod test_svg_parity_cases;
 pub mod test_symbol;
