@@ -173,6 +173,7 @@ async fn prepare_group_view_data(
         facet_path,
     };
 
+    let current_view_params = view_param_snapshot(group_view.scope, view_eval_ctx);
     if let Some(cached) = view_eval_ctx
         .group_view_data_cache
         .lock()
@@ -180,12 +181,14 @@ async fn prepare_group_view_data(
         .get(&key)
         .cloned()
     {
-        debug_assert_eq!(
-            cached.view_params,
-            view_param_snapshot(group_view.scope, view_eval_ctx),
-            "children of one group view scope must resolve identical view params"
-        );
-        return Ok(cached);
+        // Children within one pass share the cell's scales and resolve
+        // identical view params, so a hit with matching params is a safe
+        // reuse. A mismatch means a different pass of the same evaluation
+        // (e.g. scale inference with base scales vs final render with
+        // resolved scales) — recompute so each pass sees its own view state.
+        if cached.view_params == current_view_params {
+            return Ok(cached);
+        }
     }
 
     let (dataframe, derived_scalars) = apply_view_mark_data_transforms(
@@ -204,7 +207,7 @@ async fn prepare_group_view_data(
     let prepared = Arc::new(GroupViewPrepared {
         dataframe,
         derived_scalars,
-        view_params: view_param_snapshot(group_view.scope, view_eval_ctx),
+        view_params: current_view_params,
     });
     view_eval_ctx
         .group_view_data_cache
@@ -1680,6 +1683,16 @@ fn resolved_view_params(
                 .numeric_interval_range()
                 .map_err(AvengerChartError::ScaleError)?;
 
+            tracing::debug!(
+                view = spec.id(),
+                x_domain_start,
+                x_domain_end,
+                y_domain_start,
+                y_domain_end,
+                plot_width,
+                plot_height,
+                "resolved view params"
+            );
             let view_ref = spec.view_ref();
             let mut params = IndexMap::new();
             params.insert(

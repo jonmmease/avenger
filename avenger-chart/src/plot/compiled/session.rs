@@ -5331,6 +5331,209 @@ mod tests {
         })
     }
 
+    /// Group-view analog of the adaptive taxi example: shared in-view filter
+    /// + eager count, an async rasterized child with an INFERRED fill domain
+    /// gated at a point budget, and a scatter child gated below it.
+    async fn compile_group_view_adaptive_inferred_fill_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0), (3.0, 3.0)) AS t(x, y)",
+            )
+            .await?;
+        Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+            .canvas_size(420.0, 320.0)
+            .mark(
+                MarkGroup::<Cartesian>::new().data(df).view(
+                    View::cartesian()
+                        .id("adaptive")
+                        .x_domain(col("x"))
+                        .y_domain(col("y"))
+                        .preview_cached(true),
+                    |group, v| {
+                        let in_view = col("x")
+                            .gt_eq(v.x().domain_start())
+                            .and(col("x").lt_eq(v.x().domain_end()))
+                            .and(col("y").gt_eq(v.y().domain_start()))
+                            .and(col("y").lt_eq(v.y().domain_end()));
+                        group
+                            .transform(Filter::new(in_view), |group, _| group)
+                            .transform(ScalarAggregate::new().count("n"), |group, stats| {
+                                group
+                                    .mark(
+                                        UniformRaster2D::new()
+                                            .transform(
+                                                Rasterize2D::new(col("x"), col("y"))
+                                                    .x(|x| {
+                                                        x.extent(
+                                                            v.x().domain_start(),
+                                                            v.x().domain_end(),
+                                                        )
+                                                        .bins(v.x().pixels())
+                                                    })
+                                                    .y(|y| {
+                                                        y.extent(
+                                                            v.y().domain_start(),
+                                                            v.y().domain_end(),
+                                                        )
+                                                        .bins(v.y().pixels())
+                                                    })
+                                                    .agg("count"),
+                                                |mark, hist| {
+                                                    mark.transform(
+                                                        Filter::new(
+                                                            stats.scalar("n").gt_eq(lit(3_i64)),
+                                                        ),
+                                                        |mark, _| mark,
+                                                    )
+                                                    .raster_with(hist.raster(), |raster| {
+                                                        raster
+                                                            .x_with(hist.x_dim(), |x| {
+                                                                x.scale_with::<Linear>(|scale| {
+                                                                    scale.nice(false).zero(false)
+                                                                })
+                                                                .axis(|axis| axis.visible(false))
+                                                            })
+                                                            .y_with(hist.y_dim(), |y| {
+                                                                y.scale_with::<Linear>(|scale| {
+                                                                    scale.nice(false).zero(false)
+                                                                })
+                                                                .axis(|axis| axis.visible(false))
+                                                            })
+                                                            .fill(|fill| {
+                                                                fill.scale_with::<Sqrt>(|scale| {
+                                                                    scale.nice(false).zero(false)
+                                                                })
+                                                                .legend(|legend| {
+                                                                    legend.title("Count")
+                                                                })
+                                                            })
+                                                    })
+                                                },
+                                            )
+                                            .smooth(false),
+                                    )
+                                    .mark(
+                                        Symbol::new()
+                                            .transform(
+                                                Filter::new(stats.scalar("n").lt(lit(3_i64))),
+                                                |mark, _| mark,
+                                            )
+                                            .x(col("x"))
+                                            .y(col("y"))
+                                            .size(20.0),
+                                    )
+                            })
+                    },
+                ),
+            )
+            .tool(PanScrollZoom::cartesian().settle_exact(true))
+            .compile(ctx)
+            .await
+    }
+
+    /// The adaptive taxi example crashed once its async raster became ready:
+    /// the render pass reused the scale-inference pass's memoized group view
+    /// chain (different resolved view params) and the inferred fill scale
+    /// never materialized. Settling to the ready raster must succeed and
+    /// render it.
+    #[tokio::test]
+    async fn group_view_adaptive_inferred_fill_settles_to_ready_raster()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_group_view_adaptive_inferred_fill_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx);
+
+        let metrics = evaluate_exact_until_settled(&mut session, None).await?;
+        assert!(
+            metrics.pipeline.materialization_ready_used > 0,
+            "settled evaluation should consume the ready raster"
+        );
+
+        let (settled, _) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(
+            count_image_marks(&settled.scene_graph) > 0,
+            "the gated raster child should render once its materialization is ready"
+        );
+
+        Ok(())
+    }
+
+    /// Mark-level control for the group-view preview-after-ready sequence.
+    ///
+    /// KNOWN FAILURE (pre-existing async-raster bug, not group-view
+    /// specific): a preview evaluation right after the raster becomes ready
+    /// reuses the cached layout profile's scale set, which was captured
+    /// while the raster was pending — with an inferred fill domain the fill
+    /// scale was never built, and rendering the now-ready raster fails with
+    /// "Scale 'fill' not found". Explicit fill domains avoid it.
+    #[ignore = "pre-existing: preview-after-ready loses inferred fill scales (use explicit fill domains)"]
+    #[tokio::test]
+    async fn mark_view_inferred_fill_preview_after_ready() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            compile_pan_scroll_zoom_rasterized_view_scope_plot_without_fill_domain(&ctx).await?,
+        );
+        let mut session = compiled.clone().instantiate(ctx);
+
+        let (_warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(warmup_metrics.pipeline.materialization_queued > 0);
+        wait_for_session_materializations(&session).await;
+
+        let (preview_plot, preview_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+        assert_eq!(preview_metrics.mode, EvaluationMode::Preview);
+        assert!(
+            count_image_marks(&preview_plot.scene_graph) > 0,
+            "the ready raster should render through the preview path"
+        );
+
+        Ok(())
+    }
+
+    /// The app's invalidation-driven re-evaluations run in Preview mode
+    /// against the cached layout profile from the pending-raster evaluation.
+    /// Rendering the newly ready raster through that profile must not lose
+    /// the inferred fill scale (this was the adaptive taxi example's crash
+    /// sequence before it switched to an explicit fill domain).
+    ///
+    /// KNOWN FAILURE: same pre-existing async-raster bug as the mark-level
+    /// control above; kept as the group-view repro.
+    #[ignore = "pre-existing: preview-after-ready loses inferred fill scales (use explicit fill domains)"]
+    #[tokio::test]
+    async fn group_view_adaptive_inferred_fill_preview_after_ready()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_group_view_adaptive_inferred_fill_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx);
+
+        // Warm exact evaluation queues the raster materialization.
+        let (_warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(warmup_metrics.pipeline.materialization_queued > 0);
+        wait_for_session_materializations(&session).await;
+
+        // Preview evaluation with no param change: this mirrors the app's
+        // completion-invalidation redraw, reusing the cached layout profile.
+        let (preview_plot, preview_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+        assert_eq!(preview_metrics.mode, EvaluationMode::Preview);
+        assert!(
+            count_image_marks(&preview_plot.scene_graph) > 0,
+            "the ready raster should render through the preview path"
+        );
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn rasterize_view_fill_domain_reinfers_when_ready_raster_changes()
     -> Result<(), AvengerChartError> {

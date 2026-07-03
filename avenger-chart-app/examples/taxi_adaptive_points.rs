@@ -54,7 +54,7 @@ use datafusion::{
 use winit::window::WindowAttributes;
 
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 11_000_000;
+const TAXI_MAX_ROWS: usize = 100_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
@@ -193,8 +193,16 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
                                 .axis(|axis| axis.title("Pickup y").tick_count(4).format(".4~s"))
                         })
                         .fill(|fill| {
-                            fill.scale_with::<Sqrt>(|scale| scale.nice(false).zero(false))
-                                .legend(|legend| legend.title("Trips"))
+                            // Explicit fill domain: inferred (visible-domain)
+                            // fill scales currently break the preview path
+                            // when an async raster first becomes ready (see
+                            // the ignored *_inferred_fill_preview_after_ready
+                            // session tests), and an explicit domain also
+                            // keeps the colorbar stable during pan/zoom.
+                            fill.scale_with::<Sqrt>(|scale| {
+                                scale.domain((0.0, 120.0)).nice(false).zero(false)
+                            })
+                            .legend(|legend| legend.title("Trips"))
                         })
                     })
             },
