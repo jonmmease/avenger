@@ -336,6 +336,7 @@ fn set_scene_mark_name(mark: &mut SceneMark, name: &str) {
         SceneMark::Rule(mark) => mark.name = name.to_string(),
         SceneMark::Text(mark) => Arc::make_mut(mark).name = name.to_string(),
         SceneMark::Image(mark) => Arc::make_mut(mark).name = name.to_string(),
+        SceneMark::WarpedImage(mark) => Arc::make_mut(mark).name = name.to_string(),
         SceneMark::Group(mark) => mark.name = name.to_string(),
     }
 }
@@ -558,7 +559,8 @@ fn apply_opacity_to_scene_mark(mark: &mut SceneMark, opacity: f32) {
         | SceneMark::Path(_)
         | SceneMark::Trail(_)
         | SceneMark::Text(_)
-        | SceneMark::Image(_) => {}
+        | SceneMark::Image(_)
+        | SceneMark::WarpedImage(_) => {}
     }
 }
 

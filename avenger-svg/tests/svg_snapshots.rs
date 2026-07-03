@@ -465,6 +465,38 @@ fn image_smoothing_snapshot_marks_only_unsmoothed_images_pixelated() {
     assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
 }
 
+#[test]
+fn renders_warped_image_mark_as_embedded_raster() {
+    use avenger_scenegraph::marks::warped_image::SceneWarpedImageMark;
+
+    let scene_graph = SceneGraph {
+        width: 30.0,
+        height: 24.0,
+        origin: [0.0, 0.0],
+        marks: vec![SceneWarpedImageMark {
+            smooth: false,
+            image: SceneImageSource::Inline(RgbaImage {
+                width: 2,
+                height: 2,
+                data: vec![
+                    255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                ],
+            }),
+            positions: vec![[2.0, 2.0], [22.0, 4.0], [24.0, 20.0], [4.0, 18.0]],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            ..Default::default()
+        }
+        .into()],
+    };
+
+    let svg = render_transparent(scene_graph);
+
+    assert_eq!(svg.matches("<image ").count(), 1);
+    assert!(svg.contains("data:image/png;base64,"));
+    assert!(usvg::Tree::from_str(&svg, &usvg::Options::default()).is_ok());
+}
+
 fn render_transparent(scene_graph: SceneGraph) -> String {
     SvgRenderer::new()
         .with_options(SvgRenderOptions {

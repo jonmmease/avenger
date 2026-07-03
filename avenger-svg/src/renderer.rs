@@ -210,6 +210,9 @@ impl SvgRenderer {
             SceneMark::Trail(mark) => self.write_trail_mark(document, mark, origin, clip_id),
             SceneMark::Text(mark) => self.write_text_mark(document, mark, origin, clip_id),
             SceneMark::Image(mark) => self.write_image_mark(document, mark, origin, clip_id),
+            SceneMark::WarpedImage(mark) => {
+                self.write_warped_image_mark(document, mark, origin, clip_id)
+            }
             SceneMark::Group(_) => Ok(()),
         }
     }
@@ -927,6 +930,48 @@ impl SvgRenderer {
             document.body.push_str("/>\n");
         }
 
+        Ok(())
+    }
+
+    fn write_warped_image_mark(
+        &self,
+        document: &mut SvgDocument,
+        mark: &avenger_scenegraph::marks::warped_image::SceneWarpedImageMark,
+        origin: [f32; 2],
+        clip_id: Option<&str>,
+    ) -> Result<(), AvengerSvgError> {
+        if mark.image.inline_image().is_none() {
+            return Err(AvengerSvgError::UnsupportedFeature(
+                "resource-backed warped image marks require resolution before SVG rendering"
+                    .to_string(),
+            ));
+        }
+        // SVG has no textured-mesh primitive; rasterize the mesh at 2x
+        // supersampling and embed the result at its bounding box.
+        let Some((raster, [min_x, min_y, max_x, max_y])) = mark.rasterize(origin, 2.0) else {
+            return Ok(());
+        };
+        let width = max_x - min_x;
+        let height = max_y - min_y;
+        if width <= 0.0 || height <= 0.0 {
+            return Ok(());
+        }
+        let data_uri = rgba_image_to_png_data_uri(&raster)?;
+        document.body.push_str(r##"<image x=""##);
+        push_number(&mut document.body, min_x, self.options.precision)?;
+        document.body.push_str(r##"" y=""##);
+        push_number(&mut document.body, min_y, self.options.precision)?;
+        document.body.push_str(r##"" width=""##);
+        push_number(&mut document.body, width, self.options.precision)?;
+        document.body.push_str(r##"" height=""##);
+        push_number(&mut document.body, height, self.options.precision)?;
+        document
+            .body
+            .push_str(r##"" preserveAspectRatio="none" href=""##);
+        document.body.push_str(&data_uri);
+        document.body.push('"');
+        push_clip_attr(&mut document.body, clip_id);
+        document.body.push_str("/>\n");
         Ok(())
     }
 

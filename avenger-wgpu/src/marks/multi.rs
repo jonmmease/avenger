@@ -22,6 +22,7 @@ use avenger_scenegraph::marks::{
     symbol::SceneSymbolMark,
     text_leader::{TextLeaderArrowhead, TextLeaderGeometry, TextLeaderPath},
     trail::SceneTrailMark,
+    warped_image::SceneWarpedImageMark,
 };
 use avenger_scenegraph::pattern_geometry::{
     build_layered_pattern_geometry, PatternGeometryError, PatternRect, PatternRenderContext,
@@ -1927,6 +1928,62 @@ impl MultiMarkRenderer {
         }
 
         self.batches.push(next_batch);
+        Ok(())
+    }
+
+    pub fn add_warped_image_mark(
+        &mut self,
+        mark: &SceneWarpedImageMark,
+        origin: [f32; 2],
+        clip: &Clip,
+    ) -> Result<(), AvengerWgpuError> {
+        if !mark.is_valid() {
+            return Ok(());
+        }
+        let (atlas_index, tex_coords) = self
+            .image_atlas_builder
+            .register_source(mark.image.clone(), mark.unavailable_policy)?;
+
+        // The whole mesh shares one bounding box; per-vertex texture
+        // coordinates carry the warp, so top_left/bottom_right are unused
+        // by the image branch of the shader.
+        let Some([min_x, min_y, max_x, max_y]) = mark.bounds(origin) else {
+            return Ok(());
+        };
+        let top_left = [min_y, min_x];
+        let bottom_right = [max_y, max_x];
+        let atlas_width = tex_coords.x1 - tex_coords.x0;
+        let atlas_height = tex_coords.y1 - tex_coords.y0;
+        let verts = mark
+            .positions
+            .iter()
+            .zip(mark.uvs.iter())
+            .map(|(position, uv)| MultiVertex {
+                color: [
+                    IMAGE_TEXTURE_CODE,
+                    tex_coords.x0 + uv[0].clamp(0.0, 1.0) * atlas_width,
+                    tex_coords.y0 + uv[1].clamp(0.0, 1.0) * atlas_height,
+                    0.0,
+                ],
+                position: [position[0] + origin[0], position[1] + origin[1]],
+                top_left,
+                bottom_right,
+            })
+            .collect::<Vec<_>>();
+
+        let start_ind = self.num_indices() as u32;
+        let batch = MultiMarkBatch {
+            indices_range: start_ind..(start_ind + mark.indices.len() as u32),
+            clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+            pattern_overlay: None,
+            image_atlas_index: Some(atlas_index),
+            image_smooth: mark.smooth,
+            gradient_atlas_index: None,
+            text_atlas_index: None,
+        };
+        self.verts_inds.push((verts, mark.indices.clone()));
+        self.batches.push(batch);
         Ok(())
     }
 

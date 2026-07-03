@@ -168,6 +168,9 @@ fn cartesian_scene_mark_coverage_is_explicit() {
             SceneMarkType::Rule => "Rule<Cartesian>",
             SceneMarkType::Text => "Text<Cartesian>",
             SceneMarkType::Image => "Image<Cartesian>",
+            SceneMarkType::WarpedImage => {
+                "explicitly deferred to coordinate-system guides (geo raster tiles)"
+            }
             SceneMarkType::Group => "explicitly covered by layout/composition",
         }
     }

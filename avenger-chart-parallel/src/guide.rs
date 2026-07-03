@@ -560,6 +560,7 @@ fn scene_mark_name(mark: &SceneMark) -> Option<&str> {
         SceneMark::Rule(mark) => Some(mark.name.as_str()),
         SceneMark::Text(mark) => Some(mark.name.as_str()),
         SceneMark::Image(mark) => Some(mark.name.as_str()),
+        SceneMark::WarpedImage(mark) => Some(mark.name.as_str()),
         SceneMark::Group(mark) => Some(mark.name.as_str()),
     }
 }

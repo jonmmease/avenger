@@ -537,6 +537,17 @@ pub trait Canvas {
         Ok(())
     }
 
+    fn add_warped_image_mark(
+        &mut self,
+        mark: &avenger_scenegraph::marks::warped_image::SceneWarpedImageMark,
+        origin: [f32; 2],
+        group_clip: &Clip,
+    ) -> Result<(), AvengerWgpuError> {
+        self.get_multi_renderer()
+            .add_warped_image_mark(mark, origin, group_clip)?;
+        Ok(())
+    }
+
     fn add_group_mark(
         &mut self,
         group: &SceneGroup,
@@ -648,6 +659,9 @@ pub trait Canvas {
                 }
                 SceneMark::Image(mark) => {
                     self.add_image_mark(mark, origin, &clip)?;
+                }
+                SceneMark::WarpedImage(mark) => {
+                    self.add_warped_image_mark(mark, origin, &clip)?;
                 }
                 SceneMark::Group(group) => {
                     self.add_group_mark(
@@ -767,6 +781,10 @@ pub trait Canvas {
                     SceneMark::Image(mark) => {
                         item_kind = "image";
                         self.add_image_mark(mark, item.origin, &item.clip)?;
+                    }
+                    SceneMark::WarpedImage(mark) => {
+                        item_kind = "image";
+                        self.add_warped_image_mark(mark, item.origin, &item.clip)?;
                     }
                     SceneMark::Group(_) => {}
                 },

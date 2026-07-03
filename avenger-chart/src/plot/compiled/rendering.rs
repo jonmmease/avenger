@@ -283,6 +283,7 @@ fn set_scene_mark_name(mark: &mut SceneMark, name: &str) {
         SceneMark::Rule(mark) => mark.name = name.to_string(),
         SceneMark::Text(mark) => Arc::make_mut(mark).name = name.to_string(),
         SceneMark::Image(mark) => Arc::make_mut(mark).name = name.to_string(),
+        SceneMark::WarpedImage(mark) => Arc::make_mut(mark).name = name.to_string(),
         SceneMark::Group(mark) => mark.name = name.to_string(),
     }
 }
@@ -946,6 +947,18 @@ fn scale_scene_mark_for_plot_area(
             mark.inner_radius = scale_f32_values(&mark.inner_radius, radius_scale);
             mark.corner_radius = scale_f32_values(&mark.corner_radius, radius_scale);
             Some(SceneMark::Arc(mark))
+        }
+        SceneMark::WarpedImage(mark) => {
+            let mut mark = (**mark).clone();
+            for position in &mut mark.positions {
+                position[0] = x_adjustment
+                    .map(|adjustment| adjustment.scale * position[0] + adjustment.offset)
+                    .unwrap_or(position[0] * scale_x);
+                position[1] = y_adjustment
+                    .map(|adjustment| adjustment.scale * position[1] + adjustment.offset)
+                    .unwrap_or(position[1] * scale_y);
+            }
+            Some(SceneMark::WarpedImage(Arc::new(mark)))
         }
         SceneMark::Path(_) => None,
     }

@@ -14,6 +14,7 @@ pub mod data;
 pub mod expr;
 pub mod guide;
 pub mod marks;
+pub mod tiles;
 pub mod tools;
 pub mod udf;
 pub mod view;
@@ -27,6 +28,7 @@ pub use marks::{
     CompiledGeoLine, CompiledGeoRect, CompiledGeoShape, CompiledGeoSymbol, GeoGeometrySpace,
     GeoPositionChannels, GeoShape,
 };
+pub use tiles::{RasterTileLayer, TileLoadingPolicy};
 pub use tools::GeoPanZoom;
 pub use udf::{GeoProjectUdf, geo_project_udf_name, register_geo_project_udf};
 pub use view::{GeoCoordMeasurement, GeoView, GeoViewport};

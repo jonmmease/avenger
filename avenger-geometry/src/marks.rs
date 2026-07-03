@@ -137,6 +137,33 @@ impl MarkGeometryUtils for SceneImageMark {
     }
 }
 
+impl MarkGeometryUtils for avenger_scenegraph::marks::warped_image::SceneWarpedImageMark {
+    fn geometry_iter(
+        &self,
+        mark_path: Vec<usize>,
+        origin: [f32; 2],
+    ) -> Box<dyn Iterator<Item = GeometryInstance> + '_> {
+        let Some([min_x, min_y, max_x, max_y]) = self.bounds(origin) else {
+            return Box::new(std::iter::empty());
+        };
+        let instance = GeometryInstance {
+            mark_instance: MarkInstance {
+                name: self.name.clone(),
+                mark_path,
+                instance_index: Some(0),
+            },
+            interactive: self.interactive,
+            z_index: 0,
+            geometry: Geometry::<f32>::Rect(Rect::new(
+                coord!(x: min_x, y: min_y),
+                coord!(x: max_x, y: max_y),
+            )),
+            half_stroke_width: 0.0,
+        };
+        Box::new(std::iter::once(instance))
+    }
+}
+
 impl MarkGeometryUtils for SceneLineMark {
     fn geometry_iter(
         &self,
@@ -690,6 +717,7 @@ impl MarkGeometryUtils for SceneMark {
             SceneMark::Rule(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Text(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Image(mark) => mark.geometry_iter(mark_path, origin),
+            SceneMark::WarpedImage(mark) => mark.geometry_iter(mark_path, origin),
             SceneMark::Group(mark) => mark.geometry_iter(mark_path, origin),
         }
     }

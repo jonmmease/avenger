@@ -1,0 +1,1260 @@
+//! Warped raster tile layers for the `Geo` coordinate system.
+//!
+//! Web-Mercator-gridded XYZ tiles are selected by projecting tile
+//! boundaries through the view projector (a quadtree descent from z=0)
+//! and drawn as textured meshes warped through the (possibly blended)
+//! projection. When the authored projection *is* unrotated Mercator and
+//! the blend is inactive, the warp is an axis-aligned similarity and the
+//! layer falls back to plain image marks (`tile_pixel_rect`), matching
+//! the WebMercator coordinate system pixel-for-pixel.
+//!
+//! Layer configuration (`RasterTileLayer`, `TileLoadingPolicy`) is ported
+//! from `avenger-chart-webmercator/src/tiles.rs`; discovery differs: the
+//! webmercator layer intersects the view's mercator-unit domain with the
+//! grid directly, while here visibility is decided in *pixel* space via
+//! the forward projection, which needs no inverse projection and handles
+//! antimeridian wrap and per-region LOD uniformly.
+
+use std::collections::HashSet;
+use std::f64::consts::PI;
+
+use avenger_chart_core::AvengerChartError;
+use avenger_geo::projector::Projector;
+use avenger_resource::{
+    ResourceCachePolicy, ResourceKey, ResourceKind, ResourceRequest, ResourceRequestPurpose,
+    ResourceSource,
+};
+use serde::{Deserialize, Serialize};
+
+use crate::view::GeoCoordMeasurement;
+
+const DEFAULT_LAYER_ID: &str = "tiles";
+const DEFAULT_TILE_SIZE: u32 = 256;
+const DEFAULT_MAX_ZOOM: u8 = 19;
+const MAX_SUPPORTED_ZOOM: u8 = 30;
+const DEFAULT_MAX_RENDERED_TILES: usize = 128;
+const DEFAULT_SMOOTH_ZOOM_FALLBACK_BELOW: u8 = 1;
+const DEFAULT_SMOOTH_ZOOM_FALLBACK_ABOVE: u8 = 1;
+const DEFAULT_SMOOTH_ZOOM_PREFETCH_BELOW: u8 = 1;
+const DEFAULT_SMOOTH_ZOOM_PREFETCH_ABOVE: u8 = 1;
+const DEFAULT_SMOOTH_ZOOM_PAN_PREFETCH_MARGIN_TILES: u8 = 1;
+const DEFAULT_SMOOTH_ZOOM_MAX_PREFETCH_TILES: usize = 128;
+/// Mesh subdivision stops at 2^5 cells per tile edge (plan §6.2 depth 5).
+const MAX_MESH_CELLS: u32 = 32;
+
+// ---------------------------------------------------------------------------
+// Tile grid
+// ---------------------------------------------------------------------------
+
+/// A tile-address scheme mapping `(z, x, y)` to spherical regions.
+pub trait TileGrid {
+    /// `[[west, south], [east, north]]` in degrees.
+    fn tile_bounds_lonlat(&self, z: u8, x: i64, y: i64) -> [[f64; 2]; 2];
+
+    /// Tiles at zoom `z` intersecting the lon/lat region
+    /// `[[west, south], [east, north]]`; `west > east` spans the
+    /// antimeridian. Returns `(wrapped_x, y, unwrapped_x)`.
+    fn tiles_for_lonlat_region(&self, region: [[f64; 2]; 2], z: u8) -> Vec<(i64, i64, i64)>;
+}
+
+/// The standard Web-Mercator XYZ grid (slippy-map addressing).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MercatorTileGrid;
+
+impl MercatorTileGrid {
+    fn tile_count(z: u8) -> i64 {
+        1_i64 << z
+    }
+
+    /// Latitude of the northern edge of tile row `y` at zoom `z`.
+    pub fn tile_lat(z: u8, y: i64) -> f64 {
+        let n = Self::tile_count(z) as f64;
+        let merc_y = PI * (1.0 - 2.0 * (y as f64) / n);
+        merc_y.sinh().atan().to_degrees()
+    }
+
+    /// Raw mercator y (`ln tan(π/4 + φ/2)`) of the northern edge of row `y`.
+    pub fn tile_mercator_y(z: u8, y: i64) -> f64 {
+        let n = Self::tile_count(z) as f64;
+        PI * (1.0 - 2.0 * (y as f64) / n)
+    }
+}
+
+impl TileGrid for MercatorTileGrid {
+    fn tile_bounds_lonlat(&self, z: u8, x: i64, y: i64) -> [[f64; 2]; 2] {
+        let n = Self::tile_count(z) as f64;
+        let west = -180.0 + 360.0 * (x as f64) / n;
+        let east = -180.0 + 360.0 * ((x + 1) as f64) / n;
+        let north = Self::tile_lat(z, y);
+        let south = Self::tile_lat(z, y + 1);
+        [[west, south], [east, north]]
+    }
+
+    fn tiles_for_lonlat_region(&self, region: [[f64; 2]; 2], z: u8) -> Vec<(i64, i64, i64)> {
+        let [[west, south], [east, north]] = region;
+        let n = Self::tile_count(z);
+        let nf = n as f64;
+        // Longitudes → continuous (unwrapped) tile columns.
+        let x_of = |lon: f64| (lon + 180.0) / 360.0 * nf;
+        let (x0, x1) = if west <= east {
+            (x_of(west), x_of(east))
+        } else {
+            // Antimeridian span: continue east past +180.
+            (x_of(west), x_of(east) + nf)
+        };
+        // Latitudes → tile rows (row 0 at the north pole).
+        let y_of = |lat: f64| {
+            let lat = lat.clamp(-85.06, 85.06).to_radians();
+            let merc = (PI / 4.0 + lat / 2.0).tan().ln();
+            (1.0 - merc / PI) / 2.0 * nf
+        };
+        let (y0, y1) = (y_of(north), y_of(south));
+        let x_start = x0.floor() as i64;
+        let x_end = ((x1 - 1e-12).ceil() as i64 - 1).max(x_start);
+        let y_start = (y0.floor() as i64).max(0);
+        let y_end = (((y1 - 1e-12).ceil() as i64 - 1).min(n - 1)).max(y_start);
+        let mut tiles = Vec::new();
+        for y in y_start..=y_end {
+            for unwrapped_x in x_start..=x_end {
+                tiles.push((unwrapped_x.rem_euclid(n), y, unwrapped_x));
+            }
+        }
+        tiles
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Layer configuration (ported from webmercator)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum TileLoadingPolicy {
+    #[default]
+    Immediate,
+    SmoothZoom {
+        fallback_below: u8,
+        fallback_above: u8,
+        prefetch_below: u8,
+        prefetch_above: u8,
+        #[serde(default = "default_smooth_zoom_pan_prefetch_margin_tiles")]
+        pan_prefetch_margin_tiles: u8,
+        max_rendered_fallback_tiles: usize,
+        max_prefetch_tiles: usize,
+    },
+}
+
+impl TileLoadingPolicy {
+    pub fn smooth_zoom_default() -> Self {
+        Self::SmoothZoom {
+            fallback_below: DEFAULT_SMOOTH_ZOOM_FALLBACK_BELOW,
+            fallback_above: DEFAULT_SMOOTH_ZOOM_FALLBACK_ABOVE,
+            prefetch_below: DEFAULT_SMOOTH_ZOOM_PREFETCH_BELOW,
+            prefetch_above: DEFAULT_SMOOTH_ZOOM_PREFETCH_ABOVE,
+            pan_prefetch_margin_tiles: DEFAULT_SMOOTH_ZOOM_PAN_PREFETCH_MARGIN_TILES,
+            max_rendered_fallback_tiles: DEFAULT_MAX_RENDERED_TILES,
+            max_prefetch_tiles: DEFAULT_SMOOTH_ZOOM_MAX_PREFETCH_TILES,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct RasterTileLayer {
+    #[serde(default = "default_layer_id")]
+    id: String,
+    url_template: String,
+    #[serde(default = "default_tile_size")]
+    tile_size: u32,
+    #[serde(default)]
+    min_zoom: u8,
+    #[serde(default = "default_max_zoom")]
+    max_zoom: u8,
+    #[serde(default)]
+    attribution: Option<String>,
+    #[serde(default)]
+    cache_policy: ResourceCachePolicy,
+    #[serde(default)]
+    subdomains: Vec<String>,
+    #[serde(default = "default_tile_zindex")]
+    zindex: i32,
+    #[serde(default)]
+    loading_policy: TileLoadingPolicy,
+}
+
+impl RasterTileLayer {
+    pub fn xyz(url_template: impl Into<String>) -> Self {
+        Self {
+            id: default_layer_id(),
+            url_template: url_template.into(),
+            tile_size: default_tile_size(),
+            min_zoom: 0,
+            max_zoom: default_max_zoom(),
+            attribution: None,
+            cache_policy: ResourceCachePolicy::default(),
+            subdomains: Vec::new(),
+            zindex: default_tile_zindex(),
+            loading_policy: TileLoadingPolicy::Immediate,
+        }
+    }
+
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = id.into();
+        self
+    }
+
+    pub fn tile_size(mut self, tile_size: u32) -> Self {
+        self.tile_size = tile_size;
+        self
+    }
+
+    pub fn min_zoom(mut self, min_zoom: u8) -> Self {
+        self.min_zoom = min_zoom;
+        self
+    }
+
+    pub fn max_zoom(mut self, max_zoom: u8) -> Self {
+        self.max_zoom = max_zoom;
+        self
+    }
+
+    pub fn attribution(mut self, attribution: impl Into<String>) -> Self {
+        self.attribution = Some(attribution.into());
+        self
+    }
+
+    pub fn cache_policy(mut self, cache_policy: ResourceCachePolicy) -> Self {
+        self.cache_policy = cache_policy;
+        self
+    }
+
+    pub fn subdomains<I, S>(mut self, subdomains: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.subdomains = subdomains.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn zindex(mut self, zindex: i32) -> Self {
+        self.zindex = zindex;
+        self
+    }
+
+    pub fn loading_policy(mut self, loading_policy: TileLoadingPolicy) -> Self {
+        self.loading_policy = loading_policy;
+        self
+    }
+
+    pub fn smooth_zoom(self) -> Self {
+        self.loading_policy(TileLoadingPolicy::smooth_zoom_default())
+    }
+
+    pub fn layer_id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn url_template(&self) -> &str {
+        &self.url_template
+    }
+
+    pub fn tile_size_value(&self) -> u32 {
+        self.tile_size
+    }
+
+    pub fn min_zoom_value(&self) -> u8 {
+        self.min_zoom
+    }
+
+    pub fn max_zoom_value(&self) -> u8 {
+        self.max_zoom
+    }
+
+    pub fn attribution_text(&self) -> Option<&str> {
+        self.attribution.as_deref()
+    }
+
+    pub fn zindex_value(&self) -> i32 {
+        self.zindex
+    }
+
+    pub fn loading_policy_value(&self) -> &TileLoadingPolicy {
+        &self.loading_policy
+    }
+
+    pub fn validate(&self) -> Result<(), AvengerChartError> {
+        if self.id.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(
+                "RasterTileLayer id must not be empty".to_string(),
+            ));
+        }
+        if self.url_template.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "RasterTileLayer '{}' URL template must not be empty",
+                self.id
+            )));
+        }
+        if self.tile_size == 0 {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "RasterTileLayer '{}' tile_size must be positive",
+                self.id
+            )));
+        }
+        if self.min_zoom > self.max_zoom {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "RasterTileLayer '{}' min_zoom ({}) must be <= max_zoom ({})",
+                self.id, self.min_zoom, self.max_zoom
+            )));
+        }
+        if self.max_zoom > MAX_SUPPORTED_ZOOM {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "RasterTileLayer '{}' max_zoom ({}) must be <= {MAX_SUPPORTED_ZOOM}",
+                self.id, self.max_zoom
+            )));
+        }
+        if self.subdomains.iter().any(|subdomain| subdomain.is_empty()) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "RasterTileLayer '{}' subdomains must not contain empty values",
+                self.id
+            )));
+        }
+        Ok(())
+    }
+
+    fn tile_url(&self, z: u8, x: i64, y: i64) -> String {
+        let subdomain = self.subdomain(z, x, y);
+        self.url_template
+            .replace("{z}", &z.to_string())
+            .replace("{x}", &x.to_string())
+            .replace("{y}", &y.to_string())
+            .replace("{s}", subdomain)
+    }
+
+    fn subdomain(&self, z: u8, x: i64, y: i64) -> &str {
+        if self.subdomains.is_empty() {
+            return "";
+        }
+        let index = (i64::from(z) + x + y).rem_euclid(self.subdomains.len() as i64) as usize;
+        &self.subdomains[index]
+    }
+
+    fn resource_key(&self, z: u8, x: i64, y: i64) -> ResourceKey {
+        ResourceKey::new(format!("geo/{}/{z}/{x}/{y}/{}", self.id, self.tile_size))
+    }
+
+    pub fn resource_request(&self, tile: &VisibleGeoTile) -> ResourceRequest {
+        self.resource_request_with_purpose(tile, ResourceRequestPurpose::Required, 0.0)
+    }
+
+    pub fn resource_request_with_purpose(
+        &self,
+        tile: &VisibleGeoTile,
+        purpose: ResourceRequestPurpose,
+        priority: f32,
+    ) -> ResourceRequest {
+        ResourceRequest {
+            key: tile.resource_key.clone(),
+            kind: ResourceKind::new(avenger_image::IMAGE_RESOURCE_KIND),
+            source: resource_source(tile.url.clone()),
+            priority,
+            cache_policy: self.cache_policy.clone(),
+            purpose,
+        }
+    }
+
+    fn visible_tile(&self, z: u8, wrapped_x: i64, y: i64, unwrapped_x: i64) -> VisibleGeoTile {
+        VisibleGeoTile {
+            layer_id: self.id.clone(),
+            z,
+            x: wrapped_x,
+            y,
+            unwrapped_x,
+            resource_key: self.resource_key(z, wrapped_x, y),
+            url: self.tile_url(z, wrapped_x, y),
+            intrinsic_size: self.tile_size,
+        }
+    }
+
+    /// The tiles this layer renders for a view: a quadtree descent from
+    /// z=0 that subdivides every pixel-visible tile until it reaches its
+    /// *local* target zoom (per-region LOD — regions the projection
+    /// compresses on screen stop at coarser zooms).
+    pub fn visible_tiles(
+        &self,
+        scope: &TileViewScope,
+    ) -> Result<Vec<VisibleGeoTile>, AvengerChartError> {
+        self.validate()?;
+        let mut tiles = Vec::new();
+        let n0 = MercatorTileGrid::tile_count(0);
+        for x in 0..n0 {
+            for y in 0..n0 {
+                self.descend(scope, 0, x, y, 0, &mut tiles);
+            }
+        }
+        if tiles.len() > DEFAULT_MAX_RENDERED_TILES {
+            tracing::warn!(
+                layer = %self.id,
+                total = tiles.len(),
+                cap = DEFAULT_MAX_RENDERED_TILES,
+                "tile plan exceeds per-frame cap; truncating"
+            );
+            tiles.truncate(DEFAULT_MAX_RENDERED_TILES);
+        }
+        Ok(tiles)
+    }
+
+    fn descend(
+        &self,
+        scope: &TileViewScope,
+        z: u8,
+        x: i64,
+        y: i64,
+        zoom_offset: i8,
+        out: &mut Vec<VisibleGeoTile>,
+    ) {
+        if !scope.tile_visible(z, x, y) {
+            return;
+        }
+        let target = (scope.local_target_zoom(z, x, y, f64::from(self.tile_size))
+            + i16::from(zoom_offset))
+        .clamp(i16::from(self.min_zoom), i16::from(self.max_zoom)) as u8;
+        if z >= target {
+            let n = MercatorTileGrid::tile_count(z);
+            out.push(self.visible_tile(z, x.rem_euclid(n), y, x));
+            return;
+        }
+        for dy in 0..2 {
+            for dx in 0..2 {
+                self.descend(scope, z + 1, 2 * x + dx, 2 * y + dy, zoom_offset, out);
+            }
+        }
+    }
+
+    fn visible_tiles_with_offset(
+        &self,
+        scope: &TileViewScope,
+        zoom_offset: i8,
+    ) -> Vec<VisibleGeoTile> {
+        let mut tiles = Vec::new();
+        let n0 = MercatorTileGrid::tile_count(0);
+        for x in 0..n0 {
+            for y in 0..n0 {
+                self.descend(scope, 0, x, y, zoom_offset, &mut tiles);
+            }
+        }
+        tiles
+    }
+
+    /// The full per-frame plan: rendered tiles (fallback zooms first so
+    /// target tiles draw on top) plus prefetch requests.
+    pub fn tile_plan(
+        &self,
+        measurement: &GeoCoordMeasurement,
+    ) -> Result<GeoTilePlan, AvengerChartError> {
+        let scope = TileViewScope::new(measurement);
+        let target_tiles = self
+            .visible_tiles(&scope)?
+            .into_iter()
+            .map(|tile| PlannedGeoTile {
+                tile,
+                is_target: true,
+                unavailable_policy: PlannedTileUnavailablePolicy::RendererDefault,
+            })
+            .collect::<Vec<_>>();
+
+        let TileLoadingPolicy::SmoothZoom {
+            fallback_below,
+            fallback_above,
+            prefetch_below,
+            prefetch_above,
+            pan_prefetch_margin_tiles,
+            max_rendered_fallback_tiles,
+            max_prefetch_tiles,
+        } = &self.loading_policy
+        else {
+            return Ok(GeoTilePlan {
+                rendered_tiles: target_tiles,
+                prefetch_requests: Vec::new(),
+            });
+        };
+
+        let fallback_offsets = nearby_zoom_offsets(*fallback_below, *fallback_above);
+        let mut rendered_tiles = Vec::new();
+        let mut rendered_keys = HashSet::new();
+        for offset in &fallback_offsets {
+            for tile in self.visible_tiles_with_offset(&scope, *offset) {
+                if rendered_tiles.len() >= *max_rendered_fallback_tiles {
+                    break;
+                }
+                if target_tiles
+                    .iter()
+                    .any(|target| target.tile.resource_key == tile.resource_key)
+                {
+                    continue;
+                }
+                if rendered_keys.insert(tile.resource_key.clone()) {
+                    rendered_tiles.push(PlannedGeoTile {
+                        tile,
+                        is_target: false,
+                        unavailable_policy: PlannedTileUnavailablePolicy::Skip,
+                    });
+                }
+            }
+        }
+        rendered_tiles.extend(target_tiles.into_iter().map(|mut tile| {
+            tile.unavailable_policy = PlannedTileUnavailablePolicy::Skip;
+            tile
+        }));
+
+        let mut prefetch_requests = Vec::new();
+        let mut requested_keys = rendered_tiles
+            .iter()
+            .map(|tile| tile.tile.resource_key.clone())
+            .collect::<HashSet<_>>();
+
+        if *pan_prefetch_margin_tiles > 0 {
+            // Neighbors of rendered target tiles in tile space cover the
+            // next pan step regardless of projection shape.
+            let margin = i64::from(*pan_prefetch_margin_tiles);
+            let targets = rendered_tiles
+                .iter()
+                .filter(|tile| tile.is_target)
+                .map(|tile| tile.tile.clone())
+                .collect::<Vec<_>>();
+            'margin: for tile in &targets {
+                let n = MercatorTileGrid::tile_count(tile.z);
+                for dy in -margin..=margin {
+                    for dx in -margin..=margin {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let y = tile.y + dy;
+                        if y < 0 || y >= n {
+                            continue;
+                        }
+                        let unwrapped_x = tile.unwrapped_x + dx;
+                        let neighbor =
+                            self.visible_tile(tile.z, unwrapped_x.rem_euclid(n), y, unwrapped_x);
+                        if prefetch_requests.len() >= *max_prefetch_tiles {
+                            break 'margin;
+                        }
+                        if requested_keys.insert(neighbor.resource_key.clone()) {
+                            prefetch_requests.push(self.resource_request_with_purpose(
+                                &neighbor,
+                                ResourceRequestPurpose::Prefetch,
+                                -0.25,
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+
+        for offset in nearby_zoom_offsets(*prefetch_below, *prefetch_above)
+            .into_iter()
+            .filter(|offset| !fallback_offsets.contains(offset))
+        {
+            if prefetch_requests.len() >= *max_prefetch_tiles {
+                break;
+            }
+            for tile in self.visible_tiles_with_offset(&scope, offset) {
+                if prefetch_requests.len() >= *max_prefetch_tiles {
+                    break;
+                }
+                if requested_keys.insert(tile.resource_key.clone()) {
+                    prefetch_requests.push(self.resource_request_with_purpose(
+                        &tile,
+                        ResourceRequestPurpose::Prefetch,
+                        -1.0,
+                    ));
+                }
+            }
+        }
+
+        Ok(GeoTilePlan {
+            rendered_tiles,
+            prefetch_requests,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct VisibleGeoTile {
+    pub layer_id: String,
+    pub z: u8,
+    pub x: i64,
+    pub y: i64,
+    pub unwrapped_x: i64,
+    pub resource_key: ResourceKey,
+    pub url: String,
+    pub intrinsic_size: u32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeoTilePlan {
+    pub rendered_tiles: Vec<PlannedGeoTile>,
+    pub prefetch_requests: Vec<ResourceRequest>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlannedGeoTile {
+    pub tile: VisibleGeoTile,
+    pub is_target: bool,
+    pub unavailable_policy: PlannedTileUnavailablePolicy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlannedTileUnavailablePolicy {
+    RendererDefault,
+    Skip,
+}
+
+// ---------------------------------------------------------------------------
+// View scope: visibility + per-region LOD in pixel space
+// ---------------------------------------------------------------------------
+
+/// Everything tile discovery needs about the current view: the pixel
+/// projector, the plot rectangle, and a visibility margin.
+pub struct TileViewScope {
+    projector: Projector,
+    plot_width: f64,
+    plot_height: f64,
+}
+
+impl TileViewScope {
+    pub fn new(measurement: &GeoCoordMeasurement) -> Self {
+        Self {
+            projector: measurement.view_projector(),
+            plot_width: f64::from(measurement.view.plot_width),
+            plot_height: f64::from(measurement.view.plot_height),
+        }
+    }
+
+    /// Whether any part of the tile can appear in the plot rect, decided
+    /// by the bounding box of projected boundary samples (3×3 grid). The
+    /// forward projection is total, so this needs no inverse and no
+    /// antimeridian case analysis; tiles the projection clips away
+    /// project to nothing and drop out.
+    fn tile_visible(&self, z: u8, x: i64, y: i64) -> bool {
+        let n = MercatorTileGrid::tile_count(z);
+        let wrapped_x = x.rem_euclid(n);
+        let [[west, south], [east, north]] = MercatorTileGrid.tile_bounds_lonlat(z, wrapped_x, y);
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        let mut any = false;
+        for i in 0..=2 {
+            for j in 0..=2 {
+                let lon = west + (east - west) * f64::from(i) / 2.0;
+                let lat = south + (north - south) * f64::from(j) / 2.0;
+                if let Some((px, py)) = self.projector.project(lon, lat) {
+                    if px.is_finite() && py.is_finite() {
+                        any = true;
+                        min_x = min_x.min(px);
+                        max_x = max_x.max(px);
+                        min_y = min_y.min(py);
+                        max_y = max_y.max(py);
+                    }
+                }
+            }
+        }
+        if !any {
+            return false;
+        }
+        // One-tile margin keeps boundary tiles whose curved interior
+        // bulges into the plot even when all samples fall outside.
+        let margin = 0.25 * (max_x - min_x).max(max_y - min_y).max(64.0);
+        max_x >= -margin
+            && min_x <= self.plot_width + margin
+            && max_y >= -margin
+            && min_y <= self.plot_height + margin
+    }
+
+    /// Target zoom for the region around the tile center: the zoom at
+    /// which one tile-grid pixel maps to roughly one screen pixel,
+    /// measured by the local derivative of the pixel projector with
+    /// respect to *mercator* units (the grid's native space).
+    fn local_target_zoom(&self, z: u8, x: i64, y: i64, tile_size: f64) -> i16 {
+        let n = MercatorTileGrid::tile_count(z);
+        let wrapped_x = x.rem_euclid(n);
+        let [[west, south], [east, north]] = MercatorTileGrid.tile_bounds_lonlat(z, wrapped_x, y);
+        let lon = (west + east) / 2.0;
+        let lat = ((south + north) / 2.0).clamp(-85.0, 85.0);
+        let Some(scale) = self.pixels_per_mercator_unit(lon, lat) else {
+            return 0;
+        };
+        // Screen size of a zoom-z tile here is (2π / 2^z) · scale pixels;
+        // solve for the z where that equals tile_size.
+        let zoom = (2.0 * PI * scale / tile_size).log2();
+        if zoom.is_finite() {
+            zoom.round().clamp(0.0, f64::from(MAX_SUPPORTED_ZOOM)) as i16
+        } else {
+            0
+        }
+    }
+
+    /// |d(pixel)/d(mercator units)| at a point, via forward differences
+    /// along both grid axes (max of the two, keeping tiles sharp along
+    /// their least-compressed axis).
+    fn pixels_per_mercator_unit(&self, lon: f64, lat: f64) -> Option<f64> {
+        let base = self.projector.project(lon, lat)?;
+        let d_lon = 0.05_f64;
+        let d_lat = 0.05_f64 * if lat > 0.0 { -1.0 } else { 1.0 };
+        let east = self.projector.project(lon + d_lon, lat)?;
+        let north = self.projector.project(lon, lat + d_lat)?;
+        // Mercator-unit displacements for those steps.
+        let merc_dx = d_lon.to_radians();
+        let merc_dy = (mercator_y(lat + d_lat) - mercator_y(lat)).abs();
+        let px_east = ((east.0 - base.0).hypot(east.1 - base.1)) / merc_dx;
+        let px_north = ((north.0 - base.0).hypot(north.1 - base.1)) / merc_dy;
+        let scale = px_east.max(px_north);
+        (scale.is_finite() && scale > 0.0).then_some(scale)
+    }
+}
+
+fn mercator_y(lat: f64) -> f64 {
+    let lat = lat.clamp(-85.06, 85.06).to_radians();
+    (PI / 4.0 + lat / 2.0).tan().ln()
+}
+
+// ---------------------------------------------------------------------------
+// Mesh generation
+// ---------------------------------------------------------------------------
+
+/// A textured mesh for one tile, in plot-relative pixels with normalized
+/// tile-image UVs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TileMesh {
+    pub positions: Vec<[f32; 2]>,
+    pub uvs: Vec<[f32; 2]>,
+    pub indices: Vec<u32>,
+}
+
+/// Build the warped mesh for a tile through `projector` (blend-aware when
+/// the caller passes the measurement's view projector). Rows are uniform
+/// in mercator y — the tile image's native vertical axis — so UV `v` is
+/// uniform per row. Grid density adapts to the resample criterion:
+/// doubled until the projected midpoint deviation drops below
+/// `precision_px` (capped at 32×32 cells). Returns `None` when the mesh
+/// has no finite on-screen triangle.
+pub fn tile_mesh(
+    tile: &VisibleGeoTile,
+    projector: &Projector,
+    precision_px: f64,
+    plot_width: f32,
+    plot_height: f32,
+) -> Option<TileMesh> {
+    let [[west, _south], [east, _north]] =
+        MercatorTileGrid.tile_bounds_lonlat(tile.z, tile.x, tile.y);
+    let merc_top = MercatorTileGrid::tile_mercator_y(tile.z, tile.y);
+    let merc_bottom = MercatorTileGrid::tile_mercator_y(tile.z, tile.y + 1);
+
+    let point_at = |u: f64, v: f64| -> Option<(f64, f64)> {
+        let lon = west + (east - west) * u;
+        let merc = merc_top + (merc_bottom - merc_top) * v;
+        let lat = merc.sinh().atan().to_degrees();
+        projector
+            .project(lon, lat)
+            .filter(|(x, y)| x.is_finite() && y.is_finite())
+    };
+
+    let mut cells: u32 = 1;
+    while cells < MAX_MESH_CELLS {
+        if max_midpoint_deviation(&point_at, cells) <= precision_px {
+            break;
+        }
+        cells *= 2;
+    }
+
+    let stride = cells + 1;
+    let mut positions = Vec::with_capacity((stride * stride) as usize);
+    let mut uvs = Vec::with_capacity((stride * stride) as usize);
+    let mut finite = vec![false; (stride * stride) as usize];
+    for row in 0..stride {
+        for col in 0..stride {
+            let u = f64::from(col) / f64::from(cells);
+            let v = f64::from(row) / f64::from(cells);
+            match point_at(u, v) {
+                Some((x, y)) => {
+                    finite[(row * stride + col) as usize] = true;
+                    positions.push([x as f32, y as f32]);
+                }
+                None => positions.push([0.0, 0.0]),
+            }
+            uvs.push([u as f32, v as f32]);
+        }
+    }
+
+    // A straddling cell (the projection's antimeridian cut passes through
+    // the tile) projects to a triangle spanning the map; cull any triangle
+    // with an implausibly long edge relative to its neighbors.
+    let mut max_plausible_edge = 0.0_f64;
+    {
+        let corners = [
+            point_at(0.0, 0.0),
+            point_at(1.0, 0.0),
+            point_at(0.0, 1.0),
+            point_at(1.0, 1.0),
+            point_at(0.5, 0.5),
+        ];
+        let pts = corners.into_iter().flatten().collect::<Vec<_>>();
+        for a in &pts {
+            for b in &pts {
+                max_plausible_edge = max_plausible_edge.max((a.0 - b.0).hypot(a.1 - b.1));
+            }
+        }
+        // Per-cell budget with generous headroom for local distortion.
+        max_plausible_edge = (max_plausible_edge / f64::from(cells)) * 8.0 + 16.0;
+    }
+
+    let mut indices = Vec::new();
+    let mut min_x = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    for row in 0..cells {
+        for col in 0..cells {
+            let i00 = row * stride + col;
+            let i10 = i00 + 1;
+            let i01 = i00 + stride;
+            let i11 = i01 + 1;
+            for triangle in [[i00, i10, i11], [i00, i11, i01]] {
+                if !triangle.iter().all(|i| finite[*i as usize]) {
+                    continue;
+                }
+                let mut plausible = true;
+                for pair in [(0, 1), (1, 2), (2, 0)] {
+                    let a = positions[triangle[pair.0] as usize];
+                    let b = positions[triangle[pair.1] as usize];
+                    let edge = f64::from(a[0] - b[0]).hypot(f64::from(a[1] - b[1]));
+                    if edge > max_plausible_edge {
+                        plausible = false;
+                        break;
+                    }
+                }
+                if !plausible {
+                    continue;
+                }
+                for i in triangle {
+                    let [x, y] = positions[i as usize];
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                    min_y = min_y.min(y);
+                    max_y = max_y.max(y);
+                }
+                indices.extend_from_slice(&triangle);
+            }
+        }
+    }
+
+    if indices.is_empty() || max_x < 0.0 || min_x > plot_width || max_y < 0.0 || min_y > plot_height
+    {
+        return None;
+    }
+    Some(TileMesh {
+        positions,
+        uvs,
+        indices,
+    })
+}
+
+fn max_midpoint_deviation(point_at: &dyn Fn(f64, f64) -> Option<(f64, f64)>, cells: u32) -> f64 {
+    let mut max_deviation = 0.0_f64;
+    let step = 1.0 / f64::from(cells);
+    for row in 0..=cells {
+        for col in 0..cells {
+            // Horizontal segment (and its transpose for the vertical).
+            for (a, b, m) in [
+                (
+                    (f64::from(col) * step, f64::from(row) * step),
+                    ((f64::from(col) + 1.0) * step, f64::from(row) * step),
+                    ((f64::from(col) + 0.5) * step, f64::from(row) * step),
+                ),
+                (
+                    (f64::from(row) * step, f64::from(col) * step),
+                    (f64::from(row) * step, (f64::from(col) + 1.0) * step),
+                    (f64::from(row) * step, (f64::from(col) + 0.5) * step),
+                ),
+            ] {
+                let (Some(pa), Some(pb), Some(pm)) =
+                    (point_at(a.0, a.1), point_at(b.0, b.1), point_at(m.0, m.1))
+                else {
+                    continue;
+                };
+                let mid = ((pa.0 + pb.0) / 2.0, (pa.1 + pb.1) / 2.0);
+                max_deviation = max_deviation.max((pm.0 - mid.0).hypot(pm.1 - mid.1));
+            }
+        }
+    }
+    max_deviation
+}
+
+// ---------------------------------------------------------------------------
+// Identity fast path
+// ---------------------------------------------------------------------------
+
+/// True when tiles need no warp: the authored projection is unrotated
+/// Mercator and the adaptive blend is inactive. On this path tiles render
+/// as plain axis-aligned image marks (WebMercator pixel parity).
+pub fn is_identity_fast_path(measurement: &GeoCoordMeasurement) -> bool {
+    use avenger_geo::raw::ProjectionKind;
+    matches!(measurement.projection.kind, ProjectionKind::Mercator)
+        && measurement.projection.rotate == [0.0, 0.0, 0.0]
+        && measurement.blend_t() == 0.0
+}
+
+/// Axis-aligned pixel rectangle `[x, y, width, height]` of a tile under
+/// the identity fast path, from the view's raw-unit domains (raw mercator
+/// spans `[-π, π]²`).
+pub fn tile_pixel_rect(tile: &VisibleGeoTile, view: &crate::view::GeoView) -> [f32; 4] {
+    let n = MercatorTileGrid::tile_count(tile.z) as f64;
+    let span = 2.0 * PI / n;
+    let left = -PI + tile.unwrapped_x as f64 * span;
+    let top = PI - tile.y as f64 * span;
+    let (x0, x1) = view.x_domain;
+    let (y0, y1) = view.y_domain;
+    let px = (left - x0) / (x1 - x0) * f64::from(view.plot_width);
+    let py = (y1 - top) / (y1 - y0) * f64::from(view.plot_height);
+    let width = span / (x1 - x0) * f64::from(view.plot_width);
+    let height = span / (y1 - y0) * f64::from(view.plot_height);
+    [px as f32, py as f32, width as f32, height as f32]
+}
+
+fn nearby_zoom_offsets(below: u8, above: u8) -> Vec<i8> {
+    let mut offsets = Vec::new();
+    for offset in 1..=below.min(8) {
+        offsets.push(-(offset as i8));
+    }
+    for offset in 1..=above.min(8) {
+        offsets.push(offset as i8);
+    }
+    offsets.sort_unstable();
+    offsets
+}
+
+fn default_layer_id() -> String {
+    DEFAULT_LAYER_ID.to_string()
+}
+
+fn default_tile_size() -> u32 {
+    DEFAULT_TILE_SIZE
+}
+
+fn default_max_zoom() -> u8 {
+    DEFAULT_MAX_ZOOM
+}
+
+fn default_tile_zindex() -> i32 {
+    // Above the sphere fill (-5), below the graticule (-2) and marks (0).
+    -4
+}
+
+fn default_smooth_zoom_pan_prefetch_margin_tiles() -> u8 {
+    DEFAULT_SMOOTH_ZOOM_PAN_PREFETCH_MARGIN_TILES
+}
+
+fn resource_source(url: String) -> ResourceSource {
+    if url.starts_with("data:image/") {
+        ResourceSource::DataUri { data_uri: url }
+    } else {
+        ResourceSource::Url { url }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_geo::projector::Projection;
+    use avenger_geo::raw::ProjectionKind;
+
+    use super::*;
+    use crate::view::{GeoView, WorldSpan, world_span};
+
+    fn layer() -> RasterTileLayer {
+        RasterTileLayer::xyz("https://tiles.example/{z}/{x}/{y}.png").id("base")
+    }
+
+    fn measurement(
+        projection: Projection,
+        center_lonlat: (f64, f64),
+        zoom: f64,
+        plot: (f32, f32),
+    ) -> GeoCoordMeasurement {
+        let world = world_span(&projection);
+        let (cx, cy) = projection.project_raw_units(center_lonlat.0, center_lonlat.1);
+        GeoCoordMeasurement {
+            viewport_id: "test".to_string(),
+            view: GeoView::from_center_zoom(cx, cy, zoom, plot.0, plot.1, world),
+            projection,
+            graticule: None,
+            sphere: None,
+            blend: None,
+            tile_layers: Vec::new(),
+        }
+    }
+
+    fn albers_conus() -> Projection {
+        Projection::new(ProjectionKind::albers()).with_rotate([96.0, 0.0, 0.0])
+    }
+
+    #[test]
+    fn grid_bounds_cover_the_world_at_z1() {
+        let grid = MercatorTileGrid;
+        let [[west, south], [east, north]] = grid.tile_bounds_lonlat(1, 0, 0);
+        assert_eq!(west, -180.0);
+        assert_eq!(east, 0.0);
+        assert!((north - 85.051).abs() < 0.01);
+        assert!(south.abs() < 1e-9);
+        let [[west, south], [east, north]] = grid.tile_bounds_lonlat(1, 1, 1);
+        assert_eq!(west, 0.0);
+        assert_eq!(east, 180.0);
+        assert!(north.abs() < 1e-9);
+        assert!((south + 85.051).abs() < 0.01);
+    }
+
+    #[test]
+    fn grid_region_enumeration_matches_conus_hand_check() {
+        // CONUS bbox: lon -125..-66, lat 24..50 at z4 → x 2..5, y 5..6.
+        let tiles = MercatorTileGrid.tiles_for_lonlat_region([[-125.0, 24.0], [-66.0, 50.0]], 4);
+        let mut xs = tiles.iter().map(|t| t.0).collect::<Vec<_>>();
+        let mut ys = tiles.iter().map(|t| t.1).collect::<Vec<_>>();
+        xs.sort_unstable();
+        xs.dedup();
+        ys.sort_unstable();
+        ys.dedup();
+        assert_eq!(xs, vec![2, 3, 4, 5]);
+        assert_eq!(ys, vec![5, 6]);
+        assert_eq!(tiles.len(), 8);
+    }
+
+    #[test]
+    fn grid_region_enumeration_wraps_the_antimeridian() {
+        // Fiji-ish region spanning the antimeridian at z2.
+        let tiles = MercatorTileGrid.tiles_for_lonlat_region([[170.0, -30.0], [-170.0, -10.0]], 2);
+        assert!(!tiles.is_empty());
+        assert!(tiles.iter().any(|t| t.0 == 3), "west side present");
+        assert!(
+            tiles.iter().any(|t| t.0 == 0),
+            "east side present (wrapped)"
+        );
+        assert!(
+            tiles
+                .iter()
+                .all(|t| (0..4).contains(&t.0) && (0..4).contains(&t.1))
+        );
+        // Unwrapped columns are contiguous across the seam.
+        assert!(tiles.iter().any(|t| t.2 == 4 && t.0 == 0));
+    }
+
+    #[test]
+    fn albers_conus_discovery_yields_the_fixture_tiles() {
+        // The CONUS albers fit at ~z4 target resolution must select exactly
+        // the eight checked-in fixture tiles (x 2..5, y 5..6) at z4.
+        let measurement = measurement(albers_conus(), (-96.0, 38.0), 4.0, (620.0, 400.0));
+        let scope = TileViewScope::new(&measurement);
+        let tiles = layer()
+            .min_zoom(4)
+            .max_zoom(4)
+            .visible_tiles(&scope)
+            .expect("tiles");
+        assert!(!tiles.is_empty());
+        assert!(tiles.iter().all(|t| t.z == 4));
+        for tile in &tiles {
+            assert!(
+                (1..=6).contains(&tile.x) && (4..=7).contains(&tile.y),
+                "unexpected tile ({}, {})",
+                tile.x,
+                tile.y
+            );
+        }
+        for (x, y) in [(3, 5), (3, 6), (4, 5), (4, 6)] {
+            assert!(
+                tiles.iter().any(|t| t.x == x && t.y == y),
+                "missing core CONUS tile ({x}, {y})"
+            );
+        }
+    }
+
+    #[test]
+    fn deeper_view_selects_deeper_tiles() {
+        let wide = measurement(albers_conus(), (-96.0, 38.0), 4.0, (620.0, 400.0));
+        let deep = measurement(albers_conus(), (-99.0, 31.5), 6.0, (620.0, 400.0));
+        let wide_tiles = layer()
+            .visible_tiles(&TileViewScope::new(&wide))
+            .expect("wide");
+        let deep_tiles = layer()
+            .visible_tiles(&TileViewScope::new(&deep))
+            .expect("deep");
+        let wide_max = wide_tiles.iter().map(|t| t.z).max().unwrap();
+        let deep_min = deep_tiles.iter().map(|t| t.z).min().unwrap();
+        assert!(
+            deep_min >= wide_max + 1,
+            "expected deeper tiles: wide max z{wide_max}, deep min z{deep_min}"
+        );
+    }
+
+    #[test]
+    fn world_equal_earth_uses_coarser_tiles_toward_the_map_edge() {
+        // On a world Equal Earth view the projection compresses high
+        // latitudes and the far east/west; per-region LOD must pick
+        // coarser tiles somewhere while the center stays at the target.
+        let measurement = measurement(
+            Projection::new(ProjectionKind::EqualEarth),
+            (0.0, 0.0),
+            2.5,
+            (900.0, 560.0),
+        );
+        let scope = TileViewScope::new(&measurement);
+        let tiles = layer().visible_tiles(&scope).expect("tiles");
+        let zooms = tiles
+            .iter()
+            .map(|t| t.z)
+            .collect::<std::collections::HashSet<_>>();
+        assert!(
+            zooms.len() >= 2,
+            "expected mixed LOD on a world view, got zooms {zooms:?}"
+        );
+        // The coarser tiles sit at the top/bottom rows (compressed poles).
+        let min_z = *zooms.iter().min().unwrap();
+        let max_z = *zooms.iter().max().unwrap();
+        let coarse_rows = tiles
+            .iter()
+            .filter(|t| t.z == min_z)
+            .map(|t| {
+                // Normalize row position to [0, 1] at that zoom.
+                t.y as f64 / MercatorTileGrid::tile_count(min_z) as f64
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            coarse_rows.iter().all(|row| *row < 0.35 || *row > 0.65),
+            "coarse tiles should hug the poles: {coarse_rows:?} (z{min_z}..z{max_z})"
+        );
+    }
+
+    #[test]
+    fn mesh_density_grows_as_precision_tightens() {
+        let measurement = measurement(
+            Projection::new(ProjectionKind::EqualEarth),
+            (0.0, 0.0),
+            1.0,
+            (600.0, 400.0),
+        );
+        let projector = measurement.view_projector();
+        let tile = layer().visible_tile(1, 0, 0, 0);
+        let coarse = tile_mesh(&tile, &projector, 64.0, 600.0, 400.0).expect("coarse mesh");
+        let fine = tile_mesh(&tile, &projector, 0.25, 600.0, 400.0).expect("fine mesh");
+        assert!(
+            fine.positions.len() > coarse.positions.len(),
+            "expected more vertices at tighter precision: {} vs {}",
+            fine.positions.len(),
+            coarse.positions.len()
+        );
+        assert!(fine.indices.len() % 3 == 0 && !fine.indices.is_empty());
+        // UVs stay normalized.
+        assert!(
+            fine.uvs
+                .iter()
+                .all(|uv| (0.0..=1.0).contains(&uv[0]) && (0.0..=1.0).contains(&uv[1]))
+        );
+    }
+
+    #[test]
+    fn identity_fast_path_detection() {
+        let mercator = measurement(
+            Projection::new(ProjectionKind::Mercator),
+            (0.0, 0.0),
+            1.0,
+            (512.0, 256.0),
+        );
+        assert!(is_identity_fast_path(&mercator));
+
+        let rotated = measurement(
+            Projection::new(ProjectionKind::Mercator).with_rotate([30.0, 0.0, 0.0]),
+            (0.0, 0.0),
+            1.0,
+            (512.0, 256.0),
+        );
+        assert!(!is_identity_fast_path(&rotated));
+
+        let albers = measurement(albers_conus(), (-96.0, 38.0), 4.0, (620.0, 400.0));
+        assert!(!is_identity_fast_path(&albers));
+    }
+
+    #[test]
+    fn identity_pixel_rects_tile_the_world_view() {
+        let world = WorldSpan {
+            width: 2.0 * PI,
+            height: 2.0 * PI,
+        };
+        let view = GeoView::from_center_zoom(0.0, 0.0, 0.0, 256.0, 256.0, world);
+        let tile = layer().visible_tile(0, 0, 0, 0);
+        let [x, y, width, height] = tile_pixel_rect(&tile, &view);
+        assert!((x - 0.0).abs() < 1e-3 && (y - 0.0).abs() < 1e-3);
+        assert!((width - 256.0).abs() < 1e-3 && (height - 256.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn tile_plan_smooth_zoom_adds_fallbacks_and_prefetch() {
+        let measurement = measurement(albers_conus(), (-96.0, 38.0), 4.0, (620.0, 400.0));
+        let plan = layer()
+            .min_zoom(2)
+            .max_zoom(6)
+            .smooth_zoom()
+            .tile_plan(&measurement)
+            .expect("plan");
+        let first_target = plan
+            .rendered_tiles
+            .iter()
+            .position(|tile| tile.is_target)
+            .expect("target tiles");
+        assert!(
+            plan.rendered_tiles[..first_target]
+                .iter()
+                .all(|tile| !tile.is_target),
+            "fallbacks render before targets"
+        );
+        assert!(
+            plan.rendered_tiles
+                .iter()
+                .all(|tile| tile.unavailable_policy == PlannedTileUnavailablePolicy::Skip)
+        );
+        assert!(!plan.prefetch_requests.is_empty());
+        assert!(
+            plan.prefetch_requests
+                .iter()
+                .all(|request| request.purpose == ResourceRequestPurpose::Prefetch)
+        );
+        // No prefetch duplicates a rendered tile.
+        let rendered = plan
+            .rendered_tiles
+            .iter()
+            .map(|tile| tile.tile.resource_key.clone())
+            .collect::<HashSet<_>>();
+        assert!(
+            plan.prefetch_requests
+                .iter()
+                .all(|request| !rendered.contains(&request.key))
+        );
+    }
+
+    #[test]
+    fn url_template_and_resource_key_expansion() {
+        let tile = layer().visible_tile(3, 1, 2, 9);
+        assert_eq!(tile.url, "https://tiles.example/3/1/2.png");
+        assert_eq!(tile.resource_key, ResourceKey::new("geo/base/3/1/2/256"));
+        assert_eq!(tile.unwrapped_x, 9);
+    }
+
+    #[test]
+    fn raster_tile_layer_survives_bincode() {
+        let layer = layer()
+            .min_zoom(1)
+            .max_zoom(5)
+            .attribution("Tile contributors")
+            .smooth_zoom();
+        let bytes = bincode::serialize(&layer).expect("serialize");
+        let restored: RasterTileLayer = bincode::deserialize(&bytes).expect("deserialize");
+        assert_eq!(restored, layer);
+    }
+}

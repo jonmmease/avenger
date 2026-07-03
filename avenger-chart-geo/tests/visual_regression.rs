@@ -917,3 +917,392 @@ mod phase5b {
         blend_frame(1.0, "blend_albers_t100").await;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6: warped raster tiles
+// ---------------------------------------------------------------------------
+
+mod phase6 {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use avenger_chart::prelude::{Log, ScaleChannelConfig};
+    use avenger_chart_geo::{GeoShape, RasterTileLayer, register_geojson};
+    use avenger_image::{ImageResourceResolver, ImageResourceState, RgbaImage as AvengerRgbaImage};
+    use avenger_resource::ResourceKey;
+    use avenger_scenegraph::image_resources::resolve_ready_image_resources;
+    use datafusion::prelude::col;
+    use palette::rgb::Srgba;
+
+    use super::*;
+
+    /// Offline CARTO basemap tiles (tests/data/geo/carto/README.md),
+    /// registered under both the geo and webmercator key prefixes so the
+    /// identity-parity test can resolve either coordinate system's guide.
+    /// Unknown keys resolve to a transparent tile instead of erroring so
+    /// discovery may over-enumerate beyond the fixture set.
+    struct CartoFixtureResolver {
+        images: HashMap<ResourceKey, Arc<AvengerRgbaImage>>,
+        blank: Arc<AvengerRgbaImage>,
+    }
+
+    impl CartoFixtureResolver {
+        fn new() -> Self {
+            let fixtures: [(u8, i64, i64, &[u8]); 12] = [
+                (
+                    1,
+                    0,
+                    0,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/1/0/0.png"),
+                ),
+                (
+                    1,
+                    0,
+                    1,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/1/0/1.png"),
+                ),
+                (
+                    1,
+                    1,
+                    0,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/1/1/0.png"),
+                ),
+                (
+                    1,
+                    1,
+                    1,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/1/1/1.png"),
+                ),
+                (
+                    4,
+                    2,
+                    5,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/2/5.png"),
+                ),
+                (
+                    4,
+                    2,
+                    6,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/2/6.png"),
+                ),
+                (
+                    4,
+                    3,
+                    5,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/3/5.png"),
+                ),
+                (
+                    4,
+                    3,
+                    6,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/3/6.png"),
+                ),
+                (
+                    4,
+                    4,
+                    5,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/4/5.png"),
+                ),
+                (
+                    4,
+                    4,
+                    6,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/4/6.png"),
+                ),
+                (
+                    4,
+                    5,
+                    5,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/5/5.png"),
+                ),
+                (
+                    4,
+                    5,
+                    6,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/4/5/6.png"),
+                ),
+            ];
+            let mut images = HashMap::new();
+            for (z, x, y, bytes) in fixtures {
+                let decoded = image::load_from_memory(bytes)
+                    .expect("decode carto tile fixture")
+                    .into_rgba8();
+                let shared = Arc::new(AvengerRgbaImage::from_image(&decoded));
+                images.insert(
+                    ResourceKey::new(format!("geo/carto/{z}/{x}/{y}/256")),
+                    shared.clone(),
+                );
+                images.insert(
+                    ResourceKey::new(format!("webmercator/carto/{z}/{x}/{y}/256")),
+                    shared,
+                );
+            }
+            Self {
+                images,
+                blank: Arc::new(AvengerRgbaImage {
+                    width: 256,
+                    height: 256,
+                    data: vec![0; 256 * 256 * 4],
+                }),
+            }
+        }
+    }
+
+    impl ImageResourceResolver for CartoFixtureResolver {
+        fn image_state(&self, key: &ResourceKey) -> ImageResourceState {
+            ImageResourceState::Ready(
+                self.images
+                    .get(key)
+                    .cloned()
+                    .unwrap_or_else(|| self.blank.clone()),
+            )
+        }
+
+        fn request_image(&self, _request: &avenger_resource::ResourceRequest) {}
+    }
+
+    fn carto_layer(zoom: u8) -> RasterTileLayer {
+        RasterTileLayer::xyz(
+            "https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png",
+        )
+        .id("carto")
+        .min_zoom(zoom)
+        .max_zoom(zoom)
+        .attribution("© OpenStreetMap contributors © CARTO")
+    }
+
+    fn geo_data(file: &str) -> String {
+        format!(
+            "{}/../avenger-chart/tests/data/geo/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    async fn resolved_scene_graph<C>(ctx: &SessionContext, plot: Plot<C>) -> SceneGraph
+    where
+        C: CoordinateSystem,
+    {
+        let compiled = plot.compile(ctx).await.expect("compile geo plot");
+        let evaluated = compiled
+            .evaluate(ctx, None)
+            .await
+            .expect("evaluate geo plot");
+        resolve_ready_image_resources(&evaluated.scene_graph, &CartoFixtureResolver::new())
+            .expect("resolve tile resources")
+    }
+
+    async fn assert_visual_match_resolved<C>(
+        ctx: &SessionContext,
+        plot: Plot<C>,
+        baseline_name: &str,
+    ) where
+        C: CoordinateSystem,
+    {
+        let scene_graph = resolved_scene_graph(ctx, plot).await;
+        let image = render_scene_graph_to_wgpu_image(&scene_graph).await;
+        let baseline_path = PathBuf::from(BASELINE_DIR).join(format!("{baseline_name}.png"));
+        if std::env::var_os(BLESS_ENV).is_some() {
+            save_image(&baseline_path, &image);
+            return;
+        }
+        compare_image(&baseline_path, baseline_name, &image, DEFAULT_THRESHOLD);
+    }
+
+    fn albers_tiles_plot(geo: Geo, ctx_df: datafusion::dataframe::DataFrame) -> Plot<Geo> {
+        Plot::with_coord(geo.clone())
+            .plot_size(560.0, 380.0)
+            .title("Density over warped tiles")
+            .data(ctx_df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill_with(col("density"), |c| {
+                        c.scale_with::<Log>(|s| {
+                            s.range_colors(vec![
+                                Srgba::new(1.0, 0.96, 0.92, 1.0),
+                                Srgba::new(0.99, 0.68, 0.42, 1.0),
+                                Srgba::new(0.85, 0.28, 0.10, 1.0),
+                                Srgba::new(0.50, 0.14, 0.05, 1.0),
+                            ])
+                        })
+                    })
+                    .opacity(0.4)
+                    .stroke("#475569")
+                    .stroke_width(0.5),
+            )
+    }
+
+    /// THE warped-tiles hero: CONUS basemap tiles warped onto the Albers
+    /// aspect under the states choropleth at 40% opacity.
+    #[tokio::test]
+    async fn tiles_albers_conus_z4() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "us_states_tiles", geo_data("us-states.json"))
+            .await
+            .expect("register us states");
+        let geo = Geo::albers_usa_conus()
+            .graticule(GraticuleStyle::default())
+            .tiles(carto_layer(4));
+        assert_visual_match_resolved(&ctx, albers_tiles_plot(geo, df), "tiles_albers_conus_z4")
+            .await;
+    }
+
+    /// Zoomed onto Texas with tiles clamped at z4 (the offline fixture
+    /// ceiling): overzoom stretches the warped tiles, the plan's z6 view
+    /// on z4 imagery.
+    #[tokio::test]
+    async fn tiles_albers_texas_overzoom() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "us_states_overzoom", geo_data("us-states.json"))
+            .await
+            .expect("register us states");
+        let (cx, cy) = Geo::albers_usa_conus()
+            .projection()
+            .project_raw_units(-99.0, 31.5);
+        let geo = Geo::albers_usa_conus()
+            .center_projected(cx, cy)
+            .zoom(6.0)
+            .graticule(GraticuleStyle::default())
+            .tiles(carto_layer(4));
+        assert_visual_match_resolved(
+            &ctx,
+            albers_tiles_plot(geo, df),
+            "tiles_albers_texas_overzoom",
+        )
+        .await;
+    }
+
+    /// World tiles at z1 warped onto Equal Earth: tile edges curve with
+    /// the graticule and the mesh vanishes outside the sphere outline.
+    #[tokio::test]
+    async fn tiles_equal_earth_world() {
+        let ctx = SessionContext::new();
+        let geo = Geo::equal_earth()
+            .sphere(SphereStyle::default())
+            .graticule(GraticuleStyle::default())
+            .tiles(carto_layer(1));
+        let plot = Plot::with_coord(geo)
+            .plot_size(560.0, 340.0)
+            .title("Equal Earth tiles");
+        assert_visual_match_resolved(&ctx, plot, "tiles_equal_earth_world").await;
+    }
+
+    /// Geo(mercator) tiles take the identity fast path and must match the
+    /// WebMercator coordinate system pixel-for-pixel.
+    #[tokio::test]
+    async fn tiles_mercator_identity_parity() {
+        use avenger_chart_webmercator::WebMercator;
+
+        let ctx = SessionContext::new();
+        let geo = Geo::mercator()
+            .center_lon_lat(0.0, 30.0)
+            .zoom(1.0)
+            .tiles(carto_layer(1));
+        let geo_plot = Plot::with_coord(geo)
+            .plot_size(512.0, 256.0)
+            .title("Identity parity");
+        let geo_scene = resolved_scene_graph(&ctx, geo_plot).await;
+        let geo_image = render_scene_graph_to_wgpu_image(&geo_scene).await;
+
+        let webmercator = WebMercator::new()
+            .center_lon_lat(0.0, 30.0)
+            .zoom(1.0)
+            .tiles(
+                avenger_chart_webmercator::RasterTileLayer::xyz(
+                    "https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png",
+                )
+                .id("carto")
+                .min_zoom(1)
+                .max_zoom(1)
+                .attribution("© OpenStreetMap contributors © CARTO"),
+            );
+        let reference_plot = Plot::with_coord(webmercator)
+            .plot_size(512.0, 256.0)
+            .title("Identity parity");
+        let reference_scene = resolved_scene_graph(&ctx, reference_plot).await;
+        let reference_image = render_scene_graph_to_wgpu_image(&reference_scene).await;
+
+        let result = image_compare::rgba_hybrid_compare(&reference_image, &geo_image)
+            .expect("image comparison");
+        if result.score < 0.9999 {
+            save_image(
+                &PathBuf::from(FAILURE_DIR).join("identity_parity_geo.png"),
+                &geo_image,
+            );
+            save_image(
+                &PathBuf::from(FAILURE_DIR).join("identity_parity_webmercator.png"),
+                &reference_image,
+            );
+            save_image(
+                &PathBuf::from(FAILURE_DIR).join("identity_parity_diff.png"),
+                &result.image.to_color_map().into_rgba8(),
+            );
+        }
+        assert!(
+            result.score >= 0.9999,
+            "identity parity {:.6} below 0.9999",
+            result.score
+        );
+    }
+
+    /// Static export: the SVG rendering of the warped-tiles hero (tiles
+    /// embedded via the software mesh rasterizer) matches the WGPU render.
+    #[tokio::test]
+    async fn tiles_albers_svg_export_parity() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "us_states_svg", geo_data("us-states.json"))
+            .await
+            .expect("register us states");
+        let geo = Geo::albers_usa_conus().tiles(carto_layer(4));
+        // No title/graticule: keep the comparison about tile warping, not
+        // text rasterization differences between backends.
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 380.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill("#f8b26a")
+                    .opacity(0.4)
+                    .stroke("#475569")
+                    .stroke_width(0.5),
+            );
+        let scene_graph = resolved_scene_graph(&ctx, plot).await;
+        let wgpu_image = {
+            let dimensions = CanvasDimensions {
+                size: [scene_graph.width, scene_graph.height],
+                scale: 1.0,
+            };
+            let mut canvas = PngCanvas::new(dimensions, CanvasConfig::default())
+                .await
+                .expect("create canvas");
+            canvas.set_scene(&scene_graph).expect("set scene");
+            canvas.render().await.expect("render")
+        };
+
+        let svg = avenger_svg::SvgRenderer::new()
+            .render_scene_graph(&scene_graph)
+            .expect("render SVG");
+        let mut options = resvg::usvg::Options::default();
+        options.fontdb_mut().load_system_fonts();
+        let tree = resvg::usvg::Tree::from_str(&svg, &options).expect("parse SVG");
+        let mut pixmap =
+            resvg::tiny_skia::Pixmap::new(scene_graph.width as u32, scene_graph.height as u32)
+                .expect("pixmap");
+        pixmap.fill(resvg::tiny_skia::Color::WHITE);
+        resvg::render(
+            &tree,
+            resvg::tiny_skia::Transform::identity(),
+            &mut pixmap.as_mut(),
+        );
+        let svg_image = image::RgbaImage::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
+            .expect("pixmap to image");
+
+        let result = image_compare::rgba_hybrid_compare(&wgpu_image, &svg_image).expect("compare");
+        assert!(
+            result.score >= 0.95,
+            "SVG export parity {:.6} below 0.95",
+            result.score
+        );
+    }
+}

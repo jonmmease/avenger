@@ -13,6 +13,7 @@ use avenger_chart_core::{
     Theme,
 };
 use avenger_color::ColorOrGradient;
+use avenger_common::types::{ImageAlign, ImageBaseline};
 use avenger_common::{
     types::{PathTransform, StrokeCap, StrokeJoin},
     value::ScalarOrArray,
@@ -23,13 +24,17 @@ use avenger_geo::streamable::Sphere;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
+    image::{SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy},
     mark::SceneMark,
     path::ScenePathMark,
+    text::SceneTextMark,
+    warped_image::SceneWarpedImageMark,
 };
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
+use crate::tiles::{PlannedGeoTile, PlannedTileUnavailablePolicy, tile_mesh};
 use crate::view::GeoCoordMeasurement;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -93,17 +98,54 @@ impl CompiledGuide for GeoGuide {
         _data_override: Option<&DataFrame>,
         _sharing_context: GuideSharingContext<'_>,
         coord_measurement: &dyn CoordMeasurement,
-        _render_context: GuideRenderContext<'_>,
+        render_context: GuideRenderContext<'_>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let Some(measurement) = GeoCoordMeasurement::downcast(coord_measurement) else {
             return Ok(Vec::new());
         };
-        if measurement.sphere.is_none() && measurement.graticule.is_none() {
+        if measurement.sphere.is_none()
+            && measurement.graticule.is_none()
+            && measurement.tile_layers.is_empty()
+        {
             return Ok(Vec::new());
         }
 
         let projector = measurement.view_projector();
         let mut plot_area_marks: Vec<SceneMark> = Vec::new();
+
+        let identity_tiles = crate::tiles::is_identity_fast_path(measurement);
+        let mut attribution_index = 0usize;
+        for layer in &measurement.tile_layers {
+            let plan = layer.tile_plan(measurement)?;
+            for request in plan.prefetch_requests {
+                render_context.request_resource(request);
+            }
+            for planned in plan.rendered_tiles {
+                render_context.request_resource(layer.resource_request(&planned.tile));
+                let mark = if identity_tiles {
+                    tile_image_mark(layer.zindex_value(), &planned, &measurement.view)
+                } else {
+                    tile_warped_mark(
+                        layer.zindex_value(),
+                        &planned,
+                        &projector,
+                        measurement.projection.precision,
+                        plot_width,
+                        plot_height,
+                    )
+                };
+                plot_area_marks.extend(mark);
+            }
+            if let Some(attribution) = layer.attribution_text() {
+                plot_area_marks.push(attribution_mark(
+                    layer.layer_id(),
+                    attribution,
+                    plot_height,
+                    attribution_index,
+                ));
+                attribution_index += 1;
+            }
+        }
 
         if let Some(style) = &measurement.sphere {
             let mut sink = LyonPathSink::fill();
@@ -117,8 +159,9 @@ impl CompiledGuide for GeoGuide {
                         ColorOrGradient::Color(style.stroke),
                         Some(style.stroke_width),
                         // Between the canvas background (-100) and data
-                        // marks (0), like axis grid lines (-1).
-                        -3,
+                        // marks (0), like axis grid lines (-1); tile
+                        // layers default to -4, above this world fill.
+                        -5,
                     )
                     .into(),
                 );
@@ -186,6 +229,118 @@ impl CompiledGuide for GeoGuide {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+fn tile_unavailable_policy(planned: &PlannedGeoTile) -> SceneImageUnavailablePolicy {
+    match planned.unavailable_policy {
+        PlannedTileUnavailablePolicy::RendererDefault => {
+            SceneImageUnavailablePolicy::RendererDefault
+        }
+        PlannedTileUnavailablePolicy::Skip => SceneImageUnavailablePolicy::Skip,
+    }
+}
+
+fn tile_source(planned: &PlannedGeoTile) -> SceneImageSource {
+    SceneImageSource::Resource(SceneImageResource {
+        key: planned.tile.resource_key.clone(),
+        intrinsic_width: planned.tile.intrinsic_size,
+        intrinsic_height: planned.tile.intrinsic_size,
+        fallback_key: None,
+    })
+}
+
+/// Identity fast path: an axis-aligned image mark, exactly like the
+/// WebMercator tile guide.
+fn tile_image_mark(
+    zindex: i32,
+    planned: &PlannedGeoTile,
+    view: &crate::view::GeoView,
+) -> Option<SceneMark> {
+    let [x, y, width, height] = crate::tiles::tile_pixel_rect(&planned.tile, view);
+    let tile = &planned.tile;
+    Some(
+        SceneImageMark {
+            name: format!(
+                "geo-tile-{}-{}-{}-{}-{}",
+                tile.layer_id, tile.z, tile.unwrapped_x, tile.x, tile.y
+            ),
+            interactive: false,
+            clip: true,
+            len: 1,
+            aspect: false,
+            smooth: true,
+            image: ScalarOrArray::new_scalar(tile_source(planned)),
+            x: ScalarOrArray::new_scalar(x),
+            y: ScalarOrArray::new_scalar(y),
+            width: ScalarOrArray::new_scalar(width),
+            height: ScalarOrArray::new_scalar(height),
+            align: ScalarOrArray::new_scalar(ImageAlign::Left),
+            baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
+            unavailable_policy: tile_unavailable_policy(planned),
+            zindex: Some(zindex),
+            ..Default::default()
+        }
+        .into(),
+    )
+}
+
+/// General path: the tile as a textured mesh warped through the view
+/// projector.
+fn tile_warped_mark(
+    zindex: i32,
+    planned: &PlannedGeoTile,
+    projector: &avenger_geo::projector::Projector,
+    precision_px: f64,
+    plot_width: f32,
+    plot_height: f32,
+) -> Option<SceneMark> {
+    let mesh = tile_mesh(
+        &planned.tile,
+        projector,
+        precision_px,
+        plot_width,
+        plot_height,
+    )?;
+    let tile = &planned.tile;
+    Some(
+        SceneWarpedImageMark {
+            name: format!(
+                "geo-tile-{}-{}-{}-{}-{}",
+                tile.layer_id, tile.z, tile.unwrapped_x, tile.x, tile.y
+            ),
+            interactive: false,
+            clip: true,
+            smooth: true,
+            image: tile_source(planned),
+            positions: mesh.positions,
+            uvs: mesh.uvs,
+            indices: mesh.indices,
+            unavailable_policy: tile_unavailable_policy(planned),
+            zindex: Some(zindex),
+        }
+        .into(),
+    )
+}
+
+fn attribution_mark(
+    layer_id: &str,
+    attribution: &str,
+    plot_height: f32,
+    attribution_index: usize,
+) -> SceneMark {
+    SceneTextMark {
+        name: format!("geo-attribution-{layer_id}"),
+        interactive: false,
+        clip: false,
+        len: 1,
+        text: ScalarOrArray::new_scalar(attribution.to_string()),
+        x: ScalarOrArray::new_scalar(4.0),
+        y: ScalarOrArray::new_scalar(plot_height - 4.0 - 12.0 * attribution_index as f32),
+        font_size: ScalarOrArray::new_scalar(10.0),
+        zindex: Some(100),
+        ..Default::default()
+    }
+    .into()
 }
 
 fn path_mark(

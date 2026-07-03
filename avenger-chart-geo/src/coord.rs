@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     guide::GeoGuide,
+    tiles::RasterTileLayer,
     view::{GeoCoordMeasurement, GeoViewport, ViewAuthoring, realize_view, world_span},
 };
 
@@ -125,6 +126,8 @@ pub struct Geo {
     sphere: Option<SphereStyle>,
     #[serde(default)]
     blend: Option<BlendConfig>,
+    #[serde(default)]
+    tile_layers: Vec<RasterTileLayer>,
 }
 
 impl Geo {
@@ -141,6 +144,7 @@ impl Geo {
             graticule: None,
             sphere: None,
             blend: None,
+            tile_layers: Vec::new(),
         }
     }
 
@@ -249,6 +253,13 @@ impl Geo {
     /// behaves like a slippy map (doc §8.3). Opt-in.
     pub fn adaptive_blend(mut self, config: BlendConfig) -> Self {
         self.blend = Some(config);
+        self
+    }
+
+    /// Add a raster tile layer, drawn under the marks and warped through
+    /// the projection (plain slippy tiles on unrotated Mercator).
+    pub fn tiles(mut self, layer: RasterTileLayer) -> Self {
+        self.tile_layers.push(layer);
         self
     }
 
@@ -561,6 +572,7 @@ impl CoordinateMeasurementProvider for Geo {
             graticule: self.graticule,
             sphere: self.sphere,
             blend: self.blend,
+            tile_layers: self.tile_layers.clone(),
         })))
     }
 }

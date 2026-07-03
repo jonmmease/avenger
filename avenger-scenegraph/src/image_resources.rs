@@ -45,6 +45,11 @@ fn resolve_mark(
 ) -> Result<SceneMark, AvengerSceneGraphError> {
     match mark {
         SceneMark::Image(image) => resolve_image_mark(image, resolver),
+        SceneMark::WarpedImage(warped) => {
+            let mut resolved = warped.as_ref().clone();
+            resolved.image = resolve_image_source(&warped.image, resolver)?;
+            Ok(SceneMark::WarpedImage(std::sync::Arc::new(resolved)))
+        }
         SceneMark::Group(group) => {
             let mut resolved = group.clone();
             resolved.marks = resolve_marks(&group.marks, resolver)?;

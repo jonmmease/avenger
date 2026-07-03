@@ -343,6 +343,55 @@ mod test_image_baselines {
     }
 
     #[test]
+    fn warped_image_mark_renders_sheared_mesh() {
+        use avenger_scenegraph::marks::warped_image::SceneWarpedImageMark;
+
+        // 2x2 checker (red, green / blue, white) mapped onto a
+        // parallelogram: quad vertices sheared +4px in x from top to bottom.
+        let scene_graph = SceneGraph {
+            width: 24.0,
+            height: 20.0,
+            origin: [0.0, 0.0],
+            marks: vec![SceneWarpedImageMark {
+                smooth: false,
+                image: SceneImageSource::Inline(RgbaImage {
+                    width: 2,
+                    height: 2,
+                    data: vec![
+                        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+                    ],
+                }),
+                positions: vec![[2.0, 2.0], [18.0, 2.0], [22.0, 18.0], [6.0, 18.0]],
+                uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+                indices: vec![0, 1, 2, 0, 2, 3],
+                ..Default::default()
+            }
+            .into()],
+        };
+        let mut canvas = pollster::block_on(PngCanvas::new(
+            CanvasDimensions {
+                size: [24.0, 20.0],
+                scale: 1.0,
+            },
+            CanvasConfig::default(),
+        ))
+        .unwrap();
+
+        canvas.set_scene(&scene_graph).unwrap();
+        let image = pollster::block_on(canvas.render()).unwrap();
+
+        // For a parallelogram the triangle interpolation is affine:
+        // p(u, v) = a + u * (b - a) + v * (d - a).
+        assert_eq!(image.get_pixel(7, 6).0, [255, 0, 0, 255]);
+        assert_eq!(image.get_pixel(15, 6).0, [0, 255, 0, 255]);
+        assert_eq!(image.get_pixel(9, 14).0, [0, 0, 255, 255]);
+        assert_eq!(image.get_pixel(17, 14).0, [255, 255, 255, 255]);
+        // Outside the sheared quad (upper-right corner region) shows the
+        // canvas background, not the nearest texture quadrant (green).
+        assert_ne!(image.get_pixel(21, 4).0, [0, 255, 0, 255]);
+    }
+
+    #[test]
     fn patterned_rect_clips_diagonal_stripe_overlay_to_host() {
         let pattern = PatternFill {
             anchor: PatternAnchor::Mark,

@@ -232,6 +232,7 @@ impl PdfRenderer {
             }
             SceneMark::Trail(mark) => self.draw_trail_mark(surface, mark, origin),
             SceneMark::Image(mark) => self.draw_image_mark(surface, mark, origin),
+            SceneMark::WarpedImage(mark) => self.draw_warped_image_mark(surface, mark, origin),
             SceneMark::Text(mark) => {
                 self.draw_text_mark(surface, mark, origin, text_engine, font_cache)
             }
@@ -892,6 +893,38 @@ impl PdfRenderer {
             surface.pop();
         }
 
+        Ok(())
+    }
+
+    fn draw_warped_image_mark(
+        &self,
+        surface: &mut Surface<'_>,
+        mark: &avenger_scenegraph::marks::warped_image::SceneWarpedImageMark,
+        origin: [f32; 2],
+    ) -> Result<(), AvengerPdfError> {
+        if mark.image.inline_image().is_none() {
+            return Err(AvengerPdfError::UnsupportedFeature(
+                "resource-backed warped image marks require resolution before PDF rendering"
+                    .to_string(),
+            ));
+        }
+        // PDF has no textured-mesh primitive; rasterize the mesh at 2x
+        // supersampling and place the result at its bounding box.
+        let Some((raster, [min_x, min_y, max_x, max_y])) = mark.rasterize(origin, 2.0) else {
+            return Ok(());
+        };
+        let width = max_x - min_x;
+        let height = max_y - min_y;
+        if width <= 0.0 || height <= 0.0 {
+            return Ok(());
+        }
+        let Some(size) = Size::from_wh(width, height) else {
+            return Ok(());
+        };
+        let image = Image::from_rgba8(raster.data, raster.width, raster.height);
+        surface.push_transform(&Transform::from_translate(min_x, min_y));
+        surface.draw_image(image, size);
+        surface.pop();
         Ok(())
     }
 

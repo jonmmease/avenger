@@ -13,3 +13,4 @@ pub mod symbol;
 pub mod text;
 pub mod text_leader;
 pub mod trail;
+pub mod warped_image;

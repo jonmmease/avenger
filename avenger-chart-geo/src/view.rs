@@ -219,6 +219,8 @@ pub struct GeoCoordMeasurement {
     pub sphere: Option<SphereStyle>,
     /// Adaptive Mercator blend configuration, when enabled.
     pub blend: Option<BlendConfig>,
+    /// Raster tile layers rendered by the guide.
+    pub tile_layers: Vec<crate::tiles::RasterTileLayer>,
 }
 
 impl GeoCoordMeasurement {

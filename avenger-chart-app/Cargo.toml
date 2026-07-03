@@ -114,6 +114,10 @@ name = "geo_blend_zoom"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "geo_tiles_albers"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "taxi_async_rasterize"
 required-features = ["winit-wgpu"]
 
