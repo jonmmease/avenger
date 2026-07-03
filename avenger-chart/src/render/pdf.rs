@@ -44,7 +44,11 @@ impl PdfRenderer {
     }
 
     /// Override the PDF scenegraph renderer options.
-    pub fn with_options(mut self, options: avenger_pdf::PdfRenderOptions) -> Self {
+    ///
+    /// The chart's bundled default fonts stay registered alongside any
+    /// caller-provided font resolution so theme text always embeds.
+    pub fn with_options(mut self, mut options: avenger_pdf::PdfRenderOptions) -> Self {
+        options.font_resolution = crate::fonts::with_chart_font_defaults(options.font_resolution);
         self.scene_renderer = avenger_pdf::PdfRenderer::new().with_options(options);
         self
     }

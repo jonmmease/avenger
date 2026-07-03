@@ -59,7 +59,11 @@ impl SvgRenderer {
     }
 
     /// Override the SVG scenegraph renderer options.
-    pub fn with_options(mut self, options: avenger_svg::SvgRenderOptions) -> Self {
+    ///
+    /// The chart's bundled default fonts stay registered alongside any
+    /// caller-provided font resolution so theme text always resolves.
+    pub fn with_options(mut self, mut options: avenger_svg::SvgRenderOptions) -> Self {
+        options.font_resolution = crate::fonts::with_chart_font_defaults(options.font_resolution);
         self.scene_renderer = avenger_svg::SvgRenderer::new().with_options(options);
         self
     }
