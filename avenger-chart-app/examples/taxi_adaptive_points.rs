@@ -134,7 +134,13 @@ async fn build_app(
                 },
             ),
         )
-        .tool(PanScrollZoom::cartesian().settle_exact(true));
+        // Stay in Preview across the whole interaction (no settle-exact):
+        // exact evaluations re-measure axis tick labels, which can change the
+        // plot-area size on gesture release and make the view jump. Preview
+        // reuses the measured layout profile, and freshly completed rasters
+        // still swap in because preview rebuilds data marks whenever the
+        // desired materialization is ready.
+        .tool(PanScrollZoom::cartesian());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app_with_runtime_resources(
@@ -143,7 +149,7 @@ async fn build_app(
         ChartAppOptions {
             resize_binding: ChartResizeBinding::none(),
             resize_throttle_ms: None,
-            exact_on_resize_settle: true,
+            exact_on_resize_settle: false,
             log_metrics: true,
         },
         runtime_resources,

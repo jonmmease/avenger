@@ -7370,6 +7370,7 @@ impl CompiledPlot {
             };
         let can_reuse_top_level_data_marks = can_reuse_top_level_data_marks
             && (!has_view_scoped_marks || view_scoped_marks_scheduled_for_retarget);
+        let mut data_marks_reused_for_components = false;
         let components = if can_reuse_top_level_data_marks {
             if let Some(cached_components) = &layout_profile.rendered_components {
                 match Box::pin(self.build_plot_components_reusing_data_marks(
@@ -7388,6 +7389,7 @@ impl CompiledPlot {
                         Self::record_evaluation_metric(&Some(metrics.clone()), |metrics| {
                             metrics.record_preview_data_mark_reuse();
                         });
+                        data_marks_reused_for_components = true;
                         components
                     }
                     None => {
@@ -7438,21 +7440,28 @@ impl CompiledPlot {
         } else {
             None
         };
-        let preview_layout_profile = if can_reuse_profile_facet_tree {
-            None
-        } else {
-            Some(LayoutProfileSnapshot::new_with_components(
-                self,
-                measurement.clone(),
-                Some(eval_ctx.facet_tree.clone()),
-                ctx,
-                &eval_ctx.params,
-                current_selection_revision_fingerprint,
-                current_store_revision_fingerprint,
-                rendered_components,
-                facet_cell_profiles,
-            ))
-        };
+        // Refresh the retained profile whenever this preview rebuilt data
+        // marks (e.g. it consumed a freshly ready view materialization), so
+        // later previews retarget the fresh scene against the measurement it
+        // was rendered with. Pure-preview sessions rely on this: without it
+        // the cached scene would stay whatever the last exact evaluation
+        // captured.
+        let preview_layout_profile =
+            if can_reuse_profile_facet_tree && data_marks_reused_for_components {
+                None
+            } else {
+                Some(LayoutProfileSnapshot::new_with_components(
+                    self,
+                    measurement.clone(),
+                    Some(eval_ctx.facet_tree.clone()),
+                    ctx,
+                    &eval_ctx.params,
+                    current_selection_revision_fingerprint,
+                    current_store_revision_fingerprint,
+                    rendered_components,
+                    facet_cell_profiles,
+                ))
+            };
         let evaluated =
             self.components_to_evaluated_plot(&eval_ctx, components, options.build_scene_rtree);
         let metrics = metrics

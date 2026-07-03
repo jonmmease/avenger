@@ -362,6 +362,9 @@ struct TransformChainOutcome {
     dataframe: Option<DataFrame>,
     derived_scalars: DerivedScalarMap,
     materialization_request_count: usize,
+    /// Whether any view materialization in the chain displayed its DESIRED
+    /// (current-key) result, as opposed to a stale fallback or empty payload.
+    desired_materialization_ready: bool,
 }
 
 async fn apply_mark_data_transforms(
@@ -400,6 +403,7 @@ async fn execute_transform_chain(
             dataframe,
             derived_scalars: DerivedScalarMap::new(),
             materialization_request_count: 0,
+            desired_materialization_ready: false,
         });
     }
     let dataframe = dataframe.unwrap_or_else(|| empty_dataframe(ctx));
@@ -411,6 +415,7 @@ async fn execute_transform_chain(
     // call sites merge inherited scalars themselves after the chain.
     let mut derived_scalars = DerivedScalarMap::new();
     let mut known_derived_scalars = seed_derived_scalars.clone();
+    let mut desired_materialization_ready = false;
     let mut materialization_request_count = 0;
     let mut current_level = transforms
         .first()
@@ -497,12 +502,14 @@ async fn execute_transform_chain(
                     eval_ctx.request_materialization(materialization.request.clone());
                     materialization_request_count += 1;
                 }
-                dataframe = dataframe_for_materialization_display(
+                let (display_dataframe, desired_ready) = dataframe_for_materialization_display(
                     &materialization,
                     ctx,
                     eval_ctx,
                     *materialization_handling,
                 )?;
+                dataframe = display_dataframe;
+                desired_materialization_ready |= desired_ready;
                 continue;
             }
         }
@@ -536,6 +543,7 @@ async fn execute_transform_chain(
         dataframe: Some(dataframe),
         derived_scalars,
         materialization_request_count,
+        desired_materialization_ready,
     })
 }
 
@@ -563,25 +571,30 @@ fn dataframe_from_materialization_result(
     }
 }
 
+/// Display dataframe for a view materialization plus whether the desired
+/// key itself was ready (as opposed to a stale fallback or empty payload).
 fn dataframe_for_materialization_display(
     materialization: &ViewMaterializationRequest,
     ctx: &SessionContext,
     eval_ctx: &EvaluationContext,
     handling: ViewMaterializationHandling,
-) -> Result<DataFrame, AvengerChartError> {
+) -> Result<(DataFrame, bool), AvengerChartError> {
     let Some(cache) = eval_ctx.materialization_cache() else {
         eval_ctx.record_materialization_cache_miss();
-        return Ok(materialization
-            .empty_dataframe
-            .clone()
-            .unwrap_or_else(|| empty_dataframe(ctx)));
+        return Ok((
+            materialization
+                .empty_dataframe
+                .clone()
+                .unwrap_or_else(|| empty_dataframe(ctx)),
+            false,
+        ));
     };
 
     let mut cache = cache.lock().expect("materialization cache lock poisoned");
     if let Some(result) = cache.get_ready(&materialization.request.key) {
         eval_ctx.record_materialization_cache_hit();
         eval_ctx.record_materialization_ready_used();
-        return dataframe_from_materialization_result(result, ctx);
+        return dataframe_from_materialization_result(result, ctx).map(|df| (df, true));
     }
 
     eval_ctx.record_materialization_cache_miss();
@@ -607,13 +620,16 @@ fn dataframe_for_materialization_display(
         if handling != ViewMaterializationHandling::ScaleInferenceReadOnly {
             eval_ctx.record_materialization_stale_fallback_used();
         }
-        return dataframe_from_materialization_result(result, ctx);
+        return dataframe_from_materialization_result(result, ctx).map(|df| (df, false));
     }
 
-    Ok(materialization
-        .empty_dataframe
-        .clone()
-        .unwrap_or_else(|| empty_dataframe(ctx)))
+    Ok((
+        materialization
+            .empty_dataframe
+            .clone()
+            .unwrap_or_else(|| empty_dataframe(ctx)),
+        false,
+    ))
 }
 
 async fn apply_view_mark_data_transforms(
@@ -1880,7 +1896,7 @@ pub(crate) async fn schedule_view_materializations_for_mark(
         request.plot_width,
         request.plot_height,
     )?;
-    let request_count = schedule_view_materialization_transforms(
+    let (request_count, desired_ready) = schedule_view_materialization_transforms(
         mark,
         view_scope,
         base_prepared,
@@ -1894,10 +1910,13 @@ pub(crate) async fn schedule_view_materializations_for_mark(
     // view-dependent results (materialized or synchronous) are pending, so
     // retargeting is allowed even for view chains without materialized
     // transforms. Non-RetargetCached views returned early above and always
-    // rebuild during Preview.
+    // rebuild during Preview. When the DESIRED materialization is already
+    // ready, decline retargeting so the preview rebuilds data marks (under
+    // the reused layout profile) and consumes the fresh result — otherwise a
+    // session that never settles exactly would keep showing stale data.
     Ok(ViewMaterializationSchedule {
         request_count,
-        can_retarget_cached_scene: true,
+        can_retarget_cached_scene: !desired_ready,
     })
 }
 
@@ -1907,10 +1926,10 @@ async fn schedule_view_materialization_transforms(
     base_prepared: &PreparedLogicalMarkData,
     request: &MarkDataRequest<'_>,
     view_eval_ctx: &EvaluationContext,
-) -> Result<usize, AvengerChartError> {
+) -> Result<(usize, bool), AvengerChartError> {
     let ctx = request.eval_ctx.session_context.as_ref();
     if view_scope.data.transforms().is_empty() {
-        return Ok(0);
+        return Ok((0, false));
     }
 
     // Mirror full view evaluation: children of a viewed group start from the
@@ -1967,7 +1986,10 @@ async fn schedule_view_materialization_transforms(
     )
     .await?;
 
-    Ok(outcome.materialization_request_count)
+    Ok((
+        outcome.materialization_request_count,
+        outcome.desired_materialization_ready,
+    ))
 }
 
 /// Apply a scale transformation to a channel expression.

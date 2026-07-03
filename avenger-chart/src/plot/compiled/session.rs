@@ -5337,6 +5337,19 @@ mod tests {
     async fn compile_group_view_adaptive_inferred_fill_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
+        compile_group_view_adaptive_plot(ctx, false).await
+    }
+
+    async fn compile_group_view_adaptive_explicit_fill_plot(
+        ctx: &SessionContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        compile_group_view_adaptive_plot(ctx, true).await
+    }
+
+    async fn compile_group_view_adaptive_plot(
+        ctx: &SessionContext,
+        explicit_fill_domain: bool,
+    ) -> Result<CompiledPlot, AvengerChartError> {
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0), (3.0, 3.0)) AS t(x, y)",
@@ -5401,10 +5414,19 @@ mod tests {
                                                                 })
                                                                 .axis(|axis| axis.visible(false))
                                                             })
-                                                            .fill(|fill| {
-                                                                fill.scale_with::<Sqrt>(|scale| {
-                                                                    scale.nice(false).zero(false)
-                                                                })
+                                                            .fill(move |fill| {
+                                                                fill.scale_with::<Sqrt>(
+                                                                    move |scale| {
+                                                                        let scale = scale
+                                                                            .nice(false)
+                                                                            .zero(false);
+                                                                        if explicit_fill_domain {
+                                                                            scale.domain((0.0, 4.0))
+                                                                        } else {
+                                                                            scale
+                                                                        }
+                                                                    },
+                                                                )
                                                                 .legend(|legend| {
                                                                     legend.title("Count")
                                                                 })
@@ -5504,6 +5526,61 @@ mod tests {
         Ok(())
     }
 
+    /// A session that never settles exactly (pure Preview interaction, used
+    /// by the adaptive example to keep the measured plot area from jumping
+    /// on gesture release) must still consume freshly completed rasters:
+    /// while the desired materialization is pending the preview retargets
+    /// the cached scene, and once it is ready the preview rebuilds data
+    /// marks under the reused layout profile and renders it.
+    #[tokio::test]
+    async fn group_view_pure_preview_consumes_ready_raster() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_group_view_adaptive_explicit_fill_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx);
+
+        // Warm exact evaluation measures layout and queues the raster.
+        let (_warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(warmup_metrics.pipeline.materialization_queued > 0);
+        wait_for_session_materializations(&session).await;
+
+        // Completion-invalidation redraw in Preview: the desired raster is
+        // ready, so the preview must rebuild data marks (profile reused,
+        // marks not) and render the raster.
+        let (ready_preview, ready_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+        assert_eq!(ready_metrics.mode, EvaluationMode::Preview);
+        assert_eq!(ready_metrics.pipeline.preview_profile_reuses, 1);
+        assert_eq!(
+            ready_metrics.pipeline.preview_data_mark_reuses, 0,
+            "a ready desired materialization must not be hidden behind scene retargeting"
+        );
+        assert!(ready_metrics.pipeline.materialization_ready_used > 0);
+        assert!(
+            count_image_marks(&ready_preview.scene_graph) > 0,
+            "the ready raster should render through the pure-preview path"
+        );
+
+        // A later preview pan (desired pending again) retargets the newly
+        // cached scene instead of rebuilding.
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.5, 2.5),
+        );
+        let (_pan_preview, pan_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(
+            pan_metrics.pipeline.preview_data_mark_reuses, 1,
+            "pending previews should retarget the cached scene"
+        );
+
+        Ok(())
+    }
+
     /// Mark-level control for the group-view preview-after-ready sequence.
     ///
     /// KNOWN FAILURE (pre-existing async-raster bug, not group-view
@@ -5549,8 +5626,8 @@ mod tests {
     /// control above; kept as the group-view repro.
     #[ignore = "pre-existing: preview-after-ready loses inferred fill scales (use explicit fill domains)"]
     #[tokio::test]
-    async fn group_view_adaptive_inferred_fill_preview_after_ready()
-    -> Result<(), AvengerChartError> {
+    async fn group_view_adaptive_inferred_fill_preview_after_ready() -> Result<(), AvengerChartError>
+    {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_group_view_adaptive_inferred_fill_plot(&ctx).await?);
         let mut session = compiled.clone().instantiate(ctx);
