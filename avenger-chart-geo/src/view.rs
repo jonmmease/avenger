@@ -286,7 +286,7 @@ impl GeoCoordMeasurement {
     }
 
     fn blended_view_projector(&self, t: f64) -> Option<avenger_geo::projector::Projector> {
-        use avenger_geo::blend::{BlendRaw, CorrectedBlendRaw, anchoring_similarity};
+        use avenger_geo::blend::{BlendRaw, CorrectedBlendRaw, anchoring_similarity_north_up};
         use avenger_geo::math::{DEGREES, RADIANS};
         use avenger_geo::raw::ProjectionKind;
         use avenger_geo::rotation::Rotation;
@@ -310,8 +310,15 @@ impl GeoCoordMeasurement {
             t,
         );
         let reference = self.projection.kind.raw();
-        let correction =
-            anchoring_similarity(&blend, reference.as_ref(), anchor_rot_lon, anchor_rot_lat);
+        // Bearing follows the Mapbox rule: authored orientation at t = 0,
+        // easing to north-up as the blend completes.
+        let correction = anchoring_similarity_north_up(
+            &blend,
+            reference.as_ref(),
+            anchor_rot_lon,
+            anchor_rot_lat,
+            t,
+        );
         let corrected = CorrectedBlendRaw { blend, correction };
         Some(self.projection.build_view_with_raw(
             Box::new(corrected),

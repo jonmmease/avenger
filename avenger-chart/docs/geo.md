@@ -79,8 +79,11 @@ inversion of the blended projection).
 `Geo::adaptive_blend(BlendConfig::default())` opts a projection into
 Mapbox-style behavior: past the configured zoom range the authored
 projection morphs pointwise into Web Mercator, anchored at the view
-center so position, scale, and north stay fixed while the world
-straightens into a slippy map. Blending is clamped off while the view
+center so position and ground scale stay fixed. Bearing follows the
+Mapbox rule: the map starts in the authored orientation and eases to
+north-up as the blend completes, so the fully-zoomed view is an
+ordinary north-up slippy map (on conics this rotates away the meridian
+convergence at the view center). Blending is clamped off while the view
 reaches beyond ±85° latitude.
 
 ## Tile Layers

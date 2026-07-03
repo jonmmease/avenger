@@ -163,6 +163,58 @@ pub fn anchoring_similarity(
     }
 }
 
+/// Like [`anchoring_similarity`], but the target orientation follows the
+/// Mapbox bearing rule (doc §8.3): at `t = 0` north at the anchor points
+/// wherever the authored projection puts it, and as `t → 1` it eases to
+/// straight up (+y in raw space), so the fully-blended map is an
+/// ordinary north-up Mercator. Ground scale at the anchor stays the
+/// authored ground scale at every `t`, keeping the view's authored-unit
+/// domains valid.
+pub fn anchoring_similarity_north_up(
+    blend: &dyn RawProjection,
+    reference: &dyn RawProjection,
+    anchor_lon: f64,
+    anchor_lat: f64,
+    t: f64,
+) -> PlanarSimilarity {
+    let fb = local_frame(blend, anchor_lon, anchor_lat);
+    let fr = local_frame(reference, anchor_lon, anchor_lat);
+
+    let nb = fb.north;
+    let nb2 = nb.0 * nb.0 + nb.1 * nb.1;
+    let nr_len = (fr.north.0 * fr.north.0 + fr.north.1 * fr.north.1).sqrt();
+    let (a, b) = if nb2 > 0.0 && nr_len > 0.0 {
+        // Target north: authored magnitude, angle eased from the authored
+        // north angle toward straight up (shortest way around).
+        let theta_ref = fr.north.1.atan2(fr.north.0);
+        let up = std::f64::consts::FRAC_PI_2;
+        let mut delta = up - theta_ref;
+        while delta > std::f64::consts::PI {
+            delta -= 2.0 * std::f64::consts::PI;
+        }
+        while delta < -std::f64::consts::PI {
+            delta += 2.0 * std::f64::consts::PI;
+        }
+        let theta = theta_ref + t.clamp(0.0, 1.0) * delta;
+        let target = (nr_len * theta.cos(), nr_len * theta.sin());
+        // Complex division target / nb.
+        (
+            (target.0 * nb.0 + target.1 * nb.1) / nb2,
+            (target.1 * nb.0 - target.0 * nb.1) / nb2,
+        )
+    } else {
+        (1.0, 0.0)
+    };
+    let rx = a * fb.origin.0 - b * fb.origin.1;
+    let ry = b * fb.origin.0 + a * fb.origin.1;
+    PlanarSimilarity {
+        a,
+        b,
+        dx: fr.origin.0 - rx,
+        dy: fr.origin.1 - ry,
+    }
+}
+
 /// A planar similarity `x' = a·x − b·y + dx`, `y' = b·x + a·y + dy`
 /// (rotation + uniform scale + translation, no reflection).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -304,6 +356,61 @@ mod tests {
                 frame.north,
                 ref_frame.north
             );
+        }
+    }
+
+    #[test]
+    fn north_up_anchoring_straightens_as_t_reaches_one() {
+        // California-ish anchor, well west of the Albers central meridian,
+        // where meridian convergence tilts the authored local north.
+        let anchor = (-122.0, 37.0);
+        let a_kind = ProjectionKind::albers();
+        let reference = a_kind.raw();
+        let ref_frame = local_frame(reference.as_ref(), anchor.0, anchor.1);
+        let ref_len = (ref_frame.north.0.powi(2) + ref_frame.north.1.powi(2)).sqrt();
+        assert!(
+            ref_frame.north.0.abs() > 1e-3,
+            "fixture should have tilted authored north, got {:?}",
+            ref_frame.north
+        );
+
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let blend = BlendRaw::new(a_kind.raw(), ProjectionKind::Mercator.raw(), t);
+            let sim =
+                anchoring_similarity_north_up(&blend, reference.as_ref(), anchor.0, anchor.1, t);
+            let corrected = CorrectedBlendRaw {
+                blend,
+                correction: sim,
+            };
+            let frame = local_frame(&corrected, anchor.0, anchor.1);
+            // Anchor position fixed at every t.
+            assert!(
+                (frame.origin.0 - ref_frame.origin.0).abs() < 1e-6
+                    && (frame.origin.1 - ref_frame.origin.1).abs() < 1e-6,
+                "t={t}: origin drifted"
+            );
+            // Ground scale (|north|) preserved at every t.
+            let len = (frame.north.0.powi(2) + frame.north.1.powi(2)).sqrt();
+            assert!(
+                (len - ref_len).abs() / ref_len < 1e-4,
+                "t={t}: north magnitude drifted: {len} vs {ref_len}"
+            );
+            if t == 0.0 {
+                // Authored orientation at the start.
+                assert!(
+                    (frame.north.0 - ref_frame.north.0).abs() < 1e-6
+                        && (frame.north.1 - ref_frame.north.1).abs() < 1e-6,
+                    "t=0 should preserve the authored frame"
+                );
+            }
+            if t == 1.0 {
+                // Fully blended: north points straight up.
+                assert!(
+                    frame.north.0.abs() < 1e-6 && frame.north.1 > 0.0,
+                    "t=1 should be north-up, got north {:?}",
+                    frame.north
+                );
+            }
         }
     }
 
