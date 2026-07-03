@@ -104,11 +104,23 @@ fn default_uniform_raster_image_cache() -> UniformRasterImageCacheHandle {
 
 const UNIFORM_RASTER_IMAGE_CACHE_CAPACITY: usize = 16;
 
+/// Identity cache entry: pins the source arrays so their buffer allocations
+/// cannot be freed and reused while the entry lives. Buffer addresses are
+/// only meaningful as identity while the referenced allocation is alive —
+/// without pinning, a different raster allocated at a recycled address
+/// produces a false identity hit and the wrong image is served (the
+/// mechanism behind the flaky faceted raster visual tests).
+struct UniformRasterIdentityCachedImage {
+    raster_values: ArrayRef,
+    fill_values: ArrayRef,
+    image: Arc<RgbaImage>,
+}
+
 #[derive(Default)]
 struct UniformRasterImageCache {
     entries: HashMap<UniformRasterImageKey, Arc<RgbaImage>>,
     order: VecDeque<UniformRasterImageKey>,
-    identity_entries: HashMap<UniformRasterImageIdentityKey, Arc<RgbaImage>>,
+    identity_entries: HashMap<UniformRasterImageIdentityKey, UniformRasterIdentityCachedImage>,
     identity_order: VecDeque<UniformRasterImageIdentityKey>,
 }
 
@@ -117,17 +129,42 @@ impl UniformRasterImageCache {
         self.entries.get(key).cloned()
     }
 
-    fn get_identity(&self, key: &UniformRasterImageIdentityKey) -> Option<Arc<RgbaImage>> {
-        self.identity_entries.get(key).cloned()
+    fn get_identity(
+        &self,
+        key: &UniformRasterImageIdentityKey,
+        raster_values: &ArrayRef,
+        fill_values: &ArrayRef,
+    ) -> Option<Arc<RgbaImage>> {
+        let entry = self.identity_entries.get(key)?;
+        // Verify true pointer identity against the pinned arrays; a hash
+        // collision or any drift must fall through to the content path.
+        if arrays_share_identity(&entry.raster_values, raster_values)
+            && arrays_share_identity(&entry.fill_values, fill_values)
+        {
+            Some(entry.image.clone())
+        } else {
+            None
+        }
     }
 
-    fn insert_identity(&mut self, key: UniformRasterImageIdentityKey, image: Arc<RgbaImage>) {
+    fn insert_identity(
+        &mut self,
+        key: UniformRasterImageIdentityKey,
+        raster_values: ArrayRef,
+        fill_values: ArrayRef,
+        image: Arc<RgbaImage>,
+    ) {
+        let entry = UniformRasterIdentityCachedImage {
+            raster_values,
+            fill_values,
+            image,
+        };
         if self.identity_entries.contains_key(&key) {
-            self.identity_entries.insert(key, image);
+            self.identity_entries.insert(key, entry);
             return;
         }
 
-        self.identity_entries.insert(key.clone(), image);
+        self.identity_entries.insert(key.clone(), entry);
         self.identity_order.push_back(key);
 
         while self.identity_entries.len() > UNIFORM_RASTER_IMAGE_CACHE_CAPACITY {
@@ -1597,7 +1634,7 @@ fn build_or_reuse_rgba_image(
     if let Some(image) = image_cache
         .lock()
         .expect("uniform raster image cache lock poisoned")
-        .get_identity(&identity_key)
+        .get_identity(&identity_key, &raster.values, fill_values)
     {
         debug!(
             target: "avenger_chart::raster",
@@ -1633,7 +1670,12 @@ fn build_or_reuse_rgba_image(
             .expect("uniform raster image cache lock poisoned");
         let image = cache.get(&key);
         if let Some(image) = &image {
-            cache.insert_identity(identity_key.clone(), image.clone());
+            cache.insert_identity(
+                identity_key.clone(),
+                raster.values.clone(),
+                fill_values.clone(),
+                image.clone(),
+            );
         }
         image
     };
@@ -1675,7 +1717,12 @@ fn build_or_reuse_rgba_image(
             .lock()
             .expect("uniform raster image cache lock poisoned");
         cache.insert(key, image.clone());
-        cache.insert_identity(identity_key, image.clone());
+        cache.insert_identity(
+            identity_key,
+            raster.values.clone(),
+            fill_values.clone(),
+            image.clone(),
+        );
     }
     debug!(
         target: "avenger_chart::raster",
@@ -1815,6 +1862,53 @@ fn hash_array_data_identity(data: &ArrayData, hasher: &mut impl Hasher) {
 fn hash_buffer_identity<T>(slice: &[T], hasher: &mut impl Hasher) {
     (slice.as_ptr() as usize).hash(hasher);
     slice.len().hash(hasher);
+}
+
+/// True pointer identity between two arrays: same buffers at the same
+/// addresses with the same layout. Only meaningful when one side is pinned
+/// alive (see `UniformRasterIdentityCachedImage`).
+fn arrays_share_identity(left: &ArrayRef, right: &ArrayRef) -> bool {
+    array_data_shares_identity(&left.to_data(), &right.to_data())
+}
+
+fn array_data_shares_identity(left: &ArrayData, right: &ArrayData) -> bool {
+    if left.data_type() != right.data_type()
+        || left.len() != right.len()
+        || left.offset() != right.offset()
+        || left.null_count() != right.null_count()
+    {
+        return false;
+    }
+    let nulls_match = match (left.nulls(), right.nulls()) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            buffer_shares_identity(left.buffer().as_slice(), right.buffer().as_slice())
+        }
+        _ => false,
+    };
+    if !nulls_match {
+        return false;
+    }
+    if left.buffers().len() != right.buffers().len()
+        || left.child_data().len() != right.child_data().len()
+    {
+        return false;
+    }
+    for (left_buffer, right_buffer) in left.buffers().iter().zip(right.buffers()) {
+        if !buffer_shares_identity(left_buffer.as_slice(), right_buffer.as_slice()) {
+            return false;
+        }
+    }
+    for (left_child, right_child) in left.child_data().iter().zip(right.child_data()) {
+        if !array_data_shares_identity(left_child, right_child) {
+            return false;
+        }
+    }
+    true
+}
+
+fn buffer_shares_identity<T>(left: &[T], right: &[T]) -> bool {
+    std::ptr::eq(left.as_ptr(), right.as_ptr()) && left.len() == right.len()
 }
 
 fn cell_is_non_finite(array: &ArrayRef, index: usize) -> Result<bool, AvengerChartError> {

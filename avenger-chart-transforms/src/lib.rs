@@ -5483,4 +5483,299 @@ mod tests {
             );
         }
     }
+
+    /// Stress determinism of grouped Rasterize2D under parallel,
+    /// small-batch execution: repeated collects of the same plan must agree
+    /// exactly. Guards against group-state mixups in the GroupsAccumulator
+    /// (update/merge/EmitTo paths) that only fire under multi-partition
+    /// execution — the mechanism behind load-dependent facet raster flakes.
+    #[tokio::test]
+    async fn rasterize_2d_grouped_parallel_execution_is_deterministic() {
+        use datafusion::execution::config::SessionConfig;
+
+        let config = SessionConfig::new()
+            .with_target_partitions(8)
+            .with_batch_size(64);
+        let ctx = SessionContext::new_with_config(config);
+
+        // 4 groups with very different densities over a 16x16 grid,
+        // deterministic positions.
+        let mut groups = Vec::new();
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        let mut values = Vec::new();
+        for index in 0..20_000_u64 {
+            let group = match index % 10 {
+                0..=5 => "g1",
+                6..=8 => "g2",
+                9 => {
+                    if index % 20 == 9 {
+                        "g3"
+                    } else {
+                        "g4"
+                    }
+                }
+                _ => unreachable!(),
+            };
+            let position = (index.wrapping_mul(2_654_435_761)) % 65_536;
+            groups.push(Some(group));
+            xs.push(Some((position % 256) as f64 / 256.0));
+            ys.push(Some((position / 256) as f64 / 256.0));
+            values.push(Some(1.0));
+        }
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("group", DataType::Utf8, true),
+                Field::new("x", DataType::Float64, true),
+                Field::new("y", DataType::Float64, true),
+                Field::new("value", DataType::Float64, true),
+            ])),
+            vec![
+                Arc::new(StringArray::from(groups)) as _,
+                Arc::new(Float64Array::from(xs)) as _,
+                Arc::new(Float64Array::from(ys)) as _,
+                Arc::new(Float64Array::from(values)) as _,
+            ],
+        )
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+
+        let (stage, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 1.0).bins(16_usize))
+                .y(|y| y.extent(0.0, 1.0).bins(16_usize))
+                .partition_by([col("group")])
+                .agg("count"),
+        );
+
+        let mut reference: Option<Vec<(String, Vec<u8>)>> = None;
+        for round in 0..20 {
+            let result = avenger_chart_core::apply_compiled_data_transforms(
+                df.clone(),
+                std::slice::from_ref(&stage),
+                &DataTransformExecutionContext {
+                    session_context: &ctx,
+                    params: &IndexMap::new(),
+                    time_context: TimeContext::default(),
+                    facet_context: None,
+                },
+            )
+            .await
+            .unwrap();
+            let batches = result
+                .dataframe
+                .sort(vec![col("group").sort(true, false)])
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let combined = {
+                let schema = batches[0].schema();
+                arrow::compute::concat_batches(&schema, &batches).unwrap()
+            };
+            assert_eq!(combined.num_rows(), 4, "round {round}: one row per group");
+            // Serialize each row's raster struct for exact comparison.
+            let mut rows = Vec::new();
+            let group_col = combined
+                .column_by_name("group")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let raster_col = combined.column_by_name("raster").unwrap();
+            for row in 0..combined.num_rows() {
+                let value = ScalarValue::try_from_array(raster_col, row).unwrap();
+                rows.push((
+                    group_col.value(row).to_string(),
+                    format!("{value:?}").into_bytes(),
+                ));
+            }
+            match &reference {
+                None => reference = Some(rows),
+                Some(reference) => {
+                    for (index, (expected, actual)) in reference.iter().zip(&rows).enumerate() {
+                        assert_eq!(
+                            expected.0, actual.0,
+                            "round {round}: group order diverged at row {index}"
+                        );
+                        assert_eq!(
+                            expected.1, actual.1,
+                            "round {round}: raster payload diverged for group {}",
+                            expected.0
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Repeated collects of the exact faceted taxi plan (CSV scan -> filter
+    /// -> grouped Rasterize2D -> per-cell filter) must agree. Reproduces the
+    /// flaky rasterize_taxi_pickup_count_facet_* visual tests at the data
+    /// layer, with no rendering involved.
+    #[tokio::test]
+    async fn rasterize_2d_taxi_grouped_collects_are_deterministic() {
+        let taxi_path = format!(
+            "{}/../avenger-chart/tests/data/nyc_taxi_2015/nyc_taxi.csv",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_csv(taxi_path, datafusion::prelude::CsvReadOptions::new())
+            .await
+            .expect("load NYC taxi fixture")
+            .filter(
+                col("pickup_x")
+                    .gt_eq(lit(-8_242_500.0))
+                    .and(col("pickup_x").lt_eq(lit(-8_226_500.0)))
+                    .and(col("pickup_y").gt_eq(lit(4_968_000.0)))
+                    .and(col("pickup_y").lt_eq(lit(4_983_000.0))),
+            )
+            .expect("filter taxi fixture");
+
+        let (stage, _) = compile_transform(
+            Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+                .x(|x| x.extent(-8_242_500.0, -8_226_500.0).bins(64_usize))
+                .y(|y| y.extent(4_968_000.0, 4_983_000.0).bins(64_usize))
+                .partition_by([col("payment_type")])
+                .agg("count"),
+        );
+
+        let mut reference: Option<Vec<String>> = None;
+        for round in 0..12 {
+            let result = avenger_chart_core::apply_compiled_data_transforms(
+                df.clone(),
+                std::slice::from_ref(&stage),
+                &DataTransformExecutionContext {
+                    session_context: &ctx,
+                    params: &IndexMap::new(),
+                    time_context: TimeContext::default(),
+                    facet_context: None,
+                },
+            )
+            .await
+            .unwrap();
+            let batches = result
+                .dataframe
+                .sort(vec![col("payment_type").sort(true, false)])
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let schema = batches[0].schema();
+            let combined = arrow::compute::concat_batches(&schema, &batches).unwrap();
+            let raster_col = combined.column_by_name("raster").unwrap();
+            let mut rows = Vec::new();
+            for row in 0..combined.num_rows() {
+                rows.push(format!(
+                    "{:?}",
+                    ScalarValue::try_from_array(raster_col, row).unwrap()
+                ));
+            }
+            match &reference {
+                None => reference = Some(rows),
+                Some(reference) => {
+                    assert_eq!(reference.len(), rows.len(), "round {round}: row count");
+                    for (index, (expected, actual)) in reference.iter().zip(&rows).enumerate() {
+                        assert_eq!(
+                            expected, actual,
+                            "round {round}: raster diverged at sorted row {index}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Concurrent per-cell collects (the chart evaluates facet cells in
+    /// parallel on one runtime) of the grouped taxi rasterization must agree
+    /// with sequential reference results.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn rasterize_2d_taxi_concurrent_cell_collects_are_deterministic() {
+        let taxi_path = format!(
+            "{}/../avenger-chart/tests/data/nyc_taxi_2015/nyc_taxi.csv",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_csv(taxi_path, datafusion::prelude::CsvReadOptions::new())
+            .await
+            .expect("load NYC taxi fixture")
+            .filter(
+                col("pickup_x")
+                    .gt_eq(lit(-8_242_500.0))
+                    .and(col("pickup_x").lt_eq(lit(-8_226_500.0)))
+                    .and(col("pickup_y").gt_eq(lit(4_968_000.0)))
+                    .and(col("pickup_y").lt_eq(lit(4_983_000.0))),
+            )
+            .expect("filter taxi fixture");
+
+        let (stage, _) = compile_transform(
+            Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+                .x(|x| x.extent(-8_242_500.0, -8_226_500.0).bins(64_usize))
+                .y(|y| y.extent(4_968_000.0, 4_983_000.0).bins(64_usize))
+                .partition_by([col("payment_type")])
+                .agg("count"),
+        );
+        let result = avenger_chart_core::apply_compiled_data_transforms(
+            df,
+            std::slice::from_ref(&stage),
+            &DataTransformExecutionContext {
+                session_context: &ctx,
+                params: &IndexMap::new(),
+                time_context: TimeContext::default(),
+                facet_context: None,
+            },
+        )
+        .await
+        .unwrap();
+        let rasterized = result.dataframe;
+
+        // Sequential reference per cell.
+        let mut reference = Vec::new();
+        for cell in 1..=4_i64 {
+            let batches = rasterized
+                .clone()
+                .filter(col("payment_type").eq(lit(cell)))
+                .unwrap()
+                .collect()
+                .await
+                .unwrap();
+            let schema = batches[0].schema();
+            let combined = arrow::compute::concat_batches(&schema, &batches).unwrap();
+            assert_eq!(combined.num_rows(), 1);
+            let raster = combined.column_by_name("raster").unwrap();
+            reference.push(format!(
+                "{:?}",
+                ScalarValue::try_from_array(raster, 0).unwrap()
+            ));
+        }
+
+        for round in 0..12 {
+            let mut handles = Vec::new();
+            for cell in 1..=4_i64 {
+                let cell_df = rasterized
+                    .clone()
+                    .filter(col("payment_type").eq(lit(cell)))
+                    .unwrap();
+                handles.push(tokio::spawn(async move {
+                    let batches = cell_df.collect().await.unwrap();
+                    let schema = batches[0].schema();
+                    let combined = arrow::compute::concat_batches(&schema, &batches).unwrap();
+                    assert_eq!(combined.num_rows(), 1);
+                    let raster = combined.column_by_name("raster").unwrap();
+                    format!("{:?}", ScalarValue::try_from_array(raster, 0).unwrap())
+                }));
+            }
+            for (index, handle) in handles.into_iter().enumerate() {
+                let actual = handle.await.unwrap();
+                assert_eq!(
+                    reference[index],
+                    actual,
+                    "round {round}: concurrent collect diverged for cell {}",
+                    index + 1
+                );
+            }
+        }
+    }
 }

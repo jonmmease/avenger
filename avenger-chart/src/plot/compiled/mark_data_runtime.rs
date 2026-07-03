@@ -772,6 +772,13 @@ fn filter_dataframe_to_transform_scope(
         .facet_tree
         .cell_predicate(scope.full_path, level.raw())
     else {
+        tracing::debug!(
+            target: "avenger_chart::facet_scope",
+            ?level,
+            full_path = ?scope.full_path,
+            label,
+            "facet cell predicate unavailable; transform scope narrowing skipped"
+        );
         return Ok(dataframe);
     };
     let available_columns = dataframe
@@ -785,6 +792,14 @@ fn filter_dataframe_to_transform_scope(
             "Transform output cannot be filtered to {label}; it no longer contains the facet columns required for this scope"
         )));
     }
+    tracing::debug!(
+        target: "avenger_chart::facet_scope",
+        ?level,
+        full_path = ?scope.full_path,
+        %predicate,
+        label,
+        "transform scope narrowing applied"
+    );
     dataframe
         .filter(predicate)
         .map_err(AvengerChartError::DataFusionError)
