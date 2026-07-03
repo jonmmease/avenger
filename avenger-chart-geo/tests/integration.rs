@@ -576,3 +576,41 @@ async fn debug_route_plot_scene() {
     }
     dump(&evaluated.scene_graph.marks, 0);
 }
+
+#[tokio::test]
+#[ignore]
+async fn debug_us_states_shapes() {
+    use avenger_geo::ingest::{geojson_to_features, stream_wkb_through};
+    use avenger_geo::projector::{BoundsSink, Projection};
+    use avenger_geo::raw::ProjectionKind;
+
+    let path = format!(
+        "{}/../avenger-chart/tests/data/geo/us-states.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let json = std::fs::read_to_string(path).unwrap();
+    let features = geojson_to_features(&json).unwrap();
+
+    // View-like projector: albers CONUS at world-ish scale.
+    let projection = Projection::new(ProjectionKind::albers()).with_rotate([96.0, 0.0, 0.0]);
+    let projector = projection.build_view((0.0031, 0.6410), 0.002, 560.0, 380.0);
+
+    for feature in &features {
+        let name = feature
+            .properties
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("?");
+        let Some(wkb) = &feature.wkb else { continue };
+        let mut bounds = BoundsSink::default();
+        stream_wkb_through(&projector, wkb, &mut bounds).unwrap();
+        if let Some([[x0, y0], [x1, y1]]) = bounds.result() {
+            let w = x1 - x0;
+            let h = y1 - y0;
+            if w > 500.0 || h > 350.0 {
+                println!("FLOOD {name}: {w:.0} x {h:.0}");
+            }
+        }
+    }
+    println!("done");
+}

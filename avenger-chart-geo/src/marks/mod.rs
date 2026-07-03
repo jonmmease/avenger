@@ -9,9 +9,11 @@
 //! great-circle resampling (`Line<Geo>` in `GeometrySpace::Coordinate`,
 //! the phase-5b blend).
 
+pub mod geo_shape;
 pub mod line;
 pub mod symbol;
 
+pub use geo_shape::{CompiledGeoShape, GeoShape};
 pub use line::CompiledGeoLine;
 pub use symbol::CompiledGeoSymbol;
 

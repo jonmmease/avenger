@@ -409,3 +409,259 @@ where
     }
     compare_image(&baseline_path, baseline_name, &image, DEFAULT_THRESHOLD);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4: GeoJSON + GeoShape
+// ---------------------------------------------------------------------------
+
+mod phase4 {
+    use super::*;
+    use avenger_chart::prelude::{Log, ScaleChannelConfig};
+    use avenger_chart_geo::{GeoPositionChannels, GeoShape, Line, Symbol, register_geojson};
+    use datafusion::prelude::{col, lit};
+    use palette::rgb::Srgba;
+
+    fn orange_ramp() -> Vec<Srgba> {
+        vec![
+            Srgba::new(1.0, 0.96, 0.92, 1.0),
+            Srgba::new(0.99, 0.68, 0.42, 1.0),
+            Srgba::new(0.85, 0.28, 0.10, 1.0),
+            Srgba::new(0.50, 0.14, 0.05, 1.0),
+        ]
+    }
+
+    fn viridis_ramp() -> Vec<Srgba> {
+        vec![
+            Srgba::new(0.267, 0.005, 0.329, 1.0),
+            Srgba::new(0.188, 0.407, 0.556, 1.0),
+            Srgba::new(0.208, 0.719, 0.473, 1.0),
+            Srgba::new(0.993, 0.906, 0.144, 1.0),
+        ]
+    }
+
+    fn geo_data(file: &str) -> String {
+        format!(
+            "{}/../avenger-chart/tests/data/geo/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    /// THE hero baseline: US states choropleth by population density on the
+    /// CONUS Albers aspect (scratch/geo README headline deliverable).
+    #[tokio::test]
+    async fn choropleth_us_states_albers() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "us_states", geo_data("us-states.json"))
+            .await
+            .expect("register us states");
+        let geo = Geo::albers_usa_conus().graticule(GraticuleStyle::default());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 380.0)
+            .title("Population density")
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill_with(col("density"), |c| {
+                        c.scale_with::<Log>(|s| s.range_colors(orange_ramp()))
+                    })
+                    .stroke("#ffffff")
+                    .stroke_width(0.6),
+            );
+        assert_visual_match_ctx(&ctx, plot, "choropleth_us_states_albers").await;
+    }
+
+    /// CONUS-only variant: filter by bbox in SQL (geometry is ordinary
+    /// data).
+    #[tokio::test]
+    async fn choropleth_conus_filtered() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "us_states2", geo_data("us-states.json"))
+            .await
+            .expect("register us states")
+            .filter(
+                col("bbox_xmin")
+                    .gt_eq(lit(-130.0))
+                    .and(col("bbox_xmax").lt_eq(lit(-60.0)))
+                    .and(col("bbox_ymin").gt_eq(lit(20.0))),
+            )
+            .expect("filter conus");
+        let geo = Geo::albers_usa_conus();
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 360.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill_with(col("density"), |c| {
+                        c.scale_with::<Log>(|s| s.range_colors(orange_ramp()))
+                    })
+                    .stroke("#ffffff")
+                    .stroke_width(0.6),
+            );
+        assert_visual_match_ctx(&ctx, plot, "choropleth_conus_filtered").await;
+    }
+
+    #[tokio::test]
+    async fn choropleth_world_pop_equal_earth() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(
+            &ctx,
+            "countries",
+            geo_data("ne_110m_admin_0_countries.geojson"),
+        )
+        .await
+        .expect("register countries");
+        let geo = furnished(Geo::equal_earth());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 340.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill_with(col("pop_est"), |c| {
+                        c.scale_with::<Log>(|s| s.range_colors(viridis_ramp()))
+                    })
+                    .stroke("#334155")
+                    .stroke_width(0.3),
+            );
+        assert_visual_match_ctx(&ctx, plot, "choropleth_world_pop_equal_earth").await;
+    }
+
+    #[tokio::test]
+    async fn geoshape_world_winkel_tripel() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(
+            &ctx,
+            "countries2",
+            geo_data("ne_110m_admin_0_countries.geojson"),
+        )
+        .await
+        .expect("register countries");
+        let geo = furnished(Geo::winkel_tripel());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 340.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill(col("continent"))
+                    .stroke("#ffffff")
+                    .stroke_width(0.4),
+            );
+        assert_visual_match_ctx(&ctx, plot, "geoshape_world_winkel_tripel").await;
+    }
+
+    /// Antarctica: pole-enclosing polygon renders as a cap, no streaks.
+    #[tokio::test]
+    async fn geoshape_antarctica_equal_earth() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(
+            &ctx,
+            "countries3",
+            geo_data("ne_110m_admin_0_countries.geojson"),
+        )
+        .await
+        .expect("register countries")
+        .filter(col("name").eq(lit("Antarctica")))
+        .expect("filter antarctica");
+        // World view so the whole cap and map edge are visible.
+        let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 340.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill("#94a3b8")
+                    .stroke("#334155")
+                    .stroke_width(0.5),
+            );
+        assert_visual_match_ctx(&ctx, plot, "geoshape_antarctica_equal_earth").await;
+    }
+
+    /// Fiji + Russia split cleanly at a centered antimeridian.
+    #[tokio::test]
+    async fn geoshape_antimeridian_fiji_russia() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(
+            &ctx,
+            "countries4",
+            geo_data("ne_110m_admin_0_countries.geojson"),
+        )
+        .await
+        .expect("register countries")
+        .filter(
+            col("name")
+                .eq(lit("Fiji"))
+                .or(col("name").eq(lit("Russia"))),
+        )
+        .expect("filter");
+        // Rotate the antimeridian to center screen.
+        let geo = furnished(
+            Geo::equirectangular()
+                .rotate([-150.0, 0.0, 0.0])
+                .center_projected(0.0, 0.0)
+                .zoom(0.95),
+        );
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 300.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill("#60a5fa")
+                    .stroke("#1e3a8a")
+                    .stroke_width(0.5),
+            );
+        assert_visual_match_ctx(&ctx, plot, "geoshape_antimeridian_fiji_russia").await;
+    }
+
+    /// The composed-layers story: land + great-circle routes + airports.
+    #[tokio::test]
+    async fn layered_land_routes_points() {
+        let ctx = SessionContext::new();
+        let land = register_geojson(&ctx, "land", geo_data("ne_110m_land.geojson"))
+            .await
+            .expect("register land");
+        let routes = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('JFK-LHR', 0, -73.78, 40.64), ('JFK-LHR', 1, -0.45, 51.47),
+                    ('JFK-NRT', 0, -73.78, 40.64), ('JFK-NRT', 1, 140.39, 35.76),
+                    ('JFK-GRU', 0, -73.78, 40.64), ('JFK-GRU', 1, -46.47, -23.43),
+                    ('JFK-SIN', 0, -73.78, 40.64), ('JFK-SIN', 1, 103.99, 1.36)
+                ) AS t(route, seq, lon, lat)",
+            )
+            .await
+            .expect("routes");
+        let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 340.0)
+            .mark(
+                GeoShape::new()
+                    .data(land)
+                    .geometry(&geo, col("geometry"))
+                    .fill("#d1d5db")
+                    .stroke("#9ca3af")
+                    .stroke_width(0.3),
+            )
+            .mark(
+                Line::new()
+                    .data(routes.clone())
+                    .lon_lat(&geo, "lon", "lat")
+                    .details(["route"])
+                    .order(col("seq"))
+                    .stroke("#dc2626")
+                    .stroke_width(1.5),
+            )
+            .mark(
+                Symbol::new()
+                    .data(routes)
+                    .lon_lat(&geo, "lon", "lat")
+                    .size(22.0)
+                    .fill("#111827"),
+            );
+        assert_visual_match_ctx(&ctx, plot, "layered_land_routes_points").await;
+    }
+}
