@@ -2,6 +2,7 @@
 
 pub mod datasets;
 pub mod helpers;
+pub mod test_adaptive_group_view;
 pub mod test_aggregate_encodings;
 pub mod test_axis_conditional_config;
 pub mod test_axis_expression_title;

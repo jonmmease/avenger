@@ -2279,18 +2279,19 @@ pub(crate) async fn prepare_mark_data(
         }
         let datafusion_params = params_to_datafusion(params);
         record_mark_data_array_collect(&request.evaluation_metrics);
+        let selected = (*df).clone().select(select_exprs)?;
+        let selected_schema = std::sync::Arc::new(selected.schema().as_arrow().clone());
         let batch = if let Some(param_values) = datafusion_params {
-            (*df)
-                .clone()
-                .select(select_exprs)?
-                .with_param_values(param_values)?
-                .collect()
-                .await?
+            selected.with_param_values(param_values)?.collect().await?
         } else {
-            (*df).clone().select(select_exprs)?.collect().await?
+            selected.collect().await?
         };
         if batch.is_empty() {
-            None
+            // A plan that optimizes to an empty relation (e.g. a
+            // constant-false scalar gate) yields zero batches; marks with
+            // array channels must still see a schema-complete empty batch
+            // rather than falling back to scalar-only unit rendering.
+            Some(RecordBatch::new_empty(selected_schema))
         } else {
             let schema = batch[0].schema();
             Some(concat_batches(&schema, &batch)?)

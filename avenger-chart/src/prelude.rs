@@ -34,7 +34,7 @@ pub use avenger_chart_core::{
     MaterializationIdentity, MaterializationKey, MaterializationKind, MaterializationOutputKind,
     MaterializationPolicy, MaterializationRequest, PlotMark, Selection, SelectionClauseUpdate,
     SelectionCombine, SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch,
-    StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, View, ViewAsyncPolicy,
+    StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext, View, ViewAsyncPolicy, ViewRef,
     ViewStalePolicy, WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{
