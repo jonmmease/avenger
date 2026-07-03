@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::OnceLock};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex, OnceLock},
+};
 
 use crate::{
     error::AvengerTextError,
@@ -14,15 +17,69 @@ use crate::{
     types::TextSyntaxMode,
 };
 
+/// Bound for the engine-level measurement memo; the map is cleared wholesale
+/// when it fills. Entries are tiny (a key string set plus `TextBounds`), and
+/// interactive chart chrome re-measures the same few hundred labels
+/// frame-to-frame, so a simple epoch reset never hurts steady state.
+const MEASURE_BOUNDS_CACHE_CAP: usize = 8192;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct MeasureBoundsCacheKey {
+    text: String,
+    font: String,
+    font_size_bits: u32,
+    font_weight: String,
+    font_style: String,
+    syntax_mode: TextSyntaxMode,
+    params: String,
+    number_locale: Option<String>,
+    number_locale_specs: String,
+    datetime_locale: Option<String>,
+    datetime_timezone: Option<String>,
+    datetime_locale_specs: String,
+}
+
+impl MeasureBoundsCacheKey {
+    fn new(config: &TextMeasurementConfig) -> Self {
+        Self {
+            text: config.text.to_string(),
+            font: config.font.to_string(),
+            font_size_bits: config.font_size.to_bits(),
+            font_weight: format!("{:?}", config.font_weight),
+            font_style: format!("{:?}", config.font_style),
+            syntax_mode: config.syntax_mode,
+            params: crate::label_params_fingerprint(config.params),
+            number_locale: config.number_locale.map(str::to_string),
+            number_locale_specs: config
+                .number_locale_specs
+                .map(crate::number_locale_specs_fingerprint)
+                .unwrap_or_default(),
+            datetime_locale: config.datetime_locale.map(str::to_string),
+            datetime_timezone: config.datetime_timezone.map(str::to_string),
+            datetime_locale_specs: config
+                .datetime_locale_specs
+                .map(crate::datetime_locale_specs_fingerprint)
+                .unwrap_or_default(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TextEngine {
     typst: avenger_typst_label::LabelEngine,
     math: TextMarkupConfig,
+    /// Successful `measure_bounds` results memoized across calls. Shared by
+    /// engine clones so the process-wide default engines accumulate one memo.
+    measure_bounds_cache: Arc<Mutex<HashMap<MeasureBoundsCacheKey, TextBounds>>>,
 }
 
 impl TextEngine {
     pub fn new(typst: avenger_typst_label::LabelEngine, math: TextMarkupConfig) -> Self {
-        Self { typst, math }
+        Self {
+            typst,
+            math,
+            measure_bounds_cache: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
     pub fn with_config(
@@ -62,7 +119,26 @@ impl TextEngine {
         &self,
         config: &TextMeasurementConfig,
     ) -> Result<TextBounds, AvengerTextError> {
-        TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_text_bounds(config)
+        let key = MeasureBoundsCacheKey::new(config);
+        if let Some(bounds) = self
+            .measure_bounds_cache
+            .lock()
+            .expect("measure bounds cache lock poisoned")
+            .get(&key)
+        {
+            return Ok(bounds.clone());
+        }
+        let bounds = TextLineMeasurer::new(self.typst.clone(), self.math.clone())
+            .measure_text_bounds(config)?;
+        let mut cache = self
+            .measure_bounds_cache
+            .lock()
+            .expect("measure bounds cache lock poisoned");
+        if cache.len() >= MEASURE_BOUNDS_CACHE_CAP {
+            cache.clear();
+        }
+        cache.insert(key, bounds.clone());
+        Ok(bounds)
     }
 
     pub fn measure_bounds_with_plain_fallback(
