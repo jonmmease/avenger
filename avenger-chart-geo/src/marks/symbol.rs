@@ -453,8 +453,55 @@ impl CompiledGeoSymbol {
                 )
             })?;
 
-        let x = geometry.x.clone();
-        let y = geometry.y.clone();
+        let mut x = geometry.x.clone();
+        let mut y = geometry.y.clone();
+        // Adaptive Mercator blend: authored-unit positions are only valid
+        // at t = 0; re-project through the blended view projector using the
+        // spherical lon/lat channels when present.
+        if let Some(measurement) =
+            crate::view::GeoCoordMeasurement::downcast(context.coord_measurement())
+            && measurement.blend_t() > 0.0
+            && data.is_some_and(|batch| {
+                batch.column_by_name("lon").is_some() && batch.column_by_name("lat").is_some()
+            })
+        {
+            let projector = measurement.view_projector();
+            let lon = coerce_numeric_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "lon",
+                &mark_context,
+                0.0,
+            )?;
+            let lat = coerce_numeric_channel_with_renderer(
+                self,
+                data,
+                scalars,
+                "lat",
+                &mark_context,
+                0.0,
+            )?;
+            let rows = data.map(|batch| batch.num_rows()).unwrap_or(1);
+            let lon_values = lon.as_vec(rows, None);
+            let lat_values = lat.as_vec(rows, None);
+            let mut xs = Vec::with_capacity(rows);
+            let mut ys = Vec::with_capacity(rows);
+            for i in 0..rows {
+                match projector.project(f64::from(lon_values[i]), f64::from(lat_values[i])) {
+                    Some((px, py)) => {
+                        xs.push(px as f32);
+                        ys.push(py as f32);
+                    }
+                    None => {
+                        xs.push(f32::NAN);
+                        ys.push(f32::NAN);
+                    }
+                }
+            }
+            x = ScalarOrArray::new_array(xs);
+            y = ScalarOrArray::new_array(ys);
+        }
         let size =
             coerce_numeric_channel_with_renderer(self, data, scalars, "size", &mark_context, 64.0)?;
         let angle =

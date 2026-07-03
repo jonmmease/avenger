@@ -665,3 +665,255 @@ mod phase4 {
         assert_visual_match_ctx(&ctx, plot, "layered_land_routes_points").await;
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phase 5a: pan/zoom tool param states
+// ---------------------------------------------------------------------------
+
+mod phase5 {
+    use super::*;
+    use avenger_chart::prelude::{Log, ScaleChannelConfig};
+    use avenger_chart_geo::{GeoPanZoom, GeoShape, register_geojson};
+    use datafusion::common::ScalarValue;
+    use datafusion::prelude::col;
+    use indexmap::IndexMap;
+    use palette::rgb::Srgba;
+
+    fn geo_data(file: &str) -> String {
+        format!(
+            "{}/../avenger-chart/tests/data/geo/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        )
+    }
+
+    fn ramp() -> Vec<Srgba> {
+        vec![
+            Srgba::new(1.0, 0.96, 0.92, 1.0),
+            Srgba::new(0.99, 0.68, 0.42, 1.0),
+            Srgba::new(0.85, 0.28, 0.10, 1.0),
+            Srgba::new(0.50, 0.14, 0.05, 1.0),
+        ]
+    }
+
+    async fn choropleth_plot(ctx: &SessionContext, table: &str) -> (Plot<Geo>, Geo) {
+        let df = register_geojson(ctx, table, geo_data("us-states.json"))
+            .await
+            .expect("register us states");
+        let geo = Geo::albers_usa_conus()
+            .viewport_id("map")
+            .graticule(GraticuleStyle::default());
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 380.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill_with(col("density"), |c| {
+                        c.scale_with::<Log>(|s| s.range_colors(ramp()))
+                    })
+                    .stroke("#ffffff")
+                    .stroke_width(0.6),
+            )
+            .tool(GeoPanZoom::new().viewport_id("map"));
+        (plot, geo)
+    }
+
+    #[tokio::test]
+    async fn tool_pan_state_albers() {
+        let ctx = SessionContext::new();
+        let (plot, geo) = choropleth_plot(&ctx, "us_pan").await;
+        // Pan the view northwest of the fit: center on Montana at a fixed
+        // resolution.
+        let (cx, cy) = geo.projection().project_raw_units(-110.0, 47.0);
+        let mut params = IndexMap::new();
+        params.insert(
+            "__geo_map_center_x".to_string(),
+            ScalarValue::Float64(Some(cx)),
+        );
+        params.insert(
+            "__geo_map_center_y".to_string(),
+            ScalarValue::Float64(Some(cy)),
+        );
+        params.insert(
+            "__geo_map_units_per_pixel".to_string(),
+            ScalarValue::Float64(Some(0.0012)),
+        );
+        assert_visual_match_params(&ctx, plot, Some(params), "tool_pan_state_albers").await;
+    }
+
+    #[tokio::test]
+    async fn tool_zoom_state_albers() {
+        let ctx = SessionContext::new();
+        let (plot, geo) = choropleth_plot(&ctx, "us_zoom").await;
+        // Zoomed onto Texas.
+        let (cx, cy) = geo.projection().project_raw_units(-99.0, 31.0);
+        let mut params = IndexMap::new();
+        params.insert(
+            "__geo_map_center_x".to_string(),
+            ScalarValue::Float64(Some(cx)),
+        );
+        params.insert(
+            "__geo_map_center_y".to_string(),
+            ScalarValue::Float64(Some(cy)),
+        );
+        params.insert(
+            "__geo_map_units_per_pixel".to_string(),
+            ScalarValue::Float64(Some(0.0005)),
+        );
+        assert_visual_match_params(&ctx, plot, Some(params), "tool_zoom_state_albers").await;
+    }
+
+    #[tokio::test]
+    async fn tool_box_zoom_overlay_equal_earth() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "land_box", geo_data("ne_110m_land.geojson"))
+            .await
+            .expect("register land");
+        let geo = furnished(Geo::equal_earth().viewport_id("world"))
+            .center_projected(0.0, 0.0)
+            .zoom(0.95);
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 340.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill("#d1d5db")
+                    .stroke("#9ca3af")
+                    .stroke_width(0.3),
+            )
+            .tool(GeoPanZoom::new().viewport_id("world"));
+        // Mid-drag box overlay (params are projected units).
+        let mut params = IndexMap::new();
+        params.insert(
+            "__tool_geo_pan_zoom__box_active".to_string(),
+            ScalarValue::Boolean(Some(true)),
+        );
+        params.insert(
+            "__tool_geo_pan_zoom__box_x0".to_string(),
+            ScalarValue::Float64(Some(-1.5)),
+        );
+        params.insert(
+            "__tool_geo_pan_zoom__box_y0".to_string(),
+            ScalarValue::Float64(Some(-0.4)),
+        );
+        params.insert(
+            "__tool_geo_pan_zoom__box_x1".to_string(),
+            ScalarValue::Float64(Some(0.4)),
+        );
+        params.insert(
+            "__tool_geo_pan_zoom__box_y1".to_string(),
+            ScalarValue::Float64(Some(0.75)),
+        );
+        assert_visual_match_params(
+            &ctx,
+            plot,
+            Some(params),
+            "tool_box_zoom_overlay_equal_earth",
+        )
+        .await;
+    }
+}
+
+/// Param-override variant of the visual assertion.
+async fn assert_visual_match_params<C>(
+    ctx: &SessionContext,
+    plot: Plot<C>,
+    params: Option<indexmap::IndexMap<String, datafusion::common::ScalarValue>>,
+    baseline_name: &str,
+) where
+    C: CoordinateSystem,
+{
+    let compiled = plot.compile(ctx).await.expect("compile geo plot");
+    let evaluated = compiled
+        .evaluate(ctx, params)
+        .await
+        .expect("evaluate geo plot");
+    let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
+    let baseline_path = PathBuf::from(BASELINE_DIR).join(format!("{baseline_name}.png"));
+    if std::env::var_os(BLESS_ENV).is_some() {
+        save_image(&baseline_path, &image);
+        return;
+    }
+    compare_image(&baseline_path, baseline_name, &image, DEFAULT_THRESHOLD);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5b: adaptive Mercator blend sequence
+// ---------------------------------------------------------------------------
+
+mod phase5b {
+    use super::*;
+    use avenger_chart::prelude::{Log, ScaleChannelConfig};
+    use avenger_chart_geo::{BlendConfig, GeoShape, register_geojson};
+    use datafusion::prelude::col;
+    use palette::rgb::Srgba;
+
+    /// Same camera (Kansas, mid zoom) rendered at forced blend parameters:
+    /// Albers relaxing into Mercator (the doc §8 illustration).
+    async fn blend_frame(t: f64, name: &str) {
+        let ctx = SessionContext::new();
+        let path = format!(
+            "{}/../avenger-chart/tests/data/geo/us-states.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let df = register_geojson(&ctx, "us_states_blend", path)
+            .await
+            .expect("register us states");
+        let geo = Geo::albers_usa_conus()
+            .center_lon_lat(-98.0, 38.5)
+            .zoom(3.1)
+            .graticule(GraticuleStyle {
+                stroke: [0.0, 0.0, 0.0, 0.30],
+                ..GraticuleStyle::default()
+            })
+            .adaptive_blend(BlendConfig {
+                force_t: Some(t),
+                ..Default::default()
+            });
+        let plot = Plot::with_coord(geo.clone())
+            .plot_size(560.0, 380.0)
+            .data(df)
+            .mark(
+                GeoShape::new()
+                    .geometry(&geo, col("geometry"))
+                    .fill_with(col("density"), |c| {
+                        c.scale_with::<Log>(|s| {
+                            s.range_colors(vec![
+                                Srgba::new(1.0, 0.96, 0.92, 1.0),
+                                Srgba::new(0.99, 0.68, 0.42, 1.0),
+                                Srgba::new(0.85, 0.28, 0.10, 1.0),
+                            ])
+                        })
+                    })
+                    .stroke("#ffffff")
+                    .stroke_width(0.6),
+            );
+        assert_visual_match_ctx(&ctx, plot, name).await;
+    }
+
+    #[tokio::test]
+    async fn blend_albers_t000() {
+        blend_frame(0.0, "blend_albers_t000").await;
+    }
+
+    #[tokio::test]
+    async fn blend_albers_t025() {
+        blend_frame(0.25, "blend_albers_t025").await;
+    }
+
+    #[tokio::test]
+    async fn blend_albers_t050() {
+        blend_frame(0.5, "blend_albers_t050").await;
+    }
+
+    #[tokio::test]
+    async fn blend_albers_t075() {
+        blend_frame(0.75, "blend_albers_t075").await;
+    }
+
+    #[tokio::test]
+    async fn blend_albers_t100() {
+        blend_frame(1.0, "blend_albers_t100").await;
+    }
+}

@@ -36,6 +36,31 @@ use crate::{
 const GEO_DESCRIPTOR_ID: &str = "geo_viewport";
 const GEO_METRIC_ID: &str = "geo_projected_units";
 
+/// Adaptive Web Mercator blend configuration (doc §8.3): as the view zooms
+/// past `z0`, the authored projection blends pointwise toward Mercator,
+/// reaching pure Mercator at `z1`. Anchored at the view center so
+/// position, scale, and north stay fixed there for every `t`.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlendConfig {
+    /// Zoom at (and below) which the authored projection shows pure.
+    pub z0: f64,
+    /// Zoom at (and above) which the view is pure Mercator.
+    pub z1: f64,
+    /// Test hook: force the blend parameter regardless of zoom.
+    #[serde(default)]
+    pub force_t: Option<f64>,
+}
+
+impl Default for BlendConfig {
+    fn default() -> Self {
+        BlendConfig {
+            z0: 4.0,
+            z1: 7.0,
+            force_t: None,
+        }
+    }
+}
+
 /// Graticule styling carried on the coordinate system.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GraticuleStyle {
@@ -98,6 +123,8 @@ pub struct Geo {
     graticule: Option<GraticuleStyle>,
     #[serde(default)]
     sphere: Option<SphereStyle>,
+    #[serde(default)]
+    blend: Option<BlendConfig>,
 }
 
 impl Geo {
@@ -113,6 +140,7 @@ impl Geo {
             zoom: None,
             graticule: None,
             sphere: None,
+            blend: None,
         }
     }
 
@@ -213,6 +241,14 @@ impl Geo {
     /// Draw the projection's sphere outline / world background.
     pub fn sphere(mut self, style: SphereStyle) -> Self {
         self.sphere = Some(style);
+        self
+    }
+
+    /// Enable the adaptive Web Mercator blend: zooming in morphs the
+    /// authored projection into Mercator so street-level interaction
+    /// behaves like a slippy map (doc §8.3). Opt-in.
+    pub fn adaptive_blend(mut self, config: BlendConfig) -> Self {
+        self.blend = Some(config);
         self
     }
 
@@ -524,6 +560,7 @@ impl CoordinateMeasurementProvider for Geo {
             projection: self.projection(),
             graticule: self.graticule,
             sphere: self.sphere,
+            blend: self.blend,
         })))
     }
 }

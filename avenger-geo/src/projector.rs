@@ -250,6 +250,35 @@ impl Projection {
         }
     }
 
+    /// `build_view` over a custom raw projection (e.g. a
+    /// [`crate::blend::CorrectedBlendRaw`] whose anchoring keeps authored
+    /// planar units valid at the view center). The custom raw must consume
+    /// rotated spherical radians like the catalog raws.
+    pub fn build_view_with_raw(
+        &self,
+        raw: Box<dyn RawProjection>,
+        center: (f64, f64),
+        units_per_pixel: f64,
+        plot_width: f64,
+        plot_height: f64,
+    ) -> Projector {
+        let k = 1.0 / units_per_pixel;
+        let transform = Affine::new(
+            k,
+            plot_width / 2.0 - k * center.0,
+            plot_height / 2.0 + k * center.1,
+            0.0,
+        );
+        Projector {
+            raw,
+            rotation: Rotation::from_degrees(self.rotate),
+            transform,
+            delta2: self.precision * self.precision,
+            clip_extent: Some([[0.0, 0.0], [plot_width, plot_height]]),
+            identity: false,
+        }
+    }
+
     /// Project spherical degrees to raw planar units (rotation applied, no
     /// scale/translate, y-up). This is the coordinate space that view scales
     /// map to pixels; see `build_view`.

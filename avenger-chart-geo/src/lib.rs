@@ -18,14 +18,15 @@ pub mod tools;
 pub mod udf;
 pub mod view;
 
-pub use avenger_chart_marks::{Line, Symbol};
+pub use avenger_chart_marks::{Line, Rect, Symbol};
 pub use avenger_geo::raw::ProjectionKind;
-pub use coord::{Geo, GraticuleStyle, SphereStyle};
+pub use coord::{BlendConfig, Geo, GraticuleStyle, SphereStyle};
 pub use data::{geojson_to_record_batch, register_geojson};
 pub use guide::GeoGuide;
 pub use marks::{
-    CompiledGeoLine, CompiledGeoShape, CompiledGeoSymbol, GeoGeometrySpace, GeoPositionChannels,
-    GeoShape,
+    CompiledGeoLine, CompiledGeoRect, CompiledGeoShape, CompiledGeoSymbol, GeoGeometrySpace,
+    GeoPositionChannels, GeoShape,
 };
+pub use tools::GeoPanZoom;
 pub use udf::{GeoProjectUdf, geo_project_udf_name, register_geo_project_udf};
 pub use view::{GeoCoordMeasurement, GeoView, GeoViewport};

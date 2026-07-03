@@ -12,7 +12,7 @@ use avenger_chart_core::{AvengerChartError, CoordMeasurement, DomainExtent};
 use avenger_geo::projector::Projection;
 use serde::{Deserialize, Serialize};
 
-use crate::coord::{GraticuleStyle, SphereStyle};
+use crate::coord::{BlendConfig, GraticuleStyle, SphereStyle};
 
 /// Tile-size denominator of the zoom convention (matches the slippy-map /
 /// WebMercator convention so mercator-projection zoom levels line up).
@@ -217,6 +217,8 @@ pub struct GeoCoordMeasurement {
     pub projection: Projection,
     pub graticule: Option<GraticuleStyle>,
     pub sphere: Option<SphereStyle>,
+    /// Adaptive Mercator blend configuration, when enabled.
+    pub blend: Option<BlendConfig>,
 }
 
 impl GeoCoordMeasurement {
@@ -228,8 +230,44 @@ impl GeoCoordMeasurement {
         measurement.as_any_mut().downcast_mut::<Self>()
     }
 
-    /// The pixel-space projector for this measurement's view.
+    /// The blend parameter for this view: 0 below `z0` (or when the view
+    /// reaches beyond ±85° latitude, where the Mercator target
+    /// degenerates), 1 above `z1`, smoothstepped between (doc §8.3).
+    pub fn blend_t(&self) -> f64 {
+        let Some(config) = &self.blend else {
+            return 0.0;
+        };
+        if let Some(force) = config.force_t {
+            return force.clamp(0.0, 1.0);
+        }
+        // Polar clamp: hold the authored projection while the view spans
+        // latitudes where Web Mercator is undefined.
+        const MAX_LAT: f64 = 85.06;
+        let top = self
+            .projection
+            .invert_raw_units(self.view.center_x, self.view.y_domain.1);
+        let bottom = self
+            .projection
+            .invert_raw_units(self.view.center_x, self.view.y_domain.0);
+        match (top, bottom) {
+            (Some((_, lat_top)), Some((_, lat_bottom)))
+                if lat_top.abs() <= MAX_LAT && lat_bottom.abs() <= MAX_LAT => {}
+            _ => return 0.0,
+        }
+        smoothstep(config.z0, config.z1, self.view.zoom)
+    }
+
+    /// The pixel-space projector for this measurement's view. When the
+    /// adaptive blend is active (`blend_t() > 0`) the projector runs the
+    /// anchored blended projection; all geometry consumers (guide, lines,
+    /// GeoShape) pick it up transparently.
     pub fn view_projector(&self) -> avenger_geo::projector::Projector {
+        let t = self.blend_t();
+        if t > 0.0
+            && let Some(projector) = self.blended_view_projector(t)
+        {
+            return projector;
+        }
         self.projection.build_view(
             (self.view.center_x, self.view.center_y),
             self.view.units_per_pixel,
@@ -237,6 +275,51 @@ impl GeoCoordMeasurement {
             f64::from(self.view.plot_height),
         )
     }
+
+    fn blended_view_projector(&self, t: f64) -> Option<avenger_geo::projector::Projector> {
+        use avenger_geo::blend::{BlendRaw, CorrectedBlendRaw, anchoring_similarity};
+        use avenger_geo::math::{DEGREES, RADIANS};
+        use avenger_geo::raw::ProjectionKind;
+        use avenger_geo::rotation::Rotation;
+
+        // Anchor at the view center; the anchoring similarity keeps the
+        // blended output consistent with authored planar units there, so
+        // the view's center/units-per-pixel stay valid at every t.
+        let (anchor_lon, anchor_lat) = self
+            .projection
+            .invert_raw_units(self.view.center_x, self.view.center_y)?;
+        // The blend raws consume rotated spherical coordinates (rotation is
+        // a pipeline stage), so anchor in the rotated frame.
+        let rotation = Rotation::from_degrees(self.projection.rotate);
+        let (anchor_rot_lon, anchor_rot_lat) =
+            rotation.rotate(anchor_lon * RADIANS, anchor_lat * RADIANS);
+        let (anchor_rot_lon, anchor_rot_lat) = (anchor_rot_lon * DEGREES, anchor_rot_lat * DEGREES);
+
+        let blend = BlendRaw::new(
+            self.projection.kind.raw(),
+            ProjectionKind::Mercator.raw(),
+            t,
+        );
+        let reference = self.projection.kind.raw();
+        let correction =
+            anchoring_similarity(&blend, reference.as_ref(), anchor_rot_lon, anchor_rot_lat);
+        let corrected = CorrectedBlendRaw { blend, correction };
+        Some(self.projection.build_view_with_raw(
+            Box::new(corrected),
+            (self.view.center_x, self.view.center_y),
+            self.view.units_per_pixel,
+            f64::from(self.view.plot_width),
+            f64::from(self.view.plot_height),
+        ))
+    }
+}
+
+fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
+    if edge1 <= edge0 {
+        return if x >= edge1 { 1.0 } else { 0.0 };
+    }
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 impl CoordMeasurement for GeoCoordMeasurement {

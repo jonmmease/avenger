@@ -233,12 +233,22 @@ impl CompiledMark for CompiledGeoLine {
             data.column_by_name("lon").is_some() && data.column_by_name("lat").is_some();
         let measurement = GeoCoordMeasurement::downcast(context.coord_measurement());
         let requested_space = self.state.geometry_space_or(GeometrySpace::Coordinate);
+        let blending = measurement.is_some_and(|m| m.blend_t() > 0.0);
         let geometry_space = match requested_space {
             GeometrySpace::Coordinate if has_spherical && measurement.is_some() => {
                 GeometrySpace::Coordinate
             }
+            // Display geometry under an active blend must still re-project
+            // vertices (authored-unit positions are only valid at t = 0);
+            // treat it as Coordinate-space with straight-segment semantics
+            // approximated by the resampler-free projector point path.
+            GeometrySpace::Display if blending && has_spherical && measurement.is_some() => {
+                GeometrySpace::Display
+            }
             _ => GeometrySpace::Display,
         };
+        let blend_projector = (blending && has_spherical)
+            .then(|| measurement.expect("measurement checked").view_projector());
 
         let mut scene_marks = Vec::new();
         let mut source_row_indices = Vec::new();
@@ -306,15 +316,51 @@ impl CompiledMark for CompiledGeoLine {
                     &mark_context,
                     0.0,
                 )?;
-                let geometry = project_display_arrays(
-                    &x.as_vec(len, None),
-                    &y.as_vec(len, None),
-                    coord,
-                    context.plot_width(),
-                    context.plot_height(),
-                )?;
-                let x_values = geometry.x.as_vec(len, None);
-                let y_values = geometry.y.as_vec(len, None);
+                let (x_values, y_values) = if let Some(projector) = &blend_projector {
+                    let lon = coerce_numeric_channel_with_renderer(
+                        self,
+                        Some(data),
+                        scalars,
+                        "lon",
+                        &mark_context,
+                        0.0,
+                    )?;
+                    let lat = coerce_numeric_channel_with_renderer(
+                        self,
+                        Some(data),
+                        scalars,
+                        "lat",
+                        &mark_context,
+                        0.0,
+                    )?;
+                    let lon_values = lon.as_vec(len, None);
+                    let lat_values = lat.as_vec(len, None);
+                    let mut xs = Vec::with_capacity(len);
+                    let mut ys = Vec::with_capacity(len);
+                    for i in 0..len {
+                        match projector.project(f64::from(lon_values[i]), f64::from(lat_values[i]))
+                        {
+                            Some((px, py)) => {
+                                xs.push(px as f32);
+                                ys.push(py as f32);
+                            }
+                            None => {
+                                xs.push(f32::NAN);
+                                ys.push(f32::NAN);
+                            }
+                        }
+                    }
+                    (xs, ys)
+                } else {
+                    let geometry = project_display_arrays(
+                        &x.as_vec(len, None),
+                        &y.as_vec(len, None),
+                        coord,
+                        context.plot_width(),
+                        context.plot_height(),
+                    )?;
+                    (geometry.x.as_vec(len, None), geometry.y.as_vec(len, None))
+                };
 
                 for (partition_key, indices) in partition_groups {
                     if indices.is_empty() {

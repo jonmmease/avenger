@@ -614,3 +614,105 @@ async fn debug_us_states_shapes() {
     }
     println!("done");
 }
+
+mod blend {
+    use super::*;
+    use avenger_chart_geo::BlendConfig;
+
+    async fn measurement_for(geo: Geo, plot: (f32, f32)) -> avenger_chart_geo::GeoCoordMeasurement {
+        let ctx = SessionContext::new();
+        let params = IndexMap::new();
+        let request = CoordinateMeasureRequest {
+            plot_width: plot.0,
+            plot_height: plot.1,
+            params: &params,
+            session_context: &ctx,
+            data: None,
+            compiled_marks: &[],
+            facet_path: &[],
+            scales: HashMap::new(),
+        };
+        let measurement = coord_measure(&geo, request).await;
+        GeoCoordMeasurement::downcast(measurement.as_ref())
+            .expect("geo measurement")
+            .clone()
+    }
+
+    async fn coord_measure(
+        geo: &Geo,
+        request: CoordinateMeasureRequest<'_>,
+    ) -> Box<dyn avenger_chart_core::CoordMeasurement> {
+        geo.measure_coordinate(request)
+            .await
+            .expect("measure")
+            .expect("measurement")
+    }
+
+    #[tokio::test]
+    async fn blend_t_zero_matches_unblended_projector() {
+        let geo = Geo::albers_usa_conus()
+            .center_lon_lat(-98.0, 38.5)
+            .zoom(3.0)
+            .adaptive_blend(BlendConfig {
+                force_t: Some(0.0),
+                ..Default::default()
+            });
+        let with_blend = measurement_for(geo, (500.0, 400.0)).await;
+        let geo_plain = Geo::albers_usa_conus()
+            .center_lon_lat(-98.0, 38.5)
+            .zoom(3.0);
+        let without = measurement_for(geo_plain, (500.0, 400.0)).await;
+
+        let a = with_blend.view_projector();
+        let b = without.view_projector();
+        for &(lon, lat) in &[(-98.0, 38.5), (-120.0, 45.0), (-80.0, 28.0)] {
+            let pa = a.project(lon, lat).expect("project");
+            let pb = b.project(lon, lat).expect("project");
+            assert_close(pa.0, pb.0, 1e-9);
+            assert_close(pa.1, pb.1, 1e-9);
+        }
+    }
+
+    #[tokio::test]
+    async fn anchoring_keeps_center_fixed_across_t() {
+        let anchor = (-98.0, 38.5);
+        let mut reference: Option<(f64, f64)> = None;
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let geo = Geo::albers_usa_conus()
+                .center_lon_lat(anchor.0, anchor.1)
+                .zoom(5.0)
+                .adaptive_blend(BlendConfig {
+                    force_t: Some(t),
+                    ..Default::default()
+                });
+            let measurement = measurement_for(geo, (500.0, 400.0)).await;
+            let projector = measurement.view_projector();
+            let p = projector
+                .project(anchor.0, anchor.1)
+                .expect("project anchor");
+            // The anchor must stay at the plot center for every t.
+            assert_close(p.0, 250.0, 0.5);
+            assert_close(p.1, 200.0, 0.5);
+            // And a nearby landmark must move continuously (small deltas).
+            let landmark = projector.project(-97.0, 39.0).expect("project landmark");
+            if let Some(prev) = reference {
+                let drift = ((landmark.0 - prev.0).powi(2) + (landmark.1 - prev.1).powi(2)).sqrt();
+                assert!(drift < 25.0, "t={t}: landmark jumped {drift}px");
+            }
+            reference = Some(landmark);
+        }
+    }
+
+    #[tokio::test]
+    async fn polar_view_clamps_blend_to_authored() {
+        // A world view spans beyond ±85°: t must clamp to 0 even past z1.
+        let geo = Geo::equal_earth().adaptive_blend(BlendConfig {
+            z0: -10.0,
+            z1: -5.0,
+            force_t: None,
+        });
+        let measurement = measurement_for(geo, (500.0, 300.0)).await;
+        assert!(measurement.view.zoom > -5.0);
+        assert_eq!(measurement.blend_t(), 0.0);
+    }
+}

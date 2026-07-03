@@ -38,6 +38,8 @@ typetag = "0.2"
 winit = { workspace = true, optional = true }
 
 [dev-dependencies]
+avenger-chart-geo = { path = "../avenger-chart-geo" }
+palette = { workspace = true }
 avenger-chart-webmercator = { path = "../avenger-chart-webmercator" }
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
@@ -97,6 +99,18 @@ required-features = ["winit-wgpu"]
 
 [[example]]
 name = "webmercator_tiles"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "geo_albers_choropleth_pan_zoom"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "geo_equal_earth_world"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "geo_blend_zoom"
 required-features = ["winit-wgpu"]
 
 [[example]]

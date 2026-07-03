@@ -11,10 +11,12 @@
 
 pub mod geo_shape;
 pub mod line;
+pub mod rect;
 pub mod symbol;
 
 pub use geo_shape::{CompiledGeoShape, GeoShape};
 pub use line::CompiledGeoLine;
+pub use rect::CompiledGeoRect;
 pub use symbol::CompiledGeoSymbol;
 
 use avenger_chart_core::ChannelValue;
