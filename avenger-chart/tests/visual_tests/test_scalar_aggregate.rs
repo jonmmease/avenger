@@ -15,8 +15,7 @@ fn create_scatter_data(ctx: &SessionContext) -> DataFrame {
         Field::new("x", DataType::Float64, false),
         Field::new("y", DataType::Float64, false),
     ]));
-    let batch =
-        RecordBatch::try_new(schema, vec![Arc::new(x), Arc::new(y)]).expect("record batch");
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(x), Arc::new(y)]).expect("record batch");
     ctx.read_batch(batch).expect("read batch")
 }
 
@@ -33,24 +32,23 @@ async fn test_scalar_aggregate_mean_rule_over_scatter() {
         .mark(
             Symbol::new()
                 .transform(ScalarAggregate::new().max("max_y", col("y")), |mark, s| {
-                    mark.size_with(col("y") / s.scalar("max_y") * lit(160.0), |c| {
-                        c.no_scale()
-                    })
+                    mark.size_with(col("y") / s.scalar("max_y") * lit(160.0), |c| c.no_scale())
                 })
                 .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 9.0))))
                 .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 10.0))))
                 .fill("#4682b4"),
         )
-        .mark(
-            Rule::new().transform(ScalarAggregate::new().mean("mean_y", col("y")), |mark, s| {
+        .mark(Rule::new().transform(
+            ScalarAggregate::new().mean("mean_y", col("y")),
+            |mark, s| {
                 mark.x(lit(0.0))
                     .x2(lit(9.0))
                     .y(s.scalar("mean_y"))
                     .y2(s.scalar("mean_y"))
                     .stroke("#d62728")
                     .stroke_width(2.0)
-            }),
-        );
+            },
+        ));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(

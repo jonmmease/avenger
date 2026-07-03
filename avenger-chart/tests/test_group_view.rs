@@ -52,12 +52,7 @@ async fn group_view_lowers_onto_children() {
             |group, _v| {
                 group
                     .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
-                    .mark(
-                        Symbol::new()
-                            .x(col("x"))
-                            .y(col("y") + lit(0.5))
-                            .size(10.0),
-                    )
+                    .mark(Symbol::new().x(col("x")).y(col("y") + lit(0.5)).size(10.0))
             },
         ),
     );
@@ -131,46 +126,44 @@ async fn group_view_shared_chain_feeds_both_children() {
     let ctx = SessionContext::new();
     let cutoff = Param::new("cutoff", ScalarValue::Float64(Some(10.0)));
     let df = xy_dataframe(&ctx, 5).await;
-    let plot = Plot::<Cartesian>::new()
-        .add_param(cutoff.clone())
-        .mark(
-            MarkGroup::<Cartesian>::new().data(df).view(
-                View::cartesian()
-                    .id("pts")
-                    .x_domain(col("x"))
-                    .y_domain(col("y")),
-                |group, _v| {
-                    group
-                        // group view-local: shared filter + shared count
-                        .transform(Filter::new(col("x").lt_eq(cutoff.expr())), |group, _| group)
-                        .transform(ScalarAggregate::new().count("n"), |group, stats| {
-                            group
-                                .mark(
-                                    // "sparse" child: visible when n < 3
-                                    Symbol::new()
-                                        .transform(
-                                            Filter::new(stats.scalar("n").lt(lit(3_i64))),
-                                            |mark, _| mark,
-                                        )
-                                        .x(col("x"))
-                                        .y(col("y"))
-                                        .size(10.0),
-                                )
-                                .mark(
-                                    // "dense" child: visible when n >= 3
-                                    Symbol::new()
-                                        .transform(
-                                            Filter::new(stats.scalar("n").gt_eq(lit(3_i64))),
-                                            |mark, _| mark,
-                                        )
-                                        .x(col("x"))
-                                        .y(col("y"))
-                                        .size(40.0),
-                                )
-                        })
-                },
-            ),
-        );
+    let plot = Plot::<Cartesian>::new().add_param(cutoff.clone()).mark(
+        MarkGroup::<Cartesian>::new().data(df).view(
+            View::cartesian()
+                .id("pts")
+                .x_domain(col("x"))
+                .y_domain(col("y")),
+            |group, _v| {
+                group
+                    // group view-local: shared filter + shared count
+                    .transform(Filter::new(col("x").lt_eq(cutoff.expr())), |group, _| group)
+                    .transform(ScalarAggregate::new().count("n"), |group, stats| {
+                        group
+                            .mark(
+                                // "sparse" child: visible when n < 3
+                                Symbol::new()
+                                    .transform(
+                                        Filter::new(stats.scalar("n").lt(lit(3_i64))),
+                                        |mark, _| mark,
+                                    )
+                                    .x(col("x"))
+                                    .y(col("y"))
+                                    .size(10.0),
+                            )
+                            .mark(
+                                // "dense" child: visible when n >= 3
+                                Symbol::new()
+                                    .transform(
+                                        Filter::new(stats.scalar("n").gt_eq(lit(3_i64))),
+                                        |mark, _| mark,
+                                    )
+                                    .x(col("x"))
+                                    .y(col("y"))
+                                    .size(40.0),
+                            )
+                    })
+            },
+        ),
+    );
     let compiled = plot.compile(&ctx).await.unwrap();
 
     // cutoff 10.0: all 5 rows pass the shared filter, n = 5 >= 3, only the
@@ -289,26 +282,28 @@ async fn group_view_shared_chain_is_per_facet_cell() {
         .data(df)
         .mark(
             Subplot::new(
-                Plot::<Cartesian>::new().mark(MarkGroup::<Cartesian>::new().view(
-                    View::cartesian()
-                        .id("pts")
-                        .x_domain(col("x"))
-                        .y_domain(col("y")),
-                    |group, _v| {
-                        group.transform(ScalarAggregate::new().count("n"), |group, stats| {
-                            group.mark(
-                                Symbol::new()
-                                    .transform(
-                                        Filter::new(stats.scalar("n").lt_eq(lit(2_i64))),
-                                        |mark, _| mark,
-                                    )
-                                    .x(col("x"))
-                                    .y(col("y"))
-                                    .size(20.0),
-                            )
-                        })
-                    },
-                )),
+                Plot::<Cartesian>::new().mark(
+                    MarkGroup::<Cartesian>::new().view(
+                        View::cartesian()
+                            .id("pts")
+                            .x_domain(col("x"))
+                            .y_domain(col("y")),
+                        |group, _v| {
+                            group.transform(ScalarAggregate::new().count("n"), |group, stats| {
+                                group.mark(
+                                    Symbol::new()
+                                        .transform(
+                                            Filter::new(stats.scalar("n").lt_eq(lit(2_i64))),
+                                            |mark, _| mark,
+                                        )
+                                        .x(col("x"))
+                                        .y(col("y"))
+                                        .size(20.0),
+                                )
+                            })
+                        },
+                    ),
+                ),
             )
             .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
         );
@@ -330,13 +325,15 @@ async fn mark_view_inside_group_view_errors() {
                 .x_domain(col("x"))
                 .y_domain(col("y")),
             |group, _v| {
-                group.mark(Symbol::new().view(
-                    View::cartesian()
-                        .id("inner")
-                        .x_domain(col("x"))
-                        .y_domain(col("y")),
-                    |mark, _v| mark.x(col("x")).y(col("y")),
-                ))
+                group.mark(
+                    Symbol::new().view(
+                        View::cartesian()
+                            .id("inner")
+                            .x_domain(col("x"))
+                            .y_domain(col("y")),
+                        |mark, _v| mark.x(col("x")).y(col("y")),
+                    ),
+                )
             },
         ),
     );
@@ -346,7 +343,8 @@ async fn mark_view_inside_group_view_errors() {
         .err()
         .expect("nested mark view should fail");
     assert!(
-        err.to_string().contains("nested view scopes are not supported"),
+        err.to_string()
+            .contains("nested view scopes are not supported"),
         "unexpected error: {err}"
     );
 }
@@ -363,13 +361,15 @@ async fn nested_group_views_error() {
                 .x_domain(col("x"))
                 .y_domain(col("y")),
             |group, _v| {
-                group.mark(MarkGroup::<Cartesian>::new().view(
-                    View::cartesian()
-                        .id("inner")
-                        .x_domain(col("x"))
-                        .y_domain(col("y")),
-                    |group, _v| group.mark(Symbol::new().x(col("x")).y(col("y"))),
-                ))
+                group.mark(
+                    MarkGroup::<Cartesian>::new().view(
+                        View::cartesian()
+                            .id("inner")
+                            .x_domain(col("x"))
+                            .y_domain(col("y")),
+                        |group, _v| group.mark(Symbol::new().x(col("x")).y(col("y"))),
+                    ),
+                )
             },
         ),
     );
@@ -379,7 +379,8 @@ async fn nested_group_views_error() {
         .err()
         .expect("nested group views should fail");
     assert!(
-        err.to_string().contains("nested view scopes are not supported"),
+        err.to_string()
+            .contains("nested view scopes are not supported"),
         "unexpected error: {err}"
     );
 }

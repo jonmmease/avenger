@@ -119,8 +119,9 @@ If a transform drops required facet columns, evaluation returns a clear
 
 Transforms can return a `DerivedScalarMap` in addition to a transformed
 `DataFrame`. Derived scalars are named DataFusion expressions computed in the
-same data scope as the transform. Channel values and guide/scale config can
-reference them with `derived_scalar(...)` placeholders.
+same data scope as the transform. Channel values, guide/scale config, and
+later transform stages can reference them with `derived_scalar(...)`
+placeholders.
 
 `Bin` and `TimeUnit` use this to attach ordinary scale and axis defaults to
 their output handles:
@@ -129,8 +130,51 @@ their output handles:
 - tick spacing scalars;
 - normal scale options such as `nice(false)` and `zero(false)`.
 
-Derived scalars are resolved during scale and guide evaluation. Duplicate
-derived scalar ids in the same data scope are rejected.
+`ScalarAggregate` is the general-purpose producer: it passes its input
+through unchanged and publishes whole-input aggregations as derived scalars
+(see Built-In Transforms below).
+
+Resolution happens at three consumer layers:
+
+- **Later transform stages**: the chain executor resolves already-produced
+  scalars into each subsequent stage's expressions before it applies. Stages
+  run in order, so referencing a scalar before the stage that produces it is
+  an error ("referenced but not produced in this data scope"). Chains are
+  seeded with scalars inherited from prepared mark-group base data and, for
+  view-scoped marks, from the pre-view chain, so cross-chain references
+  resolve too.
+- **Channel data expressions**: resolved once when logical mark data is
+  finalized, so domain inference, render channel collection, sorting, and
+  aggregate preparation all see resolved values.
+- **Scale options and guide config**: resolved during scale and guide
+  evaluation (the original consumer layer).
+
+Duplicate derived scalar ids in the same data scope are rejected.
+
+### Position In The Chain Is Meaningful
+
+A derived scalar summarizes the transform's input *at its position in the
+chain* — after upstream filters and facet narrowing. `Filter ->
+ScalarAggregate::count("n")` counts the filtered rows; per-facet scopes get
+per-facet scalars by construction.
+
+### Eager And Lazy Evaluation
+
+`ScalarAggregate` publishes scalars in one of two modes:
+
+- **Eager (default)**: the aggregation executes once during `apply` with the
+  execution context's params bound, and the scalar is a concrete literal.
+  Works in every consumer layer, is exactly-once per chain application, and
+  the value is inspectable (a `scalar_aggregate_eager` tracing span records
+  the query latency).
+- **Lazy (`.lazy()`)**: the scalar is an uncorrelated scalar subquery over
+  the input plan; `apply` stays a pure plan-builder. At the pinned DataFusion
+  version, compiled transform and channel expressions are protobuf-encoded
+  and cannot represent scalar subqueries, so lazy scalars referenced from
+  stages or channels fail with actionable guidance; only scale options and
+  guide configs can consume them. DataFusion >= 54 serializes scalar
+  subqueries, at which point the stage and channel paths work in lazy mode
+  too.
 
 ## Built-In Transforms
 
@@ -147,6 +191,11 @@ derived scalar ids in the same data scope are rejected.
   row.
 - `Lump`: groups low-ranked categorical values into an "Other" category or
   drops them.
+- `ScalarAggregate`: passes rows through unchanged and publishes whole-input
+  aggregations as derived scalars. Completes a triangle with the other
+  aggregations: `Aggregate` collapses rows, `JoinAggregate` appends
+  aggregates as columns on every row, `ScalarAggregate` publishes them as
+  scalar expressions without touching the table.
 - `Select`: DataFusion-style projection with explicit aliases.
 - `Stack`: computes start/end/midpoint intervals for stacked marks.
 - `TimeUnit`: truncates timestamps to explicit or inferred calendar units and

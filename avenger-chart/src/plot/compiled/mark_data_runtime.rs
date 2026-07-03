@@ -1433,12 +1433,9 @@ async fn finalize_logical_mark_data(
         channels
             .into_iter()
             .map(|(name, value)| {
-                let value = resolve_known_derived_scalars_in_channel_value(
-                    value,
-                    &derived_scalars,
-                    ctx,
-                )
-                .map_err(explain_stage_subquery_serialization_error)?;
+                let value =
+                    resolve_known_derived_scalars_in_channel_value(value, &derived_scalars, ctx)
+                        .map_err(explain_stage_subquery_serialization_error)?;
                 Ok((name, value))
             })
             .collect::<Result<IndexMap<_, _>, AvengerChartError>>()?

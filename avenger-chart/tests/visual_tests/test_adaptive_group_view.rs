@@ -135,9 +135,7 @@ async fn compile_adaptive_plot(ctx: &SessionContext) -> CompiledPlot {
                                                     // raster row in scatter
                                                     // mode.
                                                     Filter::new(
-                                                        stats
-                                                            .scalar("n")
-                                                            .gt_eq(lit(POINT_BUDGET)),
+                                                        stats.scalar("n").gt_eq(lit(POINT_BUDGET)),
                                                     ),
                                                     |mark, _| mark,
                                                 )
@@ -171,9 +169,7 @@ async fn compile_adaptive_plot(ctx: &SessionContext) -> CompiledPlot {
                                 .mark(
                                     Symbol::new()
                                         .transform(
-                                            Filter::new(
-                                                stats.scalar("n").lt(lit(POINT_BUDGET)),
-                                            ),
+                                            Filter::new(stats.scalar("n").lt(lit(POINT_BUDGET))),
                                             |mark, _| mark,
                                         )
                                         .x(col("x"))

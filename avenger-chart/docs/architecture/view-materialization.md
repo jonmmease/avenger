@@ -51,10 +51,47 @@ Ready results are retained conservatively:
 This keeps long pan/zoom sessions from retaining every intermediate viewport
 while preserving the stale fallback needed for smooth previews.
 
+## Group View Scopes
+
+`MarkGroup::view(...)` shares one view scope across every child mark of a
+group, splitting the group's chains by closure position exactly the way
+mark-level `.view(...)` splits a mark's own chain:
+
+- group transforms **outside** the view closure are pre-view: they feed
+  positional domain inference and are prepared once as shared group base
+  data;
+- group transforms **inside** the closure form the group's **view-local
+  chain**: it runs once per (plot, group, facet path) per evaluation and its
+  output dataframe and derived scalars are shared by all children;
+- child marks inside the scope are view-scoped: their own transforms and
+  channels are view-local, and their x/y render channels do not contribute
+  to positional domain inference.
+
+At plot compile time, `lower_group_views` lowers the group's view spec onto
+each child mark's compiled state, so every existing view consumer
+(domain-inference gating, view param resolution, tool target discovery,
+preview rebuild forcing) applies to group children with no special casing.
+The group's own view-local chain stays on the compiled group state.
+
+At runtime the shared chain is memoized on first use in a per-evaluation
+cache on `EvaluationContext` (`group_view_data_cache`): the first child whose
+view preparation needs the group result computes it with its own view-param
+context, and later children reuse it (children share the cell's scales, so
+their resolved view params are identical — asserted in debug builds).
+Children's view chains start from the shared output dataframe with its
+derived scalars seeded in; the schedule-only preview path mirrors this so it
+computes identical materialization keys.
+
+This is the substrate for adaptive representation switching: a group
+view-local `Filter` + eager `ScalarAggregate` count feeds gates on an async
+rasterized child and a synchronous scatter child, switching at a point
+budget (see `avenger-chart-app/examples/taxi_adaptive_points.rs` and the
+`group_view` visual baselines).
+
 ## Transform Execution
 
-Ordinary mark transforms, view-local transforms, and cached-preview scheduling
-all use the same scoped transform-chain executor in
+Ordinary mark transforms, view-local transforms, group view-local chains, and
+cached-preview scheduling all use the same scoped transform-chain executor in
 `plot::compiled::mark_data_runtime`.
 
 The executor owns:
@@ -62,6 +99,8 @@ The executor owns:
 - scoped transform ordering;
 - facet dataframe narrowing as scopes get more specific;
 - selection predicate expansion;
+- derived-scalar resolution into later stage expressions (seeded with
+  inherited scalars from prepared base / group / pre-view chains);
 - ordinary `CompiledDataTransform::apply(...)`;
 - optional `view_materialization_request(...)`;
 - derived scalar duplicate detection.
@@ -69,6 +108,12 @@ The executor owns:
 The schedule-only preview path still advances through each materialization's
 display dataframe. That keeps later transforms in the same view chain seeing the
 same schema as full view evaluation.
+
+View-local transforms placed **after** a materialized transform apply to the
+materialization's display dataframe on every path — pending-empty, ready, and
+stale-preview. This is how a scalar-gated raster drops its raster row: the
+gate filter follows `Rasterize2D` in the chain, so the decision never enters
+the materialization key and the fallback cache keeps real rasters.
 
 ## Host Wiring
 

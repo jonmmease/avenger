@@ -44,8 +44,7 @@ use serde_with::{FromInto, serde_as};
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
     CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
-    CompiledViewScope,
-    CompiledSubplotPayload, CoordMeasurement, CoordinateDomainResolvedState,
+    CompiledSubplotPayload, CompiledViewScope, CoordMeasurement, CoordinateDomainResolvedState,
     CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec,
     FacetDataScope, FormattingContext, Legend, LogicalPlanNodeExt, MarkDataMode,
     ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme,
@@ -308,7 +307,10 @@ impl CompiledPlot {
     }
 
     /// The nearest enclosing group view scope for a mark, if any.
-    pub(crate) fn group_view_for_mark(&self, mark_index: usize) -> Option<GroupViewMarkContext<'_>> {
+    pub(crate) fn group_view_for_mark(
+        &self,
+        mark_index: usize,
+    ) -> Option<GroupViewMarkContext<'_>> {
         let mut group_index = self.mark_group_index_for_mark(mark_index);
         while let Some(index) = group_index {
             let group = self.mark_groups.get(index)?;

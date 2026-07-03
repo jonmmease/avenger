@@ -129,10 +129,9 @@ async fn lazy_scalar_stage_reference_fails_actionably() {
     let plot = Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .transform(ScalarAggregate::new().count("n").lazy(), |mark, stats| {
-                mark.transform(
-                    Filter::new(stats.scalar("n").lt(lit(10_i64))),
-                    |mark, _| mark,
-                )
+                mark.transform(Filter::new(stats.scalar("n").lt(lit(10_i64))), |mark, _| {
+                    mark
+                })
             })
             .x(col("x"))
             .y(col("y"))
@@ -213,16 +212,14 @@ async fn mark_group_scalar_seeds_child_stage() {
     for (threshold, visible, hidden) in [(10_i64, 5_usize, 0_usize), (3_i64, 0_usize, 5_usize)] {
         let ctx = SessionContext::new();
         let df = xy_dataframe(&ctx, 5).await;
-        let plot = Plot::<Cartesian>::new().mark(
-            MarkGroup::<Cartesian>::new().data(df).transform(
-                ScalarAggregate::new().count("n"),
-                |group, stats| {
-                    group
-                        .mark(gated_symbol(stats.scalar("n").lt(lit(threshold))))
-                        .mark(gated_symbol(stats.scalar("n").gt_eq(lit(threshold))))
-                },
-            ),
-        );
+        let plot = Plot::<Cartesian>::new().mark(MarkGroup::<Cartesian>::new().data(df).transform(
+            ScalarAggregate::new().count("n"),
+            |group, stats| {
+                group
+                    .mark(gated_symbol(stats.scalar("n").lt(lit(threshold))))
+                    .mark(gated_symbol(stats.scalar("n").gt_eq(lit(threshold))))
+            },
+        ));
         let compiled = plot.compile(&ctx).await.unwrap();
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         assert_eq!(
@@ -239,9 +236,10 @@ async fn pre_view_scalar_seeds_view_local_stage() {
     for (threshold, expected) in [(10_i64, 5_usize), (3_i64, 0_usize)] {
         let ctx = SessionContext::new();
         let df = xy_dataframe(&ctx, 5).await;
-        let plot = Plot::<Cartesian>::new().data(df).mark(
-            Symbol::new()
-                .transform(ScalarAggregate::new().count("n"), |mark, stats| {
+        let plot = Plot::<Cartesian>::new()
+            .data(df)
+            .mark(
+                Symbol::new().transform(ScalarAggregate::new().count("n"), |mark, stats| {
                     let gate = stats.scalar("n").lt(lit(threshold));
                     mark.view(
                         View::cartesian()
@@ -256,7 +254,7 @@ async fn pre_view_scalar_seeds_view_local_stage() {
                         },
                     )
                 }),
-        );
+            );
         let compiled = plot.compile(&ctx).await.unwrap();
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         assert_eq!(
@@ -279,10 +277,7 @@ async fn param_change_updates_scalar_gate() {
         .data(df)
         .mark(
             Symbol::new()
-                .transform(
-                    Filter::new(col("x").lt_eq(cutoff.expr())),
-                    |mark, _| mark,
-                )
+                .transform(Filter::new(col("x").lt_eq(cutoff.expr())), |mark, _| mark)
                 .transform(ScalarAggregate::new().count("n"), |mark, stats| {
                     mark.transform(
                         Filter::new(stats.scalar("n").gt_eq(lit(3_i64))),
@@ -313,9 +308,7 @@ fn scalar_sized_plot(
     Plot::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .transform(stats, |mark, stats| {
-                mark.size_with(col("y") / stats.scalar("hi") * lit(100.0), |c| {
-                    c.no_scale()
-                })
+                mark.size_with(col("y") / stats.scalar("hi") * lit(100.0), |c| c.no_scale())
             })
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 20.0)))),
@@ -382,14 +375,15 @@ async fn scalar_positions_summary_rule() {
         .unwrap();
 
     let with_rule = scatter(xy_dataframe(&ctx, 5).await)
-        .mark(
-            Rule::new().transform(ScalarAggregate::new().mean("mean_x", col("x")), |mark, s| {
+        .mark(Rule::new().transform(
+            ScalarAggregate::new().mean("mean_x", col("x")),
+            |mark, s| {
                 mark.x(s.scalar("mean_x"))
                     .y(lit(0.0))
                     .y2(lit(20.0))
                     .stroke("#d62728")
-            }),
-        )
+            },
+        ))
         .compile(&ctx)
         .await
         .unwrap()
@@ -422,18 +416,20 @@ async fn facet_scalars_are_per_cell() {
         .plot_constraint(PlotConstraint::height(120.0))
         .data(df)
         .mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(
-                Symbol::new()
-                    .transform(ScalarAggregate::new().count("n"), |mark, stats| {
-                        mark.transform(
-                            Filter::new(stats.scalar("n").lt_eq(lit(2_i64))),
-                            |mark, _| mark,
-                        )
-                    })
-                    .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
-                    .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 10.0))))
-                    .size(20.0),
-            ))
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .transform(ScalarAggregate::new().count("n"), |mark, stats| {
+                            mark.transform(
+                                Filter::new(stats.scalar("n").lt_eq(lit(2_i64))),
+                                |mark, _| mark,
+                            )
+                        })
+                        .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                        .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                        .size(20.0),
+                ),
+            )
             .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
         );
     let compiled = plot.compile(&ctx).await.unwrap();

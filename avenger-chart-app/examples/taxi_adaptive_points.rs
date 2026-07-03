@@ -163,20 +163,22 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
         .transform(
             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
                 .x(|x| {
-                    x.extent(v.x().domain_start(), v.x().domain_end())
-                        .bins(raster_bins_with_min_domain_size(
+                    x.extent(v.x().domain_start(), v.x().domain_end()).bins(
+                        raster_bins_with_min_domain_size(
                             v.x().domain_start(),
                             v.x().domain_end(),
                             v.x().pixels(),
-                        ))
+                        ),
+                    )
                 })
                 .y(|y| {
-                    y.extent(v.y().domain_start(), v.y().domain_end())
-                        .bins(raster_bins_with_min_domain_size(
+                    y.extent(v.y().domain_start(), v.y().domain_end()).bins(
+                        raster_bins_with_min_domain_size(
                             v.y().domain_start(),
                             v.y().domain_end(),
                             v.y().pixels(),
-                        ))
+                        ),
+                    )
                 })
                 .agg("count"),
             move |mark, hist| {
@@ -184,15 +186,11 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
                     .raster_with(hist.raster(), |r| {
                         r.x_with(hist.x_dim(), |x| {
                             x.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
-                                .axis(|axis| {
-                                    axis.title("Pickup x").tick_count(4).format(".4~s")
-                                })
+                                .axis(|axis| axis.title("Pickup x").tick_count(4).format(".4~s"))
                         })
                         .y_with(hist.y_dim(), |y| {
                             y.scale_with::<Linear>(|scale| scale.nice(false).zero(false))
-                                .axis(|axis| {
-                                    axis.title("Pickup y").tick_count(4).format(".4~s")
-                                })
+                                .axis(|axis| axis.title("Pickup y").tick_count(4).format(".4~s"))
                         })
                         .fill(|fill| {
                             fill.scale_with::<Sqrt>(|scale| scale.nice(false).zero(false))

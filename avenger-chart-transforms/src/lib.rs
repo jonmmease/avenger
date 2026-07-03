@@ -5302,8 +5302,7 @@ mod tests {
             if lazy {
                 transform = transform.lazy();
             }
-            let result =
-                apply_scalar_aggregate(&ctx, input, transform, &IndexMap::new()).await;
+            let result = apply_scalar_aggregate(&ctx, input, transform, &IndexMap::new()).await;
             let output_batches = result.dataframe.collect().await.unwrap();
             assert_eq!(input_batches, output_batches, "lazy={lazy}");
             assert!(result.derived_scalars.contains_key("n"));
@@ -5341,7 +5340,11 @@ mod tests {
         )
         .await;
         for (name, expected_value) in &expected {
-            let expr = result.derived_scalars.get(name).expect("lazy scalar").clone();
+            let expr = result
+                .derived_scalars
+                .get(name)
+                .expect("lazy scalar")
+                .clone();
             assert!(
                 matches!(expr, Expr::ScalarSubquery(_)),
                 "expected subquery for '{name}'"

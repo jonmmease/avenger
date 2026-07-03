@@ -71,8 +71,8 @@ use crate::aggregate::{
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DerivedScalarMap, IntoExpr,
-    derived_scalar, params_to_datafusion,
+    DataTransformExecutionContext, DataTransformResult, DerivedScalarMap, IntoExpr, derived_scalar,
+    params_to_datafusion,
 };
 use datafusion::{
     arrow::datatypes::DataType,
@@ -228,11 +228,7 @@ pub struct ScalarAggregateOutput {
 impl ScalarAggregateOutput {
     /// Derived-scalar placeholder expression for a named measure.
     pub fn scalar(&self, name: &str) -> Expr {
-        let Some((_, op)) = self
-            .names
-            .iter()
-            .find(|(candidate, _)| candidate == name)
-        else {
+        let Some((_, op)) = self.names.iter().find(|(candidate, _)| candidate == name) else {
             panic!("Unknown scalar aggregate '{name}'");
         };
         derived_scalar(name, measure_placeholder_dtype(*op))
@@ -310,10 +306,7 @@ impl CompiledScalarAggregateTransform {
             )
             .map_err(AvengerChartError::DataFusionError)?;
 
-        let span = tracing::debug_span!(
-            "scalar_aggregate_eager",
-            measures = self.measures.len(),
-        );
+        let span = tracing::debug_span!("scalar_aggregate_eager", measures = self.measures.len(),);
         let batches = async { aggregated.collect().await }
             .instrument(span)
             .await
