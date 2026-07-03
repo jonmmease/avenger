@@ -106,7 +106,14 @@ async fn build_app(
         .sphere(SphereStyle::default())
         .graticule(GraticuleStyle::default())
         .tiles(tiles)
-        .adaptive_blend(BlendConfig::default());
+        // Wider-than-default blend window (default z0=4, z1=7): spreads
+        // the warp and the ease to north-up over five zoom levels so the
+        // rotation reads as part of the zoom rather than a swing.
+        .adaptive_blend(BlendConfig {
+            z0: 4.0,
+            z1: 9.0,
+            ..Default::default()
+        });
     let plot = Plot::with_coord(geo.clone())
         .canvas_size(900.0, 560.0)
         .title("Equal Earth satellite tiles — zoom in to morph into Mercator")
