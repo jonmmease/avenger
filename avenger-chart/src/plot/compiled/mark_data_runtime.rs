@@ -50,7 +50,9 @@ use crate::{
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
 
-use super::materialization::MaterializationStatus;
+use std::time::Instant;
+
+use super::materialization::{MaterializationStatus, PREVIEW_CONSUME_STABILITY};
 
 /// Mark data and channels after container data scope and aggregate preparation.
 #[derive(Clone)]
@@ -591,10 +593,31 @@ fn dataframe_for_materialization_display(
     };
 
     let mut cache = cache.lock().expect("materialization cache lock poisoned");
+
+    // For preview retarget decisions, track how long this identity's desired
+    // key has been unchanged. While the view params are still moving
+    // frame-to-frame, a ready result is NOT reported as consumable — the
+    // preview keeps retargeting the cached scene — and a delayed
+    // re-evaluation is requested so a hold/release still consumes it.
+    let preview_key_stable_for = (handling
+        == ViewMaterializationHandling::PreviewRetargetScheduleOnly
+        && materialization.request.priority < 0.0)
+        .then(|| cache.note_preview_desired_key(&materialization.request, Instant::now()));
+
     if let Some(result) = cache.get_ready(&materialization.request.key) {
         eval_ctx.record_materialization_cache_hit();
         eval_ctx.record_materialization_ready_used();
-        return dataframe_from_materialization_result(result, ctx).map(|df| (df, true));
+        let consume_now = match preview_key_stable_for {
+            Some(stable_for) if stable_for < PREVIEW_CONSUME_STABILITY => {
+                cache.defer_preview_consume(
+                    &materialization.request,
+                    PREVIEW_CONSUME_STABILITY - stable_for,
+                );
+                false
+            }
+            _ => true,
+        };
+        return dataframe_from_materialization_result(result, ctx).map(|df| (df, consume_now));
     }
 
     eval_ctx.record_materialization_cache_miss();

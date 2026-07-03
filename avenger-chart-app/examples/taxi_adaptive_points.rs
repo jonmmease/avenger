@@ -32,7 +32,7 @@
 //! This example expects the HoloViz NYC taxi parquet at
 //! `scratch/data/nyc_taxi_wide.parquet` relative to the workspace root.
 
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
@@ -54,7 +54,7 @@ use datafusion::{
 use winit::window::WindowAttributes;
 
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 100_000;
+const TAXI_MAX_ROWS: usize = 1_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
@@ -115,7 +115,13 @@ async fn build_app(
                     .id("pickups")
                     .x_domain(col("pickup_x"))
                     .y_domain(col("pickup_y"))
-                    .preview_cached(true),
+                    .preview_cached(true)
+                    // Rate-limit preview rasterizations during drag/zoom:
+                    // without a throttle every pointer-move frame starts a
+                    // new raster, and each mid-gesture completion forces a
+                    // data-mark rebuild instead of a cheap retarget. Settled
+                    // (gesture-release) requests bypass the throttle.
+                    .throttle(Duration::from_millis(100)),
                 |group, v| {
                     let in_view = col("pickup_x")
                         .gt_eq(v.x().domain_start())
@@ -138,8 +144,9 @@ async fn build_app(
         // exact evaluations re-measure axis tick labels, which can change the
         // plot-area size on gesture release and make the view jump. Preview
         // reuses the measured layout profile, and freshly completed rasters
-        // still swap in because preview rebuilds data marks whenever the
-        // desired materialization is ready.
+        // still swap in: once the desired materialization is ready and the
+        // view has stopped moving for the consume stability window, the
+        // preview rebuilds data marks and renders it.
         .tool(PanScrollZoom::cartesian());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

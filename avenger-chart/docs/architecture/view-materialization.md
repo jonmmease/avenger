@@ -35,6 +35,17 @@ When debounce or throttle defers a queued request, the scheduler emits a delayed
 evaluation invalidation. The next evaluation re-checks the same queue even if no
 new pointer or wheel event arrives.
 
+Preview consumption of a ready result is additionally gated on key stability:
+a `RetargetCached` preview only rebuilds data marks to consume a ready
+materialization once its desired key has been unchanged for
+`PREVIEW_CONSUME_STABILITY`. While the view params are still moving
+frame-to-frame (an active gesture), completions keep retargeting the cached
+scene instead of interrupting the gesture with a rebuild, and the deferral
+schedules a delayed re-evaluation so a hold or release still swaps the fresh
+result in without another interaction event. Previews that rebuild for other
+reasons (for example, no cached data marks yet) consume ready results
+immediately.
+
 ## Cache Bounds
 
 `MaterializationCache` stores queued, running, ready, and error entries. Queued

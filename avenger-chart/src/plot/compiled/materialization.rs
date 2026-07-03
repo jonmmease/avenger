@@ -15,6 +15,14 @@ pub(crate) type MaterializationCacheHandle = Arc<Mutex<MaterializationCache>>;
 const MAX_UNSCOPED_READY_ENTRIES: usize = 64;
 const MAX_TOTAL_READY_ENTRIES: usize = 512;
 
+/// How long a preview-desired materialization key must stay unchanged before
+/// a ready result is consumed (rebuilding data marks) instead of retargeting
+/// the cached scene. This keeps mid-gesture frames on the cheap retarget path
+/// even when micro-pauses let a raster complete under the pointer, while a
+/// deliberate hold or release still swaps the fresh result in shortly after
+/// the view stops moving. Exact/settled evaluations are unaffected.
+pub(crate) const PREVIEW_CONSUME_STABILITY: Duration = Duration::from_millis(250);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum MaterializationStatus {
@@ -68,6 +76,8 @@ pub(crate) struct MaterializationCache {
     last_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
     last_settled_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
     last_started_by_identity: HashMap<MaterializationIdentity, Instant>,
+    preview_desired_key_motion: HashMap<MaterializationIdentity, (MaterializationKey, Instant)>,
+    pending_consume_wakeup: Option<(Duration, MaterializationKind)>,
     ready_order: VecDeque<MaterializationKey>,
     completion_invalidation_pending: bool,
 }
@@ -229,6 +239,52 @@ impl MaterializationCache {
         }
 
         MaterializationStart::NotStarted
+    }
+
+    /// Record the key a preview evaluation currently desires for this
+    /// request's identity and return how long that key has been unchanged.
+    /// A changed key resets the clock to zero.
+    pub(crate) fn note_preview_desired_key(
+        &mut self,
+        request: &MaterializationRequest,
+        now: Instant,
+    ) -> Duration {
+        let identity = throttle_identity_for_request(request);
+        match self.preview_desired_key_motion.get_mut(&identity) {
+            Some((key, changed_at)) if *key == request.key => {
+                now.saturating_duration_since(*changed_at)
+            }
+            Some(entry) => {
+                *entry = (request.key.clone(), now);
+                Duration::ZERO
+            }
+            None => {
+                self.preview_desired_key_motion
+                    .insert(identity, (request.key.clone(), now));
+                Duration::ZERO
+            }
+        }
+    }
+
+    /// Note that a ready preview result was NOT consumed because its key has
+    /// not been stable long enough; the session drains this after evaluation
+    /// and schedules a delayed re-evaluation so a hold still swaps the result
+    /// in without another interaction event.
+    pub(crate) fn defer_preview_consume(
+        &mut self,
+        request: &MaterializationRequest,
+        remaining: Duration,
+    ) {
+        self.pending_consume_wakeup = Some(match self.pending_consume_wakeup.take() {
+            Some((existing, kind)) if existing <= remaining => (existing, kind),
+            _ => (remaining, request.kind.clone()),
+        });
+    }
+
+    pub(crate) fn take_pending_consume_wakeup(
+        &mut self,
+    ) -> Option<(Duration, MaterializationKind)> {
+        self.pending_consume_wakeup.take()
     }
 
     #[allow(dead_code)]
@@ -511,6 +567,57 @@ mod tests {
 
     fn empty_result() -> MaterializationResult {
         MaterializationResult::RecordBatch(RecordBatch::new_empty(Arc::new(Schema::empty())))
+    }
+
+    #[test]
+    fn preview_desired_key_stability_resets_on_key_change() {
+        let mut cache = MaterializationCache::default();
+        let key_a = request("key/a", "scope/a", -1.0);
+        let key_b = request("key/b", "scope/a", -1.0);
+        let start = Instant::now();
+
+        assert_eq!(
+            cache.note_preview_desired_key(&key_a, start),
+            Duration::ZERO
+        );
+        assert_eq!(
+            cache.note_preview_desired_key(&key_a, start + Duration::from_millis(80)),
+            Duration::from_millis(80)
+        );
+
+        // A different desired key for the same identity resets the clock.
+        assert_eq!(
+            cache.note_preview_desired_key(&key_b, start + Duration::from_millis(100)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            cache.note_preview_desired_key(&key_b, start + Duration::from_millis(400)),
+            Duration::from_millis(300)
+        );
+
+        // Identities track independently.
+        let other = request("key/z", "scope/z", -1.0);
+        assert_eq!(
+            cache.note_preview_desired_key(&other, start + Duration::from_millis(400)),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn deferred_preview_consume_wakeup_keeps_earliest_and_drains_once() {
+        let mut cache = MaterializationCache::default();
+        let first = request("key/a", "scope/a", -1.0);
+        let second = request("key/b", "scope/b", -1.0);
+
+        cache.defer_preview_consume(&first, Duration::from_millis(200));
+        cache.defer_preview_consume(&second, Duration::from_millis(90));
+        cache.defer_preview_consume(&first, Duration::from_millis(150));
+
+        let (remaining, _kind) = cache
+            .take_pending_consume_wakeup()
+            .expect("a deferred consume must request a wakeup");
+        assert_eq!(remaining, Duration::from_millis(90));
+        assert!(cache.take_pending_consume_wakeup().is_none());
     }
 
     #[test]

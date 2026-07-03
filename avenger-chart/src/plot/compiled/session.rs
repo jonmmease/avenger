@@ -1761,6 +1761,24 @@ impl PlotSession {
             });
         }
 
+        // A deferred preview consume (ready result withheld while the view
+        // params were still moving) also needs a delayed re-evaluation so a
+        // hold or release swaps the result in without another event.
+        if let Some((remaining, kind)) = self
+            .materialization_cache
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .take_pending_consume_wakeup()
+        {
+            let replaces = match earliest_deferred_wakeup.as_ref() {
+                Some((current, _)) => remaining < *current,
+                None => true,
+            };
+            if replaces {
+                earliest_deferred_wakeup = Some((remaining, kind));
+            }
+        }
+
         if let Some((remaining, kind)) = earliest_deferred_wakeup {
             self.materialization_invalidation_hub.request_evaluation(
                 EvaluationInvalidationRequest::after(
@@ -2789,7 +2807,9 @@ mod tests {
     };
     use serde::{Deserialize, Serialize};
 
-    use crate::plot::compiled::materialization::MaterializationStatus;
+    use crate::plot::compiled::materialization::{
+        MaterializationStatus, PREVIEW_CONSUME_STABILITY,
+    };
     use crate::prelude::*;
 
     use super::*;
@@ -5528,12 +5548,15 @@ mod tests {
 
     /// A session that never settles exactly (pure Preview interaction, used
     /// by the adaptive example to keep the measured plot area from jumping
-    /// on gesture release) must still consume freshly completed rasters:
-    /// while the desired materialization is pending the preview retargets
-    /// the cached scene, and once it is ready the preview rebuilds data
-    /// marks under the reused layout profile and renders it.
+    /// on gesture release) must still consume freshly completed rasters —
+    /// but only once the desired key has stopped moving. The first preview
+    /// after readiness starts the stability clock, keeps retargeting the
+    /// cached scene, and requests a delayed re-evaluation; once the key has
+    /// been stable for `PREVIEW_CONSUME_STABILITY` the preview rebuilds data
+    /// marks under the reused layout profile and renders the ready raster.
     #[tokio::test]
-    async fn group_view_pure_preview_consumes_ready_raster() -> Result<(), AvengerChartError> {
+    async fn group_view_pure_preview_consumes_ready_raster_after_key_stability()
+    -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_group_view_adaptive_explicit_fill_plot(&ctx).await?);
         let mut session = compiled.clone().instantiate(ctx);
@@ -5545,37 +5568,95 @@ mod tests {
         assert!(warmup_metrics.pipeline.materialization_queued > 0);
         wait_for_session_materializations(&session).await;
 
-        // Completion-invalidation redraw in Preview: the desired raster is
-        // ready, so the preview must rebuild data marks (profile reused,
-        // marks not) and render the raster.
+        // Completion-invalidation redraw in Preview: the warm-up scene has no
+        // cached data marks (the raster was pending), so this preview rebuilds
+        // and consumes the ready raster immediately — the stability window
+        // only defers consumes that would interrupt a retargetable scene.
         let (ready_preview, ready_metrics) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview())
             .await?;
         assert_eq!(ready_metrics.mode, EvaluationMode::Preview);
         assert_eq!(ready_metrics.pipeline.preview_profile_reuses, 1);
-        assert_eq!(
-            ready_metrics.pipeline.preview_data_mark_reuses, 0,
-            "a ready desired materialization must not be hidden behind scene retargeting"
-        );
+        assert_eq!(ready_metrics.pipeline.preview_data_mark_reuses, 0);
         assert!(ready_metrics.pipeline.materialization_ready_used > 0);
         assert!(
             count_image_marks(&ready_preview.scene_graph) > 0,
             "the ready raster should render through the pure-preview path"
         );
 
-        // A later preview pan (desired pending again) retargets the newly
-        // cached scene instead of rebuilding.
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_clone = seen.clone();
+        let _subscription = session.subscribe_to_evaluation_invalidations(Arc::new(
+            move |invalidation: EvaluationInvalidation| {
+                seen_clone
+                    .lock()
+                    .expect("seen invalidations lock poisoned")
+                    .push(invalidation);
+            },
+        ));
+
+        // A preview pan (desired pending) retargets the newly cached scene.
         let mut patch = IndexMap::new();
         patch.insert(
             "__tool_pan_scroll_zoom__x_domain".to_string(),
             list_domain(0.5, 2.5),
         );
         let (_pan_preview, pan_metrics) = session
-            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
             .await?;
         assert_eq!(
             pan_metrics.pipeline.preview_data_mark_reuses, 1,
             "pending previews should retarget the cached scene"
+        );
+
+        // The panned raster completes while the gesture is still "moving"
+        // (its key was first desired moments ago): the completion redraw must
+        // keep retargeting and schedule a delayed wakeup instead of
+        // interrupting the gesture with a data-mark rebuild.
+        wait_for_session_materializations(&session).await;
+        let (_deferred_preview, deferred_metrics) = session
+            .evaluate_with_metrics(
+                EvaluationRequest::new()
+                    .preview()
+                    .param_patch(patch.clone()),
+            )
+            .await?;
+        assert_eq!(
+            deferred_metrics.pipeline.preview_data_mark_reuses, 1,
+            "a just-ready result must defer consumption while its key is fresh"
+        );
+        assert!(
+            seen.lock()
+                .expect("seen invalidations lock poisoned")
+                .iter()
+                .any(|invalidation| matches!(
+                    (&invalidation.reason, &invalidation.schedule),
+                    (
+                        EvaluationInvalidationReason::MaterializationDeferred { .. },
+                        EvaluationInvalidationSchedule::After(remaining),
+                    ) if *remaining <= PREVIEW_CONSUME_STABILITY
+                )),
+            "deferring a ready preview consume must request a delayed re-evaluation"
+        );
+
+        // Once the key has been stable past the window (the wakeup path),
+        // the preview rebuilds data marks and consumes the panned raster.
+        tokio::time::sleep(PREVIEW_CONSUME_STABILITY + Duration::from_millis(50)).await;
+        let (stable_preview, stable_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(
+            stable_metrics.pipeline.preview_data_mark_reuses, 0,
+            "a ready desired materialization with a stable key must be consumed"
+        );
+        assert!(stable_metrics.pipeline.materialization_ready_used > 0);
+        assert!(
+            count_image_marks(&stable_preview.scene_graph) > 0,
+            "the consumed raster should render through the pure-preview path"
         );
 
         Ok(())
@@ -5603,6 +5684,14 @@ mod tests {
             .await?;
         assert!(warmup_metrics.pipeline.materialization_queued > 0);
         wait_for_session_materializations(&session).await;
+
+        // First preview starts the consume stability clock (and retargets);
+        // the consuming rebuild that reproduces the bug happens once the key
+        // has been stable past the window.
+        let (_deferred, _) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+        tokio::time::sleep(PREVIEW_CONSUME_STABILITY + Duration::from_millis(50)).await;
 
         let (preview_plot, preview_metrics) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview())
@@ -5639,8 +5728,15 @@ mod tests {
         assert!(warmup_metrics.pipeline.materialization_queued > 0);
         wait_for_session_materializations(&session).await;
 
-        // Preview evaluation with no param change: this mirrors the app's
+        // First preview starts the consume stability clock (and retargets);
+        // the consuming rebuild that reproduces the bug happens once the key
+        // has been stable past the window. This mirrors the app's
         // completion-invalidation redraw, reusing the cached layout profile.
+        let (_deferred, _) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview())
+            .await?;
+        tokio::time::sleep(PREVIEW_CONSUME_STABILITY + Duration::from_millis(50)).await;
+
         let (preview_plot, preview_metrics) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview())
             .await?;
