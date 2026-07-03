@@ -43,14 +43,13 @@ use avenger_chart_app::{
 use avenger_image::ImageResourceCache;
 use avenger_resource::RenderInvalidationHub;
 use datafusion::{
-    arrow::{compute::concat_batches, datatypes::DataType, record_batch::RecordBatch},
+    arrow::{compute::concat_batches, record_batch::RecordBatch},
     dataframe::DataFrame,
     datasource::MemTable,
     error::{DataFusionError, Result as DataFusionResult},
-    functions::expr_fn::{abs, floor},
-    logical_expr::{Expr, expr_fn::cast, when},
     prelude::{ParquetReadOptions, SessionContext},
 };
+use palette::rgb::Srgba;
 use winit::window::WindowAttributes;
 
 const TAXI_TABLE: &str = "taxi_pickups";
@@ -58,8 +57,9 @@ const TAXI_MAX_ROWS: usize = 1_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
-// Taxi coordinates are projected meters; keep deep-zoom raster cells aggregating nearby trips.
-const MIN_RASTER_PIXEL_DOMAIN_SIZE: f64 = 10.0;
+/// Dark-blue endpoint of the raster ramp (#08519c), shared with the scatter
+/// points so the raster-to-scatter transition is less jarring.
+const SCATTER_BLUE: Srgba = Srgba::new(0.031, 0.318, 0.612, 1.0);
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -170,30 +170,25 @@ async fn build_app(
 /// scatter mode: the gate value never enters the materialization key, and
 /// background rasters keep the stale-fallback cache warm for the switch
 /// back.
+///
+/// Counts are computed as `sum` of a literal 1 so cells with no pickups stay
+/// NULL — the mark renders NULL cells with the default fully transparent
+/// null color, while a `count` aggregation would fill them with opaque 0s.
 fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<Cartesian> {
     let gate = stats.scalar("n").gt_eq(lit(POINT_BUDGET));
     UniformRaster2D::new()
         .transform(
             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
                 .x(|x| {
-                    x.extent(v.x().domain_start(), v.x().domain_end()).bins(
-                        raster_bins_with_min_domain_size(
-                            v.x().domain_start(),
-                            v.x().domain_end(),
-                            v.x().pixels(),
-                        ),
-                    )
+                    x.extent(v.x().domain_start(), v.x().domain_end())
+                        .bins(v.x().pixels())
                 })
                 .y(|y| {
-                    y.extent(v.y().domain_start(), v.y().domain_end()).bins(
-                        raster_bins_with_min_domain_size(
-                            v.y().domain_start(),
-                            v.y().domain_end(),
-                            v.y().pixels(),
-                        ),
-                    )
+                    y.extent(v.y().domain_start(), v.y().domain_end())
+                        .bins(v.y().pixels())
                 })
-                .agg("count"),
+                .value(lit(1.0))
+                .agg("sum"),
             move |mark, hist| {
                 mark.transform(Filter::new(gate), |mark, _| mark)
                     .raster_with(hist.raster(), |r| {
@@ -213,7 +208,14 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
                             // session tests), and an explicit domain also
                             // keeps the colorbar stable during pan/zoom.
                             fill.scale_with::<Sqrt>(|scale| {
-                                scale.domain((0.0, 120.0)).nice(false).zero(false)
+                                scale
+                                    .domain((0.0, 120.0))
+                                    .range_colors(vec![
+                                        Srgba::new(0.87, 0.92, 0.97, 1.0), // Light blue (#deebf7)
+                                        SCATTER_BLUE,
+                                    ])
+                                    .nice(false)
+                                    .zero(false)
                             })
                             .legend(|legend| legend.title("Trips"))
                         })
@@ -225,7 +227,8 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
 
 /// Synchronous scatter of the exact in-view points, gated below the budget.
 /// Its input is the group's shared filtered dataframe, so it never rescans
-/// the source table.
+/// the source table. Points use the raster ramp's dark-blue endpoint so the
+/// raster-to-scatter transition reads as the same encoding.
 fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Cartesian> {
     let gate = stats.scalar("n").lt(lit(POINT_BUDGET));
     Symbol::new()
@@ -233,21 +236,7 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Cartesian> {
         .x(col("pickup_x"))
         .y(col("pickup_y"))
         .size(12.0)
-        .fill("rgba(31, 119, 180, 0.6)")
-}
-
-fn raster_bins_with_min_domain_size(start: Expr, stop: Expr, view_pixels: Expr) -> Expr {
-    let view_pixels = cast(view_pixels, DataType::Float64);
-    let span_limited_bins = floor(abs(stop - start) / lit(MIN_RASTER_PIXEL_DOMAIN_SIZE));
-    let domain_limited_bins = when(span_limited_bins.clone().gt(lit(1.0)), span_limited_bins)
-        .otherwise(lit(1.0))
-        .expect("valid minimum raster bin count expression");
-    when(
-        domain_limited_bins.clone().lt(view_pixels.clone()),
-        domain_limited_bins,
-    )
-    .otherwise(view_pixels)
-    .expect("valid raster bin count expression")
+        .fill("#08519c")
 }
 
 async fn cached_taxi_dataframe(ctx: &SessionContext) -> DataFusionResult<DataFrame> {
