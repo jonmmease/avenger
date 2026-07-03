@@ -9,6 +9,7 @@ mod join_aggregate;
 mod kde;
 pub mod lump;
 mod rasterize_2d;
+mod scalar_aggregate;
 mod select;
 mod stack;
 mod time_fill;
@@ -32,6 +33,10 @@ pub use rasterize_2d::{
     CompiledRasterize2DTransform, RASTERIZE_2D_MATERIALIZATION_KIND, Rasterize2D, Rasterize2DAgg,
     Rasterize2DDimension, Rasterize2DDimensionSpec, Rasterize2DExecutor, Rasterize2DExtentSpec,
     Rasterize2DMaterializationSpec, Rasterize2DOutput,
+};
+pub use scalar_aggregate::{
+    CompiledScalarAggregateTransform, ScalarAggregate, ScalarAggregateEvaluation,
+    ScalarAggregateOutput,
 };
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
@@ -5225,5 +5230,254 @@ mod tests {
             err.to_string().contains("sampling(\"linear\")"),
             "unexpected error: {err}"
         );
+    }
+
+    // ----- ScalarAggregate -----
+
+    fn scalar_aggregate_all_measures() -> ScalarAggregate {
+        ScalarAggregate::new()
+            .count("n")
+            .sum("total", col("value"))
+            .mean("avg", col("value"))
+            .min("lo", col("value"))
+            .max("hi", col("value"))
+            .median("mid", col("value"))
+    }
+
+    async fn apply_scalar_aggregate(
+        ctx: &SessionContext,
+        dataframe: DataFrame,
+        transform: ScalarAggregate,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> avenger_chart_core::DataTransformResult {
+        let (stage, _) = compile_transform(transform);
+        avenger_chart_core::apply_compiled_data_transforms(
+            dataframe,
+            &[stage],
+            &DataTransformExecutionContext {
+                session_context: ctx,
+                params,
+                time_context: TimeContext::default(),
+                facet_context: None,
+            },
+        )
+        .await
+        .unwrap()
+    }
+
+    /// Expected values for `scalar_aggregate_all_measures` computed through
+    /// the ordinary Aggregate transform on the same input.
+    async fn aggregate_reference_values(
+        ctx: &SessionContext,
+        dataframe: DataFrame,
+    ) -> IndexMap<String, ScalarValue> {
+        let (stage, _) = compile_transform(
+            Aggregate::new()
+                .count("n")
+                .sum("total", col("value"))
+                .mean("avg", col("value"))
+                .min("lo", col("value"))
+                .max("hi", col("value"))
+                .median("mid", col("value")),
+        );
+        let batches = transformed_batches(ctx, dataframe, vec![stage]).await;
+        let batch = batches.first().expect("aggregate reference batch");
+        let mut values = IndexMap::new();
+        for (index, field) in batch.schema().fields().iter().enumerate() {
+            values.insert(
+                field.name().clone(),
+                ScalarValue::try_from_array(batch.column(index), 0).unwrap(),
+            );
+        }
+        values
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_passes_dataframe_through() {
+        for lazy in [false, true] {
+            let ctx = SessionContext::new();
+            let input = stats_dataframe(&ctx);
+            let input_batches = input.clone().collect().await.unwrap();
+            let mut transform = ScalarAggregate::new().count("n");
+            if lazy {
+                transform = transform.lazy();
+            }
+            let result =
+                apply_scalar_aggregate(&ctx, input, transform, &IndexMap::new()).await;
+            let output_batches = result.dataframe.collect().await.unwrap();
+            assert_eq!(input_batches, output_batches, "lazy={lazy}");
+            assert!(result.derived_scalars.contains_key("n"));
+        }
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_eager_values_match_aggregate() {
+        let ctx = SessionContext::new();
+        let expected = aggregate_reference_values(&ctx, stats_dataframe(&ctx)).await;
+        let result = apply_scalar_aggregate(
+            &ctx,
+            stats_dataframe(&ctx),
+            scalar_aggregate_all_measures(),
+            &IndexMap::new(),
+        )
+        .await;
+        for (name, expected_value) in &expected {
+            let Some(Expr::Literal(actual, _)) = result.derived_scalars.get(name) else {
+                panic!("expected eager literal for '{name}'");
+            };
+            assert_eq!(actual, expected_value, "measure '{name}'");
+        }
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_lazy_values_match_aggregate() {
+        let ctx = SessionContext::new();
+        let expected = aggregate_reference_values(&ctx, stats_dataframe(&ctx)).await;
+        let result = apply_scalar_aggregate(
+            &ctx,
+            stats_dataframe(&ctx),
+            scalar_aggregate_all_measures().lazy(),
+            &IndexMap::new(),
+        )
+        .await;
+        for (name, expected_value) in &expected {
+            let expr = result.derived_scalars.get(name).expect("lazy scalar").clone();
+            assert!(
+                matches!(expr, Expr::ScalarSubquery(_)),
+                "expected subquery for '{name}'"
+            );
+            let values = eval_to_scalars(vec![expr], Some(&ctx), None)
+                .await
+                .expect("standalone lazy scalar evaluation");
+            assert_eq!(&values[0], expected_value, "measure '{name}'");
+        }
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_eager_binds_params() {
+        let ctx = SessionContext::new();
+        let threshold = Param::new("threshold", ScalarValue::Float64(Some(0.0)));
+        let (filter_stage, _) =
+            compile_transform(Filter::new(col("value").lt_eq(threshold.expr())));
+        let (scalar_stage, _) = compile_transform(ScalarAggregate::new().count("n"));
+
+        let mut counts = Vec::new();
+        for bound in [3.5_f64, 30.0_f64] {
+            let mut params = IndexMap::new();
+            params.insert("threshold".to_string(), ScalarValue::Float64(Some(bound)));
+            let result = avenger_chart_core::apply_compiled_data_transforms(
+                stats_dataframe(&ctx),
+                &[filter_stage.clone(), scalar_stage.clone()],
+                &DataTransformExecutionContext {
+                    session_context: &ctx,
+                    params: &params,
+                    time_context: TimeContext::default(),
+                    facet_context: None,
+                },
+            )
+            .await
+            .unwrap();
+            let Some(Expr::Literal(value, _)) = result.derived_scalars.get("n") else {
+                panic!("expected eager count literal");
+            };
+            counts.push(value.clone());
+        }
+        // values 1,2,3 pass <= 3.5; 1,2,3,4,10,20,30 pass <= 30.0
+        assert_eq!(counts[0], ScalarValue::Int64(Some(3)));
+        assert_eq!(counts[1], ScalarValue::Int64(Some(7)));
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_empty_input_semantics() {
+        for lazy in [false, true] {
+            let ctx = SessionContext::new();
+            let empty = bin_dataframe_from_values(&ctx, vec![]);
+            let mut transform = ScalarAggregate::new()
+                .count("n")
+                .mean("avg", col("value"))
+                .min("lo", col("value"))
+                .max("hi", col("value"));
+            if lazy {
+                transform = transform.lazy();
+            }
+            let result = apply_scalar_aggregate(&ctx, empty, transform, &IndexMap::new()).await;
+            async fn value_of(
+                ctx: &SessionContext,
+                result: &avenger_chart_core::DataTransformResult,
+                name: &str,
+            ) -> ScalarValue {
+                let expr = result.derived_scalars.get(name).unwrap().clone();
+                eval_to_scalars(vec![expr], Some(ctx), None)
+                    .await
+                    .expect("evaluate scalar")
+                    .remove(0)
+            }
+            assert_eq!(
+                value_of(&ctx, &result, "n").await,
+                ScalarValue::Int64(Some(0)),
+                "lazy={lazy}"
+            );
+            for name in ["avg", "lo", "hi"] {
+                assert!(
+                    value_of(&ctx, &result, name).await.is_null(),
+                    "expected null '{name}' on empty input, lazy={lazy}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn scalar_aggregate_duplicate_measure_name_errors() {
+        let err = ScalarAggregate::new()
+            .count("n")
+            .sum("n", col("value"))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+            .err()
+            .expect("duplicate measure name should fail");
+        assert!(err.to_string().contains("'n'"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn scalar_aggregate_requires_a_measure() {
+        let err = ScalarAggregate::new()
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+            .err()
+            .expect("empty measure list should fail");
+        assert!(
+            err.to_string().contains("at least one measure"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unknown scalar aggregate 'missing'")]
+    fn scalar_aggregate_unknown_scalar_panics() {
+        let (_, output) = compile_transform(ScalarAggregate::new().count("n"));
+        let _ = output.scalar("missing");
+    }
+
+    #[test]
+    fn scalar_aggregate_compiled_serialization_preserves_evaluation() {
+        for (transform, expected) in [
+            (
+                ScalarAggregate::new().count("n"),
+                ScalarAggregateEvaluation::Eager,
+            ),
+            (
+                ScalarAggregate::new().count("n").lazy(),
+                ScalarAggregateEvaluation::Lazy,
+            ),
+        ] {
+            let (stage, _) = compile_transform(transform);
+            let serialized = serde_json::to_string(&stage.transform).unwrap();
+            let deserialized: Box<dyn avenger_chart_core::CompiledDataTransform> =
+                serde_json::from_str(&serialized).unwrap();
+            let compiled = serde_json::to_value(&deserialized).unwrap();
+            assert_eq!(compiled["type"], "scalar_aggregate");
+            assert_eq!(
+                compiled["evaluation"],
+                serde_json::to_value(expected).unwrap()
+            );
+        }
     }
 }
