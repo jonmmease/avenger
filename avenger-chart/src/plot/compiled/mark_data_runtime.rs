@@ -1889,9 +1889,15 @@ pub(crate) async fn schedule_view_materializations_for_mark(
     )
     .await?;
 
+    // `RetargetCached` is an explicit opt-in to stale previews: the cached
+    // scene may be retargeted through the current scales while fresh
+    // view-dependent results (materialized or synchronous) are pending, so
+    // retargeting is allowed even for view chains without materialized
+    // transforms. Non-RetargetCached views returned early above and always
+    // rebuild during Preview.
     Ok(ViewMaterializationSchedule {
         request_count,
-        can_retarget_cached_scene: request_count > 0,
+        can_retarget_cached_scene: true,
     })
 }
 

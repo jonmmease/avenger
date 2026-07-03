@@ -5462,6 +5462,48 @@ mod tests {
         Ok(())
     }
 
+    /// Preview pans over an adaptive group-view plot must retarget the
+    /// cached scene (both children opted into RetargetCached via the group
+    /// view), not rebuild marks per frame — per-frame rebuilds made gestures
+    /// choppy and re-selected the raster fallback every frame, flashing
+    /// between differently-sized cached rasters during zoom-out.
+    #[tokio::test]
+    async fn group_view_preview_pan_retargets_cached_scene() -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_group_view_adaptive_inferred_fill_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx);
+
+        let (_warmup, warmup_metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+        assert!(warmup_metrics.pipeline.materialization_queued > 0);
+        wait_for_session_materializations(&session).await;
+        let _ = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.5, 2.5),
+        );
+        let (_preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(
+            preview.pipeline.preview_data_mark_reuses, 1,
+            "RetargetCached group children should reuse cached data marks during preview"
+        );
+        assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 0);
+        assert_eq!(
+            preview.pipeline.mark_data_collects, 0,
+            "preview pans should not recollect mark data for retarget-cached view marks"
+        );
+
+        Ok(())
+    }
+
     /// Mark-level control for the group-view preview-after-ready sequence.
     ///
     /// KNOWN FAILURE (pre-existing async-raster bug, not group-view
