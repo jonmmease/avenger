@@ -636,6 +636,8 @@ async fn prepare_partitioned_positioned_subplot<'a>(
         scales,
         plot_width,
         plot_height,
+        // Positioned subplot marks never sit inside a mark group.
+        group_view: None,
     }))
     .await?;
     let Some(prepared_mark) = prepared_mark else {
@@ -765,6 +767,8 @@ async fn prepare_positioned_subplot<'a>(
         scales,
         plot_width,
         plot_height,
+        // Positioned subplot marks never sit inside a mark group.
+        group_view: None,
     }))
     .await?;
     let Some(prepared_mark) = prepared_mark else {

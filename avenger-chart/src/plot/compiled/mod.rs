@@ -111,8 +111,9 @@ pub(crate) use self::layout_profile::{
 };
 use self::legends::PreparedLegendPlan;
 pub(crate) use self::mark_data_runtime::{
-    BaseDataRequest, LogicalMarkDataRequest, MarkDataRequest, PreparedBaseData, PreparedMarkData,
-    prepare_base_data, prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
+    BaseDataRequest, GroupViewDataCacheHandle, GroupViewMarkContext, LogicalMarkDataRequest,
+    MarkDataRequest, PreparedBaseData, PreparedMarkData, prepare_base_data,
+    prepare_logical_mark_data, prepare_mark_data as prepare_mark_data_runtime,
     schedule_view_materializations_for_mark,
 };
 pub(crate) use self::materialization::MaterializationCacheHandle;
@@ -304,6 +305,23 @@ impl CompiledPlot {
             .get(mark_index)
             .copied()
             .flatten()
+    }
+
+    /// The nearest enclosing group view scope for a mark, if any.
+    pub(crate) fn group_view_for_mark(&self, mark_index: usize) -> Option<GroupViewMarkContext<'_>> {
+        let mut group_index = self.mark_group_index_for_mark(mark_index);
+        while let Some(index) = group_index {
+            let group = self.mark_groups.get(index)?;
+            if let Some(view) = group.view.as_ref() {
+                return Some(GroupViewMarkContext {
+                    plot_identity: self as *const Self as usize,
+                    group_index: index,
+                    scope: view,
+                });
+            }
+            group_index = group.parent_group_index;
+        }
+        None
     }
 
     pub(crate) fn data_group_index_for_mark(&self, mark_index: usize) -> Option<usize> {

@@ -99,6 +99,119 @@ pub(crate) struct MarkDataRequest<'a> {
     pub(crate) scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
     pub(crate) plot_width: f32,
     pub(crate) plot_height: f32,
+    /// The nearest enclosing group view scope, when this mark sits inside a
+    /// viewed `MarkGroup`. Carries the group's shared view-local chain,
+    /// which runs once per (plot, group, facet path) per evaluation; its
+    /// output dataframe and derived scalars feed every child's view chain.
+    pub(crate) group_view: Option<GroupViewMarkContext<'a>>,
+}
+
+/// Reference to the enclosing group view scope for a mark.
+#[derive(Clone, Copy)]
+pub(crate) struct GroupViewMarkContext<'a> {
+    /// Identity of the owning `CompiledPlot`, disambiguating group indices
+    /// across nested child plots sharing one evaluation context.
+    pub(crate) plot_identity: usize,
+    pub(crate) group_index: usize,
+    pub(crate) scope: &'a CompiledViewScope,
+}
+
+/// Once-per-evaluation output of a group's shared view-local chain.
+pub(crate) struct GroupViewPrepared {
+    pub(crate) dataframe: Option<DataFrame>,
+    /// Scalars produced by the shared chain (chain-produced only; the group
+    /// base scalars seed the chain and are merged separately).
+    pub(crate) derived_scalars: DerivedScalarMap,
+    /// Resolved view param values the shared chain was computed with, used
+    /// to assert that reusing children agree (they share the cell's scales,
+    /// so a mismatch means a bug).
+    view_params: Vec<(String, ScalarValue)>,
+}
+
+pub(crate) type GroupViewDataCacheHandle =
+    Arc<Mutex<HashMap<super::MarkGroupDataCacheKey, Arc<GroupViewPrepared>>>>;
+
+fn view_param_snapshot(
+    view_scope: &CompiledViewScope,
+    eval_ctx: &EvaluationContext,
+) -> Vec<(String, ScalarValue)> {
+    let prefix = format!("__avenger_view_{}_", view_scope.spec.id());
+    eval_ctx
+        .params()
+        .iter()
+        .filter(|(name, _)| name.starts_with(&prefix))
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect()
+}
+
+/// Run (or reuse) the group's shared view-local chain for the current
+/// evaluation. Memo-on-first-use: the first child whose view preparation
+/// needs the group result computes it with its own view-param context;
+/// later children reuse it.
+async fn prepare_group_view_data(
+    group_view: &GroupViewMarkContext<'_>,
+    base_prepared: &PreparedLogicalMarkData,
+    request: &MarkDataRequest<'_>,
+    view_eval_ctx: &EvaluationContext,
+    materialization_handling: ViewMaterializationHandling,
+) -> Result<Arc<GroupViewPrepared>, AvengerChartError> {
+    let ctx = request.eval_ctx.session_context.as_ref();
+    let facet_path: Vec<String> = request
+        .facet_data_scope
+        .as_ref()
+        .map(|scope| {
+            scope
+                .full_path
+                .iter()
+                .map(|value| format!("{value:?}"))
+                .collect()
+        })
+        .unwrap_or_default();
+    let key = super::MarkGroupDataCacheKey {
+        plot_identity: group_view.plot_identity,
+        group_index: group_view.group_index,
+        facet_path,
+    };
+
+    if let Some(cached) = view_eval_ctx
+        .group_view_data_cache
+        .lock()
+        .expect("group view data cache lock poisoned")
+        .get(&key)
+        .cloned()
+    {
+        debug_assert_eq!(
+            cached.view_params,
+            view_param_snapshot(group_view.scope, view_eval_ctx),
+            "children of one group view scope must resolve identical view params"
+        );
+        return Ok(cached);
+    }
+
+    let (dataframe, derived_scalars) = apply_view_mark_data_transforms(
+        base_prepared.dataframe.clone(),
+        group_view.scope.data.transforms(),
+        ctx,
+        view_eval_ctx,
+        request.facet_data_scope,
+        request.mark.state().facet_data_scope,
+        group_view.scope,
+        materialization_handling,
+        &base_prepared.derived_scalars,
+    )
+    .await?;
+
+    let prepared = Arc::new(GroupViewPrepared {
+        dataframe,
+        derived_scalars,
+        view_params: view_param_snapshot(group_view.scope, view_eval_ctx),
+    });
+    view_eval_ctx
+        .group_view_data_cache
+        .lock()
+        .expect("group view data cache lock poisoned")
+        .insert(key, prepared.clone());
+    Ok(prepared)
 }
 
 pub(crate) struct LogicalMarkDataRequest<'a> {
@@ -1646,6 +1759,29 @@ pub(crate) async fn prepare_view_logical_mark_data(
     let view_channels = resolve_all_channel_refs(view_scope.data.channels(), ctx)?;
     validate_no_item_frame_refs_in_mark_channels(mark, &view_channels, ctx)?;
 
+    // Inside a viewed group, the child's view chain starts from the group's
+    // shared view-local output (dataframe + derived scalars).
+    let group_view_prepared = match request.group_view.as_ref() {
+        Some(group_view) => Some(
+            prepare_group_view_data(
+                group_view,
+                base_prepared,
+                request,
+                view_eval_ctx,
+                materialization_handling,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+    let inherited_derived_scalars = match group_view_prepared.as_ref() {
+        Some(shared) => merge_derived_scalars(
+            base_prepared.derived_scalars.clone(),
+            shared.derived_scalars.clone(),
+        )?,
+        None => base_prepared.derived_scalars.clone(),
+    };
+
     let dataframe = if let Some(store_data) = view_scope.data.store_data() {
         Some(store_dataframe(
             store_data,
@@ -1654,6 +1790,8 @@ pub(crate) async fn prepare_view_logical_mark_data(
         )?)
     } else if let Some(dataframe) = view_scope.data.dataframe_with_context(ctx) {
         Some(dataframe)
+    } else if let Some(shared) = group_view_prepared.as_ref() {
+        shared.dataframe.clone()
     } else {
         base_prepared.dataframe.clone()
     };
@@ -1667,11 +1805,10 @@ pub(crate) async fn prepare_view_logical_mark_data(
         mark.state().facet_data_scope,
         view_scope,
         materialization_handling,
-        &base_prepared.derived_scalars,
+        &inherited_derived_scalars,
     )
     .await?;
-    let derived_scalars =
-        merge_derived_scalars(base_prepared.derived_scalars.clone(), view_derived_scalars)?;
+    let derived_scalars = merge_derived_scalars(inherited_derived_scalars, view_derived_scalars)?;
     let available_columns = dataframe.as_ref().map(|df| {
         df.schema()
             .fields()
@@ -1760,6 +1897,31 @@ async fn schedule_view_materialization_transforms(
         return Ok(0);
     }
 
+    // Mirror full view evaluation: children of a viewed group start from the
+    // group's shared view-local output so this schedule-only path resolves
+    // identical stage expressions and computes identical materialization
+    // keys.
+    let group_view_prepared = match request.group_view.as_ref() {
+        Some(group_view) => Some(
+            prepare_group_view_data(
+                group_view,
+                base_prepared,
+                request,
+                view_eval_ctx,
+                ViewMaterializationHandling::PreviewRetargetScheduleOnly,
+            )
+            .await?,
+        ),
+        None => None,
+    };
+    let inherited_derived_scalars = match group_view_prepared.as_ref() {
+        Some(shared) => merge_derived_scalars(
+            base_prepared.derived_scalars.clone(),
+            shared.derived_scalars.clone(),
+        )?,
+        None => base_prepared.derived_scalars.clone(),
+    };
+
     let dataframe = if let Some(store_data) = view_scope.data.store_data() {
         Some(store_dataframe(
             store_data,
@@ -1768,6 +1930,8 @@ async fn schedule_view_materialization_transforms(
         )?)
     } else if let Some(dataframe) = view_scope.data.dataframe_with_context(ctx) {
         Some(dataframe)
+    } else if let Some(shared) = group_view_prepared.as_ref() {
+        shared.dataframe.clone()
     } else {
         base_prepared.dataframe.clone()
     };
@@ -1783,10 +1947,7 @@ async fn schedule_view_materialization_transforms(
             view_scope,
             materialization_handling: ViewMaterializationHandling::PreviewRetargetScheduleOnly,
         },
-        // Seed with the same inherited scalars as full view evaluation so the
-        // schedule-only path resolves identical stage expressions and thus
-        // computes identical materialization keys.
-        &base_prepared.derived_scalars,
+        &inherited_derived_scalars,
     )
     .await?;
 
@@ -2584,6 +2745,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -2808,6 +2970,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -2860,6 +3023,7 @@ mod tests {
             scales: &scales,
             plot_width: 321.0,
             plot_height: 123.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -2916,6 +3080,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3099,6 +3264,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared parallel line data");
@@ -3147,6 +3313,7 @@ mod tests {
             scales: &scales,
             plot_width: 300.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3189,6 +3356,7 @@ mod tests {
             scales: &scales,
             plot_width: 300.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3227,6 +3395,7 @@ mod tests {
             scales: &scales,
             plot_width: 300.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3262,6 +3431,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3330,6 +3500,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3374,6 +3545,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await;
         let err = match result {
@@ -3405,6 +3577,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3439,6 +3612,7 @@ mod tests {
             scales: &scales,
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared data");
@@ -3535,6 +3709,7 @@ mod tests {
             scales: &HashMap::new(),
             plot_width: 100.0,
             plot_height: 100.0,
+            group_view: None,
         })
         .await?
         .expect("prepared rect data");

@@ -205,6 +205,7 @@ async fn prepare_view_materialized_scale_mark_for_plot(
             scales: base_scales,
             plot_width,
             plot_height,
+            group_view: plot.group_view_for_mark(mark.state().mark_index()),
         };
         let view_prepared = Box::pin(prepare_view_logical_mark_data(
             mark.as_ref(),

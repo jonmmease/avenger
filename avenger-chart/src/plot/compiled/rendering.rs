@@ -2077,6 +2077,7 @@ impl CompiledPlot {
             scales,
             plot_width,
             plot_height,
+            group_view: self.group_view_for_mark(mark.state().mark_index()),
         })
         .await?;
         if let Some(prepared) = &prepared {
@@ -2128,6 +2129,7 @@ impl CompiledPlot {
                 scales: &measurement.scales,
                 plot_width: measurement.plot_area_width,
                 plot_height: measurement.plot_area_height,
+                group_view: self.group_view_for_mark(mark.state().mark_index()),
             })
             .await?;
             if !schedule.can_retarget_cached_scene {

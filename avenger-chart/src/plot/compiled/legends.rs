@@ -1707,6 +1707,9 @@ impl CompiledPlot {
                     scales: &scales,
                     plot_width: surface.bounds.width,
                     plot_height: surface.bounds.height,
+                    // Colorbar overlay marks are synthetic and never sit
+                    // inside a mark group.
+                    group_view: None,
                 })
                 .await?
                 else {
