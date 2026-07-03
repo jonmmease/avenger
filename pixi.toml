@@ -10,6 +10,7 @@ platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 bump-version = { cmd = ["python", "automation/bump_version.py"] }
 fmt-rs = { cmd = ["cargo", "fmt", "--all"] }
 clippy = { cmd = ["cargo", "clippy", "--all-targets"] }
+gen-geo-fixtures = { cmd = ["node", "generate.mjs"], cwd = "tools/geo-fixtures" }
 
 [tasks.publish-rs]
 cmd = """
