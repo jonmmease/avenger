@@ -49,7 +49,7 @@ use winit::window::WindowAttributes;
 const CARTO_TILE_TEMPLATE: &str =
     "https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png";
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 11_000_000;
+const TAXI_MAX_ROWS: usize = 1_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;

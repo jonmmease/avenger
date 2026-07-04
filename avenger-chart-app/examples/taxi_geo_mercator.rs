@@ -49,7 +49,7 @@ use winit::window::WindowAttributes;
 
 const OSM_TILE_TEMPLATE: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 11_000_000;
+const TAXI_MAX_ROWS: usize = 1_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
@@ -255,10 +255,13 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Geo> {
         .fill("#08519c")
 }
 
-/// Bin count = view pixels, but never smaller than `MIN_RASTER_CELL_METERS`
-/// per cell (view-domain params quantize near meter scale through f32).
+/// Bin count = half the view pixels, but never smaller than
+/// `MIN_RASTER_CELL_METERS` per cell (view-domain params quantize near
+/// meter scale through f32). Every branch must stay whole-numbered:
+/// Rasterize2D rejects fractional bin counts, and a failed materialization
+/// means the raster child silently never renders.
 fn raster_bins_with_min_cell_size(start: Expr, stop: Expr, view_pixels: Expr) -> Expr {
-    let view_pixels = cast(view_pixels, DataType::Float64) / lit(2.0);
+    let view_pixels = floor(cast(view_pixels, DataType::Float64) / lit(2.0));
     let span_limited_bins = floor(abs(stop - start) / lit(MIN_RASTER_CELL_METERS));
     let domain_limited_bins = when(span_limited_bins.clone().gt(lit(1.0)), span_limited_bins)
         .otherwise(lit(1.0))
