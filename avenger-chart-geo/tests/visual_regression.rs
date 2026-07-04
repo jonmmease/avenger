@@ -1103,9 +1103,8 @@ mod phase6 {
 
         // (a) resolver-backed render (tile array path) vs pre-resolved
         // render (atlas path).
-        let resolved_scene =
-            resolve_ready_image_resources(scene, &CartoFixtureResolver::new())
-                .expect("resolve tile resources");
+        let resolved_scene = resolve_ready_image_resources(scene, &CartoFixtureResolver::new())
+            .expect("resolve tile resources");
         let atlas_image = render_scene_graph_to_wgpu_image(&resolved_scene).await;
 
         let dimensions = CanvasDimensions {
@@ -1116,8 +1115,7 @@ mod phase6 {
             image_resource_config: avenger_wgpu::image_resources::WgpuImageResourceConfig {
                 resolver: Some(Arc::new(CartoFixtureResolver::new())),
                 missing_policy: avenger_wgpu::image_resources::WgpuMissingImagePolicy::Skip,
-                placeholder:
-                    avenger_wgpu::image_resources::WgpuImagePlaceholder::Checkerboard,
+                placeholder: avenger_wgpu::image_resources::WgpuImagePlaceholder::Checkerboard,
             },
             ..Default::default()
         };
@@ -1305,6 +1303,102 @@ mod phase6 {
             .plot_size(512.0, 256.0)
             .title("Identity parity");
         assert_visual_match_resolved(&ctx, plot, "tiles_mercator_identity").await;
+    }
+
+    /// Deterministic synthetic pickup points, LCG-jittered around two
+    /// cluster centers in EPSG:3857 meters (exact integer arithmetic, so
+    /// identical on every platform).
+    fn synthetic_pickup_batch() -> datafusion::arrow::record_batch::RecordBatch {
+        use datafusion::arrow::array::{ArrayRef, Float64Array};
+
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next_unit = move || {
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((state >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        // (center_x, center_y, spread) in 3857 meters: NYC and LA.
+        let clusters = [(-8.24e6, 4.97e6, 2.0e5), (-1.316e7, 4.03e6, 3.0e5)];
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for (center_x, center_y, spread) in clusters {
+            for _ in 0..400 {
+                // Sum of four uniforms: a bell-ish jitter without floats
+                // whose platform variance could cross a bin edge en masse.
+                let dx = (next_unit() + next_unit() + next_unit() + next_unit()) / 2.0 - 1.0;
+                let dy = (next_unit() + next_unit() + next_unit() + next_unit()) / 2.0 - 1.0;
+                xs.push(center_x + dx * spread);
+                ys.push(center_y + dy * spread);
+            }
+        }
+        datafusion::arrow::record_batch::RecordBatch::try_from_iter(vec![
+            (
+                "pickup_x",
+                std::sync::Arc::new(Float64Array::from(xs)) as ArrayRef,
+            ),
+            (
+                "pickup_y",
+                std::sync::Arc::new(Float64Array::from(ys)) as ArrayRef,
+            ),
+        ])
+        .expect("synthetic pickup batch")
+    }
+
+    /// A 3857-framed density raster on the Mercator identity fast path,
+    /// over basemap tiles: pins `UniformRaster2D<Geo>` end to end —
+    /// `Rasterize2D` bins native meters, the mark converts the tagged
+    /// extents to authored raw units and places the image through the
+    /// coordinate-owned scales above the tile layer.
+    #[tokio::test]
+    async fn raster_mercator_identity_over_tiles() {
+        use avenger_chart::channel::LegendableChannel;
+        use avenger_chart::prelude::{Rasterize2D, Sqrt, SqrtScaleExt};
+        use avenger_chart_geo::{GeoUniformRaster2DChannels, UniformRaster2D, crs};
+        use datafusion::prelude::lit;
+
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_batch(synthetic_pickup_batch())
+            .expect("read synthetic batch");
+        let geo = Geo::mercator()
+            .center_lon_lat(-96.0, 37.5)
+            .zoom(3.0)
+            .tiles(carto_layer(4));
+        let mark = UniformRaster2D::<Geo>::new()
+            .transform(
+                Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+                    .frame(crs::EPSG_3857)
+                    .x(|x| x.extent(lit(-13.6e6), lit(-7.9e6)).bins(lit(96)))
+                    .y(|y| y.extent(lit(3.6e6), lit(5.4e6)).bins(lit(32)))
+                    .value(lit(1.0))
+                    .agg("sum"),
+                |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x(hist.x_dim()).y(hist.y_dim()).fill(|fill| {
+                            fill.scale_with::<Sqrt>(|scale| {
+                                scale
+                                    .clamp(true)
+                                    .domain((0.0, 12.0))
+                                    .range_colors(vec![
+                                        Srgba::new(0.87, 0.92, 0.97, 1.0),
+                                        Srgba::new(0.031, 0.318, 0.612, 1.0),
+                                    ])
+                                    .nice(false)
+                                    .zero(false)
+                            })
+                            .legend(|legend| legend.title("Density"))
+                        })
+                    })
+                },
+            )
+            .smooth(false);
+        let plot = Plot::with_coord(geo)
+            .plot_size(560.0, 340.0)
+            .title("Synthetic density raster")
+            .data(df)
+            .mark(mark);
+        assert_visual_match_resolved(&ctx, plot, "raster_mercator_identity_over_tiles").await;
     }
 
     /// Static export: the SVG rendering of the warped-tiles hero (tiles
