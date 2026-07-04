@@ -498,6 +498,18 @@ async fn execute_transform_chain(
             if let Some(mut materialization) =
                 transform.view_materialization_request(&dataframe, &materialization_ctx)?
             {
+                // Identity from the UNRESOLVED stage transform: the request
+                // above was built from the derived-scalar-resolved copy, and
+                // baked-in scalar values (an eager in-view count feeding a
+                // density normalizer, say) would otherwise churn the identity
+                // with every count change, leaving stale-result fallback with
+                // nothing to re-display mid-gesture.
+                if let Some(identity) = stage
+                    .transform
+                    .view_materialization_identity(&dataframe, &materialization_ctx)?
+                {
+                    materialization.request.identity = Some(identity);
+                }
                 materialization.request.policy = materialization_ctx.policy;
                 materialization.request.priority = materialization_ctx.priority;
                 if materialization_handling.emits_request() {
@@ -634,11 +646,17 @@ fn dataframe_for_materialization_display(
         }
     }
 
+    // The settled-result pin only makes sense on the retarget path, where
+    // one cached scene stays on screen mid-gesture; full re-render paths
+    // must track the newest ready result or they flash between the settled
+    // raster and just-completed mid-gesture ones.
+    let prefer_settled_fallback = handling
+        == ViewMaterializationHandling::PreviewRetargetScheduleOnly
+        && materialization.request.priority < 0.0;
     if handling.uses_stale_fallback()
         && materialization.request.policy.allow_stale
         && let Some(identity) = &materialization.request.identity
-        && let Some((_key, result)) =
-            cache.stale_fallback_ready(identity, materialization.request.priority)
+        && let Some((_key, result)) = cache.stale_fallback_ready(identity, prefer_settled_fallback)
     {
         if handling != ViewMaterializationHandling::ScaleInferenceReadOnly {
             eval_ctx.record_materialization_stale_fallback_used();
@@ -646,6 +664,20 @@ fn dataframe_for_materialization_display(
         return dataframe_from_materialization_result(result, ctx).map(|df| (df, false));
     }
 
+    tracing::debug!(
+        target: "avenger_chart::materialization",
+        key = %materialization.request.key,
+        handling = ?handling,
+        allow_stale = materialization.request.policy.allow_stale,
+        has_identity = materialization.request.identity.is_some(),
+        fallback_available = materialization
+            .request
+            .identity
+            .as_ref()
+            .and_then(|identity| cache.stale_fallback_ready(identity, prefer_settled_fallback))
+            .is_some(),
+        "materialization display fell through to empty payload"
+    );
     Ok((
         materialization
             .empty_dataframe

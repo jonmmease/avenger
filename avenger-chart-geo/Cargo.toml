@@ -39,3 +39,4 @@ image-compare = "0.4"
 palette = { workspace = true }
 resvg = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

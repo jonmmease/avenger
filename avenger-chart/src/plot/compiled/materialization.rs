@@ -350,12 +350,22 @@ impl MaterializationCache {
     }
 
     #[allow(dead_code)]
+    /// Latest usable stale result for `identity`.
+    ///
+    /// `prefer_settled` pins the fallback to the last gesture-settled result
+    /// — correct for the preview RETARGET path, where the cached scene keeps
+    /// re-displaying one stable raster until the consume-stability window
+    /// swaps in a fresh one. Paths that re-render from scratch every frame
+    /// (no retargeted scene to hold steady) must pass `false` and take the
+    /// newest ready result instead: alternating between "settled" fallback
+    /// frames and exact-key hits on just-completed mid-gesture results
+    /// visibly flashes between old and new rasters.
     pub(crate) fn stale_fallback_ready(
         &self,
         identity: &MaterializationIdentity,
-        request_priority: f32,
+        prefer_settled: bool,
     ) -> Option<(MaterializationKey, MaterializationResult)> {
-        if request_priority < 0.0
+        if prefer_settled
             && let Some(key) = self.last_settled_ready_by_identity.get(identity)
             && let Some(result) = self.get_ready(key)
         {
@@ -1010,7 +1020,7 @@ mod tests {
         );
         assert_eq!(
             cache
-                .stale_fallback_ready(exact.identity.as_ref().unwrap(), -1.0)
+                .stale_fallback_ready(exact.identity.as_ref().unwrap(), true)
                 .expect("stale fallback")
                 .0,
             exact.key
@@ -1033,7 +1043,7 @@ mod tests {
         assert!(cache.contains_ready_for_testing(&second.key));
         assert_eq!(
             cache
-                .stale_fallback_ready(first.identity.as_ref().unwrap(), -1.0)
+                .stale_fallback_ready(first.identity.as_ref().unwrap(), true)
                 .expect("stale fallback")
                 .0,
             second.key

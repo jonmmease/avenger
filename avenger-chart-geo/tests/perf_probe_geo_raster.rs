@@ -189,6 +189,9 @@ async fn wait_for_materializations(session: &PlotSession) {
 #[ignore = "manual perf probe; needs the taxi parquet fixture"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn geo_preview_zoom_profile() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
     let ctx = Arc::new(SessionContext::new());
     let df = taxi_dataframe(&ctx).await;
     let coord = Geo::mercator()
@@ -250,7 +253,7 @@ async fn geo_preview_zoom_profile() {
         patch.insert(center_y_param.clone(), ScalarValue::Float64(Some(center_y)));
         patch.insert(upp_param.clone(), ScalarValue::Float64(Some(upp)));
         let start = Instant::now();
-        let (_plot, metrics) = session
+        let (plot, metrics) = session
             .evaluate_with_metrics(
                 EvaluationRequest::new()
                     .preview()
@@ -263,16 +266,24 @@ async fn geo_preview_zoom_profile() {
             .await
             .unwrap();
         let elapsed = start.elapsed();
-        frame_times.push((elapsed, metrics.pipeline.preview_data_mark_reuses));
+        frame_times.push((
+            elapsed,
+            (
+                metrics.pipeline.materialization_ready_used,
+                metrics.pipeline.materialization_stale_fallback_used,
+                metrics.pipeline.materialization_queued,
+            ),
+            displayed_raster_rect(&plot.scene_graph),
+        ));
         if slowest.as_ref().is_none_or(|(_, max, _)| elapsed > *max) {
             slowest = Some((frame, elapsed, metrics));
         }
         tokio::time::sleep(Duration::from_millis(8)).await;
     }
 
-    let mut sorted: Vec<Duration> = frame_times.iter().map(|(d, _)| *d).collect();
+    let mut sorted: Vec<Duration> = frame_times.iter().map(|(d, _, _)| *d).collect();
     sorted.sort();
-    let retargets = frame_times.iter().filter(|(_, r)| *r > 0).count();
+    let retargets = frame_times.iter().filter(|(_, r, _)| r.0 > 0).count();
     println!(
         "zoom frames: n={} retargets={} min={:?} p50={:?} p90={:?} max={:?}",
         sorted.len(),
@@ -282,11 +293,67 @@ async fn geo_preview_zoom_profile() {
         sorted[sorted.len() * 9 / 10],
         sorted[sorted.len() - 1],
     );
-    for (index, (elapsed, reuses)) in frame_times.iter().enumerate().take(40) {
-        println!("frame {index:02}: {elapsed:?} data_mark_reuses={reuses}");
+    for (index, (elapsed, (ready, fallback, queued), rect)) in
+        frame_times.iter().enumerate().take(40)
+    {
+        println!(
+            "frame {index:02}: {elapsed:?} ready={ready} fallback={fallback} queued={queued} raster_rect={rect:?}"
+        );
     }
     if let Some((frame, elapsed, metrics)) = slowest {
         println!("slowest frame {frame}: {elapsed:?}");
         println!("timings: {:#?}", metrics.timings);
     }
+
+    // The displayed stale raster must progress monotonically toward the
+    // current view: its retargeted width grows a few percent per frame and
+    // resets to roughly plot size when a fresher raster swaps in. A jump
+    // BACK to a much larger rect means the fallback regressed to an older
+    // raster (the flash-between-rasters bug).
+    let widths: Vec<f32> = frame_times
+        .iter()
+        .filter_map(|(_, _, rect)| rect.map(|[_, _, width, _]| width))
+        .collect();
+    for pair in widths.windows(2) {
+        assert!(
+            pair[1] <= pair[0] * 1.05 || pair[1] <= 1_200.0,
+            "displayed raster rect widened abruptly ({} -> {}): stale fallback regressed to an older raster",
+            pair[0],
+            pair[1]
+        );
+    }
+}
+
+/// Plot-frame rect `[x, y, width, height]` of the first uniform-raster
+/// image mark in the scene, if any.
+fn displayed_raster_rect(
+    scene_graph: &avenger_scenegraph::scene_graph::SceneGraph,
+) -> Option<[f32; 4]> {
+    use avenger_scenegraph::marks::mark::SceneMark;
+    fn walk(marks: &[SceneMark]) -> Option<[f32; 4]> {
+        for mark in marks {
+            match mark {
+                SceneMark::Group(group) => {
+                    if let Some(rect) = walk(&group.marks) {
+                        return Some(rect);
+                    }
+                }
+                SceneMark::Image(image) if image.name == "uniform_raster_2d" => {
+                    return Some([
+                        image.x.as_vec(1, None)[0],
+                        image.y.as_vec(1, None)[0],
+                        image.width.as_vec(1, None)[0],
+                        image.height.as_vec(1, None)[0],
+                    ]);
+                }
+                SceneMark::Symbol(symbol) if symbol.len > 10 => {
+                    // Adaptive switch: the scatter child took over.
+                    return Some([f32::NAN, f32::NAN, symbol.len as f32, f32::NAN]);
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    walk(&scene_graph.marks)
 }

@@ -719,6 +719,19 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
             empty_dataframe: Some(self.empty_materialized_dataframe(dataframe, ctx)?),
         }))
     }
+
+    fn view_materialization_identity(
+        &self,
+        dataframe: &DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<avenger_chart_core::MaterializationIdentity>, AvengerChartError> {
+        // Called on the unresolved transform: derived-scalar placeholders
+        // stay symbolic, so the identity is stable while runtime scalars
+        // (e.g. a density normalizer fed by an eager in-view count) vary.
+        self.materialization_spec(dataframe.clone(), ctx)?
+            .identity()
+            .map(Some)
+    }
 }
 
 #[derive(Clone, Debug)]

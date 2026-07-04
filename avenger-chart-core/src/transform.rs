@@ -6,8 +6,8 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AvengerChartError, CoordinationScope, DerivedScalarMap, MaterializationPolicy,
-    MaterializationRequest, SharingLevel, TimeContext,
+    AvengerChartError, CoordinationScope, DerivedScalarMap, MaterializationIdentity,
+    MaterializationPolicy, MaterializationRequest, SharingLevel, TimeContext,
 };
 
 #[derive(Clone, Debug)]
@@ -76,6 +76,23 @@ pub trait CompiledDataTransform: Send + Sync {
         _dataframe: &DataFrame,
         _ctx: &ViewMaterializationContext<'_>,
     ) -> Result<Option<ViewMaterializationRequest>, AvengerChartError> {
+        Ok(None)
+    }
+
+    /// Materialization identity computed from THIS transform instance.
+    ///
+    /// The chain executor calls this on the UNRESOLVED stage transform
+    /// (derived-scalar placeholders intact) to override the identity that
+    /// [`Self::view_materialization_request`] computed from the resolved
+    /// copy. Resolved derived scalars are runtime-varying inputs exactly
+    /// like params: baked into the identity they make it churn with every
+    /// value change, so the stale-result fallback never finds a
+    /// same-lineage result to re-display.
+    fn view_materialization_identity(
+        &self,
+        _dataframe: &DataFrame,
+        _ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<MaterializationIdentity>, AvengerChartError> {
         Ok(None)
     }
 }
