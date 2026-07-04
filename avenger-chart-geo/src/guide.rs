@@ -22,7 +22,6 @@ use avenger_geo::graticule::Graticule;
 use avenger_geo::sinks::LyonPathSink;
 use avenger_geo::streamable::Sphere;
 use avenger_scales::scales::ConfiguredScale;
-use avenger_text::types::FontStyle;
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     image::{SceneImageMark, SceneImageResource, SceneImageSource, SceneImageUnavailablePolicy},
@@ -31,6 +30,7 @@ use avenger_scenegraph::marks::{
     text::SceneTextMark,
     warped_image::SceneWarpedImageMark,
 };
+use avenger_text::types::FontStyle;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};

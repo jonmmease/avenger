@@ -488,7 +488,9 @@ impl RasterTileLayer {
         let x_start = tile_floor((x_lo + PI) / span);
         let x_end = tile_ceil_exclusive((x_hi + PI) / span).max(x_start);
         let y_start = tile_floor((PI - y_hi) / span).max(0);
-        let y_end = tile_ceil_exclusive((PI - y_lo) / span).min(n - 1).max(y_start);
+        let y_end = tile_ceil_exclusive((PI - y_lo) / span)
+            .min(n - 1)
+            .max(y_start);
         let mut tiles = Vec::new();
         for y in y_start..=y_end {
             for unwrapped_x in x_start..=x_end {
@@ -863,8 +865,7 @@ impl RasterTileLayer {
         // screen_center is canvas-frame (matching the scheduler's hover
         // focus hint); the distance above stays in the plot frame, which
         // shares scale with canvas so priorities are unaffected.
-        request.screen_center =
-            plot_center.map(|c| [c[0] + plot_origin[0], c[1] + plot_origin[1]]);
+        request.screen_center = plot_center.map(|c| [c[0] + plot_origin[0], c[1] + plot_origin[1]]);
         request.prefetch_scope = Some(prefetch_scope.clone());
         request
     }
@@ -1064,9 +1065,10 @@ impl TileViewScope {
         let Some(bboxes) = self.node_bbox(z, x, y, cache) else {
             return false;
         };
-        let [rx0, ry0, rx1, ry1] = restrict_px
-            .copied()
-            .unwrap_or([0.0, 0.0, self.plot_width, self.plot_height]);
+        let [rx0, ry0, rx1, ry1] =
+            restrict_px
+                .copied()
+                .unwrap_or([0.0, 0.0, self.plot_width, self.plot_height]);
         let hits = |[min_x, min_y, max_x, max_y]: [f64; 4]| {
             // One-tile margin keeps boundary tiles whose curved interior
             // bulges into the plot even when all samples fall outside.
@@ -1147,8 +1149,16 @@ impl TileViewScope {
                 }
             }
             if gap > 0.5 * span_x {
-                let left: Vec<_> = samples.iter().copied().filter(|&(x, _)| x < split_at).collect();
-                let right: Vec<_> = samples.iter().copied().filter(|&(x, _)| x >= split_at).collect();
+                let left: Vec<_> = samples
+                    .iter()
+                    .copied()
+                    .filter(|&(x, _)| x < split_at)
+                    .collect();
+                let right: Vec<_> = samples
+                    .iter()
+                    .copied()
+                    .filter(|&(x, _)| x >= split_at)
+                    .collect();
                 if let (Some(left_bbox), Some(right_bbox)) = (bbox_of(&left), bbox_of(&right)) {
                     return Some(NodeBBoxes {
                         primary: left_bbox,
@@ -1876,8 +1886,12 @@ mod tests {
         // Cursor at the top-left corner: the z2 cover is exactly the four
         // tiles of the top-left quadrant (a full-viewport cover would be
         // all sixteen).
-        let corner =
-            layer.visible_tiles_in_rect(&scope, 1, [0.0, 0.0, 256.0, 256.0], &mut TileNodeCache::default());
+        let corner = layer.visible_tiles_in_rect(
+            &scope,
+            1,
+            [0.0, 0.0, 256.0, 256.0],
+            &mut TileNodeCache::default(),
+        );
         let mut corner_keys = corner
             .iter()
             .map(|tile| (tile.z, tile.x, tile.y))
@@ -1889,8 +1903,12 @@ mod tests {
         );
 
         // Cursor at the center: the central 2×2 block instead.
-        let center =
-            layer.visible_tiles_in_rect(&scope, 1, [128.0, 128.0, 384.0, 384.0], &mut TileNodeCache::default());
+        let center = layer.visible_tiles_in_rect(
+            &scope,
+            1,
+            [128.0, 128.0, 384.0, 384.0],
+            &mut TileNodeCache::default(),
+        );
         let mut center_keys = center
             .iter()
             .map(|tile| (tile.z, tile.x, tile.y))
@@ -1908,12 +1926,22 @@ mod tests {
         let scope = TileViewScope::new(&measurement);
         let layer = layer().min_zoom(2).max_zoom(6);
         let full = layer
-            .visible_tiles_in_rect(&scope, 1, [0.0, 0.0, 620.0, 400.0], &mut TileNodeCache::default())
+            .visible_tiles_in_rect(
+                &scope,
+                1,
+                [0.0, 0.0, 620.0, 400.0],
+                &mut TileNodeCache::default(),
+            )
             .iter()
             .map(|tile| tile.resource_key.clone())
             .collect::<HashSet<_>>();
         let restricted = layer
-            .visible_tiles_in_rect(&scope, 1, [0.0, 0.0, 155.0, 100.0], &mut TileNodeCache::default())
+            .visible_tiles_in_rect(
+                &scope,
+                1,
+                [0.0, 0.0, 155.0, 100.0],
+                &mut TileNodeCache::default(),
+            )
             .iter()
             .map(|tile| tile.resource_key.clone())
             .collect::<HashSet<_>>();
@@ -1951,7 +1979,8 @@ mod tests {
             });
         let targets = layer.visible_tiles(&scope).expect("targets");
 
-        let corner = layer.plan_prefetch_requests(&scope, "map", &targets, Some([0.0, 0.0]), [0.0, 0.0]);
+        let corner =
+            layer.plan_prefetch_requests(&scope, "map", &targets, Some([0.0, 0.0]), [0.0, 0.0]);
         let corner_keys = corner
             .iter()
             .map(|request| request.key.clone())
@@ -1960,7 +1989,8 @@ mod tests {
         assert!(corner_keys.contains(&ResourceKey::new("geo/base/2/0/0/256")));
         assert!(!corner_keys.contains(&ResourceKey::new("geo/base/2/2/2/256")));
 
-        let opposite = layer.plan_prefetch_requests(&scope, "map", &targets, Some([512.0, 512.0]), [0.0, 0.0]);
+        let opposite =
+            layer.plan_prefetch_requests(&scope, "map", &targets, Some([512.0, 512.0]), [0.0, 0.0]);
         let opposite_keys = opposite
             .iter()
             .map(|request| request.key.clone())
@@ -1970,7 +2000,8 @@ mod tests {
 
         // No focus → plot-center fallback; out-of-plot focus is ignored too.
         let center = layer.plan_prefetch_requests(&scope, "map", &targets, None, [0.0, 0.0]);
-        let off_plot = layer.plan_prefetch_requests(&scope, "map", &targets, Some([-50.0, 900.0]), [0.0, 0.0]);
+        let off_plot =
+            layer.plan_prefetch_requests(&scope, "map", &targets, Some([-50.0, 900.0]), [0.0, 0.0]);
         let center_keys = center
             .iter()
             .map(|request| request.key.clone())
@@ -2049,7 +2080,10 @@ mod tests {
         );
         let planned = avenger_resource::PrefetchRetargetPlanner::plan(
             &planner,
-            [plot_focus[0] + plot_origin[0], plot_focus[1] + plot_origin[1]],
+            [
+                plot_focus[0] + plot_origin[0],
+                plot_focus[1] + plot_origin[1],
+            ],
         )
         .expect("cursor inside plot");
         assert_eq!(planned.len(), offset.len());
@@ -2126,7 +2160,8 @@ mod tests {
                     .take(3)
                     .map(|tile| {
                         let n = MercatorTileGrid::tile_count(tile.z) as f64;
-                        let bbox = scope.node_bbox(tile.z, tile.unwrapped_x, tile.y, &mut diag_cache);
+                        let bbox =
+                            scope.node_bbox(tile.z, tile.unwrapped_x, tile.y, &mut diag_cache);
                         (
                             format!("{:.3},{:.3}", tile.x as f64 / n, tile.y as f64 / n),
                             bbox.map(|b| {

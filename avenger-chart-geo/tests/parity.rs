@@ -729,9 +729,7 @@ mod tile_guide {
         // pixels arrive via the overlapping prefetch covers (cache-only
         // fallback rendering).
         assert!(
-            rendered_keys
-                .iter()
-                .any(|key| !required_keys.contains(key)),
+            rendered_keys.iter().any(|key| !required_keys.contains(key)),
             "expected rendered fallback tiles beyond the Required targets"
         );
         assert!(

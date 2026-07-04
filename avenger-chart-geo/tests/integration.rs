@@ -322,9 +322,7 @@ async fn view_params_resolve_on_geo_marks() {
     let geo = Geo::mercator().viewport_id("main");
     let ctx = SessionContext::new();
     let df = ctx
-        .sql(
-            "SELECT * FROM (VALUES (0.5, 0.0), (1.5, 0.0), (2.5, 0.0)) AS t(x, y)",
-        )
+        .sql("SELECT * FROM (VALUES (0.5, 0.0), (1.5, 0.0), (2.5, 0.0)) AS t(x, y)")
         .await
         .expect("raw-unit point data");
 
