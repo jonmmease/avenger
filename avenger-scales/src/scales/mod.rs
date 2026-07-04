@@ -454,6 +454,22 @@ impl ScaleConfig {
         Ok((domain.value(0), domain.value(1)))
     }
 
+    /// Full-precision domain read: lossless when the domain array is
+    /// Float64 (coordinate-owned domains installed via
+    /// [`ConfiguredScale::with_domain_interval_f64`]). View-domain params
+    /// at Web-Mercator-meter magnitudes lose ~meter-scale precision
+    /// through the f32 accessor.
+    pub fn numeric_interval_domain_f64(&self) -> Result<(f64, f64), AvengerScaleError> {
+        if self.domain.len() != 2 {
+            return Err(AvengerScaleError::ScaleOperationNotSupported(
+                "numeric_interval_domain_f64".to_string(),
+            ));
+        }
+        let domain = cast(self.domain.as_ref(), &DataType::Float64)?;
+        let domain = domain.as_primitive::<arrow::datatypes::Float64Type>();
+        Ok((domain.value(0), domain.value(1)))
+    }
+
     pub fn numeric_interval_range(&self) -> Result<(f32, f32), AvengerScaleError> {
         if self.range.len() != 2 {
             return Err(AvengerScaleError::ScaleOperationNotSupported(
@@ -913,6 +929,21 @@ impl ConfiguredScale {
         }
     }
 
+    /// Install a numeric interval domain at full f64 precision. Scale math
+    /// reads domains through the f32 accessor (identical rounding either
+    /// way), but [`ConfiguredScale::numeric_interval_domain_f64`] can then
+    /// recover the exact values — required for view-domain params at
+    /// Web-Mercator-meter magnitudes, where f32 quantizes near meter scale.
+    pub fn with_domain_interval_f64(self, domain: (f64, f64)) -> ConfiguredScale {
+        ConfiguredScale {
+            config: ScaleConfig {
+                domain: Arc::new(arrow::array::Float64Array::from(vec![domain.0, domain.1])),
+                ..self.config
+            },
+            ..self
+        }
+    }
+
     pub fn with_range_interval(self, range: (f32, f32)) -> ConfiguredScale {
         ConfiguredScale {
             config: ScaleConfig {
@@ -1361,6 +1392,11 @@ impl ConfiguredScale {
 
     pub fn numeric_interval_domain(&self) -> Result<(f32, f32), AvengerScaleError> {
         self.config.numeric_interval_domain()
+    }
+
+    /// See [`ScaleConfig::numeric_interval_domain_f64`].
+    pub fn numeric_interval_domain_f64(&self) -> Result<(f64, f64), AvengerScaleError> {
+        self.config.numeric_interval_domain_f64()
     }
 
     pub fn range(&self) -> &ArrayRef {

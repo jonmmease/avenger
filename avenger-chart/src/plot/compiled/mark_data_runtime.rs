@@ -1720,13 +1720,17 @@ fn resolved_view_params(
             let y_scale = scales
                 .get("y")
                 .ok_or_else(|| AvengerChartError::ScaleNotFound("y".to_string()))?;
+            // f64 accessor: lossless for coordinate-owned domains installed
+            // as Float64 arrays (Geo viewports at Web-Mercator magnitudes
+            // quantize near meter scale through f32); identical (widened)
+            // for domains stored as f32.
             let (x_domain_start, x_domain_end) = x_scale
                 .configured()
-                .numeric_interval_domain()
+                .numeric_interval_domain_f64()
                 .map_err(AvengerChartError::ScaleError)?;
             let (y_domain_start, y_domain_end) = y_scale
                 .configured()
-                .numeric_interval_domain()
+                .numeric_interval_domain_f64()
                 .map_err(AvengerChartError::ScaleError)?;
             let (x_range_start, x_range_end) = x_scale
                 .configured()
@@ -1751,11 +1755,11 @@ fn resolved_view_params(
             let mut params = IndexMap::new();
             params.insert(
                 view_ref.x().param_name("domain_start"),
-                ScalarValue::Float64(Some(x_domain_start as f64)),
+                ScalarValue::Float64(Some(x_domain_start)),
             );
             params.insert(
                 view_ref.x().param_name("domain_end"),
-                ScalarValue::Float64(Some(x_domain_end as f64)),
+                ScalarValue::Float64(Some(x_domain_end)),
             );
             params.insert(
                 view_ref.x().param_name("range_start"),
@@ -1771,11 +1775,11 @@ fn resolved_view_params(
             );
             params.insert(
                 view_ref.y().param_name("domain_start"),
-                ScalarValue::Float64(Some(y_domain_start as f64)),
+                ScalarValue::Float64(Some(y_domain_start)),
             );
             params.insert(
                 view_ref.y().param_name("domain_end"),
-                ScalarValue::Float64(Some(y_domain_end as f64)),
+                ScalarValue::Float64(Some(y_domain_end)),
             );
             params.insert(
                 view_ref.y().param_name("range_start"),
@@ -2804,6 +2808,57 @@ mod tests {
             configured,
             ScaleRangeBinding::Independent,
         )
+    }
+
+    /// View-domain params must round-trip coordinate-owned f64 domains at
+    /// full precision: a ~20 m-span Web-Mercator-meter domain (a deep-zoom
+    /// Geo viewport) quantizes by ~0.5 m through the f32 domain accessor.
+    #[test]
+    fn view_domain_params_preserve_f64_precision() {
+        let x_domain = (-8_240_553.123_456_7_f64, -8_240_533.123_456_7_f64);
+        let y_domain = (4_970_121.987_654_3_f64, 4_970_141.987_654_3_f64);
+        let scale_f64 = |domain: (f64, f64), range: (f32, f32)| {
+            let scale = Scale::<Linear>::new().into_auto();
+            let configured = ConfiguredScale {
+                scale_impl: Linear.create_impl(),
+                config: ScaleConfig::empty(),
+            }
+            .with_domain_interval_f64(domain)
+            .with_range_interval(range);
+            ConfiguredScaleWithSpec::with_range_binding(
+                scale,
+                configured,
+                ScaleRangeBinding::Independent,
+            )
+        };
+        let scales = HashMap::from([
+            ("x".to_string(), scale_f64(x_domain, (0.0, 100.0))),
+            ("y".to_string(), scale_f64(y_domain, (100.0, 0.0))),
+        ]);
+        let (spec, view_ref) = avenger_chart_core::ViewSpec::into_compiled_and_ref(
+            View::cartesian()
+                .id("v")
+                .x_domain(col("x"))
+                .y_domain(col("y")),
+        )
+        .expect("compile view spec");
+        let params =
+            resolved_view_params(&spec, &scales, 100.0, 100.0).expect("resolve view params");
+
+        let get = |name: String| -> f64 {
+            match params.get(&name) {
+                Some(ScalarValue::Float64(Some(value))) => *value,
+                other => panic!("param {name}: unexpected {other:?}"),
+            }
+        };
+        let tolerance = 1e-3; // meters
+        assert!((get(view_ref.x().param_name("domain_start")) - x_domain.0).abs() < tolerance);
+        assert!((get(view_ref.x().param_name("domain_end")) - x_domain.1).abs() < tolerance);
+        assert!((get(view_ref.y().param_name("domain_start")) - y_domain.0).abs() < tolerance);
+        assert!((get(view_ref.y().param_name("domain_end")) - y_domain.1).abs() < tolerance);
+        // The old f32 hop was meter-scale wrong at this magnitude — the
+        // tolerance above genuinely detects a regression.
+        assert!((f64::from(x_domain.0 as f32) - x_domain.0).abs() > tolerance);
     }
 
     async fn prepare_fake_materialized_view_mark(

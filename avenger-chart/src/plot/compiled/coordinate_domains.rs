@@ -367,11 +367,14 @@ pub(crate) fn apply_coordinate_domain_overrides(
                 "coordinate domain override references missing scale '{scale_name}'"
             ))
         })?;
+        // Full f64 precision: coordinate-owned domains (e.g. Geo viewports)
+        // originate as f64, and view-domain params read them back via the
+        // f64 accessor. Scale math rounds to f32 at read either way.
         scale.set_configured(
             scale
                 .configured()
                 .clone()
-                .with_domain_interval((*min as f32, *max as f32)),
+                .with_domain_interval_f64((*min, *max)),
         );
     }
     Ok(())
