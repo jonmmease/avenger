@@ -5,7 +5,9 @@ edition = "2024"
 
 [dependencies]
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-image = { path = "../avenger-image", default-features = false }
 avenger-scales = { path = "../avenger-scales" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
@@ -16,4 +18,5 @@ datafusion-proto = "48.0.1"
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"
+tracing = { workspace = true }
 typetag = "0.2"

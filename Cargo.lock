@@ -826,7 +826,9 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart-core",
+ "avenger-color",
  "avenger-common",
+ "avenger-image",
  "avenger-scales",
  "avenger-scenegraph",
  "avenger-text",
@@ -836,6 +838,7 @@ dependencies = [
  "indexmap 2.14.0",
  "serde",
  "serde_with",
+ "tracing",
  "typetag",
 ]
 
