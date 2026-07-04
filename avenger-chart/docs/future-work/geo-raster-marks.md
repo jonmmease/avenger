@@ -1,7 +1,15 @@
 # Geo Raster Marks: CRS-Tagged Rasters on the Geo Coordinate System
 
-Status (2026-07-04): design. Nothing here is implemented; every claim about
-existing code below was verified against the working tree on this date.
+Status (2026-07-04): Phases 1 and 2 implemented. `geometry.crs` +
+`Rasterize2D::frame(...)`, the shared raster-mark core in
+avenger-chart-marks, `Mark<Geo> for UniformRaster2D<Geo>` with identity and
+warped dispatch (`warped_raster_mesh` with `MercatorY`/`Latitude` axes),
+the `avenger_chart_geo::crs` helpers, f64 view-domain params, and the four
+examples (`taxi_geo_mercator`, `taxi_geo_albers`, `climate_grid_equal_earth`,
+`georegistered_overlay`) all landed on 2026-07-04. Phase 3 (GPU residency
+for large inline rasters) and the faceted-raster example remain future
+work. §§2–4 below describe the pre-implementation state and design; code
+references were verified on the design date.
 
 ## 1. Goal
 
