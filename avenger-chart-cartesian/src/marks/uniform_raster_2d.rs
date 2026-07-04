@@ -460,6 +460,13 @@ impl CompiledCartesianUniformRaster2D {
                 row_for_channel(raster_array, row, len, UNIFORM_RASTER_2D_RASTER_CHANNEL)?;
             let fill_row = row_for_channel(fill_array, row, len, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
             let raster = extract_grid_raster_row(raster_array, raster_row)?;
+            let geometry =
+                struct_child_struct(as_struct_array(raster_array, "raster")?, "geometry")?;
+            if let Some(tag) = raster_crs(geometry, raster_row) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "raster declares CRS '{tag}'; Cartesian plots have no CRS — drop .frame(...) or use a Geo plot"
+                )));
+            }
             raster.validate_scalar_render_dims(x_position.dim.name(), y_position.dim.name())?;
             let fill_values =
                 list_row_values(fill_array, fill_row, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
@@ -925,6 +932,20 @@ fn extract_grid_raster_row(
         strides,
         values,
     })
+}
+
+/// Read the raster's declared CRS tag from the `geometry` struct.
+///
+/// Returns `None` when the `crs` field is absent (rasters serialized before the
+/// field existed keep working) or null (untagged raster — chart data units).
+fn raster_crs(geometry: &StructArray, row: usize) -> Option<String> {
+    let crs = geometry.column_by_name("crs")?;
+    let crs = crs.as_any().downcast_ref::<StringArray>()?;
+    if crs.is_null(row) {
+        None
+    } else {
+        Some(crs.value(row).to_string())
+    }
 }
 
 fn parse_dimensions(array: &ArrayRef) -> Result<Vec<RasterDimension>, AvengerChartError> {
@@ -2247,21 +2268,44 @@ mod tests {
         fill_data: ArrayRef,
         opacity: Option<f64>,
     ) -> RecordBatch {
+        raster_batch_from_parts_with_crs(
+            dimensions,
+            values_dims,
+            values_data,
+            fill_data,
+            opacity,
+            None,
+        )
+    }
+
+    fn raster_batch_from_parts_with_crs(
+        dimensions: &[TestDimension<'_>],
+        values_dims: &[&str],
+        values_data: ArrayRef,
+        fill_data: ArrayRef,
+        opacity: Option<f64>,
+        crs: Option<&str>,
+    ) -> RecordBatch {
         let dimensions = dimensions_list(dimensions);
-        let geometry = Arc::new(StructArray::from(vec![
-            (
-                Arc::new(Field::new("kind", DataType::Utf8, false)),
-                Arc::new(StringArray::from(vec!["grid"])) as ArrayRef,
-            ),
-            (
-                Arc::new(Field::new(
-                    "dimensions",
-                    dimensions.data_type().clone(),
-                    false,
-                )),
-                dimensions,
-            ),
-        ])) as ArrayRef;
+        let mut geometry_fields = vec![(
+            Arc::new(Field::new("kind", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["grid"])) as ArrayRef,
+        )];
+        if crs.is_some() {
+            geometry_fields.push((
+                Arc::new(Field::new("crs", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![crs])) as ArrayRef,
+            ));
+        }
+        geometry_fields.push((
+            Arc::new(Field::new(
+                "dimensions",
+                dimensions.data_type().clone(),
+                false,
+            )),
+            dimensions,
+        ));
+        let geometry = Arc::new(StructArray::from(geometry_fields)) as ArrayRef;
         let dims = string_list(values_dims);
         let values = Arc::new(StructArray::from(vec![
             (
@@ -2797,6 +2841,66 @@ mod tests {
         };
         assert!(
             err.to_string().contains("supports only linear sampling"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn raster_crs_reads_absent_null_and_tagged_geometry() {
+        // Absent field: batches serialized before geometry.crs existed.
+        let geometry = StructArray::from(vec![(
+            Arc::new(Field::new("kind", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["grid"])) as ArrayRef,
+        )]);
+        assert_eq!(raster_crs(&geometry, 0), None);
+
+        // Present but null: untagged raster from the new schema.
+        let geometry = StructArray::from(vec![
+            (
+                Arc::new(Field::new("kind", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["grid"])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("crs", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![None::<&str>])) as ArrayRef,
+            ),
+        ]);
+        assert_eq!(raster_crs(&geometry, 0), None);
+
+        // Tagged.
+        let geometry = StructArray::from(vec![
+            (
+                Arc::new(Field::new("kind", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["grid"])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("crs", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![Some("epsg:3857")])) as ArrayRef,
+            ),
+        ]);
+        assert_eq!(raster_crs(&geometry, 0), Some("epsg:3857".to_string()));
+    }
+
+    #[test]
+    fn rejects_crs_tagged_raster_on_cartesian() {
+        let values_data = string_list(&["#ff0000", "#00ff00", "#0000ff", "#ffffff"]);
+        let data = raster_batch_from_parts_with_crs(
+            &[
+                TestDimension::uniform("x", 0.0, 2.0, 2),
+                TestDimension::uniform("y", 0.0, 2.0, 2),
+            ],
+            &["y", "x"],
+            values_data.clone(),
+            values_data,
+            None,
+            Some("epsg:3857"),
+        );
+        let context = test_context();
+        let err = render_error(raster_options("x", "y"), data, &context);
+        assert!(
+            err.to_string().contains(
+                "raster declares CRS 'epsg:3857'; Cartesian plots have no CRS — drop .frame(...) or use a Geo plot"
+            ),
             "{err}"
         );
     }

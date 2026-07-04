@@ -74,6 +74,14 @@ pub struct CompiledRasterize2DTransform {
     pub raster_name: String,
     pub x_dim_name: String,
     pub y_dim_name: String,
+    /// Declared CRS of the x/y input expressions and extents (e.g. "epsg:3857").
+    /// Stamped into the output raster's `geometry.crs` field. Serialized as part
+    /// of the spec so it participates in the materialization identity/key hashes
+    /// and round-trips through the async executor. Skipped when `None` so
+    /// untagged specs (and their hashes) are byte-identical to before this
+    /// field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -288,6 +296,7 @@ pub struct Rasterize2D {
     agg: String,
     partition_by: Vec<Expr>,
     raster_name: String,
+    frame: Option<String>,
 }
 
 impl Rasterize2D {
@@ -301,6 +310,7 @@ impl Rasterize2D {
             agg: "count".to_string(),
             partition_by: Vec::new(),
             raster_name: "raster".to_string(),
+            frame: None,
         }
     }
 
@@ -342,6 +352,15 @@ impl Rasterize2D {
 
     pub fn name(mut self, name: impl Into<String>) -> Self {
         self.raster_name = name.into();
+        self
+    }
+
+    /// Declare the coordinate reference system of the x/y input expressions and
+    /// extents (e.g. `"epsg:3857"`). The tag is stamped into the output raster's
+    /// `geometry.crs` field; consuming marks validate and convert it. Binning is
+    /// unit-agnostic, so this is an assertion by the author, not an inference.
+    pub fn frame(mut self, crs: impl Into<String>) -> Self {
+        self.frame = Some(crs.into());
         self
     }
 }
@@ -433,6 +452,7 @@ impl DataTransform for Rasterize2D {
             raster_name: self.raster_name.clone(),
             x_dim_name: x_dim_name.clone(),
             y_dim_name: y_dim_name.clone(),
+            frame: self.frame.clone(),
         };
 
         Ok((
@@ -524,6 +544,7 @@ impl CompiledRasterize2DTransform {
             y_start,
             y_stop,
             y_bins,
+            self.frame.clone(),
         )?;
 
         tracing::debug!(
@@ -651,6 +672,7 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
             raster_name: self.raster_name.clone(),
             x_dim_name: self.x_dim_name.clone(),
             y_dim_name: self.y_dim_name.clone(),
+            frame: self.frame.clone(),
         }))
     }
 
@@ -712,6 +734,7 @@ struct Rasterize2DGridConfig {
     y_stop: f64,
     y_bins: u32,
     grid_len: usize,
+    crs: Option<String>,
 }
 
 impl Rasterize2DGridConfig {
@@ -727,6 +750,7 @@ impl Rasterize2DGridConfig {
         y_start: f64,
         y_stop: f64,
         y_bins: u32,
+        crs: Option<String>,
     ) -> Result<Self, AvengerChartError> {
         validate_extent("x", x_start, x_stop)?;
         validate_extent("y", y_start, y_stop)?;
@@ -758,6 +782,7 @@ impl Rasterize2DGridConfig {
             y_stop,
             y_bins,
             grid_len,
+            crs,
         })
     }
 
@@ -788,6 +813,7 @@ impl PartialEq for Rasterize2DGridConfig {
             && self.y_start.to_bits() == other.y_start.to_bits()
             && self.y_stop.to_bits() == other.y_stop.to_bits()
             && self.y_bins == other.y_bins
+            && self.crs == other.crs
     }
 }
 
@@ -805,6 +831,7 @@ impl Hash for Rasterize2DGridConfig {
         self.y_start.to_bits().hash(state);
         self.y_stop.to_bits().hash(state);
         self.y_bins.hash(state);
+        self.crs.hash(state);
     }
 }
 
@@ -1656,6 +1683,7 @@ fn raster_data_type(cell_type: DataType, cell_nullable: bool) -> DataType {
     let dimensions_type = DataType::new_list(dimension_type, false);
     let geometry_type = DataType::Struct(Fields::from(vec![
         Field::new("kind", DataType::Utf8, false),
+        Field::new("crs", DataType::Utf8, true),
         Field::new("dimensions", dimensions_type, false),
     ]));
     let values_type = DataType::Struct(Fields::from(vec![
@@ -1690,10 +1718,15 @@ fn build_raster_array(
 ) -> DataFusionResult<Arc<StructArray>> {
     let row_count = data.len();
     let dimensions = dimensions_list_array(config, row_count)?;
+    let crs_values = vec![config.crs.as_deref(); row_count];
     let geometry = Arc::new(StructArray::from(vec![
         (
             Arc::new(Field::new("kind", DataType::Utf8, false)),
             Arc::new(StringArray::from(vec!["grid"; row_count])) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("crs", DataType::Utf8, true)),
+            Arc::new(StringArray::from(crs_values)) as ArrayRef,
         ),
         (
             Arc::new(Field::new(
@@ -2177,6 +2210,10 @@ mod tests {
     use super::*;
 
     fn test_config() -> Rasterize2DGridConfig {
+        test_config_with_crs(None)
+    }
+
+    fn test_config_with_crs(crs: Option<&str>) -> Rasterize2DGridConfig {
         Rasterize2DGridConfig::new(
             "x".to_string(),
             "y".to_string(),
@@ -2188,6 +2225,7 @@ mod tests {
             0.0,
             2.0,
             2,
+            crs.map(str::to_string),
         )
         .unwrap()
     }
@@ -2440,5 +2478,148 @@ mod tests {
             &merged_value_reducer_output(Rasterize2DAgg::StddevSamp),
             &[Some(2.0_f64.sqrt()), None, None, Some(2.0)],
         );
+    }
+
+    fn compiled_transform_with_frame(frame: Option<&str>) -> CompiledRasterize2DTransform {
+        CompiledRasterize2DTransform {
+            x: expr_node(col("x"), "rasterize x expression"),
+            y: expr_node(col("y"), "rasterize y expression"),
+            x_dim: Rasterize2DDimension::default().into_spec("x").unwrap(),
+            y_dim: Rasterize2DDimension::default().into_spec("y").unwrap(),
+            value: None,
+            agg: Rasterize2DAgg::Count,
+            partition_by: Vec::new(),
+            raster_name: "raster".to_string(),
+            x_dim_name: "x".to_string(),
+            y_dim_name: "y".to_string(),
+            frame: frame.map(str::to_string),
+        }
+    }
+
+    fn crs_from_raster(raster: &StructArray, row: usize) -> Option<String> {
+        let geometry = raster
+            .column_by_name("geometry")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let crs = geometry
+            .column_by_name("crs")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        if crs.is_null(row) {
+            None
+        } else {
+            Some(crs.value(row).to_string())
+        }
+    }
+
+    #[test]
+    fn frame_round_trips_through_serialized_compiled_spec() {
+        use avenger_chart_core::CoordinationScope;
+
+        // The builder threads frame() into the compiled transform, and the
+        // typetag-serialized spec (what the async executor deserializes)
+        // carries it.
+        let (compiled, _output) = Rasterize2D::new(col("x"), col("y"))
+            .frame("epsg:3857")
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Shared))
+            .unwrap();
+        let json = serde_json::to_value(&compiled).unwrap();
+        assert_eq!(json["frame"], serde_json::json!("epsg:3857"));
+
+        let tagged = compiled_transform_with_frame(Some("epsg:3857"));
+        let json = serde_json::to_value(&tagged).unwrap();
+        assert_eq!(json["frame"], serde_json::json!("epsg:3857"));
+        let round_tripped: CompiledRasterize2DTransform = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped, tagged);
+
+        // Untagged specs serialize without the key (so their bytes and hashes
+        // are identical to pre-frame specs), and specs serialized before the
+        // field existed still deserialize.
+        let untagged = compiled_transform_with_frame(None);
+        let json = serde_json::to_value(&untagged).unwrap();
+        assert!(json.get("frame").is_none());
+        let round_tripped: CompiledRasterize2DTransform = serde_json::from_value(json).unwrap();
+        assert_eq!(round_tripped.frame, None);
+    }
+
+    #[test]
+    fn frame_is_stamped_into_output_geometry_and_schema() {
+        let mut acc = Rasterize2DAccumulator::new(
+            test_config_with_crs(Some("epsg:3857")),
+            Rasterize2DAgg::Count,
+        );
+        acc.update_batch(&input_arrays(vec![0.0, 2.0], vec![0.0, 2.0]))
+            .unwrap();
+        let ScalarValue::Struct(raster) = acc.evaluate().unwrap() else {
+            panic!("expected struct scalar");
+        };
+        assert_eq!(crs_from_raster(&raster, 0), Some("epsg:3857".to_string()));
+        // The built struct matches the declared UDAF return type (which is also
+        // what empty_materialized_dataframe builds its schema from).
+        assert_eq!(
+            raster.data_type(),
+            &raster_data_type(DataType::UInt64, false)
+        );
+
+        // Untagged rasters carry a null crs and the same schema.
+        let mut acc = Rasterize2DAccumulator::new(test_config(), Rasterize2DAgg::Count);
+        acc.update_batch(&input_arrays(vec![0.0], vec![0.0]))
+            .unwrap();
+        let ScalarValue::Struct(raster) = acc.evaluate().unwrap() else {
+            panic!("expected struct scalar");
+        };
+        assert_eq!(crs_from_raster(&raster, 0), None);
+        assert_eq!(
+            raster.data_type(),
+            &raster_data_type(DataType::UInt64, false)
+        );
+    }
+
+    #[test]
+    fn differing_frame_changes_identity_and_key_hashes() {
+        use datafusion::prelude::SessionContext;
+
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_from_iter(vec![
+            (
+                "x",
+                Arc::new(Float64Array::from(vec![0.0, 1.0])) as ArrayRef,
+            ),
+            (
+                "y",
+                Arc::new(Float64Array::from(vec![0.0, 1.0])) as ArrayRef,
+            ),
+        ])
+        .unwrap();
+        let df = ctx.read_batch(batch).unwrap();
+        let spec_for = |frame: Option<&str>| {
+            Rasterize2DMaterializationSpec::new(
+                df.clone(),
+                compiled_transform_with_frame(frame),
+                SerializableScalarMap::from(IndexMap::<String, ScalarValue>::new()),
+            )
+            .unwrap()
+        };
+
+        let untagged = spec_for(None);
+        let mercator = spec_for(Some("epsg:3857"));
+        let degrees = spec_for(Some("epsg:4326"));
+
+        assert_ne!(
+            untagged.identity().unwrap(),
+            mercator.identity().unwrap(),
+            "frame() must participate in the identity hash"
+        );
+        assert_ne!(
+            mercator.identity().unwrap(),
+            degrees.identity().unwrap(),
+            "different frames must produce different identity hashes"
+        );
+        assert_ne!(untagged.key().unwrap(), mercator.key().unwrap());
+        assert_ne!(mercator.key().unwrap(), degrees.key().unwrap());
     }
 }
