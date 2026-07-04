@@ -613,20 +613,22 @@ where
                 if let Some(scene_graph) = scene_graph_opt.scene_graph {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         let install_start = StdInstant::now();
-                        install_scene_graph(
+                        if let Err(err) = install_scene_graph(
                             canvas,
                             &scene_graph,
                             window_scene_sizing,
                             scale,
                             self.canvas_frame.as_mut(),
-                        )
-                        .unwrap();
-                        tracing::debug!(
-                            target: "avenger_winit_wgpu::resize",
-                            set_scene_ms = install_start.elapsed().as_secs_f64() * 1000.0,
-                            "winit.dispatch install_scene_graph"
-                        );
-                        self.render_pending = true;
+                        ) {
+                            log::error!("Failed to set scene: {err:?}");
+                        } else {
+                            tracing::debug!(
+                                target: "avenger_winit_wgpu::resize",
+                                set_scene_ms = install_start.elapsed().as_secs_f64() * 1000.0,
+                                "winit.dispatch install_scene_graph"
+                            );
+                            self.render_pending = true;
+                        }
                     }
                 }
                 tracing::debug!(
@@ -1043,14 +1045,15 @@ where
                 let setup_future = async move {
                     match canvas_future.await {
                         Ok(mut canvas) => {
-                            install_scene_graph(
+                            if let Err(err) = install_scene_graph(
                                 &mut canvas,
                                 &scene_graph,
                                 WindowSceneSizing::SurfaceFollowsWindow,
                                 dimensions.scale,
                                 None,
-                            )
-                            .unwrap();
+                            ) {
+                                log::error!("Failed to set initial scene: {err:?}");
+                            }
                             *canvas_shared.borrow_mut() = Some(canvas);
                         }
                         Err(e) => {
@@ -1062,14 +1065,15 @@ where
             } else {
                 match self.tokio_runtime.block_on(canvas_future) {
                     Ok(mut canvas) => {
-                        install_scene_graph(
+                        if let Err(err) = install_scene_graph(
                             &mut canvas,
                             &scene_graph,
                             WindowSceneSizing::SurfaceFollowsWindow,
                             dimensions.scale,
                             self.canvas_frame.as_mut(),
-                        )
-                        .unwrap();
+                        ) {
+                            log::error!("Failed to set initial scene: {err:?}");
+                        }
                         *canvas_shared.borrow_mut() = Some(canvas);
                         // Replay any invalidation that arrived while the
                         // canvas didn't exist yet (e.g. an async

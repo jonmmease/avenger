@@ -807,4 +807,84 @@ mod text_raster_tests {
                 .is_some_and(|image| image.pixels().any(|pixel| pixel[3] > 0))
         }));
     }
+
+    #[test]
+    fn text_atlas_builder_tiles_entry_wider_than_atlas() {
+        let config = CanvasConfig::default();
+        let mut builder = make_text_atlas_builder(&None, &config.font_resolution);
+
+        // Long single-line title at scale 2.0 rasterizes wider than the atlas
+        // page (1024px); previously this failed allocation with
+        // ImageAllocationError and panicked the winit app.
+        let text = "Synthetic annual-mean temperature — drag to pan, scroll to zoom".to_string();
+        let color = [0.1, 0.2, 0.3, 1.0];
+        let align = TextAlign::Left;
+        let baseline = TextBaseline::Alphabetic;
+        let font = "sans-serif".to_string();
+        let font_weight = FontWeight::default();
+        let font_style = FontStyle::default();
+
+        let instance = TextInstance {
+            position: [10.0, 20.0],
+            text: &text,
+            color: &color,
+            align: &align,
+            angle: 0.0,
+            baseline: &baseline,
+            font: &font,
+            font_size: 22.0,
+            font_weight: &font_weight,
+            font_style: &font_style,
+            limit: f32::INFINITY,
+            syntax_mode: TextSyntaxMode::Plain,
+            params: avenger_text::empty_label_params(),
+            number_locale: None,
+            number_locale_specs: &avenger_text::NumberLocaleSpecs::default(),
+            datetime_locale: None,
+            datetime_timezone: None,
+            datetime_locale_specs: &avenger_text::DateTimeLocaleSpecs::default(),
+            use_nearest_filter: false,
+        };
+        let dimensions = CanvasDimensions {
+            size: [900.0, 560.0],
+            scale: 2.0,
+        };
+
+        let registrations = builder
+            .register_text(instance.clone(), dimensions)
+            .expect("oversized text raster entry should tile instead of failing allocation");
+
+        // Collect quads as (x0, x1) spans; the oversized entry must split into
+        // multiple tiles that stitch back together seamlessly.
+        let mut spans: Vec<(f32, f32)> = registrations
+            .iter()
+            .flat_map(|registration| registration.verts.chunks(4))
+            .map(|quad| (quad[0].position[0], quad[2].position[0]))
+            .collect();
+        assert!(
+            spans.len() >= 2,
+            "expected the oversized entry to split into multiple tiles, got {} quad(s)",
+            spans.len()
+        );
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for pair in spans.windows(2) {
+            assert!(
+                (pair[1].0 - pair[0].1).abs() < 1e-3,
+                "adjacent tiles should stitch exactly: {:?} then {:?}",
+                pair[0],
+                pair[1]
+            );
+        }
+
+        // Re-registering the same text must hit the atlas cache and produce the
+        // same tiling.
+        let cached_registrations = builder
+            .register_text(instance, dimensions)
+            .expect("cached oversized entry should register");
+        let cached_quads: usize = cached_registrations
+            .iter()
+            .map(|registration| registration.verts.len() / 4)
+            .sum();
+        assert_eq!(cached_quads, spans.len());
+    }
 }
