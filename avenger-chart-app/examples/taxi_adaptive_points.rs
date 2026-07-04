@@ -43,23 +43,30 @@ use avenger_chart_app::{
 use avenger_image::ImageResourceCache;
 use avenger_resource::RenderInvalidationHub;
 use datafusion::{
-    arrow::{compute::concat_batches, record_batch::RecordBatch},
+    arrow::{compute::concat_batches, datatypes::DataType, record_batch::RecordBatch},
     dataframe::DataFrame,
     datasource::MemTable,
     error::{DataFusionError, Result as DataFusionResult},
+    functions::expr_fn::{log2, power, round},
+    logical_expr::{expr_fn::cast, when},
     prelude::{ParquetReadOptions, SessionContext},
 };
 use palette::rgb::Srgba;
 use winit::window::WindowAttributes;
 
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 1_000_000;
+const TAXI_MAX_ROWS: usize = 11_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
 /// Dark-blue endpoint of the raster ramp (#08519c), shared with the scatter
 /// points so the raster-to-scatter transition is less jarring.
 const SCATTER_BLUE: Srgba = Srgba::new(0.031, 0.318, 0.612, 1.0);
+/// Density normalization for the fill domain: the domain's upper end is
+/// roughly `in-view count / this`, so the full 1M-point extent tops out
+/// around 128 trips per pixel and the domain end reaches 1 near the
+/// `POINT_BUDGET` scatter switch.
+const FILL_DOMAIN_POINTS_DIVISOR: f64 = 9_000.0;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -174,20 +181,37 @@ async fn build_app(
 /// Counts are computed as `sum` of a literal 1 so cells with no pickups stay
 /// NULL — the mark renders NULL cells with the default fully transparent
 /// null color, while a `count` aggregation would fill them with opaque 0s.
+///
+/// Cell values are density-normalized (Datashader-style): each pickup
+/// contributes `1 / normalizer` where the normalizer tracks the in-view
+/// count, so deep zooms keep using the dark end of a FIXED (0, 1) fill
+/// ramp. Near the scatter switch the normalizer reaches 1, where a one-trip
+/// pixel is drawn in the same dark blue as the scatter points and the
+/// representation swap is nearly invisible. The normalizer lives in the
+/// `Rasterize2D` value expression because the shared eager count is a
+/// view-chain scalar: stage expressions resolve it, while scale configs are
+/// built before view chains run and cannot. Rounding the normalizer to a
+/// power of two re-rasterizes only at discrete zoom steps, and `clamp` pins
+/// over-max cells to the dark endpoint.
 fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<Cartesian> {
     let gate = stats.scalar("n").gt_eq(lit(POINT_BUDGET));
+    let density = cast(stats.scalar("n"), DataType::Float64) / lit(FILL_DOMAIN_POINTS_DIVISOR);
+    let density_floor = when(density.clone().gt(lit(1.0)), density)
+        .otherwise(lit(1.0))
+        .expect("valid density normalizer floor expression");
+    let normalizer = power(lit(2.0), round(vec![log2(density_floor)]));
     UniformRaster2D::new()
         .transform(
             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
                 .x(|x| {
                     x.extent(v.x().domain_start(), v.x().domain_end())
-                        .bins(v.x().pixels())
+                        .bins(v.x().pixels() / lit(2))
                 })
                 .y(|y| {
                     y.extent(v.y().domain_start(), v.y().domain_end())
-                        .bins(v.y().pixels())
+                        .bins(v.y().pixels() / lit(2))
                 })
-                .value(lit(1.0))
+                .value(lit(1.0) / normalizer)
                 .agg("sum"),
             move |mark, hist| {
                 mark.transform(Filter::new(gate), |mark, _| mark)
@@ -201,15 +225,17 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
                                 .axis(|axis| axis.title("Pickup y").tick_count(4).format(".4~s"))
                         })
                         .fill(|fill| {
-                            // Explicit fill domain: inferred (visible-domain)
-                            // fill scales currently break the preview path
-                            // when an async raster first becomes ready (see
-                            // the ignored *_inferred_fill_preview_after_ready
-                            // session tests), and an explicit domain also
-                            // keeps the colorbar stable during pan/zoom.
+                            // Explicit fixed fill domain: the cell values
+                            // are already density-normalized to (0, 1), and
+                            // inferred (visible-domain) fill scales currently
+                            // break the preview path when an async raster
+                            // first becomes ready (see the ignored
+                            // *_inferred_fill_preview_after_ready session
+                            // tests).
                             fill.scale_with::<Sqrt>(|scale| {
                                 scale
-                                    .domain((0.0, 120.0))
+                                    .clamp(true)
+                                    .domain((0.0, 1.0))
                                     .range_colors(vec![
                                         Srgba::new(0.87, 0.92, 0.97, 1.0), // Light blue (#deebf7)
                                         SCATTER_BLUE,
@@ -217,7 +243,7 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
                                     .nice(false)
                                     .zero(false)
                             })
-                            .legend(|legend| legend.title("Trips"))
+                            .legend(|legend| legend.title("Density"))
                         })
                     })
             },
@@ -235,7 +261,7 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Cartesian> {
         .transform(Filter::new(gate), |mark, _| mark)
         .x(col("pickup_x"))
         .y(col("pickup_y"))
-        .size(12.0)
+        .size(20.0)
         .fill("#08519c")
 }
 

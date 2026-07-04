@@ -1911,6 +1911,40 @@ pub(crate) async fn schedule_view_materializations_for_mark(
         return Ok(ViewMaterializationSchedule::default());
     }
 
+    // The schedule-only pass runs the view chain (including eager scalar
+    // aggregations over the source data) just to compute materialization
+    // keys, so a view throttle rate-limits the pass itself, not only the
+    // request starts. Skipped frames stay on the pure retarget path; the
+    // recorded wakeup re-runs the pass once the window elapses so the
+    // settled view state still gets scheduled and consumed.
+    if let Some(throttle) = view_scope.spec.policy().throttle
+        && let Some(cache) = request.eval_ctx.materialization_cache()
+    {
+        let mut identity = format!(
+            "preview-schedule:{}:{}",
+            view_scope.spec.id(),
+            mark.state().mark_index()
+        );
+        if let Some(scope) = request.facet_data_scope.as_ref() {
+            use std::fmt::Write as _;
+            let _ = write!(identity, ":{:?}", scope.full_path);
+        }
+        let should_run = cache
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .should_run_preview_schedule(
+                &avenger_chart_core::MaterializationIdentity::new(identity),
+                throttle,
+                Instant::now(),
+            );
+        if !should_run {
+            return Ok(ViewMaterializationSchedule {
+                request_count: 0,
+                can_retarget_cached_scene: true,
+            });
+        }
+    }
+
     let prepared_storage;
     let base_prepared = if let Some(prepared) = request.prepared_logical {
         prepared

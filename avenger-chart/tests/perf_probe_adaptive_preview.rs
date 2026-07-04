@@ -17,15 +17,19 @@ use avenger_chart::render::EvaluationMetrics;
 use datafusion::{
     arrow::datatypes::DataType,
     datasource::MemTable,
-    functions::expr_fn::{abs, floor},
-    logical_expr::{Expr, expr_fn::cast, when},
+    functions::expr_fn::{log2, power, round},
+    logical_expr::{expr_fn::cast, when},
     prelude::{ParquetReadOptions, SessionContext, col, lit},
     scalar::ScalarValue,
 };
 
-const TAXI_MAX_ROWS: usize = 1_000_000;
+fn taxi_max_rows() -> usize {
+    std::env::var("AVENGER_PROBE_ROWS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1_000_000)
+}
 const POINT_BUDGET: i64 = 10_000;
-const MIN_RASTER_PIXEL_DOMAIN_SIZE: f64 = 10.0;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -42,20 +46,6 @@ fn list_domain(min: f64, max: f64) -> ScalarValue {
     ))
 }
 
-fn raster_bins_with_min_domain_size(start: Expr, stop: Expr, view_pixels: Expr) -> Expr {
-    let view_pixels = cast(view_pixels, DataType::Float64);
-    let span_limited_bins = floor(abs(stop - start) / lit(MIN_RASTER_PIXEL_DOMAIN_SIZE));
-    let domain_limited_bins = when(span_limited_bins.clone().gt(lit(1.0)), span_limited_bins)
-        .otherwise(lit(1.0))
-        .unwrap();
-    when(
-        domain_limited_bins.clone().lt(view_pixels.clone()),
-        domain_limited_bins,
-    )
-    .otherwise(view_pixels)
-    .unwrap()
-}
-
 async fn taxi_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
     let path =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../scratch/data/nyc_taxi_wide.parquet");
@@ -63,7 +53,7 @@ async fn taxi_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFram
         .read_parquet(path.to_str().unwrap(), ParquetReadOptions::default())
         .await
         .unwrap()
-        .limit(0, Some(TAXI_MAX_ROWS))
+        .limit(0, Some(taxi_max_rows()))
         .unwrap()
         .filter(
             col("pickup_x")
@@ -121,28 +111,24 @@ fn adaptive_plot(df: datafusion::dataframe::DataFrame) -> Plot<Cartesian> {
 
 fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<Cartesian> {
     let gate = stats.scalar("n").gt_eq(lit(POINT_BUDGET));
+    let density = cast(stats.scalar("n"), DataType::Float64) / lit(9_000.0);
+    let density_floor = when(density.clone().gt(lit(1.0)), density)
+        .otherwise(lit(1.0))
+        .unwrap();
+    let normalizer = power(lit(2.0), round(vec![log2(density_floor)]));
     UniformRaster2D::new()
         .transform(
             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
                 .x(|x| {
-                    x.extent(v.x().domain_start(), v.x().domain_end()).bins(
-                        raster_bins_with_min_domain_size(
-                            v.x().domain_start(),
-                            v.x().domain_end(),
-                            v.x().pixels(),
-                        ),
-                    )
+                    x.extent(v.x().domain_start(), v.x().domain_end())
+                        .bins(v.x().pixels())
                 })
                 .y(|y| {
-                    y.extent(v.y().domain_start(), v.y().domain_end()).bins(
-                        raster_bins_with_min_domain_size(
-                            v.y().domain_start(),
-                            v.y().domain_end(),
-                            v.y().pixels(),
-                        ),
-                    )
+                    y.extent(v.y().domain_start(), v.y().domain_end())
+                        .bins(v.y().pixels())
                 })
-                .agg("count"),
+                .value(lit(1.0) / normalizer)
+                .agg("sum"),
             move |mark, hist| {
                 mark.transform(Filter::new(gate), |mark, _| mark)
                     .raster_with(hist.raster(), |r| {
@@ -154,7 +140,7 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<C
                         })
                         .fill(|fill| {
                             fill.scale_with::<Sqrt>(|scale| {
-                                scale.domain((0.0, 120.0)).nice(false).zero(false)
+                                scale.clamp(true).domain((0.0, 1.0)).nice(false).zero(false)
                             })
                         })
                     })
@@ -170,7 +156,7 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Cartesian> {
         .x(col("pickup_x"))
         .y(col("pickup_y"))
         .size(12.0)
-        .fill("rgba(31, 119, 180, 0.6)")
+        .fill("#08519c")
 }
 
 async fn wait_for_materializations(session: &PlotSession) {

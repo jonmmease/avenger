@@ -77,6 +77,7 @@ pub(crate) struct MaterializationCache {
     last_settled_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
     last_started_by_identity: HashMap<MaterializationIdentity, Instant>,
     preview_desired_key_motion: HashMap<MaterializationIdentity, (MaterializationKey, Instant)>,
+    preview_schedule_last_run: HashMap<MaterializationIdentity, Instant>,
     pending_consume_wakeup: Option<(Duration, MaterializationKind)>,
     ready_order: VecDeque<MaterializationKey>,
     completion_invalidation_pending: bool,
@@ -275,10 +276,41 @@ impl MaterializationCache {
         request: &MaterializationRequest,
         remaining: Duration,
     ) {
+        self.defer_preview_wakeup(request.kind.clone(), remaining);
+    }
+
+    fn defer_preview_wakeup(&mut self, kind: MaterializationKind, remaining: Duration) {
         self.pending_consume_wakeup = Some(match self.pending_consume_wakeup.take() {
             Some((existing, kind)) if existing <= remaining => (existing, kind),
-            _ => (remaining, request.kind.clone()),
+            _ => (remaining, kind),
         });
+    }
+
+    /// Rate-limit the preview schedule-only pass for a view. The pass runs
+    /// the view's transform chain (including any eager scalar aggregations)
+    /// just to compute materialization keys, so during a gesture it is
+    /// throttled alongside the requests themselves: returns true (recording
+    /// the run) when the throttle window has passed, otherwise records a
+    /// delayed wakeup so the settled view state still gets scheduled without
+    /// another interaction event.
+    pub(crate) fn should_run_preview_schedule(
+        &mut self,
+        identity: &MaterializationIdentity,
+        throttle: Duration,
+        now: Instant,
+    ) -> bool {
+        if let Some(last_run) = self.preview_schedule_last_run.get(identity) {
+            let elapsed = now.saturating_duration_since(*last_run);
+            if elapsed < throttle {
+                self.defer_preview_wakeup(
+                    MaterializationKind::new("preview-schedule-throttle"),
+                    throttle - elapsed,
+                );
+                return false;
+            }
+        }
+        self.preview_schedule_last_run.insert(identity.clone(), now);
+        true
     }
 
     pub(crate) fn take_pending_consume_wakeup(
@@ -618,6 +650,38 @@ mod tests {
             .expect("a deferred consume must request a wakeup");
         assert_eq!(remaining, Duration::from_millis(90));
         assert!(cache.take_pending_consume_wakeup().is_none());
+    }
+
+    #[test]
+    fn preview_schedule_throttle_rate_limits_and_requests_wakeup() {
+        let mut cache = MaterializationCache::default();
+        let identity = MaterializationIdentity::new("preview-schedule:pickups:0");
+        let throttle = Duration::from_millis(100);
+        let start = Instant::now();
+
+        assert!(cache.should_run_preview_schedule(&identity, throttle, start));
+        assert!(!cache.should_run_preview_schedule(
+            &identity,
+            throttle,
+            start + Duration::from_millis(40)
+        ));
+        let (remaining, _kind) = cache
+            .take_pending_consume_wakeup()
+            .expect("throttled schedule pass must request a wakeup");
+        assert_eq!(remaining, Duration::from_millis(60));
+
+        // Other identities are unaffected; the window reopens after elapse.
+        let other = MaterializationIdentity::new("preview-schedule:other:1");
+        assert!(cache.should_run_preview_schedule(
+            &other,
+            throttle,
+            start + Duration::from_millis(40)
+        ));
+        assert!(cache.should_run_preview_schedule(
+            &identity,
+            throttle,
+            start + Duration::from_millis(150)
+        ));
     }
 
     #[test]
