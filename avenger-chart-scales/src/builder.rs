@@ -68,6 +68,53 @@ pub type DefaultScaleRangeResolver<'a> = dyn Fn(
     + Sync
     + 'a;
 
+/// Memoized result of the radius-padding domain solve for one channel.
+///
+/// The solve is pure in (cached position/radius vectors, range width,
+/// include-zero flag); the vectors only change through
+/// `apply_shared_extents_to_all_channels`, which clears the memo. The cell
+/// intentionally does NOT survive `Clone` — a fresh builder clone re-solves
+/// once rather than risking a memo computed from another clone's data.
+#[derive(Debug, Default)]
+pub struct RadiusSolveMemoCell(std::sync::Mutex<Option<RadiusSolveMemo>>);
+
+#[derive(Debug, Clone, Copy)]
+pub struct RadiusSolveMemo {
+    range_width_bits: u64,
+    include_zero: bool,
+    domain: (f64, f64),
+}
+
+impl RadiusSolveMemoCell {
+    fn get(&self, range_width: f64, include_zero: bool) -> Option<(f64, f64)> {
+        self.0
+            .lock()
+            .expect("radius solve memo lock poisoned")
+            .filter(|memo| {
+                memo.range_width_bits == range_width.to_bits() && memo.include_zero == include_zero
+            })
+            .map(|memo| memo.domain)
+    }
+
+    fn set(&self, range_width: f64, include_zero: bool, domain: (f64, f64)) {
+        *self.0.lock().expect("radius solve memo lock poisoned") = Some(RadiusSolveMemo {
+            range_width_bits: range_width.to_bits(),
+            include_zero,
+            domain,
+        });
+    }
+
+    fn clear(&self) {
+        *self.0.lock().expect("radius solve memo lock poisoned") = None;
+    }
+}
+
+impl Clone for RadiusSolveMemoCell {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
 fn radius_solver_inputs_with_zero<'a>(
     position_data: &'a [f64],
     radius_lower_data: &'a [f64],
@@ -210,6 +257,10 @@ pub enum ChannelScaleData {
         raw_domain: Option<LogicalExprNode>,
         /// Runtime-derived scalar expressions referenced by channel config.
         derived_scalars: DerivedScalarMap,
+        /// Memoized domain solve (see [`RadiusSolveMemoCell`]): the solve is
+        /// O(n log n) over the cached vectors and dominates preview frames
+        /// on large tables when re-run per build.
+        solve_memo: RadiusSolveMemoCell,
     },
 
     /// Explicit domain scale: no data caching, domain set explicitly
@@ -490,6 +541,7 @@ impl ScaleBuilder {
                 options,
                 raw_domain: None,
                 derived_scalars,
+                solve_memo: RadiusSolveMemoCell::default(),
             },
         );
     }
@@ -831,8 +883,11 @@ impl ScaleBuilder {
                         position_data,
                         radius_lower_data,
                         radius_upper_data,
+                        solve_memo,
                         ..
                     } => {
+                        // The cached vectors change: any memoized solve is stale.
+                        solve_memo.clear();
                         if let Some(trace_data) = append_radius_domain_boundary_samples(
                             position_data,
                             radius_lower_data,
@@ -1130,6 +1185,7 @@ impl ScaleBuilder {
                     options,
                     raw_domain,
                     derived_scalars,
+                    solve_memo,
                 } => {
                     // For radius-aware scales: recompute domain with new range (cheap math, no query!)
                     let mut scale = Scale::<Auto>::from_spec(scale_spec.as_ref().clone_box());
@@ -1207,25 +1263,40 @@ impl ScaleBuilder {
 
                     let include_zero_in_radius_solve =
                         evaluate_bool_scale_option(&scale, "zero", false, ctx, params).await?;
-                    let (solver_position_data, solver_radius_lower_data, solver_radius_upper_data) =
-                        radius_solver_inputs_with_zero(
-                            position_data,
-                            radius_lower_data,
-                            radius_upper_data,
-                            include_zero_in_radius_solve,
-                        );
 
                     // Recompute domain with new range_width using cached data.
                     // If zero is part of the scale domain, include it in the
                     // solve so the marker margin remains valid after zero
                     // extension. Otherwise zero would widen the domain after
                     // the fact and shrink the protected pixel margin.
-                    let (d_min, d_max) = compute_domain_from_data_with_padding_linear(
-                        solver_position_data.as_ref(),
-                        solver_radius_lower_data.as_ref(),
-                        solver_radius_upper_data.as_ref(),
-                        range_width,
-                    )?;
+                    //
+                    // The solve is pure in (cached vectors, range_width,
+                    // include_zero) and O(n log n) — memoized so repeated
+                    // builds at an unchanged range (preview frames) skip it.
+                    let (d_min, d_max) = if let Some(domain) =
+                        solve_memo.get(range_width, include_zero_in_radius_solve)
+                    {
+                        domain
+                    } else {
+                        let (
+                            solver_position_data,
+                            solver_radius_lower_data,
+                            solver_radius_upper_data,
+                        ) = radius_solver_inputs_with_zero(
+                            position_data,
+                            radius_lower_data,
+                            radius_upper_data,
+                            include_zero_in_radius_solve,
+                        );
+                        let domain = compute_domain_from_data_with_padding_linear(
+                            solver_position_data.as_ref(),
+                            solver_radius_lower_data.as_ref(),
+                            solver_radius_upper_data.as_ref(),
+                            range_width,
+                        )?;
+                        solve_memo.set(range_width, include_zero_in_radius_solve, domain);
+                        domain
+                    };
 
                     // Set domain and range
                     let domain = attach_raw_domain(

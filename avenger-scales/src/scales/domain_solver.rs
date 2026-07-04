@@ -179,6 +179,31 @@ pub fn compute_domain_from_data_with_padding_linear(
         return solve_single_point(domain_points[0], radius_lower[0], radius_upper[0], range);
     }
 
+    // Zero radii everywhere: the padded solve degenerates to the plain data
+    // extent. Short-circuit the support filtering — it sorts every point,
+    // which dominates whole-evaluation cost on large tables (~1e6 rows) for
+    // channels with no radius sources (e.g. view-domain expressions).
+    if radius_lower.iter().all(|radius| *radius == 0.0)
+        && radius_upper.iter().all(|radius| *radius == 0.0)
+    {
+        let d_min = domain_points
+            .iter()
+            .copied()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        let d_max = domain_points
+            .iter()
+            .copied()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap();
+        // Matches the no-solution fallback below: identical points get a
+        // unit-width domain.
+        if (d_max - d_min).abs() < 1e-10 {
+            return Ok((d_min - 0.5, d_max + 0.5));
+        }
+        return Ok((d_min, d_max));
+    }
+
     // Get filtered candidates
     let left_candidates = filter_left_supports(domain_points, radius_lower);
     let right_candidates = filter_right_supports(domain_points, radius_upper);
