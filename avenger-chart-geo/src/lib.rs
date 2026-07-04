@@ -12,6 +12,7 @@
 //! implementation plan: `scratch/geo/`.
 
 pub mod coord;
+pub mod crs;
 pub mod data;
 pub mod expr;
 pub mod guide;
