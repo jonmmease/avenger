@@ -3,7 +3,7 @@ use std::sync::Arc;
 use arrow::{
     array::{ArrayRef, AsArray, Float32Array, StringArray},
     compute::{kernels::cast, unary},
-    datatypes::{DataType, Float32Type},
+    datatypes::{DataType, Float32Type, Float64Type},
 };
 use avenger_common::{
     types::LinearScaleAdjustment,
@@ -297,6 +297,7 @@ impl ScaleImpl for LinearScale {
                 OptionDefinition::optional("clamp", OptionConstraint::Boolean),
                 OptionDefinition::optional("range_offset", OptionConstraint::Float),
                 OptionDefinition::optional("round", OptionConstraint::Boolean),
+                OptionDefinition::optional("f64_precision", OptionConstraint::Boolean),
                 OptionDefinition::optional("nice", OptionConstraint::nice()),
                 OptionDefinition::optional("zero", OptionConstraint::Boolean),
                 OptionDefinition::optional("default", OptionConstraint::Float),
@@ -394,14 +395,58 @@ impl ScaleImpl for LinearScale {
             ])));
         }
 
-        // Cast to f32 and downcast to f32 array
-        let array = cast(values, &DataType::Float32)?;
-        let array = array.as_primitive::<Float32Type>();
-
         // Get options
         let range_offset = config.option_f32("range_offset", 0.0);
         let clamp = config.option_boolean("clamp", false);
         let round = config.option_boolean("round", false);
+
+        // Opt-in full-precision path (coordinate systems whose position
+        // values sit at magnitudes where f32 epsilon is visible on screen —
+        // e.g. Geo's raw Mercator units at deep zoom, where the f32 affine
+        // map re-rounds differently per viewport step and marks wobble).
+        // Requires f64 values AND an f64-installed domain, and only applies
+        // when normalization (zero/nice/clip padding) left the domain
+        // unchanged so this path computes the same mapping as the f32 one.
+        let f64_domain = if config.option_boolean("f64_precision", false)
+            && values.data_type() == &DataType::Float64
+            && config.domain.data_type() == &DataType::Float64
+        {
+            config
+                .numeric_interval_domain_f64()
+                .ok()
+                .filter(|(start, end)| {
+                    *start as f32 == domain_start && *end as f32 == domain_end && start != end
+                })
+        } else {
+            None
+        };
+        if let Some((domain_start_f64, domain_end_f64)) = f64_domain {
+            let array = values.as_primitive::<Float64Type>();
+            let scale = (f64::from(range_end) - f64::from(range_start))
+                / (domain_end_f64 - domain_start_f64);
+            let offset =
+                f64::from(range_start) - scale * domain_start_f64 + f64::from(range_offset);
+            let (range_min, range_max) = if range_start <= range_end {
+                (f64::from(range_start), f64::from(range_end))
+            } else {
+                (f64::from(range_end), f64::from(range_start))
+            };
+            let scaled_vec: Float32Array = match (clamp, round) {
+                (true, true) => unary(array, |v| {
+                    (scale * v + offset).clamp(range_min, range_max).round() as f32
+                }),
+                (true, false) => unary(array, |v| {
+                    (scale * v + offset).clamp(range_min, range_max) as f32
+                }),
+                (false, true) => unary(array, |v| (scale * v + offset).round() as f32),
+                (false, false) => unary(array, |v| (scale * v + offset) as f32),
+            };
+            return Ok(Arc::new(scaled_vec));
+        }
+
+        // Cast to f32 and downcast to f32 array
+        let array = cast(values, &DataType::Float32)?;
+        let array = array.as_primitive::<Float32Type>();
 
         // Extract domain and range
         let domain_span = domain_end - domain_start;
@@ -680,6 +725,86 @@ mod tests {
         assert_approx_eq!(f32, result[4], 75.0); // interpolated
         assert_approx_eq!(f32, result[5], 100.0); // domain end
         assert_approx_eq!(f32, result[6], 100.0); // clamped
+
+        Ok(())
+    }
+
+    /// Deep-zoom scenario: values near ±π (raw Mercator units) over a tiny
+    /// domain span. The f32 path quantizes at ~1.2e-7 (meter scale on the
+    /// ground) and re-rounds differently as the domain slides; the opt-in
+    /// f64 path must place points within a small fraction of a pixel of
+    /// the exact answer and stay stable across sub-f32-epsilon domain
+    /// shifts.
+    #[test]
+    fn test_f64_precision_path_stable_at_deep_zoom() -> Result<(), AvengerScaleError> {
+        use arrow::array::Float64Array;
+
+        let scale = LinearScale;
+        let center = -1.291_547_581_226_902_9_f64; // ~NYC in raw units
+        let span = 8.0e-5_f64; // ~500 m viewport
+        let value = center + span * 0.3;
+
+        let config_at = |start: f64| ScaleConfig {
+            domain: Arc::new(Float64Array::from(vec![start, start + span])),
+            range: Arc::new(Float32Array::from(vec![0.0, 900.0])),
+            options: vec![("f64_precision".to_string(), true.into())]
+                .into_iter()
+                .collect(),
+            context: ScaleContext::default(),
+        };
+
+        // Slide the domain in sub-f32-ulp steps (a smooth pan). The f64
+        // path must track the exact pixel position within a hundredth of a
+        // pixel at every step; the f32 path deviates by a visible fraction
+        // of a pixel that re-rounds differently per step — the wobble.
+        let shift = (center.abs() * f64::from(f32::EPSILON)) * 0.4;
+        let mut max_f32_deviation = 0.0_f32;
+        for step in 0..8 {
+            let start = center - span * 0.5 + shift * f64::from(step);
+            let expected = ((value - start) / span * 900.0) as f32;
+            let result = scale
+                .scale_to_numeric(
+                    &config_at(start),
+                    &(Arc::new(Float64Array::from(vec![value])) as ArrayRef),
+                )?
+                .as_vec(1, None)[0];
+            assert!(
+                (result - expected).abs() < 0.01,
+                "step {step}: got {result}, exact {expected}"
+            );
+
+            let via_f32 = {
+                let v = value as f32;
+                let d0 = start as f32;
+                let d1 = (start + span) as f32;
+                let k = 900.0 / (d1 - d0);
+                k * v + (0.0 - k * d0)
+            };
+            max_f32_deviation = max_f32_deviation.max((via_f32 - expected).abs());
+        }
+        // The f32 arithmetic this path replaces really is meter-scale wrong
+        // here — the tolerance above genuinely detects a regression.
+        assert!(
+            max_f32_deviation > 0.1,
+            "expected the f32 path to deviate visibly, max {max_f32_deviation}"
+        );
+
+        // Without the option the f32 path is used unchanged.
+        let mut config = config_at(center - span * 0.5);
+        config.options.remove("f64_precision");
+        let f32_result = scale
+            .scale_to_numeric(
+                &config,
+                &(Arc::new(Float64Array::from(vec![value])) as ArrayRef),
+            )?
+            .as_vec(1, None)[0];
+        let via_f32 = {
+            let v = value as f32;
+            let d0 = (center - span * 0.5) as f32;
+            let d1 = (center + span * 0.5) as f32;
+            (900.0 / (d1 - d0)) * v + (0.0 - (900.0 / (d1 - d0)) * d0)
+        };
+        assert_approx_eq!(f32, f32_result, via_f32);
 
         Ok(())
     }

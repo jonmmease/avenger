@@ -474,6 +474,14 @@ impl CoordinateSystemTransformCore for Geo {
             options.insert("zero".to_string(), ScalarValue::Boolean(Some(false)));
             options.insert("nice".to_string(), ScalarValue::Boolean(Some(false)));
             options.insert("round".to_string(), ScalarValue::Boolean(Some(false)));
+            // Raw Mercator units sit near ±π with meter-scale f32 epsilon;
+            // at deep zoom the f32 affine map re-rounds differently as the
+            // viewport slides, wobbling marks against the (f64-placed)
+            // tiles. Opt position scales into the f64 linear-scale path.
+            options.insert(
+                "f64_precision".to_string(),
+                ScalarValue::Boolean(Some(true)),
+            );
         }
         options
     }
