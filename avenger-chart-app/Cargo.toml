@@ -129,6 +129,10 @@ name = "taxi_adaptive_points"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "taxi_geo_mercator"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "cartesian_facet_pan"
 required-features = ["winit-wgpu"]
 
