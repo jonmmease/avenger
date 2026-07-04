@@ -13,11 +13,13 @@ pub mod geo_shape;
 pub mod line;
 pub mod rect;
 pub mod symbol;
+pub mod uniform_raster_2d;
 
 pub use geo_shape::{CompiledGeoShape, GeoShape};
 pub use line::CompiledGeoLine;
 pub use rect::CompiledGeoRect;
 pub use symbol::CompiledGeoSymbol;
+pub use uniform_raster_2d::{CompiledGeoUniformRaster2D, GeoUniformRaster2DChannels};
 
 use std::sync::Arc;
 

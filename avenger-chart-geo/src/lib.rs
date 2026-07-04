@@ -22,14 +22,15 @@ pub mod tools;
 pub mod udf;
 pub mod view;
 
-pub use avenger_chart_marks::{Line, Rect, Symbol};
+pub use avenger_chart_marks::{Line, Rect, Symbol, UniformRaster2D};
 pub use avenger_geo::raw::ProjectionKind;
 pub use coord::{BlendConfig, Geo, GraticuleStyle, SphereStyle};
 pub use data::{geojson_to_record_batch, register_geojson};
 pub use guide::GeoGuide;
 pub use marks::{
-    CompiledGeoLine, CompiledGeoRect, CompiledGeoShape, CompiledGeoSymbol, GeoGeometrySpace,
-    GeoPositionChannels, GeoPositionConfig, GeoShape, IntoGeoExpr,
+    CompiledGeoLine, CompiledGeoRect, CompiledGeoShape, CompiledGeoSymbol,
+    CompiledGeoUniformRaster2D, GeoGeometrySpace, GeoPositionChannels, GeoPositionConfig, GeoShape,
+    GeoUniformRaster2DChannels, IntoGeoExpr,
 };
 pub use tiles::{RasterTileLayer, TileLoadingPolicy};
 pub use tools::GeoPanZoom;
