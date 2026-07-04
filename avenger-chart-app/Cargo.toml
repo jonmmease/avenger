@@ -142,6 +142,10 @@ name = "georegistered_overlay"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "taxi_geo_albers"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "cartesian_facet_pan"
 required-features = ["winit-wgpu"]
 
