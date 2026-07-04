@@ -70,6 +70,7 @@ struct RenderInvalidationHubInner {
     next_callback_id: usize,
     callbacks: Vec<(usize, RenderInvalidationCallback)>,
     latest_invalidation: Option<RenderInvalidation>,
+    latest_evaluation_invalidation: Option<RenderInvalidation>,
 }
 
 impl RenderInvalidationHub {
@@ -85,6 +86,19 @@ impl RenderInvalidationHub {
             .lock()
             .expect("render invalidation hub lock poisoned")
             .latest_invalidation
+            .clone()
+    }
+
+    /// The latest invalidation whose reason requires re-evaluating (not just
+    /// re-rendering) the scene. Consumers that may have missed deliveries —
+    /// e.g. a window event loop that wasn't running yet — can replay this to
+    /// recover evaluation-affecting invalidations without assuming every
+    /// dropped invalidation needed a rebuild.
+    pub fn latest_evaluation_invalidation(&self) -> Option<RenderInvalidation> {
+        self.inner
+            .lock()
+            .expect("render invalidation hub lock poisoned")
+            .latest_evaluation_invalidation
             .clone()
     }
 
@@ -120,6 +134,12 @@ impl RenderInvalidationSink for RenderInvalidationHub {
                 schedule: request.schedule,
             };
             inner.latest_invalidation = Some(invalidation.clone());
+            if matches!(
+                invalidation.reason,
+                RenderInvalidationReason::EvaluationChanged { .. }
+            ) {
+                inner.latest_evaluation_invalidation = Some(invalidation.clone());
+            }
             let callbacks = inner
                 .callbacks
                 .iter()

@@ -415,9 +415,16 @@ where
     canvas_config: CanvasConfig,
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
     _render_invalidation_subscription: Option<RenderInvalidationSubscription>,
+    /// The hub itself, kept for startup replay: proxy events sent before the
+    /// event loop runs are dropped by winit, so invalidations that fire
+    /// during app init only survive as hub state.
+    render_invalidation_hub: Option<RenderInvalidationHub>,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
     render_invalidation_pending: bool,
+    /// Latest invalidation that arrived before the canvas existed; replayed
+    /// by `resumed()` after the initial scene installs.
+    pending_startup_render_invalidation: Option<RenderInvalidation>,
     last_requested_render_invalidation_epoch: u64,
     last_rendered_render_invalidation_epoch: u64,
     pub file_watcher: Option<FileWatcher>,
@@ -505,9 +512,11 @@ where
             canvas_config: options.canvas_config,
             event_proxy,
             _render_invalidation_subscription: render_invalidation_subscription,
+            render_invalidation_hub: options.render_invalidation_hub,
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
             render_pending: false,
             render_invalidation_pending: false,
+            pending_startup_render_invalidation: None,
             last_requested_render_invalidation_epoch: 0,
             last_rendered_render_invalidation_epoch: 0,
             file_watcher,
@@ -638,6 +647,23 @@ where
         if invalidation.epoch <= self.last_requested_render_invalidation_epoch
             && self.render_invalidation_pending
         {
+            return;
+        }
+
+        // Startup race: invalidations can arrive before the window/canvas
+        // exists (e.g. a fast async materialization completing during app
+        // init). Rebuilding now would consume the result and then be
+        // overwritten by the initial scene install — defer instead;
+        // `resumed()` replays the latest deferred invalidation once the
+        // canvas is up.
+        if self.canvas.borrow().is_none() {
+            tracing::debug!(
+                target: "avenger_winit_wgpu::resize",
+                epoch = invalidation.epoch,
+                reason = ?invalidation.reason,
+                "winit render invalidation deferred until canvas creation"
+            );
+            self.pending_startup_render_invalidation = Some(invalidation);
             return;
         }
 
@@ -1045,6 +1071,42 @@ where
                         )
                         .unwrap();
                         *canvas_shared.borrow_mut() = Some(canvas);
+                        // Replay any invalidation that arrived while the
+                        // canvas didn't exist yet (e.g. an async
+                        // materialization that completed during init) so its
+                        // evaluation isn't silently shadowed by the initial
+                        // scene installed above.
+                        if let Some(invalidation) =
+                            self.pending_startup_render_invalidation.take()
+                        {
+                            tracing::debug!(
+                                target: "avenger_winit_wgpu::resize",
+                                epoch = invalidation.epoch,
+                                reason = ?invalidation.reason,
+                                "replaying deferred startup render invalidation"
+                            );
+                            self.handle_render_invalidation(invalidation);
+                        }
+                        // Proxy events sent before the event loop runs are
+                        // dropped by winit, so an evaluation-affecting
+                        // invalidation from app init (e.g. a fast async
+                        // materialization) may exist only as hub state.
+                        // Replay it; the epoch guards in
+                        // handle_render_invalidation dedupe against the
+                        // stash replay above.
+                        if let Some(invalidation) = self
+                            .render_invalidation_hub
+                            .as_ref()
+                            .and_then(|hub| hub.latest_evaluation_invalidation())
+                        {
+                            tracing::debug!(
+                                target: "avenger_winit_wgpu::resize",
+                                epoch = invalidation.epoch,
+                                reason = ?invalidation.reason,
+                                "replaying hub evaluation invalidation after canvas creation"
+                            );
+                            self.handle_render_invalidation(invalidation);
+                        }
                     }
                     Err(e) => {
                         log::error!("Failed to create canvas: {e:?}");
