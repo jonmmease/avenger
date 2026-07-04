@@ -109,9 +109,9 @@ pub struct ResourceRequest {
     pub cache_policy: ResourceCachePolicy,
     #[serde(default)]
     pub purpose: ResourceRequestPurpose,
-    /// Projected pixel center of the resource on screen at plan time
-    /// (plot-relative), when known. Lets schedulers order fetches by
-    /// distance to a focus point.
+    /// Projected pixel center of the resource at plan time, in CANVAS
+    /// coordinates (the same frame as pointer events), when known. Lets
+    /// schedulers order fetches by distance to a focus point.
     #[serde(default)]
     pub screen_center: Option<[f32; 2]>,
     /// The retargetable prefetch set this request belongs to, if any.

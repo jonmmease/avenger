@@ -120,7 +120,7 @@ impl CompiledGuide for GeoGuide {
         let identity_tiles = crate::tiles::is_identity_fast_path(measurement);
         let mut attribution_index = 0usize;
         for layer in &measurement.tile_layers {
-            let plan = layer.tile_plan(measurement)?;
+            let plan = layer.tile_plan(measurement, [plot_bounds.x, plot_bounds.y])?;
             for request in plan.prefetch_requests {
                 render_context.request_resource(request);
             }

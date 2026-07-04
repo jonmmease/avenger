@@ -564,9 +564,13 @@ impl RasterTileLayer {
     /// `SmoothZoom`, fallback tiles are RENDER-ONLY (drawn opportunistically
     /// from cache, never fetched as Required — MapLibre-style retention);
     /// prefetch covers the pan-margin ring plus cursor-anchored zoom rects.
+    /// `plot_origin` is the plot rect's origin in canvas coordinates;
+    /// it converts plot-relative tile centers into the canvas-frame
+    /// `screen_center` metadata carried on prefetch requests.
     pub fn tile_plan(
         &self,
         measurement: &GeoCoordMeasurement,
+        plot_origin: [f32; 2],
     ) -> Result<GeoTilePlan, AvengerChartError> {
         let scope = TileViewScope::new(measurement);
         let mut cache = TileNodeCache::default();
@@ -685,6 +689,7 @@ impl RasterTileLayer {
             &measurement.viewport_id,
             &targets,
             measurement.zoom_focus,
+            plot_origin,
             &mut cache,
         );
 
@@ -707,22 +712,26 @@ impl RasterTileLayer {
         viewport_id: &str,
         targets: &[VisibleGeoTile],
         zoom_focus: Option<[f32; 2]>,
+        plot_origin: [f32; 2],
     ) -> Vec<ResourceRequest> {
         self.plan_prefetch_requests_cached(
             scope,
             viewport_id,
             targets,
             zoom_focus,
+            plot_origin,
             &mut TileNodeCache::default(),
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn plan_prefetch_requests_cached(
         &self,
         scope: &TileViewScope,
         viewport_id: &str,
         targets: &[VisibleGeoTile],
         zoom_focus: Option<[f32; 2]>,
+        plot_origin: [f32; 2],
         cache: &mut TileNodeCache,
     ) -> Vec<ResourceRequest> {
         let TileLoadingPolicy::SmoothZoom {
@@ -774,6 +783,7 @@ impl RasterTileLayer {
                                 &neighbor,
                                 scope,
                                 focus,
+                                plot_origin,
                                 &prefetch_scope,
                             ));
                         }
@@ -792,7 +802,13 @@ impl RasterTileLayer {
                     break;
                 }
                 if requested_keys.insert(tile.resource_key.clone()) {
-                    requests.push(self.prefetch_request(&tile, scope, focus, &prefetch_scope));
+                    requests.push(self.prefetch_request(
+                        &tile,
+                        scope,
+                        focus,
+                        plot_origin,
+                        &prefetch_scope,
+                    ));
                 }
             }
         }
@@ -806,7 +822,13 @@ impl RasterTileLayer {
                     break;
                 }
                 if requested_keys.insert(tile.resource_key.clone()) {
-                    requests.push(self.prefetch_request(&tile, scope, focus, &prefetch_scope));
+                    requests.push(self.prefetch_request(
+                        &tile,
+                        scope,
+                        focus,
+                        plot_origin,
+                        &prefetch_scope,
+                    ));
                 }
             }
         }
@@ -814,19 +836,21 @@ impl RasterTileLayer {
         requests
     }
 
-    /// A `Prefetch` request carrying the tile's projected pixel center and
-    /// retarget scope, prioritized by normalized distance to the focus
-    /// (0 at the focus, more negative farther away; `Required` always
-    /// outranks `Prefetch` regardless of priority).
+    /// A `Prefetch` request carrying the tile's projected pixel center
+    /// (converted to canvas coordinates via `plot_origin`) and retarget
+    /// scope, prioritized by normalized distance to the focus (0 at the
+    /// focus, more negative farther away; `Required` always outranks
+    /// `Prefetch` regardless of priority).
     fn prefetch_request(
         &self,
         tile: &VisibleGeoTile,
         scope: &TileViewScope,
         focus: [f64; 2],
+        plot_origin: [f32; 2],
         prefetch_scope: &PrefetchScope,
     ) -> ResourceRequest {
-        let screen_center = scope.tile_screen_center(tile);
-        let center = screen_center
+        let plot_center = scope.tile_screen_center(tile);
+        let center = plot_center
             .map(|center| [f64::from(center[0]), f64::from(center[1])])
             .unwrap_or([scope.plot_width / 2.0, scope.plot_height / 2.0]);
         let denom = scope.plot_width.max(scope.plot_height).max(1.0);
@@ -836,7 +860,11 @@ impl RasterTileLayer {
             ResourceRequestPurpose::Prefetch,
             -(distance as f32),
         );
-        request.screen_center = screen_center;
+        // screen_center is canvas-frame (matching the scheduler's hover
+        // focus hint); the distance above stays in the plot frame, which
+        // shares scale with canvas so priorities are unaffected.
+        request.screen_center =
+            plot_center.map(|c| [c[0] + plot_origin[0], c[1] + plot_origin[1]]);
         request.prefetch_scope = Some(prefetch_scope.clone());
         request
     }
@@ -928,6 +956,7 @@ impl avenger_resource::PrefetchRetargetPlanner for GeoZoomPrefetchPlanner {
             &self.viewport_id,
             &self.targets,
             Some([focus_x as f32, focus_y as f32]),
+            self.plot_origin,
         ))
     }
 }
@@ -1759,7 +1788,7 @@ mod tests {
             .min_zoom(2)
             .max_zoom(6)
             .smooth_zoom()
-            .tile_plan(&measurement)
+            .tile_plan(&measurement, [0.0, 0.0])
             .expect("plan");
         let first_target = plan
             .rendered_tiles
@@ -1922,7 +1951,7 @@ mod tests {
             });
         let targets = layer.visible_tiles(&scope).expect("targets");
 
-        let corner = layer.plan_prefetch_requests(&scope, "map", &targets, Some([0.0, 0.0]));
+        let corner = layer.plan_prefetch_requests(&scope, "map", &targets, Some([0.0, 0.0]), [0.0, 0.0]);
         let corner_keys = corner
             .iter()
             .map(|request| request.key.clone())
@@ -1931,7 +1960,7 @@ mod tests {
         assert!(corner_keys.contains(&ResourceKey::new("geo/base/2/0/0/256")));
         assert!(!corner_keys.contains(&ResourceKey::new("geo/base/2/2/2/256")));
 
-        let opposite = layer.plan_prefetch_requests(&scope, "map", &targets, Some([512.0, 512.0]));
+        let opposite = layer.plan_prefetch_requests(&scope, "map", &targets, Some([512.0, 512.0]), [0.0, 0.0]);
         let opposite_keys = opposite
             .iter()
             .map(|request| request.key.clone())
@@ -1940,8 +1969,8 @@ mod tests {
         assert!(!opposite_keys.contains(&ResourceKey::new("geo/base/2/0/0/256")));
 
         // No focus → plot-center fallback; out-of-plot focus is ignored too.
-        let center = layer.plan_prefetch_requests(&scope, "map", &targets, None);
-        let off_plot = layer.plan_prefetch_requests(&scope, "map", &targets, Some([-50.0, 900.0]));
+        let center = layer.plan_prefetch_requests(&scope, "map", &targets, None, [0.0, 0.0]);
+        let off_plot = layer.plan_prefetch_requests(&scope, "map", &targets, Some([-50.0, 900.0]), [0.0, 0.0]);
         let center_keys = center
             .iter()
             .map(|request| request.key.clone())
@@ -1967,6 +1996,70 @@ mod tests {
         );
     }
 
+    /// Frame contract: `screen_center` is canvas px (plot center +
+    /// plot origin), and the hover-retarget planner — which receives a
+    /// canvas-px cursor — produces the same request set as a direct plan
+    /// at the equivalent plot-relative focus.
+    #[test]
+    fn screen_center_is_canvas_frame_and_planner_agrees() {
+        let measurement = measurement(
+            Projection::new(ProjectionKind::Mercator),
+            (0.0, 0.0),
+            1.0,
+            (512.0, 512.0),
+        );
+        let scope = TileViewScope::new(&measurement);
+        let layer = layer()
+            .min_zoom(0)
+            .max_zoom(4)
+            .loading_policy(TileLoadingPolicy::SmoothZoom {
+                fallback_below: 0,
+                fallback_above: 0,
+                prefetch_below: 0,
+                prefetch_above: 1,
+                pan_prefetch_margin_tiles: 1,
+                prefetch_coarse_delta: None,
+                max_rendered_fallback_tiles: 128,
+                max_prefetch_tiles: 128,
+            });
+        let targets = layer.visible_tiles(&scope).expect("targets");
+        let plot_origin = [100.0_f32, 50.0_f32];
+        let plot_focus = [64.0_f32, 32.0_f32];
+
+        let at_origin =
+            layer.plan_prefetch_requests(&scope, "map", &targets, Some(plot_focus), [0.0, 0.0]);
+        let offset =
+            layer.plan_prefetch_requests(&scope, "map", &targets, Some(plot_focus), plot_origin);
+        assert_eq!(at_origin.len(), offset.len());
+        for (a, b) in at_origin.iter().zip(&offset) {
+            assert_eq!(a.key, b.key);
+            assert_eq!(a.priority, b.priority, "priorities are frame-independent");
+            let (ca, cb) = (a.screen_center.unwrap(), b.screen_center.unwrap());
+            assert_eq!(cb[0], ca[0] + plot_origin[0]);
+            assert_eq!(cb[1], ca[1] + plot_origin[1]);
+        }
+
+        // Planner with the same origin, given the equivalent CANVAS
+        // cursor, reproduces the offset plan exactly.
+        let planner = GeoZoomPrefetchPlanner::from_snapshot(
+            layer.clone(),
+            &measurement,
+            targets.clone(),
+            plot_origin,
+        );
+        let planned = avenger_resource::PrefetchRetargetPlanner::plan(
+            &planner,
+            [plot_focus[0] + plot_origin[0], plot_focus[1] + plot_origin[1]],
+        )
+        .expect("cursor inside plot");
+        assert_eq!(planned.len(), offset.len());
+        for (a, b) in planned.iter().zip(&offset) {
+            assert_eq!(a.key, b.key);
+            assert_eq!(a.screen_center, b.screen_center);
+            assert_eq!(a.priority, b.priority);
+        }
+    }
+
     /// Deep-zoom cost probe: run explicitly with
     /// `cargo test --release -p avenger-chart-geo --lib probe_deep_zoom -- --ignored --nocapture`
     #[test]
@@ -1981,11 +2074,11 @@ mod tests {
                 force_t: None,
             });
             let layer = layer().max_zoom(19).smooth_zoom();
-            let plan = layer.tile_plan(&m).expect("plan");
+            let plan = layer.tile_plan(&m, [0.0, 0.0]).expect("plan");
             let iters = 20;
             let start = Instant::now();
             for _ in 0..iters {
-                let _ = layer.tile_plan(&m).expect("plan");
+                let _ = layer.tile_plan(&m, [0.0, 0.0]).expect("plan");
             }
             let plan_ms = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;
 
