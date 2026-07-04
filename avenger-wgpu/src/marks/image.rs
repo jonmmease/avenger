@@ -150,7 +150,6 @@ impl ImageAtlasBuilder {
             source,
             unavailable_policy,
         });
-
         Ok((atlas_index, coords))
     }
 
@@ -350,7 +349,7 @@ fn unavailable_image(
     }
 }
 
-fn make_placeholder(
+pub(crate) fn make_placeholder(
     width: u32,
     height: u32,
     placeholder: &WgpuImagePlaceholder,
@@ -450,13 +449,13 @@ fn copy_image_to_atlas(
     );
 }
 
-fn push_unique(values: &mut Vec<ResourceKey>, key: ResourceKey) {
+pub(crate) fn push_unique(values: &mut Vec<ResourceKey>, key: ResourceKey) {
     if !values.contains(&key) {
         values.push(key);
     }
 }
 
-fn push_unique_failed(status: &mut WgpuImageResourceStatus, key: ResourceKey, message: String) {
+pub(crate) fn push_unique_failed(status: &mut WgpuImageResourceStatus, key: ResourceKey, message: String) {
     if !status.failed.iter().any(|(existing, _)| existing == &key) {
         status.failed.push((key, message));
     }

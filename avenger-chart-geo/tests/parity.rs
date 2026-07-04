@@ -710,12 +710,35 @@ mod tile_guide {
             .iter()
             .filter(|request| request.purpose == ResourceRequestPurpose::Prefetch)
             .collect::<Vec<_>>();
+        let required_keys = evaluated
+            .resource_requests
+            .iter()
+            .filter(|request| request.purpose == ResourceRequestPurpose::Required)
+            .map(|request| request.key.clone())
+            .collect::<Vec<_>>();
 
         assert!(!prefetch_requests.is_empty());
+        // Target tiles are the only Required fetches; prefetch never
+        // duplicates them.
         assert!(
             prefetch_requests
                 .iter()
-                .all(|request| !rendered_keys.contains(&request.key))
+                .all(|request| !required_keys.contains(&request.key))
+        );
+        // Fallback-zoom tiles are rendered WITHOUT being Required — their
+        // pixels arrive via the overlapping prefetch covers (cache-only
+        // fallback rendering).
+        assert!(
+            rendered_keys
+                .iter()
+                .any(|key| !required_keys.contains(key)),
+            "expected rendered fallback tiles beyond the Required targets"
+        );
+        assert!(
+            prefetch_requests
+                .iter()
+                .any(|request| rendered_keys.contains(&request.key)),
+            "expected prefetch to overlap rendered fallback tiles"
         );
         assert!(
             prefetch_requests
@@ -761,6 +784,7 @@ mod tile_guide {
                     prefetch_below: 1,
                     prefetch_above: 1,
                     pan_prefetch_margin_tiles: 1,
+                    prefetch_coarse_delta: None,
                     max_rendered_fallback_tiles: 128,
                     max_prefetch_tiles: 128,
                 }),

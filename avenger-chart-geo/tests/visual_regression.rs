@@ -1078,6 +1078,108 @@ mod phase6 {
         )
     }
 
+    /// Tile texture-array gates: (a) rendering through a live resolver
+    /// (the interactive path, tiles on the persistent texture array) is
+    /// pixel-equivalent to the pre-resolved SharedInline/atlas path; (b)
+    /// re-rendering the same scene uploads zero tile bytes; (c) a
+    /// re-built identical scene still uploads nothing (layers persist
+    /// across set_scene).
+    #[tokio::test]
+    async fn tile_array_uploads_once_and_matches_atlas_path() {
+        let ctx = SessionContext::new();
+        let df = register_geojson(&ctx, "us_states_tile_array", geo_data("us-states.json"))
+            .await
+            .expect("register us states");
+        let geo = Geo::albers_usa_conus()
+            .graticule(GraticuleStyle::default())
+            .tiles(carto_layer(4));
+        let plot = albers_tiles_plot(geo, df);
+        let compiled = plot.compile(&ctx).await.expect("compile geo plot");
+        let evaluated = compiled
+            .evaluate(&ctx, None)
+            .await
+            .expect("evaluate geo plot");
+        let scene = &evaluated.scene_graph;
+
+        // (a) resolver-backed render (tile array path) vs pre-resolved
+        // render (atlas path).
+        let resolved_scene =
+            resolve_ready_image_resources(scene, &CartoFixtureResolver::new())
+                .expect("resolve tile resources");
+        let atlas_image = render_scene_graph_to_wgpu_image(&resolved_scene).await;
+
+        let dimensions = CanvasDimensions {
+            size: [scene.width, scene.height],
+            scale: DEFAULT_SCALE,
+        };
+        let config = CanvasConfig {
+            image_resource_config: avenger_wgpu::image_resources::WgpuImageResourceConfig {
+                resolver: Some(Arc::new(CartoFixtureResolver::new())),
+                missing_policy: avenger_wgpu::image_resources::WgpuMissingImagePolicy::Skip,
+                placeholder:
+                    avenger_wgpu::image_resources::WgpuImagePlaceholder::Checkerboard,
+            },
+            ..Default::default()
+        };
+        let mut canvas = PngCanvas::new(dimensions, config)
+            .await
+            .expect("create tile array canvas");
+        canvas.set_scene(scene).expect("set scene");
+        let array_image = canvas.render().await.expect("render via tile array");
+        let (first_frame, _) = canvas.tile_upload_stats();
+        assert!(
+            first_frame.layers_uploaded > 0,
+            "first frame must upload tile layers, got {first_frame:?}"
+        );
+
+        // Cross-path parity: the array samples layer-local texel
+        // coordinates while the atlas samples page-global ones, so
+        // bilinear weights round differently by a few LSBs at warped tile
+        // seams (measured 0.9998 on this scene; diffs are isolated
+        // seam-edge pixels). Within-path determinism is exact — see the
+        // byte-identical re-render assertion below.
+        const CROSS_PATH_THRESHOLD: f64 = 0.999;
+        let comparison = image_compare::rgba_hybrid_compare(&atlas_image, &array_image)
+            .expect("compare tile array vs atlas render");
+        if comparison.score < CROSS_PATH_THRESHOLD {
+            let base = PathBuf::from(FAILURE_DIR);
+            save_image(&base.join("tile_array_parity_atlas.png"), &atlas_image);
+            save_image(&base.join("tile_array_parity_array.png"), &array_image);
+            save_image(
+                &base.join("tile_array_parity_diff.png"),
+                &comparison.image.to_color_map().into_rgba8(),
+            );
+            panic!(
+                "tile-array render diverges from atlas render: {:.6}",
+                comparison.score
+            );
+        }
+
+        // (b) second render of the same scene: zero uploads.
+        let rerender = canvas.render().await.expect("re-render");
+        let (second_frame, _) = canvas.tile_upload_stats();
+        assert_eq!(
+            second_frame,
+            avenger_wgpu::marks::tile_array::TileUploadStats::default(),
+            "steady-state frame must upload nothing"
+        );
+        assert_eq!(
+            rerender.as_raw(),
+            array_image.as_raw(),
+            "re-render must be byte-identical"
+        );
+
+        // (c) scene rebuild (pan tick with unchanged view): layers persist.
+        canvas.set_scene(scene).expect("set scene again");
+        let _ = canvas.render().await.expect("render rebuilt scene");
+        let (third_frame, _) = canvas.tile_upload_stats();
+        assert_eq!(
+            third_frame,
+            avenger_wgpu::marks::tile_array::TileUploadStats::default(),
+            "rebuilt identical scene must re-use resident tile layers"
+        );
+    }
+
     async fn resolved_scene_graph<C>(ctx: &SessionContext, plot: Plot<C>) -> SceneGraph
     where
         C: CoordinateSystem,

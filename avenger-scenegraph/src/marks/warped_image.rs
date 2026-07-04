@@ -33,6 +33,10 @@ pub struct SceneWarpedImageMark {
     #[serde(default)]
     pub unavailable_policy: SceneImageUnavailablePolicy,
     pub zindex: Option<i32>,
+    /// `Some(edge_px)` routes the image through the renderer's persistent
+    /// tile texture-array cache instead of the per-frame image atlas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tile_texture_size: Option<u32>,
 }
 
 impl SceneWarpedImageMark {
@@ -202,6 +206,7 @@ impl Hash for SceneWarpedImageMark {
         self.indices.hash(state);
         self.unavailable_policy.hash(state);
         self.zindex.hash(state);
+        self.tile_texture_size.hash(state);
     }
 }
 
@@ -218,6 +223,7 @@ impl Default for SceneWarpedImageMark {
             indices: Vec::new(),
             unavailable_policy: SceneImageUnavailablePolicy::RendererDefault,
             zindex: None,
+            tile_texture_size: None,
         }
     }
 }

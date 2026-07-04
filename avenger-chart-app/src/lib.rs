@@ -727,6 +727,11 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.last_resource_requests = evaluated.resource_requests.clone();
         if let Some(resources) = &runtime.runtime_resources {
             request_image_resources(resources, &evaluated.resource_requests);
+            // Refresh the hover-retarget planners: each evaluation's plan
+            // is the new baseline for cursor-driven prefetch retargeting.
+            resources
+                .image_resource_resolver
+                .install_retarget_planners(evaluated.prefetch_planners.clone());
         }
         runtime.last_evaluated_param_revision = evaluation_param_revision;
         if state.param_revision() != evaluation_param_revision {
@@ -900,6 +905,9 @@ async fn chart_avenger_app_inner(
     )?);
     let session = Arc::new(compiled_plot).instantiate(ctx);
     let exact_on_resize_settle = options.exact_on_resize_settle;
+    let hover_resolver = runtime_resources
+        .as_ref()
+        .map(|resources| resources.image_resource_resolver.clone());
     let state = ChartAppState::new_with_runtime_resources(
         session,
         resize_policy,
@@ -916,8 +924,89 @@ async fn chart_avenger_app_inner(
             Arc::new(ChartResizeSettleHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
         ));
     }
+    if let Some(resolver) = hover_resolver {
+        // Cursor-prefetch wiring: hover positions feed the fetch
+        // scheduler's focus hint + debounced
+        // retargeting; gestures suppress retargeting until settle. All
+        // three handlers are param-free no-work UpdateStatus::default()
+        // paths — free at mousemove rate.
+        streams.push((
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::CursorMoved],
+                ..Default::default()
+            },
+            Arc::new(HoverFocusHandler {
+                resolver: resolver.clone(),
+            }) as Arc<dyn EventStreamHandler<ChartAppState>>,
+        ));
+        streams.push((
+            EventStreamConfig {
+                types: vec![
+                    SceneGraphEventType::MouseDown,
+                    SceneGraphEventType::MouseWheel,
+                ],
+                ..Default::default()
+            },
+            Arc::new(GestureActiveHandler {
+                resolver: resolver.clone(),
+                active: true,
+            }) as Arc<dyn EventStreamHandler<ChartAppState>>,
+        ));
+        streams.push((
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::InteractionSettled],
+                ..Default::default()
+            },
+            Arc::new(GestureActiveHandler {
+                resolver,
+                active: false,
+            }) as Arc<dyn EventStreamHandler<ChartAppState>>,
+        ));
+    }
 
     AvengerApp::try_new(state, Arc::new(ChartSceneGraphBuilder), streams).await
+}
+
+/// Streams hover cursor positions (canvas px) to the image fetch
+/// scheduler as its focus hint. No params, no rerender.
+struct HoverFocusHandler {
+    resolver: Arc<dyn ImageResourceResolver>,
+}
+
+#[async_trait]
+impl EventStreamHandler<ChartAppState> for HoverFocusHandler {
+    async fn handle(
+        &self,
+        event: &SceneGraphEvent,
+        _state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        if let SceneGraphEvent::CursorMoved(event) = event {
+            self.resolver.update_focus(event.position);
+        }
+        UpdateStatus::default()
+    }
+}
+
+/// Marks a pan/zoom gesture as active on its first event (MouseDown /
+/// MouseWheel) and inactive on `InteractionSettled`, suppressing hover
+/// retargeting while evaluations own the prefetch set.
+struct GestureActiveHandler {
+    resolver: Arc<dyn ImageResourceResolver>,
+    active: bool,
+}
+
+#[async_trait]
+impl EventStreamHandler<ChartAppState> for GestureActiveHandler {
+    async fn handle(
+        &self,
+        _event: &SceneGraphEvent,
+        _state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        self.resolver.set_gesture_active(self.active);
+        UpdateStatus::default()
+    }
 }
 
 fn request_image_resources(resources: &ChartRuntimeResources, requests: &[ResourceRequest]) {
@@ -1203,6 +1292,8 @@ mod tests {
             priority: 1.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
+            screen_center: None,
+            prefetch_scope: None,
         };
         let non_image_request = ResourceRequest {
             key: ResourceKey::new("metadata/test"),
@@ -1214,6 +1305,8 @@ mod tests {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
+            screen_center: None,
+            prefetch_scope: None,
         };
         let prefetch_image_request = ResourceRequest {
             key: ResourceKey::new("image/prefetch"),
@@ -1224,6 +1317,8 @@ mod tests {
             priority: -1.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Prefetch,
+            screen_center: None,
+            prefetch_scope: None,
         };
 
         request_image_resources(

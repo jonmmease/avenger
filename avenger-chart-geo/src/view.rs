@@ -221,6 +221,10 @@ pub struct GeoCoordMeasurement {
     pub blend: Option<BlendConfig>,
     /// Raster tile layers rendered by the guide.
     pub tile_layers: Vec<crate::tiles::RasterTileLayer>,
+    /// Last interaction cursor position in plot-relative pixels, written by
+    /// the pan/zoom tool's focus params. Anchors zoom-prefetch tile
+    /// selection; `None` falls back to the plot center.
+    pub zoom_focus: Option<[f32; 2]>,
 }
 
 impl GeoCoordMeasurement {

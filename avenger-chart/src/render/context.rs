@@ -337,7 +337,8 @@ impl EvaluationContext {
         Self {
             core: CoreEvaluationContext::new(theme, session_context, params)
                 .with_resource_request_sink(Arc::new(Mutex::new(Vec::new())))
-                .with_materialization_request_sink(Arc::new(Mutex::new(Vec::new()))),
+                .with_materialization_request_sink(Arc::new(Mutex::new(Vec::new())))
+                .with_prefetch_planner_sink(Arc::new(Mutex::new(Vec::new()))),
             facet_tree,
             facet_data_root: None,
             hide_invalid_facet_path_axes: false,
@@ -2282,6 +2283,8 @@ mod tests {
             priority: 1.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: avenger_resource::ResourceRequestPurpose::Required,
+            screen_center: None,
+            prefetch_scope: None,
         });
 
         let requests = ctx.resource_requests_snapshot();

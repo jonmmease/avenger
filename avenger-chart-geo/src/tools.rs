@@ -146,6 +146,14 @@ impl GeoPanZoom {
     fn units_per_pixel_param_name(&self) -> String {
         geo_param_name(&self.viewport_id, "units_per_pixel")
     }
+
+    fn focus_x_param_name(&self) -> String {
+        geo_param_name(&self.viewport_id, "focus_x")
+    }
+
+    fn focus_y_param_name(&self) -> String {
+        geo_param_name(&self.viewport_id, "focus_y")
+    }
 }
 
 impl Default for GeoPanZoom {
@@ -192,10 +200,18 @@ impl ChartTool<Geo> for GeoPanZoom {
         let center_x = viewport_param(self.center_x_param_name());
         let center_y = viewport_param(self.center_y_param_name());
         let units_per_pixel = viewport_param(self.units_per_pixel_param_name());
+        // Zoom-focus params carry the cursor position (plot-relative px)
+        // for prefetch anchoring. They are written ONLY inside patches
+        // that already change center/upp, so they never trigger extra
+        // evaluations on their own.
+        let focus_x = viewport_param(self.focus_x_param_name());
+        let focus_y = viewport_param(self.focus_y_param_name());
         let viewport = ViewportParams {
             center_x,
             center_y,
             units_per_pixel,
+            focus_x,
+            focus_y,
         };
 
         let mut expansion = ToolExpansion::new()
@@ -213,6 +229,14 @@ impl ChartTool<Geo> for GeoPanZoom {
             )
             .param(
                 viewport.units_per_pixel.clone(),
+                ToolParamSharing::Explicit(self.sharing),
+            )
+            .param(
+                viewport.focus_x.clone(),
+                ToolParamSharing::Explicit(self.sharing),
+            )
+            .param(
+                viewport.focus_y.clone(),
                 ToolParamSharing::Explicit(self.sharing),
             )
             .event_binding(drag_pan_binding(
@@ -331,6 +355,8 @@ struct ViewportParams {
     center_x: Param,
     center_y: Param,
     units_per_pixel: Param,
+    focus_x: Param,
+    focus_y: Param,
 }
 
 fn viewport_param(name: impl Into<String>) -> Param {
@@ -382,12 +408,44 @@ fn drag_pan_binding(
             &viewport.units_per_pixel,
             domain_span(ev::start_domain("x")) / ev::start_plot_width(),
         )
+        .set_param_at_start_scope(&viewport.focus_x, drag_focus_px(0))
+        .set_param_at_start_scope(&viewport.focus_y, drag_focus_px(1))
         .preview();
 
     if settle_exact {
         binding = binding.settle_exact();
     }
     binding
+}
+
+/// Plot-relative pixel position of the cursor during a drag, derived from
+/// start-scope quantities (the plot rect does not move mid-drag): x from
+/// the domain-start edge, y from the domain-end (top) edge.
+fn drag_focus_px(row: usize) -> Expr {
+    if row == 0 {
+        (ev::event_at_start_coord("x") - ev::interval_start(ev::start_domain("x")))
+            / domain_span(ev::start_domain("x"))
+            * ev::start_plot_width()
+    } else {
+        (ev::interval_end(ev::start_domain("y")) - ev::event_at_start_coord("y"))
+            / domain_span(ev::start_domain("y"))
+            * ev::start_plot_height()
+    }
+}
+
+/// Plot-relative pixel position of the cursor for event-scope bindings
+/// (wheel zoom): same construction as [`drag_focus_px`] over the event
+/// domain/plot columns.
+fn event_focus_px(row: usize) -> Expr {
+    if row == 0 {
+        (ev::event_coord("x") - ev::interval_start(ev::event_domain("x")))
+            / domain_span(ev::event_domain("x"))
+            * ev::event_plot_width()
+    } else {
+        (ev::interval_end(ev::event_domain("y")) - ev::event_coord("y"))
+            / domain_span(ev::event_domain("y"))
+            * ev::event_plot_height()
+    }
 }
 
 fn scroll_zoom_binding(
@@ -409,6 +467,8 @@ fn scroll_zoom_binding(
             &viewport.units_per_pixel,
             domain_span(ev::event_domain("x")) / ev::event_plot_width() * factor,
         )
+        .set_param(&viewport.focus_x, event_focus_px(0))
+        .set_param(&viewport.focus_y, event_focus_px(1))
         .preview()
         .consume(consume_wheel)
 }
@@ -716,7 +776,7 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 9);
+        assert_eq!(expansion.params.len(), 11);
         assert_eq!(expansion.event_bindings.len(), 7);
         assert!(expansion.scale_edits.is_empty());
         assert_eq!(expansion.marks.len(), 1);
@@ -748,6 +808,18 @@ mod tests {
             expansion
                 .params
                 .iter()
+                .any(|param| param.param.name == "__geo_map_focus_x")
+        );
+        assert!(
+            expansion
+                .params
+                .iter()
+                .any(|param| param.param.name == "__geo_map_focus_y")
+        );
+        assert!(
+            expansion
+                .params
+                .iter()
                 .any(|param| param.param.name == "__tool_geo_pan_zoom__box_active")
         );
         assert!(
@@ -770,7 +842,13 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::MouseWheel)
             .expect("wheel binding");
-        assert_eq!(wheel.assignments.len(), 3);
+        assert_eq!(wheel.assignments.len(), 5);
+        assert!(
+            wheel
+                .assignments
+                .iter()
+                .any(|assignment| assignment.param_name == "__geo_map_focus_x")
+        );
         assert!(wheel.consume);
 
         let box_zoom = expansion
@@ -789,11 +867,33 @@ mod tests {
             .iter()
             .find(|binding| {
                 binding.event_type == ChartEventType::CursorMoved
-                    && binding.assignments.len() == 5
                     && binding.evaluation_mode == ChartEventEvaluationMode::Preview
+                    && binding
+                        .assignments
+                        .iter()
+                        .any(|assignment| assignment.param_name.ends_with("box_x0"))
             })
             .expect("overlay drag binding");
         assert!(overlay_drag.between.is_some());
+
+        let pan_drag = expansion
+            .event_bindings
+            .iter()
+            .find(|binding| {
+                binding.event_type == ChartEventType::CursorMoved
+                    && binding
+                        .assignments
+                        .iter()
+                        .any(|assignment| assignment.param_name == "__geo_map_center_x")
+            })
+            .expect("pan drag binding");
+        assert_eq!(pan_drag.assignments.len(), 5);
+        assert!(
+            pan_drag
+                .assignments
+                .iter()
+                .any(|assignment| assignment.param_name == "__geo_map_focus_y")
+        );
     }
 
     #[test]

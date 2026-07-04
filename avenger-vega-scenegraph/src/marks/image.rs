@@ -122,6 +122,7 @@ impl VegaMarkContainer<VegaImageItem> {
             unavailable_policy: Default::default(),
             indices,
             zindex: self.zindex,
+            tile_texture_size: None,
         })))
     }
 }

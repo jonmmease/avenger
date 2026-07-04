@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use avenger_resource::{ResourceRequest, ResourceRequestPurpose};
+use avenger_resource::{PrefetchRetargetPlanner, ResourceRequest, ResourceRequestPurpose};
 use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
@@ -38,6 +38,8 @@ pub struct EvaluationContext {
     pub resource_request_sink: Option<Arc<Mutex<Vec<ResourceRequest>>>>,
     #[doc(hidden)]
     pub materialization_request_sink: Option<Arc<Mutex<Vec<MaterializationRequest>>>>,
+    #[doc(hidden)]
+    pub prefetch_planner_sink: Option<Arc<Mutex<Vec<Arc<dyn PrefetchRetargetPlanner>>>>>,
 }
 
 impl EvaluationContext {
@@ -55,6 +57,7 @@ impl EvaluationContext {
             diagnostics: None,
             resource_request_sink: None,
             materialization_request_sink: None,
+            prefetch_planner_sink: None,
         }
     }
 
@@ -94,6 +97,7 @@ impl EvaluationContext {
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
+            prefetch_planner_sink: self.prefetch_planner_sink.clone(),
         }
     }
 
@@ -107,6 +111,7 @@ impl EvaluationContext {
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
+            prefetch_planner_sink: self.prefetch_planner_sink.clone(),
         }
     }
 
@@ -120,6 +125,7 @@ impl EvaluationContext {
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
+            prefetch_planner_sink: self.prefetch_planner_sink.clone(),
         }
     }
 
@@ -134,6 +140,7 @@ impl EvaluationContext {
             diagnostics: Some(diagnostics),
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
+            prefetch_planner_sink: self.prefetch_planner_sink.clone(),
         }
     }
 
@@ -148,6 +155,7 @@ impl EvaluationContext {
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: Some(sink),
             materialization_request_sink: self.materialization_request_sink.clone(),
+            prefetch_planner_sink: self.prefetch_planner_sink.clone(),
         }
     }
 
@@ -165,6 +173,7 @@ impl EvaluationContext {
             diagnostics: self.diagnostics.clone(),
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: Some(sink),
+            prefetch_planner_sink: self.prefetch_planner_sink.clone(),
         }
     }
 
@@ -218,6 +227,45 @@ impl EvaluationContext {
                 guard.push(request);
             }
         }
+    }
+
+    #[doc(hidden)]
+    pub fn with_prefetch_planner_sink(
+        &self,
+        sink: Arc<Mutex<Vec<Arc<dyn PrefetchRetargetPlanner>>>>,
+    ) -> Self {
+        let mut ctx = self.clone();
+        ctx.prefetch_planner_sink = Some(sink);
+        ctx
+    }
+
+    /// Record a prefetch-retarget planner published by a coordinate-system
+    /// guide for this evaluation. One planner per retargetable scope;
+    /// later planners for the same scope replace earlier ones.
+    pub fn publish_prefetch_planner(&self, planner: Arc<dyn PrefetchRetargetPlanner>) {
+        if let Some(sink) = &self.prefetch_planner_sink {
+            let mut guard = sink.lock().expect("prefetch planner sink lock poisoned");
+            if let Some(existing) = guard
+                .iter_mut()
+                .find(|existing| existing.scope() == planner.scope())
+            {
+                *existing = planner;
+            } else {
+                guard.push(planner);
+            }
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn prefetch_planners_snapshot(&self) -> Vec<Arc<dyn PrefetchRetargetPlanner>> {
+        self.prefetch_planner_sink
+            .as_ref()
+            .map(|sink| {
+                sink.lock()
+                    .expect("prefetch planner sink lock poisoned")
+                    .clone()
+            })
+            .unwrap_or_default()
     }
 
     #[doc(hidden)]
@@ -275,7 +323,7 @@ impl EvaluationContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use avenger_resource::{ResourceCachePolicy, ResourceKey, ResourceKind, ResourceSource};
+    use avenger_resource::{ResourceKey, ResourceKind, ResourceSource};
 
     use crate::MaterializationOutputKind;
 
@@ -292,14 +340,14 @@ mod tests {
         .with_params(IndexMap::new());
 
         ctx.request_resource(ResourceRequest {
-            key: ResourceKey::new("tile/0/0/0"),
-            kind: ResourceKind::new("image"),
-            source: ResourceSource::Url {
-                url: "https://tiles.example/0/0/0.png".to_string(),
-            },
             priority: 1.0,
-            cache_policy: ResourceCachePolicy::default(),
-            purpose: ResourceRequestPurpose::Required,
+            ..ResourceRequest::new(
+                ResourceKey::new("tile/0/0/0"),
+                ResourceKind::new("image"),
+                ResourceSource::Url {
+                    url: "https://tiles.example/0/0/0.png".to_string(),
+                },
+            )
         });
 
         let requests = ctx.resource_requests_snapshot();
@@ -318,14 +366,14 @@ mod tests {
         .with_resource_request_sink(sink);
 
         let mut request = ResourceRequest {
-            key: ResourceKey::new("tile/0/0/0"),
-            kind: ResourceKind::new("image"),
-            source: ResourceSource::Url {
-                url: "https://tiles.example/0/0/0.png".to_string(),
-            },
             priority: 1.0,
-            cache_policy: ResourceCachePolicy::default(),
-            purpose: ResourceRequestPurpose::Required,
+            ..ResourceRequest::new(
+                ResourceKey::new("tile/0/0/0"),
+                ResourceKind::new("image"),
+                ResourceSource::Url {
+                    url: "https://tiles.example/0/0/0.png".to_string(),
+                },
+            )
         };
         ctx.request_resource(request.clone());
         request.priority = 0.25;
@@ -349,14 +397,15 @@ mod tests {
         .with_resource_request_sink(sink);
 
         let mut request = ResourceRequest {
-            key: ResourceKey::new("tile/0/0/0"),
-            kind: ResourceKind::new("image"),
-            source: ResourceSource::Url {
-                url: "https://tiles.example/0/0/0.png".to_string(),
-            },
             priority: -1.0,
-            cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Prefetch,
+            ..ResourceRequest::new(
+                ResourceKey::new("tile/0/0/0"),
+                ResourceKind::new("image"),
+                ResourceSource::Url {
+                    url: "https://tiles.example/0/0/0.png".to_string(),
+                },
+            )
         };
         ctx.request_resource(request.clone());
         request.priority = 0.0;

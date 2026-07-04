@@ -699,6 +699,7 @@ fn scene_image_mark(
         unavailable_policy: Default::default(),
         indices: None,
         zindex,
+        tile_texture_size: None,
     }
     .into()
 }

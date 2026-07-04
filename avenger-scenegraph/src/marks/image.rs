@@ -107,6 +107,12 @@ pub struct SceneImageMark {
     pub unavailable_policy: SceneImageUnavailablePolicy,
     pub indices: Option<Arc<Vec<usize>>>,
     pub zindex: Option<i32>,
+    /// `Some(edge_px)` routes the mark's resource images through the
+    /// renderer's persistent tile texture-array cache (uniform-size map
+    /// tiles that upload once and survive scene rebuilds) instead of the
+    /// per-frame image atlas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tile_texture_size: Option<u32>,
 }
 
 impl SceneImageMark {
@@ -233,6 +239,7 @@ impl Hash for SceneImageMark {
         self.unavailable_policy.hash(state);
         self.indices.hash(state);
         self.zindex.hash(state);
+        self.tile_texture_size.hash(state);
     }
 }
 
@@ -255,6 +262,7 @@ impl Default for SceneImageMark {
             unavailable_policy: SceneImageUnavailablePolicy::RendererDefault,
             image: ScalarOrArray::new_scalar(Default::default()),
             zindex: None,
+            tile_texture_size: None,
         }
     }
 }

@@ -175,5 +175,7 @@ fn guide_resource_request() -> ResourceRequest {
         priority: 0.0,
         cache_policy: ResourceCachePolicy::default(),
         purpose: ResourceRequestPurpose::Required,
+        screen_center: None,
+        prefetch_scope: None,
     }
 }

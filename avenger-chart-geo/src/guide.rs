@@ -35,7 +35,10 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionCont
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::tiles::{PlannedGeoTile, PlannedTileUnavailablePolicy, tile_mesh};
+use crate::tiles::{
+    GeoZoomPrefetchPlanner, PlannedGeoTile, PlannedTileUnavailablePolicy, TileLoadingPolicy,
+    tile_mesh,
+};
 use crate::view::GeoCoordMeasurement;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -121,8 +124,40 @@ impl CompiledGuide for GeoGuide {
             for request in plan.prefetch_requests {
                 render_context.request_resource(request);
             }
+            // Publish a hover-retarget planner so the fetch scheduler can
+            // re-anchor this layer's zoom-prefetch set as the cursor moves
+            // between evaluations.
+            if matches!(
+                layer.loading_policy_value(),
+                TileLoadingPolicy::SmoothZoom { .. }
+            ) {
+                let targets = plan
+                    .rendered_tiles
+                    .iter()
+                    .filter(|planned| planned.is_target)
+                    .map(|planned| planned.tile.clone())
+                    .collect::<Vec<_>>();
+                render_context.publish_prefetch_planner(Arc::new(
+                    GeoZoomPrefetchPlanner::from_snapshot(
+                        layer.clone(),
+                        measurement,
+                        targets,
+                        [plot_bounds.x, plot_bounds.y],
+                    ),
+                ));
+            }
             for planned in plan.rendered_tiles {
-                render_context.request_resource(layer.resource_request(&planned.tile));
+                // Only target tiles are fetched as Required; fallback-zoom
+                // tiles render opportunistically from cache (their pixels
+                // come from earlier target/prefetch fetches), keeping
+                // request volume at viewport + modest look-ahead.
+                if planned.is_target {
+                    render_context.request_resource(layer.resource_request_with_purpose(
+                        &planned.tile,
+                        avenger_resource::ResourceRequestPurpose::Required,
+                        planned.fetch_priority,
+                    ));
+                }
                 let mark = if identity_tiles {
                     tile_image_mark(layer.zindex_value(), &planned, &measurement.view)
                 } else {
@@ -279,6 +314,7 @@ fn tile_image_mark(
             baseline: ScalarOrArray::new_scalar(ImageBaseline::Top),
             unavailable_policy: tile_unavailable_policy(planned),
             zindex: Some(zindex),
+            tile_texture_size: Some(tile.intrinsic_size),
             ..Default::default()
         }
         .into(),
@@ -318,6 +354,7 @@ fn tile_warped_mark(
             indices: mesh.indices,
             unavailable_policy: tile_unavailable_policy(planned),
             zindex: Some(zindex),
+            tile_texture_size: Some(tile.intrinsic_size),
         }
         .into(),
     )

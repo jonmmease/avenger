@@ -291,6 +291,14 @@ impl Geo {
         format!("__geo_{}_units_per_pixel", self.viewport_id)
     }
 
+    pub fn focus_x_param(&self) -> String {
+        format!("__geo_{}_focus_x", self.viewport_id)
+    }
+
+    pub fn focus_y_param(&self) -> String {
+        format!("__geo_{}_focus_y", self.viewport_id)
+    }
+
     fn authored_view(&self, params: &IndexMap<String, ScalarValue>) -> ViewAuthoring {
         let world = world_span(&self.projection());
         let center_x = param_f64(params, &self.center_x_param()).or(self.center_x);
@@ -434,6 +442,7 @@ impl CoordinateSystemTransformCore for Geo {
             sphere: None,
             blend: self.blend,
             tile_layers: Vec::new(),
+            zoom_focus: None,
         };
         measurement.interaction_frame()
     }
@@ -474,6 +483,11 @@ impl CoordinateSystemTransformCore for Geo {
             self.center_x_param(),
             self.center_y_param(),
             self.units_per_pixel_param(),
+            // Focus params only ever change inside a patch that also
+            // changes center/upp (written solely by the pan/zoom
+            // bindings), so listing them adds no re-evaluations.
+            self.focus_x_param(),
+            self.focus_y_param(),
         ]
     }
 
@@ -612,6 +626,15 @@ impl CoordinateMeasurementProvider for Geo {
             request.plot_height,
             world,
         )?;
+        let zoom_focus = match (
+            param_f64(request.params, &self.focus_x_param()),
+            param_f64(request.params, &self.focus_y_param()),
+        ) {
+            (Some(fx), Some(fy)) if fx.is_finite() && fy.is_finite() => {
+                Some([fx as f32, fy as f32])
+            }
+            _ => None,
+        };
         Ok(Some(Box::new(GeoCoordMeasurement {
             viewport_id: self.viewport_id.clone(),
             view,
@@ -620,6 +643,7 @@ impl CoordinateMeasurementProvider for Geo {
             sphere: self.sphere,
             blend: self.blend,
             tile_layers: self.tile_layers.clone(),
+            zoom_focus,
         })))
     }
 }

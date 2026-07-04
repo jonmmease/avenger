@@ -279,6 +279,7 @@ impl CompiledCartesianImage {
                     indices: indices_ref,
                     zindex: self.state.zindex,
                     interactive: true,
+                    tile_texture_size: None,
                 }
                 .into(),
             );

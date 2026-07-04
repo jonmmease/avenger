@@ -305,6 +305,8 @@ fn resource_evaluated_plot(include_request: bool) -> EvaluatedPlot {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
+            screen_center: None,
+            prefetch_scope: None,
         })
         .into_iter()
         .collect();
@@ -316,6 +318,7 @@ fn resource_evaluated_plot(include_request: bool) -> EvaluatedPlot {
         rtree: None,
         interaction: EvaluatedInteractionState { scopes: Vec::new() },
         event_datums: EvaluatedEventDatumState { rows: Vec::new() },
+        prefetch_planners: Vec::new(),
     }
 }
 

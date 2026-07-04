@@ -7,3 +7,4 @@ pub mod instanced_mark;
 pub mod multi;
 pub mod symbol;
 pub mod text;
+pub mod tile_array;

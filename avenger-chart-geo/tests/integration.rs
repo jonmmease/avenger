@@ -233,6 +233,8 @@ async fn runtime_params_override_authored_view() {
             "__geo_main_center_x",
             "__geo_main_center_y",
             "__geo_main_units_per_pixel",
+            "__geo_main_focus_x",
+            "__geo_main_focus_y",
         ]
     );
     let ctx = SessionContext::new();

@@ -128,6 +128,10 @@ pub struct MultiMarkBatch {
     pub image_smooth: bool,
     pub gradient_atlas_index: Option<usize>,
     pub text_atlas_index: Option<usize>,
+    /// `Some(tile edge px)`: draw with the tile-array pipeline, sampling
+    /// the persistent tile texture array for that size (layer index in
+    /// vertex `color[0]`). Mutually exclusive with `image_atlas_index`.
+    pub tile_array_size: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -176,6 +180,12 @@ pub struct MultiMarkRenderer {
     gradient_atlas_builder: GradientAtlasBuilder,
     image_atlas_builder: ImageAtlasBuilder,
     dimensions: CanvasDimensions,
+    /// Layer allocator for the canvas's persistent tile texture arrays.
+    /// Installed once by the renderer core and retained across
+    /// `clear()`/`reset_for_frame` (slot residency is the whole point).
+    /// `None` for auxiliary renderers (frame overlay) — tile-hinted marks
+    /// then use the atlas path.
+    tile_slots: Option<std::sync::Arc<std::sync::Mutex<crate::marks::tile_array::TileSlotAllocator>>>,
 }
 
 pub(crate) struct TextLeaderRenderItem {
@@ -192,7 +202,9 @@ pub struct MultiMarkRenderResources {
     uniform_layout: BindGroupLayout,
     texture_layout: BindGroupLayout,
     text_layout: BindGroupLayout,
+    tile_texture_layout: BindGroupLayout,
     render_pipeline: RenderPipeline,
+    tile_render_pipeline: RenderPipeline,
     stencil_render_pipeline: RenderPipeline,
     stencil_pipeline: RenderPipeline,
     pattern_clip_pipeline: RenderPipeline,
@@ -224,9 +236,14 @@ impl MultiMarkRenderResources {
         });
         let texture_layout = Self::make_texture_bind_group_layout(device);
         let text_layout = Self::make_text_bind_group_layout(device);
+        let tile_texture_layout = Self::make_tile_texture_bind_group_layout(device);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("multi.wgsl").into()),
+        });
+        let tile_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Tile Array Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("multi_tile.wgsl").into()),
         });
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -245,6 +262,39 @@ impl MultiMarkRenderResources {
             sample_count,
             &render_pipeline_layout,
             &shader,
+            None,
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+            wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+        );
+        // Tile-array variant: same vertex layout and blend state, group 2
+        // swapped to a texture_2d_array layout. Groups 0/1/3 share the
+        // same BindGroupLayout objects as the main pipeline, so bind
+        // groups stay compatible across mid-pass pipeline switches.
+        let tile_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Tile Render Pipeline Layout"),
+            bind_group_layouts: &[
+                &uniform_layout,
+                &texture_layout,
+                &tile_texture_layout,
+                &text_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+        let tile_render_pipeline = Self::make_render_pipeline(
+            device,
+            texture_format,
+            sample_count,
+            &tile_pipeline_layout,
+            &tile_shader,
             None,
             Some(wgpu::BlendState::ALPHA_BLENDING),
             wgpu::ColorWrites::ALL,
@@ -440,7 +490,9 @@ impl MultiMarkRenderResources {
             uniform_layout,
             texture_layout,
             text_layout,
+            tile_texture_layout,
             render_pipeline,
+            tile_render_pipeline,
             stencil_render_pipeline,
             stencil_pipeline,
             pattern_clip_pipeline,
@@ -551,6 +603,36 @@ impl MultiMarkRenderResources {
         )
     }
 
+    /// Bind-group layout for the tile texture arrays (group 2 of the
+    /// tile pipeline): a `texture_2d_array` + filtering sampler.
+    fn make_tile_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("tile_texture_bind_group_layout"),
+        })
+    }
+
+    pub(crate) fn tile_texture_layout(&self) -> &BindGroupLayout {
+        &self.tile_texture_layout
+    }
+
     fn make_texture_bind_group_layout(device: &Device) -> BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -620,7 +702,16 @@ impl MultiMarkRenderer {
             },
             gradient_atlas_builder: GradientAtlasBuilder::new(),
             image_atlas_builder: ImageAtlasBuilder::new(),
+            tile_slots: None,
         }
+    }
+
+    /// Install the shared tile-layer allocator (renderer core, once).
+    pub(crate) fn set_tile_slot_allocator(
+        &mut self,
+        allocator: std::sync::Arc<std::sync::Mutex<crate::marks::tile_array::TileSlotAllocator>>,
+    ) {
+        self.tile_slots = Some(allocator);
     }
 
     pub fn clear(&mut self) {
@@ -760,6 +851,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         });
         Ok(())
     }
@@ -895,6 +987,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
+            tile_array_size: None,
         });
 
         Ok(())
@@ -959,6 +1052,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -1185,6 +1279,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -1313,6 +1408,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -1480,6 +1576,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -1549,6 +1646,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.push((verts, indices));
@@ -1648,6 +1746,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.push((buffers.vertices, buffers.indices));
@@ -1702,6 +1801,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.push((buffers.vertices, buffers.indices));
@@ -1815,6 +1915,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -1829,6 +1930,18 @@ impl MultiMarkRenderer {
         origin: [f32; 2],
         clip: &Clip,
     ) -> Result<(), AvengerWgpuError> {
+        // Tile-array route: uniform-size resource images draw from the
+        // persistent tile texture array instead of the per-frame atlas.
+        // Path clips need the stencil pipeline (no tile variant) and any
+        // assignment failure (overflow, non-resource source, no allocator)
+        // falls back to the atlas path below.
+        if let Some(size) = mark.tile_texture_size {
+            if !(matches!(clip, Clip::Path(_)) && mark.clip)
+                && self.try_add_tile_image_mark(mark, origin, clip, size)?
+            {
+                return Ok(());
+            }
+        }
         let verts_inds = izip!(mark.image_source_iter(), mark.transformed_path_iter(origin))
             .map(
                 |(image_source, path)| -> Result<(usize, Vec<MultiVertex>, Vec<u32>), AvengerWgpuError> {
@@ -1894,6 +2007,7 @@ impl MultiMarkRenderer {
             image_smooth: mark.smooth,
             gradient_atlas_index: None,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         for (atlas_index, verts, inds) in verts_inds {
@@ -1918,6 +2032,7 @@ impl MultiMarkRenderer {
                     image_smooth: mark.smooth,
                     gradient_atlas_index: None,
                     text_atlas_index: None,
+                    tile_array_size: None,
                 };
                 std::mem::swap(&mut full_batch, &mut next_batch);
                 self.batches.push(full_batch);
@@ -1931,6 +2046,89 @@ impl MultiMarkRenderer {
         Ok(())
     }
 
+    /// Tile-array variant of `add_image_mark`: every instance must be a
+    /// `Resource` source with an assignable layer, else returns
+    /// `Ok(false)` and the caller uses the atlas path.
+    fn try_add_tile_image_mark(
+        &mut self,
+        mark: &SceneImageMark,
+        origin: [f32; 2],
+        clip: &Clip,
+        size: u32,
+    ) -> Result<bool, AvengerWgpuError> {
+        let Some(tile_slots) = self.tile_slots.clone() else {
+            return Ok(false);
+        };
+        let mut allocator = tile_slots.lock().expect("tile slot allocator poisoned");
+        let mut pending_verts: Vec<(Vec<MultiVertex>, Vec<u32>)> = Vec::new();
+        for (image_source, path) in izip!(mark.image_source_iter(), mark.transformed_path_iter(origin)) {
+            let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) = image_source else {
+                return Ok(false);
+            };
+            let Some(layer) = allocator.assign(
+                size,
+                &resource.key,
+                resource.fallback_key.as_ref(),
+                mark.unavailable_policy,
+            ) else {
+                return Ok(false);
+            };
+            let bbox = bounding_box(&path);
+            let left = bbox.min.x;
+            let top = bbox.min.y;
+            let width = bbox.max.x - bbox.min.x;
+            let height = bbox.max.y - bbox.min.y;
+            let top_left = [top, left];
+            let bottom_right = [top + height, left + width];
+            let layer_f = layer as f32;
+            let verts = vec![
+                MultiVertex {
+                    color: [layer_f, 0.0, 0.0, 1.0],
+                    position: [left, top],
+                    top_left,
+                    bottom_right,
+                },
+                MultiVertex {
+                    color: [layer_f, 0.0, 1.0, 1.0],
+                    position: [left, top + height],
+                    top_left,
+                    bottom_right,
+                },
+                MultiVertex {
+                    color: [layer_f, 1.0, 1.0, 1.0],
+                    position: [left + width, top + height],
+                    top_left,
+                    bottom_right,
+                },
+                MultiVertex {
+                    color: [layer_f, 1.0, 0.0, 1.0],
+                    position: [left + width, top],
+                    top_left,
+                    bottom_right,
+                },
+            ];
+            pending_verts.push((verts, vec![0, 1, 2, 0, 2, 3]));
+        }
+        drop(allocator);
+
+        let start_ind = self.num_indices() as u32;
+        let index_count: u32 = pending_verts.iter().map(|(_, inds)| inds.len() as u32).sum();
+        let batch = MultiMarkBatch {
+            indices_range: start_ind..(start_ind + index_count),
+            clip: clip.maybe_clip(mark.clip),
+            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+            pattern_overlay: None,
+            image_atlas_index: None,
+            image_smooth: mark.smooth,
+            gradient_atlas_index: None,
+            text_atlas_index: None,
+            tile_array_size: Some(size),
+        };
+        self.verts_inds.extend(pending_verts);
+        self.batches.push(batch);
+        Ok(true)
+    }
+
     pub fn add_warped_image_mark(
         &mut self,
         mark: &SceneWarpedImageMark,
@@ -1939,6 +2137,60 @@ impl MultiMarkRenderer {
     ) -> Result<(), AvengerWgpuError> {
         if !mark.is_valid() {
             return Ok(());
+        }
+        // Tile-array route (see `add_image_mark`).
+        if let Some(size) = mark.tile_texture_size {
+            if !(matches!(clip, Clip::Path(_)) && mark.clip) {
+                if let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) = &mark.image {
+                    let layer = self.tile_slots.clone().and_then(|slots| {
+                        slots.lock().expect("tile slot allocator poisoned").assign(
+                            size,
+                            &resource.key,
+                            resource.fallback_key.as_ref(),
+                            mark.unavailable_policy,
+                        )
+                    });
+                    if let Some(layer) = layer {
+                        let Some([min_x, min_y, max_x, max_y]) = mark.bounds(origin) else {
+                            return Ok(());
+                        };
+                        let top_left = [min_y, min_x];
+                        let bottom_right = [max_y, max_x];
+                        let layer_f = layer as f32;
+                        let verts = mark
+                            .positions
+                            .iter()
+                            .zip(mark.uvs.iter())
+                            .map(|(position, uv)| MultiVertex {
+                                color: [
+                                    layer_f,
+                                    uv[0].clamp(0.0, 1.0),
+                                    uv[1].clamp(0.0, 1.0),
+                                    1.0,
+                                ],
+                                position: [position[0] + origin[0], position[1] + origin[1]],
+                                top_left,
+                                bottom_right,
+                            })
+                            .collect::<Vec<_>>();
+                        let start_ind = self.num_indices() as u32;
+                        let batch = MultiMarkBatch {
+                            indices_range: start_ind..(start_ind + mark.indices.len() as u32),
+                            clip: clip.maybe_clip(mark.clip),
+                            clip_indices_range: self.add_clip_path(clip, mark.clip)?,
+                            pattern_overlay: None,
+                            image_atlas_index: None,
+                            image_smooth: mark.smooth,
+                            gradient_atlas_index: None,
+                            text_atlas_index: None,
+                            tile_array_size: Some(size),
+                        };
+                        self.verts_inds.push((verts, mark.indices.clone()));
+                        self.batches.push(batch);
+                        return Ok(());
+                    }
+                }
+            }
         }
         let (atlas_index, tex_coords) = self
             .image_atlas_builder
@@ -1981,6 +2233,7 @@ impl MultiMarkRenderer {
             image_smooth: mark.smooth,
             gradient_atlas_index: None,
             text_atlas_index: None,
+            tile_array_size: None,
         };
         self.verts_inds.push((verts, mark.indices.clone()));
         self.batches.push(batch);
@@ -2015,6 +2268,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         for registration in registrations {
@@ -2041,6 +2295,7 @@ impl MultiMarkRenderer {
                     image_smooth: true,
                     gradient_atlas_index: None,
                     text_atlas_index: Some(atlas_index),
+                    tile_array_size: None,
                 };
                 std::mem::swap(&mut full_batch, &mut next_batch);
                 self.batches.push(full_batch);
@@ -2086,6 +2341,7 @@ impl MultiMarkRenderer {
             image_smooth: true,
             gradient_atlas_index: None,
             text_atlas_index: None,
+            tile_array_size: None,
         };
 
         self.verts_inds.extend(verts_inds);
@@ -2167,27 +2423,18 @@ impl MultiMarkRenderer {
             wgpu::FilterMode::Nearest,
         );
 
-        // Image Textures
+        // Image Textures (one texture + upload per page, two sampler
+        // variants).
         let (image_texture_size, image_images, image_resource_status) =
             self.image_atlas_builder.build(image_resource_config)?;
-        let image_texture_bind_groups = Self::make_texture_bind_groups(
-            device,
-            queue,
-            &resources.texture_layout,
-            image_texture_size,
-            &image_images,
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
-        );
-        let image_texture_bind_groups_nearest = Self::make_texture_bind_groups(
-            device,
-            queue,
-            &resources.texture_layout,
-            image_texture_size,
-            &image_images,
-            wgpu::FilterMode::Nearest,
-            wgpu::FilterMode::Nearest,
-        );
+        let (image_texture_bind_groups, image_texture_bind_groups_nearest) =
+            Self::make_dual_sampler_texture_bind_groups(
+                device,
+                queue,
+                &resources.texture_layout,
+                image_texture_size,
+                &image_images,
+            );
 
         // Stencil buffer is needed for path clips and for pattern overlay masks.
         let uses_stencil =
@@ -2291,6 +2538,7 @@ impl MultiMarkRenderer {
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
         prepared: &PreparedMulti,
+        tile_arrays: Option<&crate::marks::tile_array::TileTextureArrays>,
         ranges: &[std::ops::Range<usize>],
     ) -> CommandBuffer {
         let mut mark_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2304,6 +2552,7 @@ impl MultiMarkRenderer {
             resources,
             text_bind_groups,
             prepared,
+            tile_arrays,
             ranges,
         );
         mark_encoder.finish()
@@ -2333,6 +2582,7 @@ impl MultiMarkRenderer {
         resources: &MultiMarkRenderResources,
         text_bind_groups: &[BindGroup],
         prepared: &PreparedMulti,
+        tile_arrays: Option<&crate::marks::tile_array::TileTextureArrays>,
         ranges: &[std::ops::Range<usize>],
     ) {
         // Batch indices in draw order across all ranges.
@@ -2357,6 +2607,10 @@ impl MultiMarkRenderer {
             let bi = order[i];
             if let Some(pattern_overlay) = self.batches[bi].pattern_overlay.as_ref() {
                 let batch = &self.batches[bi];
+                debug_assert!(
+                    batch.tile_array_size.is_none(),
+                    "tile batches never carry pattern overlays"
+                );
                 let dsa = depth_view
                     .as_ref()
                     .map(|view| wgpu::RenderPassDepthStencilAttachment {
@@ -2475,6 +2729,10 @@ impl MultiMarkRenderer {
                         }),
                     });
                 let batch = &self.batches[bi];
+                debug_assert!(
+                    batch.tile_array_size.is_none(),
+                    "tile-routed marks reject path clips at add time"
+                );
                 let mut rp = mark_encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Multi Mark Render Pass (stencil)"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -2535,6 +2793,7 @@ impl MultiMarkRenderer {
                     timestamp_writes: None,
                 });
                 rp.set_pipeline(&resources.render_pipeline);
+                let mut tile_pipeline_active = false;
                 rp.set_bind_group(0, &prepared.uniform_bind_group, &[]);
                 rp.set_vertex_buffer(0, prepared.vertex_buffer.slice(..));
                 rp.set_index_buffer(prepared.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -2544,13 +2803,38 @@ impl MultiMarkRenderer {
                     if batch.clip_indices_range.is_some() || batch.pattern_overlay.is_some() {
                         break;
                     }
+                    // Tile batches swap in the texture-array pipeline
+                    // mid-pass; groups 0/1/3 share layouts with the main
+                    // pipeline so their bindings stay valid.
+                    let is_tile = batch.tile_array_size.is_some();
+                    if is_tile != tile_pipeline_active {
+                        rp.set_pipeline(if is_tile {
+                            &resources.tile_render_pipeline
+                        } else {
+                            &resources.render_pipeline
+                        });
+                        tile_pipeline_active = is_tile;
+                    }
                     rp.set_bind_group(
                         1,
                         &prepared.gradient_texture_bind_groups
                             [batch.gradient_atlas_index.unwrap_or(0)],
                         &[],
                     );
-                    rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
+                    if let Some(size) = batch.tile_array_size {
+                        let Some(tile_bind_group) = tile_arrays
+                            .and_then(|arrays| arrays.bind_group(size, batch.image_smooth))
+                        else {
+                            // No synced tile array (auxiliary renderer):
+                            // nothing correct to sample — skip the draw.
+                            debug_assert!(false, "tile batch without synced tile arrays");
+                            i += 1;
+                            continue;
+                        };
+                        rp.set_bind_group(2, tile_bind_group, &[]);
+                    } else {
+                        rp.set_bind_group(2, Self::image_texture_bind_group(prepared, batch), &[]);
+                    }
                     rp.set_bind_group(
                         3,
                         &text_bind_groups[batch.text_atlas_index.unwrap_or(0)],
@@ -2633,28 +2917,19 @@ impl MultiMarkRenderer {
         );
         let gradient_setup_us = checkpoint_us(&mut checkpoint);
 
-        // Image Textures
+        // Image Textures (one texture + upload per page, two sampler
+        // variants).
         let (image_texture_size, image_images, _) = self
             .image_atlas_builder
             .build(&WgpuImageResourceConfig::default())?;
-        let image_texture_bind_groups = Self::make_texture_bind_groups(
-            device,
-            queue,
-            &resources.texture_layout,
-            image_texture_size,
-            &image_images,
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
-        );
-        let image_texture_bind_groups_nearest = Self::make_texture_bind_groups(
-            device,
-            queue,
-            &resources.texture_layout,
-            image_texture_size,
-            &image_images,
-            wgpu::FilterMode::Nearest,
-            wgpu::FilterMode::Nearest,
-        );
+        let (image_texture_bind_groups, image_texture_bind_groups_nearest) =
+            Self::make_dual_sampler_texture_bind_groups(
+                device,
+                queue,
+                &resources.texture_layout,
+                image_texture_size,
+                &image_images,
+            );
         let image_setup_us = checkpoint_us(&mut checkpoint);
 
         // Text textures are built once per frame and shared across all multi-renderers;
@@ -2759,6 +3034,7 @@ impl MultiMarkRenderer {
             resources,
             text_bind_groups,
             &prepared,
+            None,
             &[0..self.batches.len()],
         );
         let encode_us = checkpoint_us(&mut checkpoint);
@@ -2882,6 +3158,82 @@ impl MultiMarkRenderer {
         }
 
         texture_bind_groups
+    }
+
+    /// One texture + upload per atlas page, shared by a linear-sampler
+    /// and a nearest-sampler bind group (samplers don't need separate
+    /// textures, so both filter variants read the same upload).
+    fn make_dual_sampler_texture_bind_groups(
+        device: &Device,
+        queue: &Queue,
+        texture_bind_group_layout: &BindGroupLayout,
+        size: Extent3d,
+        images: &[DynamicImage],
+    ) -> (Vec<BindGroup>, Vec<BindGroup>) {
+        let mut linear_bind_groups: Vec<BindGroup> = Vec::with_capacity(images.len());
+        let mut nearest_bind_groups: Vec<BindGroup> = Vec::with_capacity(images.len());
+        let sampler_for = |filter: wgpu::FilterMode| {
+            device.create_sampler(&wgpu::SamplerDescriptor {
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                address_mode_w: wgpu::AddressMode::ClampToEdge,
+                mag_filter: filter,
+                min_filter: filter,
+                mipmap_filter: wgpu::FilterMode::Nearest,
+                ..Default::default()
+            })
+        };
+        let linear_sampler = sampler_for(wgpu::FilterMode::Linear);
+        let nearest_sampler = sampler_for(wgpu::FilterMode::Nearest);
+
+        for image in images {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                label: Some("diffuse_texture"),
+                view_formats: &[],
+            });
+            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                image.to_rgba8().as_raw(),
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * image.width()),
+                    rows_per_image: Some(image.height()),
+                },
+                size,
+            );
+            for (sampler, bind_groups) in [
+                (&linear_sampler, &mut linear_bind_groups),
+                (&nearest_sampler, &mut nearest_bind_groups),
+            ] {
+                bind_groups.push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: texture_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&texture_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(sampler),
+                        },
+                    ],
+                    label: Some("texture_bind_group"),
+                }));
+            }
+        }
+        (linear_bind_groups, nearest_bind_groups)
     }
 
     fn make_texture_bind_groups(

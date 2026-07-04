@@ -1124,6 +1124,16 @@ impl WindowCanvas<'_> {
         self.renderer.image_resource_status()
     }
 
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::marks::tile_array::TileUploadStats,
+        crate::marks::tile_array::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
+    }
+
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.update_physical_size(new_size.width, new_size.height);
@@ -1468,6 +1478,16 @@ impl PngCanvas {
 
     pub fn image_resource_status(&self) -> &WgpuImageResourceStatus {
         self.renderer.image_resource_status()
+    }
+
+    /// Tile texture-array upload accounting: `(most_recent_frame, cumulative)`.
+    pub fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::marks::tile_array::TileUploadStats,
+        crate::marks::tile_array::TileUploadStats,
+    ) {
+        self.renderer.tile_upload_stats()
     }
 }
 

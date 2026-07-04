@@ -2,7 +2,7 @@
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use avenger_resource::ResourceRequest;
+use avenger_resource::{PrefetchRetargetPlanner, ResourceRequest};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::marks::{group::Clip, mark::SceneMark};
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
@@ -61,6 +61,14 @@ impl<'a> GuideRenderContext<'a> {
     pub fn request_resource(&self, request: ResourceRequest) {
         if let Some(eval) = self.eval {
             eval.request_resource(request);
+        }
+    }
+
+    /// Publish a prefetch-retarget planner for this evaluation (no-op in
+    /// sink-less render paths, matching `request_resource`).
+    pub fn publish_prefetch_planner(&self, planner: Arc<dyn PrefetchRetargetPlanner>) {
+        if let Some(eval) = self.eval {
+            eval.publish_prefetch_planner(planner);
         }
     }
 }

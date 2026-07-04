@@ -263,6 +263,10 @@ pub(crate) struct AvengerRendererCore {
     image_resource_status: WgpuImageResourceStatus,
     // Text atlas shared by all multi-renderers; built + uploaded once per frame.
     text_atlas_builder: Box<dyn TextAtlasBuilderTrait>,
+    // Persistent tile texture arrays: survive clear_mark_renderer (like
+    // instanced_renderers) so tiles upload once and pan/zoom frames
+    // re-upload nothing.
+    tile_arrays: crate::marks::tile_array::TileTextureArrays,
 }
 
 impl AvengerRendererCore {
@@ -278,12 +282,15 @@ impl AvengerRendererCore {
         let text_atlas_builder =
             make_text_atlas_builder(&config.text_builder_ctor, &config.font_resolution);
 
+        let tile_arrays = crate::marks::tile_array::TileTextureArrays::new();
+        let mut shared_multi = MultiMarkRenderer::new(dimensions);
+        shared_multi.set_tile_slot_allocator(tile_arrays.allocator());
         Self {
             dimensions,
             texture_format,
             sample_count,
             marks: Vec::new(),
-            shared_multi: MultiMarkRenderer::new(dimensions),
+            shared_multi,
             run_start: 0,
             current_zindex: 0,
             instanced_renderers: HashMap::new(),
@@ -291,6 +298,7 @@ impl AvengerRendererCore {
             config,
             image_resource_status: WgpuImageResourceStatus::default(),
             text_atlas_builder,
+            tile_arrays,
         }
     }
 
@@ -316,6 +324,20 @@ impl AvengerRendererCore {
 
     pub(crate) fn image_resource_status(&self) -> &WgpuImageResourceStatus {
         &self.image_resource_status
+    }
+
+    /// Tile-array upload accounting for the most recent prepared frame
+    /// (and cumulative totals). Steady-state frames upload zero bytes.
+    pub(crate) fn tile_upload_stats(
+        &self,
+    ) -> (
+        crate::marks::tile_array::TileUploadStats,
+        crate::marks::tile_array::TileUploadStats,
+    ) {
+        (
+            self.tile_arrays.frame_stats(),
+            self.tile_arrays.total_stats(),
+        )
     }
 
     pub(crate) fn marks(&self) -> &[ZIndexedMark] {
@@ -403,13 +425,24 @@ impl AvengerRendererCore {
 
         let multi_render_resources = self.multi_render_resources.clone();
         let text_bind_groups = self.build_text_bind_groups(device, queue);
-        let (prepared, image_resource_status) = self.shared_multi.prepare(
+        // Upload changed tile layers (usually none) and collect their
+        // pending/missing/failed keys alongside the atlas-resolved ones.
+        let tile_status = self.tile_arrays.sync(
+            device,
+            queue,
+            multi_render_resources.tile_texture_layout(),
+            &self.config.image_resource_config,
+        )?;
+        let (prepared, mut image_resource_status) = self.shared_multi.prepare(
             device,
             queue,
             target.extent,
             &multi_render_resources,
             &self.config.image_resource_config,
         )?;
+        image_resource_status.pending.extend(tile_status.pending);
+        image_resource_status.missing.extend(tile_status.missing);
+        image_resource_status.failed.extend(tile_status.failed);
         self.image_resource_status = image_resource_status;
 
         let mut mark_encoder = device.create_command_encoder(&CommandEncoderDescriptor {
@@ -436,6 +469,7 @@ impl AvengerRendererCore {
                                     &multi_render_resources,
                                     &text_bind_groups,
                                     &prepared,
+                                    Some(&self.tile_arrays),
                                     &pending,
                                 );
                                 pending.clear();
@@ -465,6 +499,7 @@ impl AvengerRendererCore {
                 &multi_render_resources,
                 &text_bind_groups,
                 &prepared,
+                Some(&self.tile_arrays),
                 &pending,
             );
             encoded_marks = true;
@@ -577,6 +612,10 @@ impl AvengerRendererCore {
         // Reset atlas contents while retaining expensive builder-owned services
         // such as the text engine/font database.
         self.text_atlas_builder.reset();
+
+        // New scene epoch: tile layers from the previous scene become
+        // evictable but stay resident (returning viewports reuse them).
+        self.tile_arrays.begin_scene();
     }
 
     pub(crate) fn make_frame_overlay_command(

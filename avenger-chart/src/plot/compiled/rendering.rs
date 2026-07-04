@@ -5840,6 +5840,7 @@ impl CompiledPlot {
             rtree,
             interaction,
             event_datums,
+            prefetch_planners: eval_ctx.prefetch_planners_snapshot(),
         };
         let convert_elapsed = convert_start.elapsed();
         eval_ctx.record_components_to_evaluated_plot_duration(convert_elapsed);
@@ -6029,6 +6030,7 @@ impl CompiledPlot {
             rtree: Some(rtree),
             interaction,
             event_datums,
+            prefetch_planners: evaluated.prefetch_planners,
         }
     }
 

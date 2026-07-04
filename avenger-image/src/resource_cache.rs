@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use avenger_resource::PrefetchRetargetPlanner;
 use avenger_resource::{
     RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSink, ResourceKey,
     ResourceRequest, ResourceRequestPurpose, ResourceSource,
@@ -81,13 +83,17 @@ impl ImageResourceCacheInner {
 
 /// Shared image-resource cache that loads requested images away from render calls.
 ///
-/// Native builds use a background thread per uncached request. Browser hosts can
-/// still use the same `ImageResourceResolver` trait with their own wasm fetcher
-/// until this cache grows a wasm-specific executor.
+/// Native builds route uncached requests through a bounded, priority-aware
+/// [`crate::scheduler::FetchScheduler`] (Required before Prefetch, cursor
+/// focus-hint re-scoring, hover-driven prefetch retargeting). Browser hosts
+/// can still use the same `ImageResourceResolver` trait with their own wasm
+/// fetcher until this cache grows a wasm-specific executor.
 #[derive(Clone, Default)]
 pub struct ImageResourceCache {
     inner: Arc<Mutex<ImageResourceCacheInner>>,
     fetcher: Option<Arc<dyn ImageFetcher>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    scheduler: Arc<std::sync::OnceLock<Arc<crate::scheduler::FetchScheduler>>>,
 }
 
 impl ImageResourceCache {
@@ -95,28 +101,70 @@ impl ImageResourceCache {
         Self::default()
     }
 
-    pub fn with_capacity(capacity: NonZeroUsize) -> Self {
+    fn from_parts(
+        inner: Arc<Mutex<ImageResourceCacheInner>>,
+        fetcher: Option<Arc<dyn ImageFetcher>>,
+    ) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(ImageResourceCacheInner::new(capacity))),
-            fetcher: None,
+            inner,
+            fetcher,
+            #[cfg(not(target_arch = "wasm32"))]
+            scheduler: Arc::new(std::sync::OnceLock::new()),
         }
     }
 
+    pub fn with_capacity(capacity: NonZeroUsize) -> Self {
+        Self::from_parts(
+            Arc::new(Mutex::new(ImageResourceCacheInner::new(capacity))),
+            None,
+        )
+    }
+
     pub fn with_fetcher(fetcher: Arc<dyn ImageFetcher>) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(ImageResourceCacheInner::default())),
-            fetcher: Some(fetcher),
-        }
+        Self::from_parts(
+            Arc::new(Mutex::new(ImageResourceCacheInner::default())),
+            Some(fetcher),
+        )
     }
 
     pub fn with_fetcher_and_capacity(
         fetcher: Arc<dyn ImageFetcher>,
         capacity: NonZeroUsize,
     ) -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(ImageResourceCacheInner::new(capacity))),
-            fetcher: Some(fetcher),
-        }
+        Self::from_parts(
+            Arc::new(Mutex::new(ImageResourceCacheInner::new(capacity))),
+            Some(fetcher),
+        )
+    }
+
+    /// The lazily-built fetch scheduler (native only). Lazy so short-lived
+    /// caches (per-export SVG/PDF renders) never spawn worker threads
+    /// unless they actually fetch.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn scheduler(&self) -> Arc<crate::scheduler::FetchScheduler> {
+        self.scheduler
+            .get_or_init(|| {
+                let execute_inner = self.inner.clone();
+                let execute_fetcher = self.fetcher.clone();
+                let cancel_inner = self.inner.clone();
+                let begin_inner = self.inner.clone();
+                crate::scheduler::FetchScheduler::new(crate::scheduler::SchedulerHooks {
+                    execute: Box::new(move |request, request_id| {
+                        let key = request.key.clone();
+                        let fetcher = execute_fetcher.clone().or_else(shared_default_fetcher);
+                        let state = match load_resource_image(&request, fetcher) {
+                            Ok(image) => CachedImageState::Ready(Arc::new(image)),
+                            Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
+                        };
+                        finish_image_load(execute_inner.clone(), key, request_id, state);
+                    }),
+                    cancel_pending: Box::new(move |key, request_id| {
+                        cancel_pending_entry(&cancel_inner, key, request_id);
+                    }),
+                    begin_request: Box::new(move |request| try_begin_request(&begin_inner, request)),
+                })
+            })
+            .clone()
     }
 
     pub fn with_render_invalidation_sink(self, sink: Arc<dyn RenderInvalidationSink>) -> Self {
@@ -247,31 +295,36 @@ impl ImageResourceResolver for ImageResourceCache {
     }
 
     fn request_image(&self, request: &ResourceRequest) {
-        let request_id = {
-            let mut inner = self
-                .inner
-                .lock()
-                .expect("image resource cache lock poisoned");
-            match inner.states.get(&request.key) {
-                Some(CachedImageState::Pending(_) | CachedImageState::Ready(_)) => None,
-                Some(CachedImageState::Failed(_)) | None => {
-                    let request_id = inner.next_request_id();
-                    inner
-                        .states
-                        .put(request.key.clone(), CachedImageState::Pending(request_id));
-                    inner.generation = inner.generation.wrapping_add(1);
-                    Some(request_id)
+        match try_begin_request(&self.inner, request) {
+            Some(request_id) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                self.scheduler().enqueue(request.clone(), request_id);
+                #[cfg(target_arch = "wasm32")]
+                spawn_image_load(
+                    self.inner.clone(),
+                    self.fetcher.clone(),
+                    request.clone(),
+                    request_id,
+                );
+            }
+            None => {
+                // Already pending or ready. A queued prefetch whose tile
+                // just became visible gets promoted to Required ordering.
+                #[cfg(not(target_arch = "wasm32"))]
+                if request.purpose == ResourceRequestPurpose::Required {
+                    let is_pending = matches!(
+                        self.inner
+                            .lock()
+                            .expect("image resource cache lock poisoned")
+                            .states
+                            .peek(&request.key),
+                        Some(CachedImageState::Pending(_))
+                    );
+                    if is_pending {
+                        self.scheduler().promote_to_required(&request.key);
+                    }
                 }
             }
-        };
-
-        if let Some(request_id) = request_id {
-            spawn_image_load(
-                self.inner.clone(),
-                self.fetcher.clone(),
-                request.clone(),
-                request_id,
-            );
         }
     }
 
@@ -281,6 +334,71 @@ impl ImageResourceResolver for ImageResourceCache {
             .expect("image resource cache lock poisoned")
             .generation
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn update_focus(&self, cursor_canvas_px: [f32; 2]) {
+        self.scheduler().update_focus(cursor_canvas_px);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn set_gesture_active(&self, active: bool) {
+        self.scheduler().set_gesture_active(active);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn install_retarget_planners(&self, planners: Vec<Arc<dyn PrefetchRetargetPlanner>>) {
+        self.scheduler().install_retarget_planners(planners);
+    }
+}
+
+/// Gate + register a request: insert a `Pending` slot and return its
+/// request id, or `None` when the key is already pending/ready. Failed
+/// entries are retried (a fresh id supersedes the old state).
+fn try_begin_request(
+    inner: &Arc<Mutex<ImageResourceCacheInner>>,
+    request: &ResourceRequest,
+) -> Option<u64> {
+    let mut inner = inner.lock().expect("image resource cache lock poisoned");
+    match inner.states.get(&request.key) {
+        Some(CachedImageState::Pending(_) | CachedImageState::Ready(_)) => None,
+        Some(CachedImageState::Failed(_)) | None => {
+            let request_id = inner.next_request_id();
+            inner
+                .states
+                .put(request.key.clone(), CachedImageState::Pending(request_id));
+            inner.generation = inner.generation.wrapping_add(1);
+            Some(request_id)
+        }
+    }
+}
+
+/// Clear a pending slot for a queue entry that was cancelled before
+/// admission, iff it still belongs to that request id. No invalidation:
+/// nothing rendered depended on the entry.
+#[cfg(not(target_arch = "wasm32"))]
+fn cancel_pending_entry(
+    inner: &Arc<Mutex<ImageResourceCacheInner>>,
+    key: &ResourceKey,
+    request_id: u64,
+) {
+    let mut inner = inner.lock().expect("image resource cache lock poisoned");
+    if matches!(
+        inner.states.peek(key),
+        Some(CachedImageState::Pending(pending_id)) if *pending_id == request_id
+    ) {
+        inner.states.pop(key);
+    }
+}
+
+/// One process-wide default fetcher so concurrent tile fetches share a
+/// single HTTP client (connection pooling) instead of constructing one
+/// per request.
+#[cfg(not(target_arch = "wasm32"))]
+fn shared_default_fetcher() -> Option<Arc<dyn ImageFetcher>> {
+    static FETCHER: std::sync::OnceLock<Option<Arc<dyn ImageFetcher>>> = std::sync::OnceLock::new();
+    FETCHER
+        .get_or_init(|| crate::fetcher::make_image_fetcher().ok())
+        .clone()
 }
 
 fn finish_image_load(
@@ -303,23 +421,6 @@ fn finish_image_load(
         }
     };
     request_image_render_invalidation(sink);
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn spawn_image_load(
-    inner: Arc<Mutex<ImageResourceCacheInner>>,
-    fetcher: Option<Arc<dyn ImageFetcher>>,
-    request: ResourceRequest,
-    request_id: u64,
-) {
-    std::thread::spawn(move || {
-        let key = request.key.clone();
-        let state = match load_resource_image(&request, fetcher) {
-            Ok(image) => CachedImageState::Ready(Arc::new(image)),
-            Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
-        };
-        finish_image_load(inner, key, request_id, state);
-    });
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -380,6 +481,8 @@ mod tests {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
+            screen_center: None,
+            prefetch_scope: None,
         }
     }
 
@@ -730,6 +833,8 @@ mod tests {
             priority: 0.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Required,
+            screen_center: None,
+            prefetch_scope: None,
         };
 
         load_image_resource_requests_blocking(
@@ -754,6 +859,8 @@ mod tests {
             priority: -1.0,
             cache_policy: ResourceCachePolicy::default(),
             purpose: ResourceRequestPurpose::Prefetch,
+            screen_center: None,
+            prefetch_scope: None,
         };
 
         load_image_resource_requests_blocking(

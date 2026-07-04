@@ -1214,6 +1214,9 @@ pub struct EvaluatedPlot {
     pub interaction: EvaluatedInteractionState,
     /// Logical datum rows addressable by rendered mark instance.
     pub event_datums: EvaluatedEventDatumState,
+    /// Prefetch-retarget planners published by coordinate guides for this
+    /// evaluation (hover-driven prefetch retargeting; one per scope).
+    pub prefetch_planners: Vec<Arc<dyn avenger_resource::PrefetchRetargetPlanner>>,
 }
 
 #[cfg(test)]
