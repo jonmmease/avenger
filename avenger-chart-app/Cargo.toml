@@ -39,6 +39,7 @@ winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 avenger-chart-geo = { path = "../avenger-chart-geo" }
+image = { workspace = true }
 palette = { workspace = true }
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
@@ -134,6 +135,10 @@ required-features = ["winit-wgpu"]
 
 [[example]]
 name = "climate_grid_equal_earth"
+required-features = ["winit-wgpu"]
+
+[[example]]
+name = "georegistered_overlay"
 required-features = ["winit-wgpu"]
 
 [[example]]
