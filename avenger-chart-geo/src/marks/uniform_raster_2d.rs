@@ -1,13 +1,17 @@
 //! `UniformRaster2D<Geo>`: CRS-tagged dense rasters on the Geo coordinate
 //! system.
 //!
-//! Phase 1 supports the identity fast path only — an unrotated Mercator
-//! projection with no active adaptive blend — where a raster is an
-//! axis-aligned image positioned through the coordinate-owned linear
-//! raw-unit scales (the same math as tile placement). Extents arrive in the
-//! raster's declared CRS (`geometry.crs`) and are converted to authored-plane
-//! raw units before scaling. Warped rendering (rotations, Albers, blends,
-//! EPSG:4326 grids) lands in Phase 2.
+//! Rendering dispatches like the tile guide. On the identity fast path —
+//! an unrotated Mercator projection with no active adaptive blend, and a
+//! raster whose rows are uniform in mercator y (untagged raw units or
+//! EPSG:3857) — the raster is an axis-aligned image positioned through the
+//! coordinate-owned linear raw-unit scales (the same math as tile
+//! placement). Everywhere else (rotations, Albers and other projections,
+//! active blends, and EPSG:4326 grids, whose latitude-uniform rows are
+//! never axis-affine on a Mercator screen) the raster renders as a
+//! `SceneWarpedImageMark` through the measurement's view projector via
+//! [`warped_raster_mesh`]. Both paths build the identical RGBA image
+//! through the shared two-tier cache; only positioning differs.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -32,7 +36,9 @@ use avenger_chart_marks::{
 };
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::{ConfiguredScale, ScaleImpl};
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_scenegraph::marks::{
+    image::SceneImageSource, mark::SceneMark, warped_image::SceneWarpedImageMark,
+};
 use datafusion::{
     arrow::{datatypes::DataType, record_batch::RecordBatch},
     common::ScalarValue,
@@ -41,7 +47,11 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::{Geo, crs, tiles::is_identity_fast_path, view::GeoCoordMeasurement};
+use crate::{
+    Geo, crs,
+    tiles::{RasterVAxis, is_identity_fast_path, warped_raster_mesh},
+    view::GeoCoordMeasurement,
+};
 
 #[async_trait::async_trait]
 impl Mark<Geo> for UniformRaster2D<Geo> {
@@ -238,13 +248,6 @@ impl CompiledGeoUniformRaster2D {
                     "UniformRaster2D<Geo> expected a Geo coordinate measurement".to_string(),
                 )
             })?;
-        if !is_identity_fast_path(measurement) {
-            return Err(AvengerChartError::InvalidArgument(
-                "UniformRaster2D on Geo currently requires an unrotated Mercator projection \
-                 without an active blend (warped rendering lands in Phase 2)"
-                    .to_string(),
-            ));
-        }
 
         let mark_context = context.core_view();
         let len = data.map_or(1, RecordBatch::num_rows);
@@ -285,7 +288,8 @@ impl CompiledGeoUniformRaster2D {
             mark_type = self.mark_type(),
             rows = len,
             smooth = self.options.smooth,
-            "rendering uniform raster rows on Geo (identity fast path)"
+            identity = is_identity_fast_path(measurement),
+            "rendering uniform raster rows on Geo"
         );
 
         let mut marks = Vec::new();
@@ -297,7 +301,7 @@ impl CompiledGeoUniformRaster2D {
             let raster = extract_grid_raster_row(raster_array, raster_row)?;
             let geometry =
                 struct_child_struct(as_struct_array(raster_array, "raster")?, "geometry")?;
-            let to_raw_units = raw_unit_factor(raster_crs(geometry, raster_row).as_deref())?;
+            let frame = parse_raster_frame(raster_crs(geometry, raster_row).as_deref())?;
             raster.validate_scalar_render_dims(x_position.dim.name(), y_position.dim.name())?;
             let fill_values =
                 list_row_values(fill_array, fill_row, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
@@ -309,6 +313,37 @@ impl CompiledGeoUniformRaster2D {
                 )));
             }
 
+            // 4326 rows are latitude-uniform: never axis-affine on the
+            // Mercator screen, so they always take the warped path.
+            let identity = is_identity_fast_path(measurement) && frame != RasterFrame::Degrees4326;
+            if !identity {
+                if let Some(mark) = build_warped_raster_mark(
+                    &raster,
+                    &fill_values,
+                    null_color,
+                    non_finite_color,
+                    opacity_values[row],
+                    x_position,
+                    y_position,
+                    frame,
+                    measurement,
+                    self.options.smooth,
+                    self.state.zindex,
+                    &self.image_cache,
+                    context,
+                )? {
+                    marks.push(mark);
+                    source_row_indices.push(vec![row]);
+                }
+                continue;
+            }
+
+            let to_raw_units = match frame {
+                RasterFrame::RawUnits => 1.0,
+                RasterFrame::Meters3857 => 1.0 / crs::WEB_MERCATOR_RADIUS_M,
+                // Unreachable: 4326 dispatched to the warped path above.
+                RasterFrame::Degrees4326 => unreachable!("4326 rasters always warp"),
+            };
             let mark = build_identity_raster_mark(
                 &raster,
                 &fill_values,
@@ -335,24 +370,153 @@ impl CompiledGeoUniformRaster2D {
     }
 }
 
-/// Multiplier taking the raster's declared-CRS units to authored-plane raw
-/// units. `None` means the raster is untagged: its extents are already raw
-/// units.
-fn raw_unit_factor(crs_tag: Option<&str>) -> Result<f64, AvengerChartError> {
+/// The raster's declared coordinate frame, from `geometry.crs`. Untagged
+/// rasters carry authored-plane raw units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RasterFrame {
+    RawUnits,
+    Meters3857,
+    Degrees4326,
+}
+
+fn parse_raster_frame(crs_tag: Option<&str>) -> Result<RasterFrame, AvengerChartError> {
     match crs_tag {
-        None => Ok(1.0),
-        Some(crs::EPSG_3857) => Ok(1.0 / crs::WEB_MERCATOR_RADIUS_M),
-        Some(crs::EPSG_4326) => Err(AvengerChartError::InvalidArgument(format!(
-            "UniformRaster2D<Geo> does not support '{}' rasters yet: latitude-uniform grids \
-             always require the warped path (Phase 2)",
-            crs::EPSG_4326
-        ))),
+        None => Ok(RasterFrame::RawUnits),
+        Some(crs::EPSG_3857) => Ok(RasterFrame::Meters3857),
+        Some(crs::EPSG_4326) => Ok(RasterFrame::Degrees4326),
         Some(other) => Err(AvengerChartError::InvalidArgument(format!(
             "UniformRaster2D<Geo> raster declares unknown CRS '{other}'; supported: \
-             untagged (raw units) or '{}'",
-            crs::EPSG_3857
+             untagged (raw units), '{}', or '{}'",
+            crs::EPSG_3857,
+            crs::EPSG_4326
         ))),
     }
+}
+
+/// Warped path: build the RGBA image exactly as the fast path does (image
+/// row 0 = the raster's north/stop edge, matching mesh UV v = 0), then
+/// position it through the measurement's view projector with
+/// [`warped_raster_mesh`]. Returns `Ok(None)` when the mesh is fully
+/// offscreen or degenerate.
+#[allow(clippy::too_many_arguments)]
+fn build_warped_raster_mark(
+    raster: &GridRasterRow,
+    fill_values: &datafusion::arrow::array::ArrayRef,
+    null_color: [f32; 4],
+    non_finite_color: [f32; 4],
+    opacity: f32,
+    x_position: &avenger_chart_marks::RasterPositionSpec,
+    y_position: &avenger_chart_marks::RasterPositionSpec,
+    frame: RasterFrame,
+    measurement: &GeoCoordMeasurement,
+    smooth: bool,
+    zindex: Option<i32>,
+    image_cache: &UniformRasterImageCacheHandle,
+    context: &dyn MarkRuntimeContext,
+) -> Result<Option<SceneMark>, AvengerChartError> {
+    let x_dim = raster.dimension(x_position.dim.name())?;
+    let y_dim = raster.dimension(y_position.dim.name())?;
+
+    let (
+        RasterCoords::Uniform {
+            start: x_start,
+            stop: x_stop,
+            count: x_count,
+            ..
+        },
+        RasterCoords::Uniform {
+            start: y_start,
+            stop: y_stop,
+            count: y_count,
+            ..
+        },
+    ) = (&x_dim.coords, &y_dim.coords)
+    else {
+        return Err(AvengerChartError::InvalidArgument(
+            "categorical raster dimensions are not supported on Geo yet".to_string(),
+        ));
+    };
+
+    // Extents are ascending in every frame (validate_extent), so the stop
+    // edge is east/north.
+    let (lon_west, lon_east, v_axis) = match frame {
+        RasterFrame::RawUnits => (
+            x_start.to_degrees(),
+            x_stop.to_degrees(),
+            RasterVAxis::MercatorY {
+                top: *y_stop,
+                bottom: *y_start,
+            },
+        ),
+        RasterFrame::Meters3857 => {
+            let to_raw = 1.0 / crs::WEB_MERCATOR_RADIUS_M;
+            (
+                (x_start * to_raw).to_degrees(),
+                (x_stop * to_raw).to_degrees(),
+                RasterVAxis::MercatorY {
+                    top: y_stop * to_raw,
+                    bottom: y_start * to_raw,
+                },
+            )
+        }
+        RasterFrame::Degrees4326 => (
+            *x_start,
+            *x_stop,
+            RasterVAxis::Latitude {
+                north: *y_stop,
+                south: *y_start,
+            },
+        ),
+    };
+
+    // Image row 0 must be the north edge (mesh v = 0 is the v_axis top),
+    // and the raster's y dimension is ascending south -> north: flip rows.
+    let x_indices = (0..*x_count as usize).collect::<Vec<_>>();
+    let y_indices = (0..*y_count as usize).collect::<Vec<_>>();
+    let image = build_or_reuse_rgba_image(
+        raster,
+        fill_values,
+        null_color,
+        non_finite_color,
+        opacity,
+        x_dim.name.as_str(),
+        y_dim.name.as_str(),
+        &x_indices,
+        &y_indices,
+        false,
+        true,
+        image_cache,
+    )?;
+
+    let projector = measurement.view_projector();
+    let Some(mesh) = warped_raster_mesh(
+        lon_west,
+        lon_east,
+        v_axis,
+        &projector,
+        measurement.projection.precision,
+        context.plot_width(),
+        context.plot_height(),
+    ) else {
+        return Ok(None);
+    };
+
+    Ok(Some(
+        SceneWarpedImageMark {
+            name: "uniform_raster_2d".to_string(),
+            interactive: false,
+            clip: true,
+            smooth,
+            image: SceneImageSource::shared_inline(image),
+            positions: mesh.positions,
+            uvs: mesh.uvs,
+            indices: mesh.indices,
+            unavailable_policy: Default::default(),
+            zindex,
+            tile_texture_size: None,
+        }
+        .into(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -896,24 +1060,33 @@ mod tests {
         assert_px(height, 60.0);
     }
 
+    fn warped_mark(mark: &SceneMark) -> &SceneWarpedImageMark {
+        let SceneMark::WarpedImage(warped) = mark else {
+            panic!("expected SceneWarpedImageMark, got {mark:?}");
+        };
+        warped
+    }
+
+    /// 4326 rows are latitude-uniform, so even an identity-Mercator view
+    /// takes the warped path.
     #[tokio::test]
-    async fn epsg_4326_raster_errors_until_phase_2() {
+    async fn epsg_4326_raster_takes_warped_path_on_identity_mercator() {
         let geo = Geo::mercator();
         let context = pinned_context(&geo).await;
         let data = raster_batch(
             &[
-                TestDim::Uniform("x", -74.0, -73.0, 4),
-                TestDim::Uniform("y", 40.0, 41.0, 4),
+                TestDim::Uniform("x", 60.0, 100.0, 4),
+                TestDim::Uniform("y", 10.0, 40.0, 4),
             ],
             &["y", "x"],
             &four_by_four_cells(),
             Some(crs::EPSG_4326),
         );
-        let err = render(data, &context, &geo).expect_err("4326 must error");
-        assert!(
-            err.to_string().contains("does not support 'epsg:4326'"),
-            "{err}"
-        );
+        let marks = render(data, &context, &geo).expect("render 4326 raster");
+        assert_eq!(marks.len(), 1);
+        let warped = warped_mark(&marks[0]);
+        assert!(!warped.indices.is_empty());
+        assert!(warped.tile_texture_size.is_none());
     }
 
     #[tokio::test]
@@ -936,32 +1109,93 @@ mod tests {
         );
     }
 
+    /// Corner orientation on the warped path: with an asymmetric 2×2
+    /// raster, mesh UV (0,0) must project to the raster's WEST/NORTH
+    /// corner and the image's top-left pixel must hold the west/north
+    /// cell's color (image rows flipped so row 0 = the north edge).
     #[tokio::test]
-    async fn non_mercator_projection_errors() {
+    async fn albers_warped_corners_land_on_projected_positions() {
         let geo = Geo::albers_usa_conus();
         let params = IndexMap::new();
         let measurement = measurement_for(&geo, &params).await;
         let mut context = pinned_context(&Geo::mercator()).await;
         context.measurement = measurement;
+        // Raw-unit extents over the central US.
+        let (x_start, x_stop) = (-2.0_f64, -1.5_f64);
+        let (y_start, y_stop) = (0.6_f64, 0.85_f64);
+        // dims [y, x] row-major: [SW, SE, NW, NE].
         let data = raster_batch(
             &[
-                TestDim::Uniform("x", 0.0, 0.1, 4),
-                TestDim::Uniform("y", 0.0, 0.1, 4),
+                TestDim::Uniform("x", x_start, x_stop, 2),
+                TestDim::Uniform("y", y_start, y_stop, 2),
             ],
             &["y", "x"],
-            &four_by_four_cells(),
+            &["#ff0000", "#00ff00", "#0000ff", "#ffffff"],
             None,
         );
-        let err = render(data, &context, &geo).expect_err("albers must error");
+        let marks = render(data, &context, &geo).expect("render warped raster");
+        assert_eq!(marks.len(), 1);
+        let warped = warped_mark(&marks[0]);
+
+        // Image rows: top = north.
+        let SceneImageSource::SharedInline(rgba) = &warped.image else {
+            panic!("expected shared inline image");
+        };
+        assert_eq!((rgba.width, rgba.height), (2, 2));
+        let pixel = |px: u32, py: u32| {
+            let offset = ((py * rgba.width + px) * 4) as usize;
+            [
+                rgba.data[offset],
+                rgba.data[offset + 1],
+                rgba.data[offset + 2],
+                rgba.data[offset + 3],
+            ]
+        };
+        assert_eq!(pixel(0, 0), [0, 0, 255, 255], "top-left = NW = blue");
+        assert_eq!(pixel(1, 0), [255, 255, 255, 255], "top-right = NE = white");
+        assert_eq!(pixel(0, 1), [255, 0, 0, 255], "bottom-left = SW = red");
+        assert_eq!(pixel(1, 1), [0, 255, 0, 255], "bottom-right = SE = green");
+
+        // Mesh corners: UV (0,0) is the west/north corner, UV (1,1) the
+        // east/south corner, both exactly where the view projector puts
+        // them.
+        let projector = GeoCoordMeasurement::downcast(context.measurement.as_ref())
+            .expect("geo measurement")
+            .view_projector();
+        let north_lat = y_stop.sinh().atan().to_degrees();
+        let south_lat = y_start.sinh().atan().to_degrees();
+        let corner = |target_uv: [f32; 2]| {
+            let index = warped
+                .uvs
+                .iter()
+                .position(|uv| *uv == target_uv)
+                .unwrap_or_else(|| panic!("no vertex at uv {target_uv:?}"));
+            warped.positions[index]
+        };
+        let expected_nw = projector
+            .project(x_start.to_degrees(), north_lat)
+            .expect("project NW corner");
+        let actual_nw = corner([0.0, 0.0]);
         assert!(
-            err.to_string()
-                .contains("requires an unrotated Mercator projection"),
-            "{err}"
+            (f64::from(actual_nw[0]) - expected_nw.0).abs() < 1e-2
+                && (f64::from(actual_nw[1]) - expected_nw.1).abs() < 1e-2,
+            "NW corner {actual_nw:?} vs projected {expected_nw:?}"
+        );
+        let expected_se = projector
+            .project(x_stop.to_degrees(), south_lat)
+            .expect("project SE corner");
+        let actual_se = corner([1.0, 1.0]);
+        assert!(
+            (f64::from(actual_se[0]) - expected_se.0).abs() < 1e-2
+                && (f64::from(actual_se[1]) - expected_se.1).abs() < 1e-2,
+            "SE corner {actual_se:?} vs projected {expected_se:?}"
         );
     }
 
+    /// An active blend leaves the authored plane: the raster must follow
+    /// the blended view projector (warped path), not the scales.
     #[tokio::test]
-    async fn active_blend_errors() {
+    async fn active_blend_takes_warped_path() {
         let geo = Geo::mercator().adaptive_blend(BlendConfig {
             z0: 0.0,
             z1: 1.0,
@@ -980,8 +1214,9 @@ mod tests {
             &four_by_four_cells(),
             None,
         );
-        let err = render(data, &context, &geo).expect_err("active blend must error");
-        assert!(err.to_string().contains("without an active blend"), "{err}");
+        let marks = render(data, &context, &geo).expect("render under active blend");
+        assert_eq!(marks.len(), 1);
+        assert!(!warped_mark(&marks[0]).indices.is_empty());
     }
 
     #[tokio::test]

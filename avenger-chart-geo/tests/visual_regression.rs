@@ -1345,27 +1345,16 @@ mod phase6 {
         .expect("synthetic pickup batch")
     }
 
-    /// A 3857-framed density raster on the Mercator identity fast path,
-    /// over basemap tiles: pins `UniformRaster2D<Geo>` end to end —
-    /// `Rasterize2D` bins native meters, the mark converts the tagged
-    /// extents to authored raw units and places the image through the
-    /// coordinate-owned scales above the tile layer.
-    #[tokio::test]
-    async fn raster_mercator_identity_over_tiles() {
+    /// The synthetic-cluster density raster mark shared by the raster
+    /// visual tests: 3857-framed `Rasterize2D` over static CONUS extents
+    /// with a fixed sqrt fill ramp.
+    fn synthetic_density_raster_mark() -> avenger_chart_geo::UniformRaster2D<Geo> {
         use avenger_chart::channel::LegendableChannel;
         use avenger_chart::prelude::{Rasterize2D, Sqrt, SqrtScaleExt};
         use avenger_chart_geo::{GeoUniformRaster2DChannels, UniformRaster2D, crs};
         use datafusion::prelude::lit;
 
-        let ctx = SessionContext::new();
-        let df = ctx
-            .read_batch(synthetic_pickup_batch())
-            .expect("read synthetic batch");
-        let geo = Geo::mercator()
-            .center_lon_lat(-96.0, 37.5)
-            .zoom(3.0)
-            .tiles(carto_layer(4));
-        let mark = UniformRaster2D::<Geo>::new()
+        UniformRaster2D::<Geo>::new()
             .transform(
                 Rasterize2D::new(col("pickup_x"), col("pickup_y"))
                     .frame(crs::EPSG_3857)
@@ -1392,13 +1381,281 @@ mod phase6 {
                     })
                 },
             )
-            .smooth(false);
+            .smooth(false)
+    }
+
+    /// A 3857-framed density raster on the Mercator identity fast path,
+    /// over basemap tiles: pins `UniformRaster2D<Geo>` end to end —
+    /// `Rasterize2D` bins native meters, the mark converts the tagged
+    /// extents to authored raw units and places the image through the
+    /// coordinate-owned scales above the tile layer.
+    #[tokio::test]
+    async fn raster_mercator_identity_over_tiles() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_batch(synthetic_pickup_batch())
+            .expect("read synthetic batch");
+        let geo = Geo::mercator()
+            .center_lon_lat(-96.0, 37.5)
+            .zoom(3.0)
+            .tiles(carto_layer(4));
         let plot = Plot::with_coord(geo)
             .plot_size(560.0, 340.0)
             .title("Synthetic density raster")
             .data(df)
-            .mark(mark);
+            .mark(synthetic_density_raster_mark());
         assert_visual_match_resolved(&ctx, plot, "raster_mercator_identity_over_tiles").await;
+    }
+
+    /// The same 3857-framed raster warped onto the Albers CONUS aspect
+    /// over warped tiles: cluster blobs must land on NYC/LA and curve with
+    /// the projection.
+    #[tokio::test]
+    async fn raster_albers_warped_over_tiles() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_batch(synthetic_pickup_batch())
+            .expect("read synthetic batch");
+        let geo = Geo::albers_usa_conus()
+            .graticule(GraticuleStyle::default())
+            .tiles(carto_layer(4));
+        let plot = Plot::with_coord(geo)
+            .plot_size(560.0, 380.0)
+            .title("Warped density raster")
+            .data(df)
+            .mark(synthetic_density_raster_mark());
+        assert_visual_match_resolved(&ctx, plot, "raster_albers_warped_over_tiles").await;
+    }
+
+    /// Mid-blend (force_t = 0.5): the raster follows the blended view
+    /// projector, exercising the warped dispatch on an otherwise-identity
+    /// Mercator view.
+    #[tokio::test]
+    async fn raster_mercator_blend_midway() {
+        use avenger_chart_geo::BlendConfig;
+
+        let ctx = SessionContext::new();
+        let df = ctx
+            .read_batch(synthetic_pickup_batch())
+            .expect("read synthetic batch");
+        let geo = Geo::mercator()
+            .center_lon_lat(-96.0, 37.5)
+            .zoom(3.0)
+            .adaptive_blend(BlendConfig {
+                z0: 0.0,
+                z1: 1.0,
+                force_t: Some(0.5),
+            })
+            .tiles(carto_layer(4));
+        let plot = Plot::with_coord(geo)
+            .plot_size(560.0, 340.0)
+            .title("Mid-blend density raster")
+            .data(df)
+            .mark(synthetic_density_raster_mark());
+        assert_visual_match_resolved(&ctx, plot, "raster_mercator_blend_midway").await;
+    }
+
+    /// A hand-built EPSG:4326 lat/lon-uniform grid on Equal Earth: rows
+    /// are latitude-uniform, so the raster always warps and its banded
+    /// diagonals curve with the graticule.
+    #[tokio::test]
+    async fn raster_4326_equal_earth() {
+        use avenger_chart::channel::LegendableChannel;
+        use avenger_chart::prelude::{Sqrt, SqrtScaleExt};
+        use avenger_chart_geo::{GeoUniformRaster2DChannels, UniformRaster2D, crs};
+        use datafusion::arrow::{
+            array::{
+                ArrayRef, Float64Array, Float64Builder, ListArray, ListBuilder, StringArray,
+                StructArray, UInt32Array,
+            },
+            buffer::OffsetBuffer,
+            datatypes::{DataType, Field},
+        };
+        use std::sync::Arc;
+
+        // 36x14 grid over lon [-180, 180] x lat [-60, 80], value =
+        // (ix + iy) % 7 — deterministic diagonal bands.
+        let (lon_bins, lat_bins) = (36u32, 14u32);
+        let mut values = ListBuilder::new(Float64Builder::new());
+        for iy in 0..lat_bins {
+            for ix in 0..lon_bins {
+                values.values().append_value(f64::from((ix + iy) % 7));
+            }
+        }
+        values.append(true);
+        let values = Arc::new(values.finish()) as ArrayRef;
+
+        let one_row_list = |array: ArrayRef| -> ArrayRef {
+            let offsets = OffsetBuffer::from_lengths([array.len()]);
+            Arc::new(
+                ListArray::try_new(
+                    Arc::new(Field::new_list_field(array.data_type().clone(), true)),
+                    offsets,
+                    array,
+                    None,
+                )
+                .expect("list array"),
+            ) as ArrayRef
+        };
+        let coords = Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("kind", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["uniform", "uniform"])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("sampling", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![None::<&str>, None])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("start", DataType::Float64, true)),
+                Arc::new(Float64Array::from(vec![Some(-180.0), Some(-60.0)])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("stop", DataType::Float64, true)),
+                Arc::new(Float64Array::from(vec![Some(180.0), Some(80.0)])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("count", DataType::UInt32, true)),
+                Arc::new(UInt32Array::from(vec![Some(lon_bins), Some(lat_bins)])) as ArrayRef,
+            ),
+        ])) as ArrayRef;
+        let dimensions = one_row_list(Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("name", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["lon", "lat"])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("coords", coords.data_type().clone(), false)),
+                coords,
+            ),
+        ])) as ArrayRef);
+        let geometry = Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("kind", DataType::Utf8, false)),
+                Arc::new(StringArray::from(vec!["grid"])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new("crs", DataType::Utf8, true)),
+                Arc::new(StringArray::from(vec![Some(crs::EPSG_4326)])) as ArrayRef,
+            ),
+            (
+                Arc::new(Field::new(
+                    "dimensions",
+                    dimensions.data_type().clone(),
+                    false,
+                )),
+                dimensions,
+            ),
+        ])) as ArrayRef;
+        let dims = {
+            let mut builder = ListBuilder::new(datafusion::arrow::array::StringBuilder::new());
+            builder.values().append_value("lat");
+            builder.values().append_value("lon");
+            builder.append(true);
+            Arc::new(builder.finish()) as ArrayRef
+        };
+        let values_struct = Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("dims", dims.data_type().clone(), false)),
+                dims,
+            ),
+            (
+                Arc::new(Field::new("data", values.data_type().clone(), false)),
+                values,
+            ),
+        ])) as ArrayRef;
+        let raster = Arc::new(StructArray::from(vec![
+            (
+                Arc::new(Field::new("geometry", geometry.data_type().clone(), false)),
+                geometry,
+            ),
+            (
+                Arc::new(Field::new(
+                    "values",
+                    values_struct.data_type().clone(),
+                    false,
+                )),
+                values_struct,
+            ),
+        ])) as ArrayRef;
+        let batch =
+            datafusion::arrow::record_batch::RecordBatch::try_from_iter(vec![("raster", raster)])
+                .expect("4326 grid batch");
+
+        let ctx = SessionContext::new();
+        let df = ctx.read_batch(batch).expect("read 4326 grid");
+        let mark = UniformRaster2D::<Geo>::new()
+            .raster_with(col("raster"), |r| {
+                r.x(avenger_chart::prelude::dim("lon"))
+                    .y(avenger_chart::prelude::dim("lat"))
+                    .fill(|fill| {
+                        fill.scale_with::<Sqrt>(|scale| {
+                            scale
+                                .clamp(true)
+                                .domain((0.0, 6.0))
+                                .range_colors(vec![
+                                    Srgba::new(0.97, 0.98, 0.72, 1.0),
+                                    Srgba::new(0.13, 0.44, 0.71, 1.0),
+                                ])
+                                .nice(false)
+                                .zero(false)
+                        })
+                        .legend(|legend| legend.title("Band"))
+                    })
+            })
+            .opacity(0.85)
+            .smooth(false);
+        let geo = Geo::equal_earth()
+            .sphere(SphereStyle::default())
+            .graticule(GraticuleStyle::default());
+        let plot = Plot::with_coord(geo)
+            .plot_size(560.0, 340.0)
+            .title("4326 grid on Equal Earth")
+            .data(df)
+            .mark(mark);
+        assert_visual_match_ctx(&ctx, plot, "raster_4326_equal_earth").await;
+    }
+
+    /// Cross-path parity: the same 3857 raster rendered through the
+    /// identity fast path (plain Mercator) and through the warped mesh
+    /// path (rotate [360, 0, 0] — numerically identity, but it fails the
+    /// fast-path gate) must agree to >= 0.999 (fp-at-mesh-edges tolerance,
+    /// same class as the tile-array cross-path test).
+    #[tokio::test]
+    async fn raster_cross_path_parity() {
+        let build = |geo: Geo| async {
+            let ctx = SessionContext::new();
+            let df = ctx
+                .read_batch(synthetic_pickup_batch())
+                .expect("read synthetic batch");
+            let plot = Plot::with_coord(geo)
+                .plot_size(560.0, 340.0)
+                .data(df)
+                .mark(synthetic_density_raster_mark());
+            let compiled = plot.compile(&ctx).await.expect("compile");
+            let evaluated = compiled.evaluate(&ctx, None).await.expect("evaluate");
+            render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await
+        };
+        let base = Geo::mercator().center_lon_lat(-96.0, 37.5).zoom(3.0);
+        let fast = build(base.clone()).await;
+        let warped = build(base.rotate([360.0, 0.0, 0.0])).await;
+
+        const CROSS_PATH_THRESHOLD: f64 = 0.999;
+        let comparison =
+            image_compare::rgba_hybrid_compare(&fast, &warped).expect("compare raster paths");
+        if comparison.score < CROSS_PATH_THRESHOLD {
+            let base = PathBuf::from(FAILURE_DIR);
+            save_image(&base.join("raster_cross_path_fast.png"), &fast);
+            save_image(&base.join("raster_cross_path_warped.png"), &warped);
+            save_image(
+                &base.join("raster_cross_path_diff.png"),
+                &comparison.image.to_color_map().into_rgba8(),
+            );
+            panic!(
+                "warped raster path diverges from identity fast path: {:.6}",
+                comparison.score
+            );
+        }
     }
 
     /// Static export: the SVG rendering of the warped-tiles hero (tiles
