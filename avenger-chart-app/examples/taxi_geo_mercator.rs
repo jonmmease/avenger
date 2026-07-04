@@ -40,7 +40,7 @@ use datafusion::{
     dataframe::DataFrame,
     datasource::MemTable,
     error::{DataFusionError, Result as DataFusionResult},
-    functions::expr_fn::{abs, floor, log2, power, round},
+    functions::expr_fn::{floor, log2, power, round},
     logical_expr::{Expr, expr_fn::cast, when},
     prelude::{ParquetReadOptions, SessionContext},
 };
@@ -58,10 +58,6 @@ const POINT_BUDGET: i64 = 10_000;
 const SCATTER_BLUE: Srgba = Srgba::new(0.031, 0.318, 0.612, 1.0);
 /// Density normalization for the fill domain (see `taxi_adaptive_points`).
 const FILL_DOMAIN_POINTS_DIVISOR: f64 = 9_000.0;
-/// Raster cells never get smaller than this many 3857 meters: view-domain
-/// params round-trip f32, and at Web-Mercator magnitudes (~8.2e6 m) that is
-/// roughly meter-scale quantization.
-const MIN_RASTER_CELL_METERS: f64 = 10.0;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -204,8 +200,8 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<G
     let x_end = meters_x(v.x().domain_end());
     let y_start = meters_y(v.y().domain_start());
     let y_end = meters_y(v.y().domain_end());
-    let x_bins = raster_bins_with_min_cell_size(x_start.clone(), x_end.clone(), v.x().pixels());
-    let y_bins = raster_bins_with_min_cell_size(y_start.clone(), y_end.clone(), v.y().pixels());
+    let x_bins = half_pixel_bins(v.x().pixels());
+    let y_bins = half_pixel_bins(v.y().pixels());
     UniformRaster2D::new()
         .transform(
             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
@@ -255,23 +251,11 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Geo> {
         .fill("#08519c")
 }
 
-/// Bin count = half the view pixels, but never smaller than
-/// `MIN_RASTER_CELL_METERS` per cell (view-domain params quantize near
-/// meter scale through f32). Every branch must stay whole-numbered:
-/// Rasterize2D rejects fractional bin counts, and a failed materialization
-/// means the raster child silently never renders.
-fn raster_bins_with_min_cell_size(start: Expr, stop: Expr, view_pixels: Expr) -> Expr {
-    let view_pixels = floor(cast(view_pixels, DataType::Float64) / lit(2.0));
-    let span_limited_bins = floor(abs(stop - start) / lit(MIN_RASTER_CELL_METERS));
-    let domain_limited_bins = when(span_limited_bins.clone().gt(lit(1.0)), span_limited_bins)
-        .otherwise(lit(1.0))
-        .expect("valid minimum raster bin count expression");
-    when(
-        domain_limited_bins.clone().lt(view_pixels.clone()),
-        domain_limited_bins,
-    )
-    .otherwise(view_pixels)
-    .expect("valid raster bin count expression")
+/// Bin count = half the view pixels. Must stay whole-numbered: Rasterize2D
+/// rejects fractional bin counts, and a failed materialization means the
+/// raster child silently never renders.
+fn half_pixel_bins(view_pixels: Expr) -> Expr {
+    floor(cast(view_pixels, DataType::Float64) / lit(2.0))
 }
 
 async fn cached_taxi_dataframe(ctx: &SessionContext) -> DataFusionResult<DataFrame> {

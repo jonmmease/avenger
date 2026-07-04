@@ -21,7 +21,7 @@ use avenger_chart_geo::{
 use datafusion::{
     arrow::datatypes::DataType,
     datasource::MemTable,
-    functions::expr_fn::{abs, floor, log2, power, round},
+    functions::expr_fn::{floor, log2, power, round},
     logical_expr::{Expr, expr_fn::cast, when},
     prelude::{ParquetReadOptions, SessionContext, col, lit},
     scalar::ScalarValue,
@@ -34,7 +34,6 @@ fn taxi_max_rows() -> usize {
         .unwrap_or(1_000_000)
 }
 const POINT_BUDGET: i64 = 10_000;
-const MIN_RASTER_CELL_METERS: f64 = 10.0;
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -80,18 +79,8 @@ fn meters_y(raw: Expr) -> Expr {
     crs::from_mercator_units_y(crs::EPSG_3857, raw).unwrap()
 }
 
-fn raster_bins(start: Expr, stop: Expr, view_pixels: Expr) -> Expr {
-    let view_pixels = floor(cast(view_pixels, DataType::Float64) / lit(2.0));
-    let span_limited_bins = floor(abs(stop - start) / lit(MIN_RASTER_CELL_METERS));
-    let domain_limited_bins = when(span_limited_bins.clone().gt(lit(1.0)), span_limited_bins)
-        .otherwise(lit(1.0))
-        .unwrap();
-    when(
-        domain_limited_bins.clone().lt(view_pixels.clone()),
-        domain_limited_bins,
-    )
-    .otherwise(view_pixels)
-    .unwrap()
+fn half_pixel_bins(view_pixels: Expr) -> Expr {
+    floor(cast(view_pixels, DataType::Float64) / lit(2.0))
 }
 
 fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> GeoUniformRaster2D<Geo> {
@@ -105,8 +94,8 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> GeoUniformRaster2
     let x_end = meters_x(v.x().domain_end());
     let y_start = meters_y(v.y().domain_start());
     let y_end = meters_y(v.y().domain_end());
-    let x_bins = raster_bins(x_start.clone(), x_end.clone(), v.x().pixels());
-    let y_bins = raster_bins(y_start.clone(), y_end.clone(), v.y().pixels());
+    let x_bins = half_pixel_bins(v.x().pixels());
+    let y_bins = half_pixel_bins(v.y().pixels());
     GeoUniformRaster2D::new()
         .transform(
             Rasterize2D::new(col("pickup_x"), col("pickup_y"))
