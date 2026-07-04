@@ -305,6 +305,106 @@ fn coordinate_serializes_round_trip() {
     let _restored: Geo = bincode::deserialize(&bytes).expect("bincode deserialize");
 }
 
+/// View params (`v.x().domain_start()` etc.) resolve on `Plot<Geo>` marks: the
+/// x/y scales the Geo coordinate system installs are linear raw-projected-unit
+/// scales, so the view-param resolver reads their domains exactly as it does
+/// on Cartesian.
+///
+/// The runtime view is pinned via params (center_x 1.5, 0.01 units/px, 100 px
+/// plot -> x domain [1.0, 2.0]); of three symbols at raw x 0.5 / 1.5 / 2.5,
+/// a `[domain_start, domain_end]` filter must keep exactly the middle one.
+#[tokio::test]
+async fn view_params_resolve_on_geo_marks() {
+    use avenger_chart::prelude::{Filter, Symbol, View};
+    use avenger_chart_geo::GeoPositionChannels;
+    use datafusion::prelude::col;
+
+    let geo = Geo::mercator().viewport_id("main");
+    let ctx = SessionContext::new();
+    let df = ctx
+        .sql(
+            "SELECT * FROM (VALUES (0.5, 0.0), (1.5, 0.0), (2.5, 0.0)) AS t(x, y)",
+        )
+        .await
+        .expect("raw-unit point data");
+
+    let plot = Plot::with_coord(geo.clone())
+        .plot_size(100.0, 100.0)
+        .data(df)
+        .mark(
+            Symbol::new()
+                .view(
+                    View::cartesian()
+                        .id("v")
+                        .x_domain(col("x"))
+                        .y_domain(col("y")),
+                    |mark, v| {
+                        mark.transform(
+                            Filter::new(
+                                col("x")
+                                    .gt_eq(v.x().domain_start())
+                                    .and(col("x").lt_eq(v.x().domain_end())),
+                            ),
+                            |mark, _| mark,
+                        )
+                    },
+                )
+                .projected_x(col("x"))
+                .projected_y(col("y"))
+                .size(25.0),
+        );
+    let compiled = plot.compile(&ctx).await.expect("compile");
+
+    let mut params = IndexMap::new();
+    params.insert(geo.center_x_param(), ScalarValue::Float64(Some(1.5)));
+    params.insert(geo.center_y_param(), ScalarValue::Float64(Some(0.0)));
+    params.insert(
+        geo.units_per_pixel_param(),
+        ScalarValue::Float64(Some(0.01)),
+    );
+    let evaluated = compiled
+        .evaluate(&ctx, Some(params.clone()))
+        .await
+        .expect("evaluate with view params");
+
+    fn count_symbols(marks: &[avenger_scenegraph::marks::mark::SceneMark]) -> usize {
+        use avenger_scenegraph::marks::mark::SceneMark;
+        marks
+            .iter()
+            .map(|mark| match mark {
+                SceneMark::Group(group) => count_symbols(&group.marks),
+                SceneMark::Symbol(symbol) => symbol.len as usize,
+                _ => 0,
+            })
+            .sum()
+    }
+    assert_eq!(
+        count_symbols(&evaluated.scene_graph.marks),
+        1,
+        "the [domain_start, domain_end] filter must keep exactly the x=1.5 point"
+    );
+
+    // The domain the params resolved against is the realized GeoView's.
+    let request = CoordinateMeasureRequest {
+        plot_width: 100.0,
+        plot_height: 100.0,
+        params: &params,
+        session_context: &ctx,
+        data: None,
+        compiled_marks: &[],
+        facet_path: &[],
+        scales: HashMap::new(),
+    };
+    let measurement = geo
+        .measure_coordinate(request)
+        .await
+        .expect("measure")
+        .expect("measurement");
+    let measurement = GeoCoordMeasurement::downcast(measurement.as_ref()).expect("geo measurement");
+    assert_close(measurement.view.x_domain.0, 1.0, 1e-9);
+    assert_close(measurement.view.x_domain.1, 2.0, 1e-9);
+}
+
 #[tokio::test]
 #[ignore]
 async fn debug_guide_geometry() {
