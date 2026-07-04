@@ -1329,11 +1329,55 @@ pub fn tile_mesh(
         MercatorTileGrid.tile_bounds_lonlat(tile.z, tile.x, tile.y);
     let merc_top = MercatorTileGrid::tile_mercator_y(tile.z, tile.y);
     let merc_bottom = MercatorTileGrid::tile_mercator_y(tile.z, tile.y + 1);
+    warped_raster_mesh(
+        west,
+        east,
+        RasterVAxis::MercatorY {
+            top: merc_top,
+            bottom: merc_bottom,
+        },
+        projector,
+        precision_px,
+        plot_width,
+        plot_height,
+    )
+}
 
+/// Vertical axis of a lon-uniform raster image: what the rows are uniform
+/// in determines how UV `v` maps to latitude.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RasterVAxis {
+    /// Rows uniform in raw mercator y (web tiles, EPSG:3857 rasters).
+    MercatorY { top: f64, bottom: f64 },
+    /// Rows uniform in latitude degrees (EPSG:4326 grids).
+    Latitude { north: f64, south: f64 },
+}
+
+/// Build the warped mesh for a lon-uniform raster image through
+/// `projector` (blend-aware when the caller passes the measurement's view
+/// projector). UV `u` always lerps longitude between `lon_west` and
+/// `lon_east`; `v` lerps the [`RasterVAxis`]. Grid density adapts to the
+/// resample criterion: doubled until the projected midpoint deviation
+/// drops below `precision_px` (capped at 32×32 cells). Returns `None`
+/// when the mesh has no finite on-screen triangle.
+pub fn warped_raster_mesh(
+    lon_west: f64,
+    lon_east: f64,
+    v_axis: RasterVAxis,
+    projector: &Projector,
+    precision_px: f64,
+    plot_width: f32,
+    plot_height: f32,
+) -> Option<TileMesh> {
     let point_at = |u: f64, v: f64| -> Option<(f64, f64)> {
-        let lon = west + (east - west) * u;
-        let merc = merc_top + (merc_bottom - merc_top) * v;
-        let lat = merc.sinh().atan().to_degrees();
+        let lon = lon_west + (lon_east - lon_west) * u;
+        let lat = match v_axis {
+            RasterVAxis::MercatorY { top, bottom } => {
+                let merc = top + (bottom - top) * v;
+                merc.sinh().atan().to_degrees()
+            }
+            RasterVAxis::Latitude { north, south } => north + (south - north) * v,
+        };
         projector
             .project(lon, lat)
             .filter(|(x, y)| x.is_finite() && y.is_finite())
@@ -1754,6 +1798,32 @@ mod tests {
                 .iter()
                 .all(|uv| (0.0..=1.0).contains(&uv[0]) && (0.0..=1.0).contains(&uv[1]))
         );
+    }
+
+    /// `tile_mesh` is a thin wrapper over `warped_raster_mesh`: calling the
+    /// general entry point with the tile's own bounds must produce the
+    /// exact same mesh (positions, uvs, indices — Vec equality).
+    #[test]
+    fn warped_raster_mesh_matches_tile_mesh_bit_for_bit() {
+        let measurement = measurement(albers_conus(), (-96.0, 38.0), 3.0, (600.0, 400.0));
+        let projector = measurement.view_projector();
+        let tile = layer().visible_tile(4, 3, 5, 3);
+        let [[west, _south], [east, _north]] =
+            MercatorTileGrid.tile_bounds_lonlat(tile.z, tile.x, tile.y);
+        let top = MercatorTileGrid::tile_mercator_y(tile.z, tile.y);
+        let bottom = MercatorTileGrid::tile_mercator_y(tile.z, tile.y + 1);
+        let from_tile = tile_mesh(&tile, &projector, 0.5, 600.0, 400.0).expect("tile mesh");
+        let from_raster = warped_raster_mesh(
+            west,
+            east,
+            RasterVAxis::MercatorY { top, bottom },
+            &projector,
+            0.5,
+            600.0,
+            400.0,
+        )
+        .expect("raster mesh");
+        assert_eq!(from_tile, from_raster);
     }
 
     #[test]
