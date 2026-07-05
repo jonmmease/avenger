@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use datafusion::{
-    arrow::datatypes::DataType,
+    arrow::datatypes::{DataType, Field},
     logical_expr::{
         Expr,
         expr::{Placeholder, ScalarFunction},
@@ -25,10 +25,10 @@ pub type DerivedScalarsByChannel = HashMap<String, DerivedScalarMap>;
 /// The placeholder is resolved by chart runtime code before DataFusion evaluates
 /// the surrounding expression.
 pub fn derived_scalar(id: impl AsRef<str>, data_type: Option<DataType>) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: derived_scalar_placeholder_id(id.as_ref()),
-        data_type,
-    })
+    Expr::Placeholder(Placeholder::new_with_field(
+        derived_scalar_placeholder_id(id.as_ref()),
+        data_type.map(|data_type| Arc::new(Field::new("", data_type, true))),
+    ))
 }
 
 fn derived_scalar_placeholder_id(id: &str) -> String {
@@ -240,7 +240,10 @@ mod tests {
             derived_scalar_id_from_placeholder(&placeholder.id),
             Some("tick_spacing")
         );
-        assert_eq!(placeholder.data_type, Some(DataType::Float64));
+        assert_eq!(
+            placeholder.field.as_ref().map(|field| field.data_type()),
+            Some(&DataType::Float64)
+        );
     }
 
     #[test]

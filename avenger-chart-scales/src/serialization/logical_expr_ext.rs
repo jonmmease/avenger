@@ -32,10 +32,11 @@ impl LogicalExprNodeExt for LogicalExprNode {
 
     fn to_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError> {
         // Use our custom codec for deserialization
-        let codec = AvengerChartExtensionCodec::new();
+        let codec = AvengerChartExtensionCodec::with_session_context(ctx);
+        let task_ctx = ctx.task_ctx();
 
         // Convert LogicalExprNode back to Expr
-        parse_expr(self, ctx, &codec)
+        parse_expr(self, &task_ctx, &codec)
             .map_err(|e| AvengerChartError::InternalError(format!("Failed to parse expr: {}", e)))
     }
 }

@@ -44,7 +44,8 @@ impl DefaultLogicalExprNodeExt for LogicalExprNode {
 
     fn to_default_expr(&self, ctx: &SessionContext) -> Result<Expr, AvengerChartError> {
         let codec = DefaultLogicalExtensionCodec {};
-        parse_expr(self, ctx, &codec)
+        let task_ctx = ctx.task_ctx();
+        parse_expr(self, &task_ctx, &codec)
             .map_err(|err| AvengerChartError::DeserializationError(err.to_string()))
     }
 }

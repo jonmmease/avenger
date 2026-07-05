@@ -730,7 +730,7 @@ fn position_uses_categorical_domain(position: &RasterPositionSpec) -> bool {
         })
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum UniformDimField {
     Start,
     Stop,
@@ -772,7 +772,7 @@ fn raster_categorical_dim_values_expr(
     ScalarUDF::new_from_impl(RasterCategoricalDimValuesUdf::new(dim_name)).call(vec![raster_expr])
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct RasterUniformDimFieldUdf {
     name: String,
     dim_name: String,
@@ -796,10 +796,6 @@ impl RasterUniformDimFieldUdf {
 }
 
 impl ScalarUDFImpl for RasterUniformDimFieldUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn name(&self) -> &str {
         &self.name
     }
@@ -827,7 +823,7 @@ impl ScalarUDFImpl for RasterUniformDimFieldUdf {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct RasterCategoricalDimValuesUdf {
     name: String,
     dim_name: String,
@@ -848,10 +844,6 @@ impl RasterCategoricalDimValuesUdf {
 }
 
 impl ScalarUDFImpl for RasterCategoricalDimValuesUdf {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn name(&self) -> &str {
         &self.name
     }
@@ -1630,10 +1622,8 @@ mod tests {
         let mut context = test_context();
         context.scales.insert(
             "fill".to_string(),
-            OrdinalScale::configured(
-                Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef
-            )
-            .with_range(Arc::new(StringArray::from(vec!["#ff0000", "#0000ff"])) as ArrayRef),
+            OrdinalScale::configured(Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef)
+                .with_range(Arc::new(StringArray::from(vec!["#ff0000", "#0000ff"])) as ArrayRef),
         );
         let rendered = mark
             .render_uniform_raster_mark_data(Some(&data), &scalars, &context, &Cartesian::new())

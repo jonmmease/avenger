@@ -58,9 +58,9 @@ lazy_static = { workspace = true }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
-datafusion-proto = "48.0.1"
-datafusion-proto-common = "48.0.1"
-prost = "0.13"
+datafusion-proto = "54.0.0"
+datafusion-proto-common = "54.0.0"
+prost = "0.14"
 futures = { workspace = true }
 base64 = { workspace = true }
 brotli = { workspace = true }

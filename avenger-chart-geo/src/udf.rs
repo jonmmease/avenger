@@ -7,7 +7,6 @@
 //! projection configuration; the UDF name carries a stable hash of the
 //! config so distinct projections coexist in one `SessionContext`.
 
-use std::any::Any;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 
@@ -31,18 +30,27 @@ fn xy_fields() -> Fields {
 /// Stable name for the UDF of a projection configuration (kind + rotate).
 pub fn geo_project_udf_name(projection: &Projection) -> String {
     let mut hasher = DefaultHasher::new();
-    serde_json::to_string(&projection.kind)
-        .expect("serializable projection kind")
-        .hash(&mut hasher);
-    for r in projection.rotate {
-        r.to_bits().hash(&mut hasher);
-    }
+    geo_project_udf_identity(projection).hash(&mut hasher);
     format!("geo_project_{:016x}", hasher.finish())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct GeoProjectUdfIdentity {
+    kind_json: String,
+    rotate_bits: [u64; 3],
+}
+
+fn geo_project_udf_identity(projection: &Projection) -> GeoProjectUdfIdentity {
+    GeoProjectUdfIdentity {
+        kind_json: serde_json::to_string(&projection.kind).expect("serializable projection kind"),
+        rotate_bits: projection.rotate.map(f64::to_bits),
+    }
 }
 
 #[derive(Debug)]
 pub struct GeoProjectUdf {
     name: String,
+    identity: GeoProjectUdfIdentity,
     projection: Projection,
     signature: Signature,
 }
@@ -51,6 +59,7 @@ impl GeoProjectUdf {
     pub fn new(projection: &Projection) -> Self {
         GeoProjectUdf {
             name: geo_project_udf_name(projection),
+            identity: geo_project_udf_identity(projection),
             projection: projection.clone(),
             signature: Signature::exact(
                 vec![DataType::Float64, DataType::Float64],
@@ -60,11 +69,21 @@ impl GeoProjectUdf {
     }
 }
 
-impl ScalarUDFImpl for GeoProjectUdf {
-    fn as_any(&self) -> &dyn Any {
-        self
+impl PartialEq for GeoProjectUdf {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity == other.identity
     }
+}
 
+impl Eq for GeoProjectUdf {}
+
+impl Hash for GeoProjectUdf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.identity.hash(state);
+    }
+}
+
+impl ScalarUDFImpl for GeoProjectUdf {
     fn name(&self) -> &str {
         &self.name
     }
@@ -177,6 +196,7 @@ mod tests {
             ],
             number_rows: 3,
             return_field: Arc::new(Field::new("out", DataType::Struct(xy_fields()), true)),
+            config_options: Arc::new(datafusion::common::config::ConfigOptions::default()),
         };
         let result = udf.inner().invoke_with_args(args).expect("invoke");
         let ColumnarValue::Array(array) = result else {

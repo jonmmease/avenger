@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 use datafusion::{
-    arrow::datatypes::DataType,
+    arrow::datatypes::{DataType, Field},
     common::{Column, ScalarValue},
     logical_expr::{Expr, expr::Placeholder, lit},
     prelude::col,
@@ -271,10 +271,11 @@ pub fn repeat_placeholder_kind_from_id(id: &str) -> Option<RepeatPlaceholderKind
 }
 
 fn repeat_placeholder_expr(kind: RepeatPlaceholderKind) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: repeat_placeholder_id(kind),
-        data_type: kind.data_type(),
-    })
+    Expr::Placeholder(Placeholder::new_with_field(
+        repeat_placeholder_id(kind),
+        kind.data_type()
+            .map(|data_type| Arc::new(Field::new("", data_type, true))),
+    ))
 }
 
 pub fn row() -> ChannelExpr {

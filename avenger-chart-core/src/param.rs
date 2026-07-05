@@ -2,9 +2,14 @@
 
 use std::fmt::Debug;
 
+use std::sync::Arc;
+
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
-    arrow::datatypes::DataType, logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue,
+    arrow::datatypes::{DataType, Field},
+    logical_expr::expr::Placeholder,
+    prelude::Expr,
+    scalar::ScalarValue,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
@@ -51,10 +56,10 @@ impl Param {
 
     /// Get a DataFusion expression for this parameter as a placeholder
     pub fn expr(&self) -> Expr {
-        Expr::Placeholder(Placeholder {
-            id: format!("${}", self.name),
-            data_type: Some(self.default.data_type()),
-        })
+        Expr::Placeholder(Placeholder::new_with_field(
+            format!("${}", self.name),
+            Some(Arc::new(Field::new("", self.default.data_type(), true))),
+        ))
     }
 }
 
@@ -139,7 +144,12 @@ mod tests {
         match param.expr() {
             Expr::Placeholder(placeholder) => {
                 assert_eq!(placeholder.id, "$x_domain");
-                assert!(matches!(placeholder.data_type, Some(DataType::List(_))));
+                let data_type = placeholder
+                    .field
+                    .as_ref()
+                    .expect("raw domain placeholder field")
+                    .data_type();
+                assert!(matches!(data_type, DataType::List(_)));
             }
             other => panic!("expected placeholder expr, got {other:?}"),
         }

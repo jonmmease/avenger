@@ -29,10 +29,11 @@ impl LogicalPlanNodeExt for LogicalPlanNode {
 
     fn to_logical_plan(&self, ctx: &SessionContext) -> Result<LogicalPlan, AvengerChartError> {
         // Use our custom codec for deserialization
-        let codec = AvengerChartExtensionCodec::new();
+        let codec = AvengerChartExtensionCodec::with_session_context(ctx);
+        let task_ctx = ctx.task_ctx();
 
         // Convert LogicalPlanNode back to LogicalPlan using AsLogicalPlan trait
-        <Self as AsLogicalPlan>::try_into_logical_plan(self, ctx, &codec).map_err(|e| {
+        <Self as AsLogicalPlan>::try_into_logical_plan(self, &task_ctx, &codec).map_err(|e| {
             AvengerChartError::InternalError(format!("Failed to parse logical plan: {}", e))
         })
     }

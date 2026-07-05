@@ -620,10 +620,7 @@ mod tests {
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
-    use datafusion::{
-        functions_array::expr_fn::make_array,
-        prelude::{SessionContext, col},
-    };
+    use datafusion::prelude::{SessionContext, col, make_array};
     use datafusion_common::ScalarValue;
     use std::sync::Arc;
 

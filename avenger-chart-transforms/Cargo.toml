@@ -10,8 +10,8 @@ async-trait = { workspace = true }
 chrono = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
-datafusion-functions-aggregate = "48.0.1"
-datafusion-proto = "48.0.1"
+datafusion-functions-aggregate = "54.0.0"
+datafusion-proto = "54.0.0"
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

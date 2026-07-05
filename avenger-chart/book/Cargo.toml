@@ -16,7 +16,7 @@ avenger-chart = { path = "../" }
 
 # External dependencies used in book examples
 # Match versions from parent workspace
-datafusion = { version = "48.0.1", features = ["avro", "parquet"] }
+datafusion = { version = "54.0.0", features = ["avro", "parquet"] }
 tokio = { version = "1.*", features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]

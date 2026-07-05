@@ -14,7 +14,7 @@ avenger-text = { path = "../avenger-text" }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
-datafusion-proto = "48.0.1"
+datafusion-proto = "54.0.0"
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"

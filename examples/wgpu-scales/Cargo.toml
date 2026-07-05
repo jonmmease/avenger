@@ -19,7 +19,7 @@ avenger-scales = { path = "../../avenger-scales" }
 avenger-guides = { path = "../../avenger-guides" }
 avenger-geometry = { path = "../../avenger-geometry" }
 
-arrow = { version = "*", default-features = false, features = ["csv"] }
+arrow = { version = "58.3.0", default-features = false, features = ["csv"] }
 
 cfg-if = "1"
 winit = "0.30.5"

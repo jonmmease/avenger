@@ -1,6 +1,11 @@
+use std::sync::Arc;
+
 use datafusion::prelude::SessionContext;
 use datafusion::{
-    arrow::datatypes::DataType, logical_expr::expr::Placeholder, prelude::Expr, scalar::ScalarValue,
+    arrow::datatypes::{DataType, Field},
+    logical_expr::expr::Placeholder,
+    prelude::Expr,
+    scalar::ScalarValue,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
@@ -777,10 +782,10 @@ pub struct CompiledSelectionSpec {
 }
 
 fn selection_predicate_expr(id: impl AsRef<str>) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: selection_predicate_placeholder_id(id.as_ref()),
-        data_type: Some(DataType::Boolean),
-    })
+    Expr::Placeholder(Placeholder::new_with_field(
+        selection_predicate_placeholder_id(id.as_ref()),
+        Some(Arc::new(Field::new("", DataType::Boolean, true))),
+    ))
 }
 
 fn selection_predicate_placeholder_id(id: &str) -> String {
@@ -792,10 +797,10 @@ pub fn selection_id_from_predicate_placeholder(placeholder_id: &str) -> Option<&
 }
 
 pub fn clause_value(id: impl AsRef<str>) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: selection_clause_value_placeholder_id(id.as_ref()),
-        data_type: None,
-    })
+    Expr::Placeholder(Placeholder::new_with_field(
+        selection_clause_value_placeholder_id(id.as_ref()),
+        None,
+    ))
 }
 
 fn selection_clause_value_placeholder_id(id: &str) -> String {

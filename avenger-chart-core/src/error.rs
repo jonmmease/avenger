@@ -88,7 +88,7 @@ impl From<AvengerChartError> for DataFusionError {
     fn from(value: AvengerChartError) -> Self {
         match value {
             AvengerChartError::DataFusionError(e) => e,
-            AvengerChartError::ArrowError(e) => DataFusionError::ArrowError(e, None),
+            AvengerChartError::ArrowError(e) => DataFusionError::ArrowError(Box::new(e), None),
             e => DataFusionError::Execution(e.to_string()),
         }
     }

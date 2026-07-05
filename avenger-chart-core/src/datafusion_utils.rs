@@ -20,13 +20,12 @@ use datafusion::{
         expr_fn::array_agg,
         min_max::{max, min},
     },
-    functions_array::expr_fn::{array_sort, make_array},
     logical_expr::{Subquery, cast as cast_expr, try_cast},
     optimizer::simplify_expressions::{ExprSimplifier, SimplifyContext},
-    prelude::{DataFrame, Expr, SessionContext, col, lit},
+    prelude::{DataFrame, Expr, SessionContext, array_sort, col, lit, make_array},
     scalar::ScalarValue,
 };
-use datafusion_common::ToDFSchema;
+use datafusion_common::{ToDFSchema, metadata::ScalarAndMetadata};
 use indexmap::IndexMap;
 
 use crate::AvengerChartError;
@@ -263,11 +262,8 @@ pub fn simplify_to_scalar_sync(expr: Expr) -> Result<ScalarValue, DataFusionErro
         ));
     }
 
-    let ctx = SessionContext::new();
-    let state = ctx.state();
-    let props = state.execution_props();
     let empty_schema = datafusion::arrow::datatypes::Schema::empty().to_dfschema_ref()?;
-    let context = SimplifyContext::new(props).with_schema(empty_schema);
+    let context = SimplifyContext::builder().with_schema(empty_schema).build();
     let simplifier = ExprSimplifier::new(context).with_canonicalize(true);
     let simplified = simplifier.simplify(expr.clone())?;
 
@@ -507,7 +503,13 @@ pub fn params_to_datafusion(params: &IndexMap<String, ScalarValue>) -> Option<Pa
     if params.is_empty() {
         None
     } else {
-        Some(ParamValues::Map(params.clone().into_iter().collect()))
+        Some(ParamValues::Map(
+            params
+                .clone()
+                .into_iter()
+                .map(|(name, value)| (name, ScalarAndMetadata::from(value)))
+                .collect(),
+        ))
     }
 }
 

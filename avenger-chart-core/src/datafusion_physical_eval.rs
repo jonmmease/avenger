@@ -23,6 +23,7 @@ use datafusion::{
     },
     error::DataFusionError,
     logical_expr::{Expr, cast, try_cast},
+    optimizer::simplify_expressions::{ExprSimplifier, SimplifyContext},
     physical_expr_common::physical_expr::PhysicalExpr,
     prelude::{SessionContext, col},
 };
@@ -127,12 +128,17 @@ impl CompiledScalarExpressionProgram {
         specs: Vec<PhysicalScalarExpressionSpec>,
         options: PhysicalScalarProgramOptions,
     ) -> DataFusionResult<Self> {
-        let df_schema = DFSchema::try_from(schema.as_ref().clone())?;
+        let df_schema = Arc::new(DFSchema::try_from(schema.as_ref().clone())?);
+        let simplify_context = SimplifyContext::builder()
+            .with_schema(df_schema.clone())
+            .build();
+        let simplifier = ExprSimplifier::new(simplify_context).with_canonicalize(true);
         let mut expressions = Vec::with_capacity(specs.len());
 
         for spec in specs {
             let mut expr = validate_row_local_expr(spec.expr, options.allowed_columns.as_ref())?;
             expr = rewrite_placeholders(expr, &options.placeholder_columns)?;
+            expr = simplifier.simplify(expr)?;
             if let Some(expected_type) = spec.expected_type {
                 expr = if spec.null_on_cast_failure {
                     try_cast(expr, expected_type)
@@ -140,7 +146,7 @@ impl CompiledScalarExpressionProgram {
                     cast(expr, expected_type)
                 };
             }
-            let physical = ctx.create_physical_expr(expr, &df_schema)?;
+            let physical = ctx.create_physical_expr(expr, df_schema.as_ref())?;
             expressions.push(CompiledScalarExpression {
                 name: spec.name,
                 physical,
@@ -431,10 +437,12 @@ mod tests {
             schema.clone(),
             vec![PhysicalScalarExpressionSpec::new(
                 "updated",
-                Expr::Placeholder(datafusion::logical_expr::expr::Placeholder {
-                    id: "$width".to_string(),
-                    data_type: Some(DataType::Float64),
-                }) + lit(5.0),
+                Expr::Placeholder(datafusion::logical_expr::expr::Placeholder::new_with_field(
+                    "$width".to_string(),
+                    Some(std::sync::Arc::new(
+                        datafusion::arrow::datatypes::Field::new("", DataType::Float64, true),
+                    )),
+                )) + lit(5.0),
             )],
             PhysicalScalarProgramOptions::default()
                 .with_placeholder_columns([PlaceholderColumn::new("$width", "__param_width")]),
@@ -480,10 +488,12 @@ mod tests {
             schema,
             vec![PhysicalScalarExpressionSpec::new(
                 "bad",
-                Expr::Placeholder(datafusion::logical_expr::expr::Placeholder {
-                    id: "$width".to_string(),
-                    data_type: Some(DataType::Float64),
-                }),
+                Expr::Placeholder(datafusion::logical_expr::expr::Placeholder::new_with_field(
+                    "$width".to_string(),
+                    Some(std::sync::Arc::new(
+                        datafusion::arrow::datatypes::Field::new("", DataType::Float64, true),
+                    )),
+                )),
             )],
             PhysicalScalarProgramOptions::default(),
         )

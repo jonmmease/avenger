@@ -5,7 +5,7 @@
 //! need to serialize logical plans without depending on the top-level chart
 //! facade.
 
-use std::{io::Cursor, sync::Arc};
+use std::{fmt, io::Cursor, sync::Arc};
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use datafusion::{
@@ -43,9 +43,18 @@ const MEMTABLE_REF_MAGIC: &[u8] = b"MEMTABLE_REF_V1";
 /// mark state and plot data both need this without depending on the scales
 /// crate. Higher-level crates can wrap this codec to add their own extension
 /// payloads, such as scale UDFs.
-#[derive(Debug)]
 pub struct AvengerCoreExtensionCodec {
     default_codec: DefaultLogicalExtensionCodec,
+    session_context: Option<SessionContext>,
+}
+
+impl fmt::Debug for AvengerCoreExtensionCodec {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AvengerCoreExtensionCodec")
+            .field("default_codec", &self.default_codec)
+            .field("has_session_context", &self.session_context.is_some())
+            .finish()
+    }
 }
 
 impl Default for AvengerCoreExtensionCodec {
@@ -58,6 +67,14 @@ impl AvengerCoreExtensionCodec {
     pub fn new() -> Self {
         Self {
             default_codec: DefaultLogicalExtensionCodec {},
+            session_context: None,
+        }
+    }
+
+    pub fn with_session_context(ctx: &SessionContext) -> Self {
+        Self {
+            default_codec: DefaultLogicalExtensionCodec {},
+            session_context: Some(ctx.clone()),
         }
     }
 }
@@ -67,7 +84,7 @@ impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
         &self,
         buf: &[u8],
         inputs: &[LogicalPlan],
-        ctx: &SessionContext,
+        ctx: &TaskContext,
     ) -> DataFusionResult<Extension> {
         self.default_codec.try_decode(buf, inputs, ctx)
     }
@@ -81,10 +98,15 @@ impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
         buf: &[u8],
         table_ref: &TableReference,
         schema: SchemaRef,
-        ctx: &SessionContext,
+        ctx: &TaskContext,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
         if buf.starts_with(MEMTABLE_REF_MAGIC) {
-            futures::executor::block_on(ctx.table_provider(table_ref.clone()))
+            let session_context = self.session_context.as_ref().ok_or_else(|| {
+                DataFusionError::Plan(
+                    "Named MemTable references require a SessionContext during decode".to_string(),
+                )
+            })?;
+            futures::executor::block_on(session_context.table_provider(table_ref.clone()))
         } else if buf.starts_with(MEMTABLE_MAGIC) {
             let buf = &buf[MEMTABLE_MAGIC.len()..];
             if buf.len() < 8 {
@@ -123,7 +145,8 @@ impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
         node: Arc<dyn TableProvider>,
         buf: &mut Vec<u8>,
     ) -> DataFusionResult<()> {
-        if let Some(mem_table) = node.as_any().downcast_ref::<MemTable>() {
+        let node_any = node.as_ref() as &dyn std::any::Any;
+        if let Some(mem_table) = node_any.downcast_ref::<MemTable>() {
             if table_ref.table() != UNNAMED_TABLE {
                 buf.extend_from_slice(MEMTABLE_REF_MAGIC);
                 return Ok(());
@@ -172,7 +195,7 @@ impl LogicalExtensionCodec for AvengerCoreExtensionCodec {
     fn try_decode_file_format(
         &self,
         buf: &[u8],
-        ctx: &SessionContext,
+        ctx: &TaskContext,
     ) -> DataFusionResult<Arc<dyn datafusion::datasource::file_format::FileFormatFactory>> {
         self.default_codec.try_decode_file_format(buf, ctx)
     }
@@ -212,8 +235,9 @@ impl LogicalPlanNodeExt for LogicalPlanNode {
     }
 
     fn to_logical_plan(&self, ctx: &SessionContext) -> Result<LogicalPlan, AvengerChartError> {
-        let codec = AvengerCoreExtensionCodec::new();
-        <Self as AsLogicalPlan>::try_into_logical_plan(self, ctx, &codec).map_err(|err| {
+        let codec = AvengerCoreExtensionCodec::with_session_context(ctx);
+        let task_ctx = ctx.task_ctx();
+        <Self as AsLogicalPlan>::try_into_logical_plan(self, &task_ctx, &codec).map_err(|err| {
             AvengerChartError::InternalError(format!("Failed to parse logical plan: {}", err))
         })
     }

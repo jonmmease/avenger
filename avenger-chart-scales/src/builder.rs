@@ -1453,7 +1453,7 @@ mod tests {
     use avenger_chart_core::PlotGeometry;
     use avenger_common::value::ScalarOrArray;
     use datafusion::arrow::array::{ArrayRef, StringArray, StructArray};
-    use datafusion::functions_array::expr_fn::make_array;
+    use datafusion::prelude::make_array;
     use std::sync::Arc;
 
     struct TestCoordDefaults;

@@ -11,7 +11,7 @@ avenger-scales = { path = "../avenger-scales" }
 arrow = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
-datafusion-proto = "48.0.1"
+datafusion-proto = "54.0.0"
 futures = { workspace = true }
 indexmap = { workspace = true }
 palette = { workspace = true }

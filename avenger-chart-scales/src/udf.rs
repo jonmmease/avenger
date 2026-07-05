@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use avenger_scales::{
     scalar::Scalar,
@@ -93,13 +97,27 @@ impl ScaleUDF {
     ) -> Result<Arc<dyn avenger_scales::scales::ScaleImpl>, AvengerChartError> {
         self.scale.to_scale_impl()
     }
+
+    fn identity_bytes(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("ScaleUDF serialization should not fail")
+    }
+}
+
+impl PartialEq for ScaleUDF {
+    fn eq(&self, other: &Self) -> bool {
+        self.identity_bytes() == other.identity_bytes()
+    }
+}
+
+impl Eq for ScaleUDF {}
+
+impl Hash for ScaleUDF {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.identity_bytes().hash(state);
+    }
 }
 
 impl ScalarUDFImpl for ScaleUDF {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn name(&self) -> &str {
         "scale"
     }

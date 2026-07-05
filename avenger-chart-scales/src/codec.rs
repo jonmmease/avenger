@@ -11,6 +11,7 @@ use datafusion::{
     arrow::datatypes::SchemaRef,
     datasource::TableProvider,
     error::{DataFusionError, Result as DataFusionResult},
+    execution::context::TaskContext,
     logical_expr::{Extension, LogicalPlan, ScalarUDF},
     prelude::SessionContext,
 };
@@ -45,6 +46,12 @@ impl AvengerChartExtensionCodec {
             core_codec: AvengerCoreExtensionCodec::new(),
         }
     }
+
+    pub fn with_session_context(ctx: &SessionContext) -> Self {
+        Self {
+            core_codec: AvengerCoreExtensionCodec::with_session_context(ctx),
+        }
+    }
 }
 
 impl LogicalExtensionCodec for AvengerChartExtensionCodec {
@@ -52,7 +59,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         &self,
         buf: &[u8],
         inputs: &[LogicalPlan],
-        ctx: &SessionContext,
+        ctx: &TaskContext,
     ) -> DataFusionResult<Extension> {
         self.core_codec.try_decode(buf, inputs, ctx)
     }
@@ -66,7 +73,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         buf: &[u8],
         table_ref: &TableReference,
         schema: SchemaRef,
-        ctx: &SessionContext,
+        ctx: &TaskContext,
     ) -> DataFusionResult<Arc<dyn TableProvider>> {
         self.core_codec
             .try_decode_table_provider(buf, table_ref, schema, ctx)
@@ -85,7 +92,7 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
     fn try_decode_file_format(
         &self,
         buf: &[u8],
-        ctx: &SessionContext,
+        ctx: &TaskContext,
     ) -> DataFusionResult<Arc<dyn datafusion::datasource::file_format::FileFormatFactory>> {
         self.core_codec.try_decode_file_format(buf, ctx)
     }
@@ -102,7 +109,8 @@ impl LogicalExtensionCodec for AvengerChartExtensionCodec {
         // Check if this is an internal scale UDF
         if node.name() == "scale" {
             // Try to downcast to ScaleUDF
-            if let Some(scale_udf) = node.inner().as_any().downcast_ref::<ScaleUDF>() {
+            let udf_any = node.inner().as_ref() as &dyn std::any::Any;
+            if let Some(scale_udf) = udf_any.downcast_ref::<ScaleUDF>() {
                 // Serialize the ScaleUDF with serde_json. The payload is small,
                 // and JSON supports the internally tagged enums and maps used by
                 // chart scale specs without requiring known sequence lengths.
@@ -202,6 +210,7 @@ mod tests {
             .try_decode_udf("scale", &buf)
             .expect("decode scale udf");
         assert_eq!(decoded.name(), "scale");
-        assert!(decoded.inner().as_any().is::<ScaleUDF>());
+        let decoded_any = decoded.inner().as_ref() as &dyn std::any::Any;
+        assert!(decoded_any.is::<ScaleUDF>());
     }
 }

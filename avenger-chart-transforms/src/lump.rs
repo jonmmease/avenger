@@ -7,7 +7,7 @@ use avenger_chart_core::{
     params_to_datafusion,
 };
 use datafusion::{
-    arrow::datatypes::DataType,
+    arrow::datatypes::{DataType, Field},
     common::{ScalarValue, tree_node::Transformed},
     dataframe::DataFrame,
     functions_aggregate::expr_fn::{count, min},
@@ -24,6 +24,7 @@ use datafusion_common::tree_node::TreeNode;
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+use std::sync::Arc;
 
 const LUMP_VALUE_PLACEHOLDER_ID: &str = "$__avenger_lump_original_value";
 const LUMP_MEASURE_PLACEHOLDER_ID: &str = "$__avenger_lump_measure_value";
@@ -51,10 +52,10 @@ pub fn measure_value() -> Expr {
 }
 
 fn lump_placeholder(id: &str, data_type: Option<DataType>) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: id.to_string(),
-        data_type,
-    })
+    Expr::Placeholder(Placeholder::new_with_field(
+        id.to_string(),
+        data_type.map(|data_type| Arc::new(Field::new("", data_type, true))),
+    ))
 }
 
 #[serde_as]

@@ -19,7 +19,7 @@ async fn test_param_creation() {
     match expr {
         Expr::Placeholder(placeholder) => {
             assert_eq!(placeholder.id, "$threshold");
-            assert!(placeholder.data_type.is_some());
+            assert!(placeholder.field.is_some());
         }
         _ => panic!("Expected placeholder expression"),
     }

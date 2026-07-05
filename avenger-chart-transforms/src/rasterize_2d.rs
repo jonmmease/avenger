@@ -38,8 +38,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::{
-    any::Any,
-    collections::{HashMap, hash_map::DefaultHasher},
+    collections::HashMap,
     fmt::Debug,
     hash::{Hash, Hasher},
     mem::size_of,
@@ -974,11 +973,23 @@ impl Rasterize2DUdf {
     }
 }
 
-impl AggregateUDFImpl for Rasterize2DUdf {
-    fn as_any(&self) -> &dyn Any {
-        self
+impl PartialEq for Rasterize2DUdf {
+    fn eq(&self, other: &Self) -> bool {
+        self.config == other.config && self.agg == other.agg
     }
+}
 
+impl Eq for Rasterize2DUdf {}
+
+impl Hash for Rasterize2DUdf {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        "avenger_rasterize2d".hash(state);
+        self.config.hash(state);
+        self.agg.hash(state);
+    }
+}
+
+impl AggregateUDFImpl for Rasterize2DUdf {
     fn name(&self) -> &str {
         "avenger_rasterize2d"
     }
@@ -1049,21 +1060,6 @@ impl AggregateUDFImpl for Rasterize2DUdf {
             self.config.clone(),
             self.agg,
         )))
-    }
-
-    fn equals(&self, other: &dyn AggregateUDFImpl) -> bool {
-        other
-            .as_any()
-            .downcast_ref::<Self>()
-            .is_some_and(|other| self.config == other.config && self.agg == other.agg)
-    }
-
-    fn hash_value(&self) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        self.name().hash(&mut hasher);
-        self.config.hash(&mut hasher);
-        self.agg.hash(&mut hasher);
-        hasher.finish()
     }
 }
 

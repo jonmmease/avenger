@@ -203,11 +203,21 @@ impl DoubleUDF {
     }
 }
 
-impl ScalarUDFImpl for DoubleUDF {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
+impl PartialEq for DoubleUDF {
+    fn eq(&self, _other: &Self) -> bool {
+        true
     }
+}
 
+impl Eq for DoubleUDF {}
+
+impl std::hash::Hash for DoubleUDF {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::hash::Hash::hash("double", state);
+    }
+}
+
+impl ScalarUDFImpl for DoubleUDF {
     fn name(&self) -> &str {
         "double"
     }

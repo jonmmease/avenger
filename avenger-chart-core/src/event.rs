@@ -14,9 +14,8 @@ use crate::{
 };
 use avenger_common::cursor::CursorStyle;
 use datafusion::{
-    functions_array::expr_fn::{array_element, make_array},
     logical_expr::expr::Placeholder,
-    prelude::{Expr, SessionContext, coalesce, col, lit, when},
+    prelude::{Expr, SessionContext, array_element, coalesce, col, lit, make_array, when},
 };
 use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
@@ -903,10 +902,7 @@ pub fn dy() -> Expr {
 
 pub fn param(param: impl IntoParamName) -> Expr {
     let name = param.into_param_name();
-    Expr::Placeholder(Placeholder {
-        id: format!("${name}"),
-        data_type: None,
-    })
+    Expr::Placeholder(Placeholder::new_with_field(format!("${name}"), None))
 }
 
 pub fn start_param(param: impl IntoParamName) -> Expr {

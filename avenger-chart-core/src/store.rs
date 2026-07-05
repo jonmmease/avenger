@@ -563,10 +563,10 @@ fn map_expr_node(
 }
 
 pub fn store_placeholder_expr(store_name: impl AsRef<str>) -> Expr {
-    Expr::Placeholder(Placeholder {
-        id: format!("$__store_{}", store_name.as_ref()),
-        data_type: Some(DataType::Utf8),
-    })
+    Expr::Placeholder(Placeholder::new_with_field(
+        format!("$__store_{}", store_name.as_ref()),
+        Some(Arc::new(Field::new("", DataType::Utf8, true))),
+    ))
 }
 
 pub type StoreRowValue = IndexMap<String, ScalarValue>;
