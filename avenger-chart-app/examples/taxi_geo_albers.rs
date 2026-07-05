@@ -71,7 +71,7 @@ fn main() {
         std::process::exit(1);
     }
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
+        .worker_threads(8)
         .build()
         .expect("build tokio runtime");
     let invalidations = RenderInvalidationHub::default();

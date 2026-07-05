@@ -49,7 +49,7 @@ use winit::window::WindowAttributes;
 
 const OSM_TILE_TEMPLATE: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TAXI_TABLE: &str = "taxi_pickups";
-const TAXI_MAX_ROWS: usize = 1_000_000;
+const TAXI_MAX_ROWS: usize = 11_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
@@ -75,7 +75,7 @@ fn main() {
         std::process::exit(1);
     }
     let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
+        .worker_threads(8)
         .build()
         .expect("build tokio runtime");
     let invalidations = RenderInvalidationHub::default();
