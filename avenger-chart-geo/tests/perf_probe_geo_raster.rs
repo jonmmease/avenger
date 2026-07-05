@@ -313,6 +313,219 @@ async fn geo_preview_zoom_profile() {
     }
 }
 
+/// End-of-scroll convergence probe: after the last simulated wheel event,
+/// the app only re-evaluates when the session's evaluation-invalidation hub
+/// asks it to (winit's contract; the taxi examples don't opt into
+/// settle-exact, so there is no interaction-settle safety net). A correct
+/// session therefore maintains the invariant: while the displayed raster is
+/// stale, an immediate or delayed invalidation is always pending. This test
+/// replays wheel gestures at varying phases against the 100ms schedule
+/// throttle and fails on either a stall (stale + nothing pending = lost
+/// wakeup) or a convergence timeout.
+#[ignore = "manual probe; needs the taxi parquet fixture"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn geo_end_of_scroll_convergence() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
+    let ctx = Arc::new(SessionContext::new());
+    let df = taxi_dataframe(&ctx).await;
+    let coord = Geo::mercator()
+        .viewport_id("nyc")
+        .center_lon_lat(-73.977, 40.75)
+        .zoom(11.0);
+    let center_x_param = coord.center_x_param();
+    let center_y_param = coord.center_y_param();
+    let upp_param = coord.units_per_pixel_param();
+    let compiled = Arc::new(geo_plot(df, coord).compile(&ctx).await.unwrap());
+    let mut session = compiled.instantiate(ctx);
+
+    let (_plot, _warmup) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .await
+        .unwrap();
+    wait_for_materializations(&session).await;
+
+    // Winit-like inbox: invalidations arrive (from executor tasks or the
+    // eval itself) and become due immediately or after their delay.
+    type Inbox = Arc<std::sync::Mutex<Vec<(Instant, String)>>>;
+    let inbox: Inbox = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let inbox_writer = inbox.clone();
+    let _subscription =
+        session.subscribe_to_evaluation_invalidations(Arc::new(move |invalidation| {
+            use avenger_chart_core::EvaluationInvalidationSchedule as Schedule;
+            let due = match invalidation.schedule {
+                Schedule::Now => Instant::now(),
+                Schedule::After(delay) => Instant::now() + delay,
+            };
+            inbox_writer
+                .lock()
+                .unwrap()
+                .push((due, format!("{:?}", invalidation.reason)));
+        }));
+    let pop_due = |inbox: &Inbox| -> Option<String> {
+        let mut inbox = inbox.lock().unwrap();
+        let now = Instant::now();
+        let index = inbox
+            .iter()
+            .enumerate()
+            .filter(|(_, (due, _))| *due <= now)
+            .min_by_key(|(_, (due, _))| *due)
+            .map(|(index, _)| index)?;
+        Some(inbox.remove(index).1)
+    };
+    let earliest_pending = |inbox: &Inbox| -> Option<Instant> {
+        inbox.lock().unwrap().iter().map(|(due, _)| *due).min()
+    };
+
+    let (center_x, center_y) = {
+        let projection =
+            avenger_geo::projector::Projection::new(avenger_geo::raw::ProjectionKind::Mercator);
+        projection.project_raw_units(-73.977, 40.75)
+    };
+    let base_upp = 2.0 * std::f64::consts::PI / (512.0 * 2.0_f64.powf(11.0));
+
+    let trials: usize = std::env::var("AVENGER_PROBE_TRIALS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(20);
+    const GESTURE_FRAMES: i32 = 12;
+    let mut failures = Vec::new();
+    let mut zoomed_in = false;
+
+    for trial in 0..trials {
+        let mut log: Vec<String> = Vec::new();
+        let trial_start = Instant::now();
+        let log_eval = |log: &mut Vec<String>,
+                            trigger: &str,
+                            metrics: &EvaluationMetrics,
+                            rect: Option<[f32; 4]>| {
+            log.push(format!(
+                "t=+{:>4}ms {trigger}: reuses={} ready={} fallback={} queued={} rect={rect:?}",
+                trial_start.elapsed().as_millis(),
+                metrics.pipeline.preview_data_mark_reuses,
+                metrics.pipeline.materialization_ready_used,
+                metrics.pipeline.materialization_stale_fallback_used,
+                metrics.pipeline.materialization_queued,
+            ));
+        };
+
+        // Shift the gesture's phase against the 100ms schedule throttle.
+        tokio::time::sleep(Duration::from_millis((trial as u64 * 13) % 100)).await;
+
+        // Alternate zoom-in / zoom-out gestures so keys revisit cached results.
+        let zoom_out = zoomed_in;
+        zoomed_in = !zoom_out;
+        for frame in 1..=GESTURE_FRAMES {
+            // Winit interleaves completion-invalidation rebuilds with wheel
+            // events; mirror that before each wheel frame.
+            for _ in 0..3 {
+                let Some(reason) = pop_due(&inbox) else { break };
+                let (plot, metrics) = session
+                    .evaluate_with_metrics(EvaluationRequest::new().preview())
+                    .await
+                    .unwrap();
+                log_eval(
+                    &mut log,
+                    &format!("mid-gesture invalidation [{reason}]"),
+                    &metrics,
+                    displayed_raster_rect(&plot.scene_graph),
+                );
+            }
+            let step = if zoom_out {
+                GESTURE_FRAMES - frame
+            } else {
+                frame
+            };
+            let upp = base_upp * 0.97_f64.powi(step);
+            let mut patch = indexmap::IndexMap::new();
+            patch.insert(center_x_param.clone(), ScalarValue::Float64(Some(center_x)));
+            patch.insert(center_y_param.clone(), ScalarValue::Float64(Some(center_y)));
+            patch.insert(upp_param.clone(), ScalarValue::Float64(Some(upp)));
+            let (plot, metrics) = session
+                .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+                .await
+                .unwrap();
+            log_eval(
+                &mut log,
+                &format!("wheel frame {frame:02}"),
+                &metrics,
+                displayed_raster_rect(&plot.scene_graph),
+            );
+            tokio::time::sleep(Duration::from_millis(16)).await;
+        }
+
+        // Gesture over: evaluate ONLY on invalidations, winit-style.
+        let gesture_end = Instant::now();
+        let deadline = gesture_end + Duration::from_secs(6);
+        let mut outcome = None;
+        while Instant::now() < deadline {
+            if let Some(reason) = pop_due(&inbox) {
+                let (plot, metrics) = session
+                    .evaluate_with_metrics(EvaluationRequest::new().preview())
+                    .await
+                    .unwrap();
+                let rect = displayed_raster_rect(&plot.scene_graph);
+                log_eval(
+                    &mut log,
+                    &format!("post-gesture invalidation [{reason}]"),
+                    &metrics,
+                    rect,
+                );
+                // Consume signature: the preview declined mark reuse and
+                // rebuilt from the ready (desired) materialization.
+                if metrics.pipeline.preview_data_mark_reuses == 0
+                    && metrics.pipeline.materialization_ready_used >= 1
+                {
+                    outcome = Some(gesture_end.elapsed());
+                    break;
+                }
+                continue;
+            }
+            match earliest_pending(&inbox) {
+                Some(due) => {
+                    tokio::time::sleep(
+                        due.saturating_duration_since(Instant::now()) + Duration::from_millis(1),
+                    )
+                    .await;
+                }
+                None if session.has_pending_materializations() => {
+                    // Executor still running; its completion will invalidate.
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                None => {
+                    log.push(format!(
+                        "t=+{:>4}ms STALL: stale raster, no pending invalidation, no running materialization",
+                        trial_start.elapsed().as_millis()
+                    ));
+                    break;
+                }
+            }
+        }
+        match outcome {
+            Some(latency) => println!(
+                "trial {trial:02} ({}): consumed {:>4}ms after gesture end",
+                if zoom_out { "out" } else { "in " },
+                latency.as_millis()
+            ),
+            None => {
+                println!(
+                    "trial {trial:02} ({}): FAILED to converge",
+                    if zoom_out { "out" } else { "in " }
+                );
+                for line in &log {
+                    println!("    {line}");
+                }
+                failures.push(trial);
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "end-of-scroll convergence failed in trials {failures:?}"
+    );
+}
+
 /// Plot-frame rect `[x, y, width, height]` of the first uniform-raster
 /// image mark in the scene, if any.
 fn displayed_raster_rect(

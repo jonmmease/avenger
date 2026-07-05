@@ -643,13 +643,28 @@ where
     }
 
     fn handle_render_invalidation(&mut self, invalidation: RenderInvalidation) {
-        if invalidation.epoch <= self.last_rendered_render_invalidation_epoch {
-            return;
-        }
-        if invalidation.epoch <= self.last_requested_render_invalidation_epoch
-            && self.render_invalidation_pending
-        {
-            return;
+        // The epoch gates coalesce redundant queued events, which is only
+        // valid for `Now` invalidations where queue order matches epoch
+        // order. `After(_)` events get their epoch at REQUEST time but are
+        // delivered after their delay, so any immediate invalidation landing
+        // inside that window (a tile load, a materialization completing)
+        // advances the trackers past them. Gating those would drop the only
+        // scheduled wake-up for a deferred materialization schedule pass or
+        // preview consume — the raster then never refreshes at gesture end.
+        // Delayed events always run.
+        let delayed = matches!(
+            invalidation.schedule,
+            RenderInvalidationSchedule::After(_)
+        );
+        if !delayed {
+            if invalidation.epoch <= self.last_rendered_render_invalidation_epoch {
+                return;
+            }
+            if invalidation.epoch <= self.last_requested_render_invalidation_epoch
+                && self.render_invalidation_pending
+            {
+                return;
+            }
         }
 
         // Startup race: invalidations can arrive before the window/canvas
@@ -677,12 +692,18 @@ where
             return;
         }
 
+        // `.max()` so a late-delivered delayed event never regresses the
+        // monotonic trackers below an epoch that already rendered.
         let canvas = self.canvas.borrow();
         let Some(canvas) = canvas.as_ref() else {
-            self.last_requested_render_invalidation_epoch = invalidation.epoch;
+            self.last_requested_render_invalidation_epoch = self
+                .last_requested_render_invalidation_epoch
+                .max(invalidation.epoch);
             return;
         };
-        self.last_requested_render_invalidation_epoch = invalidation.epoch;
+        self.last_requested_render_invalidation_epoch = self
+            .last_requested_render_invalidation_epoch
+            .max(invalidation.epoch);
         self.render_invalidation_pending = true;
         canvas.window().request_redraw();
         tracing::debug!(
