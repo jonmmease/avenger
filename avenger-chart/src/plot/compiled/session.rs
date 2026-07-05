@@ -1748,14 +1748,38 @@ impl PlotSession {
                         );
                     }
                     Err(err) => {
-                        tracing::warn!(
-                            target: "avenger_chart::materialization",
-                            key = %request.key,
-                            kind = %request.kind,
-                            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
-                            error = %err,
-                            "materialization executor failed"
+                        // Validation-class failures (bad config, wrong output
+                        // shape) will re-fail identically on every retry, so a
+                        // silent `warn` behind a niche `RUST_LOG` target leaves
+                        // an author staring at an empty mark. Log those at
+                        // `error`. Transient failures (network, compute) that a
+                        // retry may resolve stay at `warn`.
+                        let validation_class = matches!(
+                            err,
+                            AvengerChartError::InvalidArgument(_)
+                                | AvengerChartError::MissingChannelError(_)
+                                | AvengerChartError::NonConstantChannel(_)
+                                | AvengerChartError::DatasetLookupError(_)
                         );
+                        if validation_class {
+                            tracing::error!(
+                                target: "avenger_chart::materialization",
+                                key = %request.key,
+                                kind = %request.kind,
+                                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                                error = %err,
+                                "materialization executor failed (validation error; retrying will not help)"
+                            );
+                        } else {
+                            tracing::warn!(
+                                target: "avenger_chart::materialization",
+                                key = %request.key,
+                                kind = %request.kind,
+                                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                                error = %err,
+                                "materialization executor failed"
+                            );
+                        }
                         cache.mark_error(&request, err.to_string());
                     }
                 }

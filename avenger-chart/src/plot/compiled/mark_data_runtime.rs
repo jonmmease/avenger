@@ -697,11 +697,21 @@ fn scalars_from_materialization_display(
     }
 
     if handling.enqueues_cache_miss() {
+        // `enqueue` re-queues an errored entry (so a transient failure retries)
+        // and therefore never returns `Error`, so observe the prior failure
+        // here before it is overwritten. Otherwise `materialize_errors` never
+        // increments and a broken materialization is invisible in the metrics.
+        if matches!(
+            cache.status(&materialization.request.key),
+            MaterializationStatus::Error(_)
+        ) {
+            eval_ctx.record_materialization_error();
+        }
         match cache.enqueue(materialization.request.clone()) {
             MaterializationStatus::Queued => eval_ctx.record_materialization_queued(),
             MaterializationStatus::Running => eval_ctx.record_materialization_running(),
-            MaterializationStatus::Error(_) => eval_ctx.record_materialization_error(),
             MaterializationStatus::Ready | MaterializationStatus::Missing => {}
+            MaterializationStatus::Error(_) => {}
         }
     }
 
@@ -784,6 +794,16 @@ fn dataframe_for_materialization_display(
 
     eval_ctx.record_materialization_cache_miss();
     if handling.enqueues_cache_miss() {
+        // `enqueue` re-queues an errored entry (so a transient failure retries)
+        // and therefore never returns `Error`, so observe the prior failure
+        // here before it is overwritten. Otherwise `materialize_errors` never
+        // increments and a broken materialization is invisible in the metrics.
+        if matches!(
+            cache.status(&materialization.request.key),
+            MaterializationStatus::Error(_)
+        ) {
+            eval_ctx.record_materialization_error();
+        }
         match cache.enqueue(materialization.request.clone()) {
             MaterializationStatus::Queued => eval_ctx.record_materialization_queued(),
             MaterializationStatus::Running => eval_ctx.record_materialization_running(),
@@ -791,8 +811,8 @@ fn dataframe_for_materialization_display(
                 eval_ctx.record_materialization_cache_hit();
                 eval_ctx.record_materialization_ready_used();
             }
-            MaterializationStatus::Error(_) => eval_ctx.record_materialization_error(),
             MaterializationStatus::Missing => {}
+            MaterializationStatus::Error(_) => {}
         }
     }
 
