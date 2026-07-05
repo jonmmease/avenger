@@ -28,11 +28,11 @@ avenger-winit-wgpu = { path = "../avenger-winit-wgpu", optional = true }
 async-trait = { workspace = true }
 cfg-if = { workspace = true, optional = true }
 datafusion = { workspace = true }
-datafusion-proto = "54.0.0"
+datafusion-proto = { version = "54.0.0", default-features = false }
 indexmap = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync"] }
+tokio = { workspace = true, features = ["rt", "sync"] }
 tracing = { workspace = true }
 typetag = "0.2"
 winit = { workspace = true, optional = true }
@@ -44,6 +44,16 @@ palette = { workspace = true }
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+datafusion = { workspace = true, features = ["parquet"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [[example]]
 name = "canvas_width_scatter"

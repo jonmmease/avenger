@@ -11,7 +11,7 @@ chrono = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-functions-aggregate = "54.0.0"
-datafusion-proto = "54.0.0"
+datafusion-proto = { version = "54.0.0", default-features = false }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

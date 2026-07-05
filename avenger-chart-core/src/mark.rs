@@ -15,7 +15,8 @@ use crate::{
 pub type CompileContext<'a> = &'a (dyn Any + Send + Sync);
 
 /// Core trait for all uncompiled mark types.
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait Mark<C: CoordinateSystemCore>: Send + Sync + 'static {
     /// Get the mark's construction-time state.
     fn state(&self) -> &MarkState;

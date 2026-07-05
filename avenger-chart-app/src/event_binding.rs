@@ -1728,7 +1728,8 @@ struct ChartEventBindingHandler {
     state: Mutex<ChartEventBindingState>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
     async fn handle(
         &self,
@@ -3253,7 +3254,8 @@ fn record_event_eval_elapsed(metrics: &mut crate::ChartEventMetrics, start: Inst
 
 struct ChartEventExactOnlyHandler;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<ChartAppState> for ChartEventExactOnlyHandler {
     async fn handle(
         &self,

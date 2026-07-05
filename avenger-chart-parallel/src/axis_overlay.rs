@@ -106,7 +106,8 @@ impl IntoPlotMark<Parallel> for ParallelAxisOverlay<Parallel> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Parallel> for ParallelAxisOverlay<Parallel> {
     fn state(&self) -> &MarkState {
         &self.state
@@ -273,7 +274,8 @@ impl CoordinateSlotOverlayMarkCore for CompiledParallelAxisOverlay {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledParallelAxisOverlay {
     async fn render_from_data(
         &self,
@@ -311,7 +313,8 @@ mod tests {
         has_plot_level_data: bool,
     }
 
-    #[async_trait::async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl SubplotChildPlotSpec for FakeChildSpec {
         fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec> {
             Box::new(self.clone())

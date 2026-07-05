@@ -51,7 +51,8 @@ impl DataTransform for Filter {
 }
 
 #[typetag::serde(name = "filter")]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledDataTransform for CompiledFilterTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())

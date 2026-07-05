@@ -35,7 +35,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Cartesian, marks::util};
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Cartesian> for PathMark<Cartesian> {
     impl_mark_trait_common!(PathMark);
 
@@ -233,7 +234,8 @@ impl CompiledMarkCore for CompiledCartesianPath {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledCartesianPath {
     async fn render_from_data(
         &self,

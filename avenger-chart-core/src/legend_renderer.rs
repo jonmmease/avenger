@@ -34,7 +34,8 @@ impl LegendRendererSelection {
 
 /// Trait for implementing custom legend renderers
 #[allow(clippy::too_many_arguments)]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[typetag::serde(tag = "type")]
 pub trait LegendRenderer: Send + Sync + 'static {
     /// Get the name of this renderer for debugging

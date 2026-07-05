@@ -64,7 +64,8 @@ impl DataTransform for Calculate {
 }
 
 #[typetag::serde(name = "calculate")]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledDataTransform for CompiledCalculateTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())

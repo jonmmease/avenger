@@ -37,7 +37,8 @@ use serde::{Deserialize, Serialize};
 use crate::{Cartesian, marks::util};
 
 // Implement Mark trait for Cartesian Rect with any axis type
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Cartesian> for Rect<Cartesian> {
     impl_mark_trait_common!(Rect);
 
@@ -219,7 +220,8 @@ impl CompiledMarkCore for CompiledCartesianRect {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledCartesianRect {
     async fn render_from_data(
         &self,

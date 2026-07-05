@@ -54,7 +54,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::Geo;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Geo> for Symbol<Geo> {
     impl_mark_trait_common!(Symbol);
 
@@ -300,7 +301,8 @@ impl CompiledMarkCore for CompiledGeoSymbol {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledGeoSymbol {
     async fn render_from_data(
         &self,

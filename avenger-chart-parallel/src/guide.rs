@@ -246,7 +246,8 @@ impl CompiledParallelGuide {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[typetag::serde]
 impl CompiledGuide for CompiledParallelGuide {
     async fn measure_overflow(

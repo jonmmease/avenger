@@ -95,7 +95,8 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) tools: Vec<Arc<dyn ChartTool<C>>>,
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<C> SubplotChildPlotSpec for Plot<C>
 where
     C: CoordinateSystem + Clone + 'static,
@@ -2327,7 +2328,8 @@ mod tests {
     struct CompiledCountingGroupTransform;
 
     #[typetag::serde(name = "test_mark_group_counting")]
-    #[async_trait::async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
     impl CompiledDataTransform for CompiledCountingGroupTransform {
         fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
             Box::new(self.clone())

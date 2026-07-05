@@ -3,7 +3,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 
 use avenger_chart_core::{
@@ -11,13 +10,15 @@ use avenger_chart_core::{
     DefaultLogicalExprNodeExt, EvaluationInvalidationCallback, EvaluationInvalidationHub,
     EvaluationInvalidationReason, EvaluationInvalidationRequest, EvaluationInvalidationSink,
     EvaluationInvalidationSubscription, FacetWrapColumnMode, LegendChannel, LegendPosition,
-    LogicalPlanNodeExt, MaterializationExecutionContext, MaterializationExecutorRegistry,
-    MaterializationKind, MaterializationRequest, Maybe, RadiusExpression, STORE_NAME_COLUMN,
-    STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain,
-    ScaleDomain, SelectionClause, SerializableExpr, StoreData, StoreRowValue,
+    LogicalPlanNodeExt, MaterializationExecutionContext, MaterializationExecutor,
+    MaterializationExecutorRegistry, MaterializationKind, MaterializationRequest, Maybe,
+    RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
+    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause, SerializableExpr, StoreData,
+    StoreRowValue,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
+use avenger_common::time::{Duration, Instant};
 use avenger_scales::scales::ConfiguredScale;
 use avenger_text::{
     measurement::TextBounds,
@@ -1388,6 +1389,106 @@ fn materialization_priority_bias_for_evaluation_mode(mode: EvaluationMode) -> f3
     }
 }
 
+fn spawn_materialization_task(
+    request: MaterializationRequest,
+    executor: Arc<dyn MaterializationExecutor>,
+    cache: MaterializationCacheHandle,
+    session_context: Arc<SessionContext>,
+    invalidation_hub: EvaluationInvalidationHub,
+) {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_futures::spawn_local(run_materialization_task(
+        request,
+        executor,
+        cache,
+        session_context,
+        invalidation_hub,
+    ));
+
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio::spawn(run_materialization_task(
+        request,
+        executor,
+        cache,
+        session_context,
+        invalidation_hub,
+    ));
+}
+
+async fn run_materialization_task(
+    request: MaterializationRequest,
+    executor: Arc<dyn MaterializationExecutor>,
+    cache: MaterializationCacheHandle,
+    session_context: Arc<SessionContext>,
+    invalidation_hub: EvaluationInvalidationHub,
+) {
+    let started = Instant::now();
+    tracing::debug!(
+        target: "avenger_chart::materialization",
+        key = %request.key,
+        kind = %request.kind,
+        priority = request.priority,
+        "materialization executor started"
+    );
+    let params = IndexMap::new();
+    let result = executor
+        .run(
+            request.clone(),
+            MaterializationExecutionContext {
+                session_context: session_context.as_ref(),
+                params: &params,
+            },
+        )
+        .await;
+    let mut cache = cache.lock().expect("materialization cache lock poisoned");
+    match result {
+        Ok(result) => {
+            tracing::debug!(
+                target: "avenger_chart::materialization",
+                key = %request.key,
+                kind = %request.kind,
+                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                "materialization executor finished"
+            );
+            cache.mark_ready_and_request_invalidation(&request, result, &invalidation_hub);
+        }
+        Err(err) => {
+            // Validation-class failures (bad config, wrong output shape) will
+            // re-fail identically on every retry, so a silent `warn` behind a
+            // niche `RUST_LOG` target leaves an author staring at an empty mark.
+            // Log those at `error`. Transient failures (network, compute) that
+            // a retry may resolve stay at `warn`.
+            let validation_class = matches!(
+                err,
+                AvengerChartError::InvalidArgument(_)
+                    | AvengerChartError::MissingChannelError(_)
+                    | AvengerChartError::NonConstantChannel(_)
+                    | AvengerChartError::DatasetLookupError(_)
+            );
+            if validation_class {
+                tracing::error!(
+                    target: "avenger_chart::materialization",
+                    key = %request.key,
+                    kind = %request.kind,
+                    elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                    error = %err,
+                    "materialization executor failed (validation error; retrying will not help)"
+                );
+            } else {
+                tracing::warn!(
+                    target: "avenger_chart::materialization",
+                    key = %request.key,
+                    kind = %request.kind,
+                    elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+                    error = %err,
+                    "materialization executor failed"
+                );
+            }
+            cache.mark_error(&request, err.to_string());
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct EvaluationRequestSummary {
     mode: EvaluationMode,
@@ -1712,78 +1813,7 @@ impl PlotSession {
             let cache = self.materialization_cache.clone();
             let session_context = self.ctx.clone();
             let invalidation_hub = self.materialization_invalidation_hub.clone();
-            tokio::spawn(async move {
-                let started = Instant::now();
-                tracing::debug!(
-                    target: "avenger_chart::materialization",
-                    key = %request.key,
-                    kind = %request.kind,
-                    priority = request.priority,
-                    "materialization executor started"
-                );
-                let params = IndexMap::new();
-                let result = executor
-                    .run(
-                        request.clone(),
-                        MaterializationExecutionContext {
-                            session_context: session_context.as_ref(),
-                            params: &params,
-                        },
-                    )
-                    .await;
-                let mut cache = cache.lock().expect("materialization cache lock poisoned");
-                match result {
-                    Ok(result) => {
-                        tracing::debug!(
-                            target: "avenger_chart::materialization",
-                            key = %request.key,
-                            kind = %request.kind,
-                            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
-                            "materialization executor finished"
-                        );
-                        cache.mark_ready_and_request_invalidation(
-                            &request,
-                            result,
-                            &invalidation_hub,
-                        );
-                    }
-                    Err(err) => {
-                        // Validation-class failures (bad config, wrong output
-                        // shape) will re-fail identically on every retry, so a
-                        // silent `warn` behind a niche `RUST_LOG` target leaves
-                        // an author staring at an empty mark. Log those at
-                        // `error`. Transient failures (network, compute) that a
-                        // retry may resolve stay at `warn`.
-                        let validation_class = matches!(
-                            err,
-                            AvengerChartError::InvalidArgument(_)
-                                | AvengerChartError::MissingChannelError(_)
-                                | AvengerChartError::NonConstantChannel(_)
-                                | AvengerChartError::DatasetLookupError(_)
-                        );
-                        if validation_class {
-                            tracing::error!(
-                                target: "avenger_chart::materialization",
-                                key = %request.key,
-                                kind = %request.kind,
-                                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
-                                error = %err,
-                                "materialization executor failed (validation error; retrying will not help)"
-                            );
-                        } else {
-                            tracing::warn!(
-                                target: "avenger_chart::materialization",
-                                key = %request.key,
-                                kind = %request.kind,
-                                elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
-                                error = %err,
-                                "materialization executor failed"
-                            );
-                        }
-                        cache.mark_error(&request, err.to_string());
-                    }
-                }
-            });
+            spawn_materialization_task(request, executor, cache, session_context, invalidation_hub);
         }
 
         // A deferred preview consume (ready result withheld while the view
@@ -3580,7 +3610,8 @@ mod tests {
     }
 
     #[typetag::serde(name = "test_view_domain_materialized_session")]
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl CompiledDataTransform for CompiledViewDomainMaterializedTransform {
         fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
             Box::new(self.clone())

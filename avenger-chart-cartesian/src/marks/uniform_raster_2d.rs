@@ -44,7 +44,8 @@ use tracing::{debug, trace};
 
 use crate::Cartesian;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Cartesian> for UniformRaster2D<Cartesian> {
     impl_mark_trait_common!(UniformRaster2D);
 
@@ -667,7 +668,8 @@ fn build_scene_marks_for_mixed_raster(
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledCartesianUniformRaster2D {
     async fn render_from_data(
         &self,

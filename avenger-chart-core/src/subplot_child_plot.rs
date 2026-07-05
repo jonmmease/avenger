@@ -45,7 +45,8 @@ pub trait CompiledSubplotChildPlot: Any + Send + Sync {
     fn into_any_arc(self: Arc<Self>) -> Arc<dyn Any + Send + Sync>;
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[doc(hidden)]
 pub trait SubplotChildPlotSpec: Send + Sync {
     fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec>;
@@ -70,7 +71,8 @@ impl Clone for Box<dyn SubplotChildPlotSpec> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotChildPlotSpec for Box<dyn SubplotChildPlotSpec> {
     fn clone_box(&self) -> Box<dyn SubplotChildPlotSpec> {
         self.as_ref().clone_box()
@@ -102,7 +104,8 @@ impl SubplotChildPlotSpec for Box<dyn SubplotChildPlotSpec> {
 ///
 /// This lets shared subplot helpers live below the top-level facade without
 /// making `avenger-chart-core` depend on the concrete `Subplot<C>` type.
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[doc(hidden)]
 pub trait SubplotMarkCore: Send + Sync {
     fn data_context_ref(&self) -> &DataContext;
@@ -278,7 +281,8 @@ pub trait SubplotMarkCore: Send + Sync {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait SubplotContainerCoordinateSystem: CoordinateSystem + Sized {
     /// Compile a subplot mark for this coordinate system.
     ///
@@ -549,7 +553,8 @@ fn intern_positioned_subplot_channel_name(channel: &str) -> &'static str {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledPositionedSubplot {
     async fn render_from_data(
         &self,

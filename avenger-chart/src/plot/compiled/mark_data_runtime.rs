@@ -36,6 +36,9 @@ use avenger_chart_core::{
     resolve_known_derived_scalars, resolve_known_derived_scalars_in_channel_value,
     selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
 };
+#[cfg(test)]
+use avenger_common::time::Duration;
+use avenger_common::time::Instant;
 
 use crate::{
     channel::{
@@ -49,8 +52,6 @@ use crate::{
     scales::{ConfiguredScaleDataFusionExt, ConfiguredScaleWithSpec},
     serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
 };
-
-use std::time::Instant;
 
 use super::materialization::{MaterializationStatus, PREVIEW_CONSUME_STABILITY};
 
@@ -2897,7 +2898,8 @@ mod tests {
     }
 
     #[typetag::serde(name = "test_fake_materialized")]
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl avenger_chart_core::CompiledDataTransform for CompiledFakeMaterializedTransform {
         fn clone_box(&self) -> Box<dyn avenger_chart_core::CompiledDataTransform> {
             Box::new(self.clone())
@@ -3068,7 +3070,7 @@ mod tests {
         key: &str,
         identity: &str,
         preview_cached: bool,
-        debounce: Option<std::time::Duration>,
+        debounce: Option<Duration>,
     ) -> Result<(PreparedMarkData, EvaluationContext), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let df = xy_dataframe(&session);
@@ -3581,7 +3583,7 @@ mod tests {
     async fn prepare_mark_data_propagates_view_materialization_debounce_policy()
     -> Result<(), AvengerChartError> {
         let cache = Arc::new(Mutex::new(MaterializationCache::default()));
-        let debounce = std::time::Duration::from_millis(75);
+        let debounce = Duration::from_millis(75);
 
         let (_prepared, eval_ctx) = prepare_fake_materialized_view_mark(
             cache.clone(),

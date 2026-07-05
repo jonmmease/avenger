@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 
 use avenger_chart_core::{
@@ -9,6 +8,7 @@ use avenger_chart_core::{
     MaterializationIdentity, MaterializationKey, MaterializationKind, MaterializationRequest,
     MaterializationResult,
 };
+use avenger_common::time::{Duration, Instant};
 
 pub(crate) type MaterializationCacheHandle = Arc<Mutex<MaterializationCache>>;
 

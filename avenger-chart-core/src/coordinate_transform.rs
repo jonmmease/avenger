@@ -64,7 +64,8 @@ pub struct CoordinateMeasureRequest<'a> {
 /// this hook and use the default empty measurement path. Data-driven layout
 /// coordinates can implement this trait on their transform and return it from
 /// `CoordinateSystemTransformCore::measurement_provider()`.
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait CoordinateMeasurementProvider: Send + Sync {
     async fn measure_coordinate(
         &self,

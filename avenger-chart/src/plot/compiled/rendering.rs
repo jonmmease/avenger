@@ -3,7 +3,6 @@
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
-    time::Instant,
 };
 
 use arrow::{
@@ -13,7 +12,7 @@ use arrow::{
     record_batch::RecordBatch,
 };
 use avenger_color::ColorOrGradient;
-use avenger_common::{types::LinearScaleAdjustment, value::ScalarOrArray};
+use avenger_common::{time::Instant, types::LinearScaleAdjustment, value::ScalarOrArray};
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_scenegraph::{

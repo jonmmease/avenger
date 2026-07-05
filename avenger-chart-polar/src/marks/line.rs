@@ -32,7 +32,8 @@ const MAX_POLAR_THETA_STEP: f32 = std::f32::consts::PI / 90.0;
 const MAX_POLAR_DISPLAY_STEP_PX: f32 = 6.0;
 const MAX_POLAR_SUBDIVISIONS_PER_SEGMENT: usize = 256;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Polar> for Line<Polar> {
     impl_mark_trait_common!(Line);
 
@@ -205,7 +206,8 @@ impl CompiledMarkCore for CompiledPolarLine {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledPolarLine {
     async fn render_from_data(
         &self,

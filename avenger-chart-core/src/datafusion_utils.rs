@@ -166,7 +166,8 @@ impl DataFrameChartHelpers for DataFrame {
 }
 
 /// Extension trait for Expr to help with evaluation.
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait ExprHelpers {
     async fn eval_to_scalar(
         &self,
@@ -175,7 +176,8 @@ pub trait ExprHelpers {
     ) -> Result<ScalarValue, DataFusionError>;
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl ExprHelpers for Expr {
     async fn eval_to_scalar(
         &self,

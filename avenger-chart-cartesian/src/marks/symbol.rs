@@ -52,7 +52,8 @@ use crate::{
 };
 
 // Implement Mark trait for Cartesian Symbol
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Cartesian> for Symbol<Cartesian> {
     impl_mark_trait_common!(Symbol);
 
@@ -318,7 +319,8 @@ impl CompiledMarkCore for CompiledCartesianSymbol {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledCartesianSymbol {
     async fn render_from_data(
         &self,

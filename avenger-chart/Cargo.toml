@@ -58,8 +58,8 @@ lazy_static = { workspace = true }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
-datafusion-proto = "54.0.0"
-datafusion-proto-common = "54.0.0"
+datafusion-proto = { version = "54.0.0", default-features = false }
+datafusion-proto-common = { version = "54.0.0", default-features = false }
 prost = "0.14"
 futures = { workspace = true }
 base64 = { workspace = true }
@@ -91,6 +91,13 @@ tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 bincode = "1.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.14"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+datafusion = { workspace = true, features = ["parquet"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+wasm-bindgen-futures = "0.4"
 
 [[example]]
 name = "simple_bar_chart"

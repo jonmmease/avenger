@@ -579,7 +579,8 @@ struct CoordinateDomainScaleProvider<'a> {
     coordinate_domain_overrides: Option<HashMap<String, DomainExtent>>,
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<'a> ScaleProvider for CoordinateDomainScaleProvider<'a> {
     async fn build_scales(
         &self,
@@ -617,7 +618,8 @@ impl<'a> ScaleProvider for CoordinateDomainScaleProvider<'a> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<'a> ScaleProvider for ScaleOverrideProvider<'a> {
     async fn build_scales(
         &self,

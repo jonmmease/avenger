@@ -127,6 +127,15 @@ pub mod scales;
 pub mod scene_query;
 pub mod selection;
 pub mod serialization;
+pub(crate) mod task {
+    use std::{future::Future, pin::Pin};
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) type ChartFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) type ChartFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+}
 pub mod theme;
 pub mod tools;
 pub mod transforms {

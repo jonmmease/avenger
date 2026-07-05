@@ -18,6 +18,7 @@ use crate::plot::compiled::{
 use crate::render::{
     EvaluationContext, EvaluationMetrics, RenderContext, context::plot_area_pattern_reference_frame,
 };
+use crate::task::ChartFuture;
 use avenger_chart_core::{
     AvengerChartError, AxisGuideVisibilityConfig, ChannelDescriptor, ChannelValue,
     ColumnDimensionConfig, CompileContext, CompiledDataContext, CompiledMark, CompiledMarkCore,
@@ -33,11 +34,7 @@ use datafusion::{dataframe::DataFrame, prelude::SessionContext, scalar::ScalarVa
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 use tracing::trace;
 
 fn default_true() -> bool {
@@ -932,7 +929,7 @@ impl CompiledFacetRowSubplot {
     pub(crate) fn render_with_context<'a>(
         &'a self,
         context: &'a RenderContext<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+    ) -> ChartFuture<'a, Result<Vec<SceneMark>, AvengerChartError>> {
         Box::pin(render_facet_band_common(
             FacetBandRenderOps::row(),
             self.compiled_subplot(),
@@ -943,7 +940,8 @@ impl CompiledFacetRowSubplot {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for FacetRow {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -1040,7 +1038,8 @@ impl CompiledMarkCore for CompiledFacetRowSubplot {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledFacetRowSubplot {
     /// Render faceted row layout
     ///
@@ -1110,7 +1109,7 @@ impl CompiledFacetColumnSubplot {
     pub(crate) fn render_with_context<'a>(
         &'a self,
         context: &'a RenderContext<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+    ) -> ChartFuture<'a, Result<Vec<SceneMark>, AvengerChartError>> {
         Box::pin(render_facet_band_common(
             FacetBandRenderOps::col(),
             self.compiled_subplot(),
@@ -1121,7 +1120,8 @@ impl CompiledFacetColumnSubplot {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for FacetColumn {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -1258,7 +1258,7 @@ impl CompiledFacetWrapSubplot {
     pub(crate) fn render_with_context<'a>(
         &'a self,
         context: &'a RenderContext<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+    ) -> ChartFuture<'a, Result<Vec<SceneMark>, AvengerChartError>> {
         Box::pin(render_facet_band_common(
             FacetBandRenderOps::row(),
             self.physical_subplot(),
@@ -1369,7 +1369,8 @@ fn build_physical_wrap_subplot(
     }))
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for FacetWrap {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -1483,7 +1484,8 @@ impl CompiledMarkCore for CompiledFacetWrapSubplot {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledFacetWrapSubplot {
     async fn render_from_data(
         &self,
@@ -1566,7 +1568,7 @@ impl<'a> FacetSubplotRef<'a> {
     pub(crate) fn render_with_context<'b>(
         self,
         context: &'b RenderContext<'b>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'b>>
+    ) -> ChartFuture<'b, Result<Vec<SceneMark>, AvengerChartError>>
     where
         'a: 'b,
     {
@@ -1633,7 +1635,8 @@ impl CompiledMarkCore for CompiledFacetColumnSubplot {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledFacetColumnSubplot {
     /// Render faceted column layout
     ///

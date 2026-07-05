@@ -19,7 +19,8 @@ use crate::{
 /// This trait abstracts the source of scales, enabling the same evaluation
 /// method to work for both top-level plots (which build their own scales)
 /// and subplots (which may receive pre-coordinated scales from a parent facet).
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait ScaleProvider: Send + Sync {
     /// Build scales for the given plot area dimensions.
     ///
@@ -46,7 +47,8 @@ pub struct DynamicScaleProvider<'a> {
     pub plot: &'a CompiledPlot,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl<'a> ScaleProvider for DynamicScaleProvider<'a> {
     async fn build_scales(
         &self,
@@ -81,7 +83,8 @@ pub struct ViewAwareScaleProvider<'a> {
     pub facet_path: &'a [ScalarValue],
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl<'a> ScaleProvider for ViewAwareScaleProvider<'a> {
     async fn build_scales(
         &self,

@@ -109,7 +109,8 @@ define_common_mark_channels! {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Parallel> for ParallelSymbol<Parallel> {
     impl_mark_trait_common!(ParallelSymbol);
 
@@ -302,7 +303,8 @@ impl CompiledMarkCore for CompiledParallelSymbol {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledParallelSymbol {
     async fn render_from_data(
         &self,

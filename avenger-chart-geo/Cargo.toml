@@ -16,7 +16,7 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
-datafusion-proto = "54.0.0"
+datafusion-proto = { version = "54.0.0", default-features = false }
 indexmap = { workspace = true }
 lyon_path = { workspace = true }
 serde = { workspace = true }
@@ -40,3 +40,6 @@ palette = { workspace = true }
 resvg = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+datafusion = { workspace = true, features = ["parquet"] }

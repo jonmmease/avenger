@@ -37,7 +37,8 @@ use crate::{
 pub use avenger_chart_marks::ensure_dictionary_array as ensure_dictionary_array_fn;
 
 // Implement Mark trait for Cartesian Line with any axis type
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Cartesian> for Line<Cartesian> {
     impl_mark_trait_common!(Line);
 
@@ -223,7 +224,8 @@ impl CompiledMarkCore for CompiledCartesianLine {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledCartesianLine {
     async fn render_from_data(
         &self,

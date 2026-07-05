@@ -282,7 +282,8 @@ pub trait CoordinateSlotOverlayMarkCore: Send + Sync {
 }
 
 #[typetag::serde(tag = "type")]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait CompiledMark: CompiledMarkCore {
     /// Render the mark from prepared data batches.
     async fn render_from_data(

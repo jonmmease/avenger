@@ -214,7 +214,8 @@ pub struct MaterializationExecutionContext<'a> {
     pub params: &'a IndexMap<String, ScalarValue>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait MaterializationExecutor: Send + Sync {
     fn kind(&self) -> &'static str;
 

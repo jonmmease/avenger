@@ -275,7 +275,8 @@ pub trait CoordinateGuide: Clone + Default + Send + Sync {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[typetag::serde(tag = "type")]
 pub trait CompiledGuide: Send + Sync + 'static {
     async fn measure_overflow(

@@ -189,7 +189,8 @@ pub(crate) struct BetweenState {
 // handler that does nothing
 struct NoopHandler;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<()> for NoopHandler {
     async fn handle(&self, _: &SceneGraphEvent, _: &mut (), _: &SceneGraphRTree) -> UpdateStatus {
         Default::default()

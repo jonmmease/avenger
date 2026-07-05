@@ -4,8 +4,9 @@
 //! local facet band layout, and retargets child measurements before global
 //! coordination aligns matching facet requirements.
 //!
-use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
+use avenger_common::time::Instant;
 use avenger_common::value::ScalarOrArray;
 use avenger_scales::scales::ScaleImpl;
 #[cfg(test)]

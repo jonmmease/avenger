@@ -329,7 +329,8 @@ struct ScalarAggregateMaterializationIdentity {
 #[derive(Clone, Debug, Default)]
 pub struct ScalarAggregateExecutor;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl MaterializationExecutor for ScalarAggregateExecutor {
     fn kind(&self) -> &'static str {
         SCALAR_AGGREGATE_MATERIALIZATION_KIND
@@ -417,7 +418,8 @@ pub fn scalar_batch_from_literals(
 }
 
 #[typetag::serde(name = "scalar_aggregate")]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledDataTransform for CompiledScalarAggregateTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())

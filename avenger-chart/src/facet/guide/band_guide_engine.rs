@@ -6,9 +6,9 @@
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock},
-    time::Instant,
 };
 
+use avenger_common::time::Instant;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::SessionContext};
 use datafusion_proto::protobuf::LogicalPlanNode;

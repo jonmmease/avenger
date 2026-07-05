@@ -273,7 +273,8 @@ define_common_mark_channels! {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Mark<Treemap> for TreeRect<Treemap> {
     impl_mark_trait_common!(TreeRect);
 
@@ -551,7 +552,8 @@ define_common_mark_channels! {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Mark<Treemap> for TreeLabel<Treemap> {
     impl_mark_trait_common!(TreeLabel);
 
@@ -675,7 +677,8 @@ impl CompiledMarkCore for CompiledTreeLabel {
 }
 
 #[typetag::serde]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledMark for CompiledTreeLabel {
     async fn render_from_data(
         &self,
@@ -1097,7 +1100,8 @@ define_common_mark_channels! {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Mark<Treemap> for TreeHeader<Treemap> {
     impl_mark_trait_common!(TreeHeader);
 
@@ -1231,7 +1235,8 @@ impl CompiledMarkCore for CompiledTreeHeader {
 }
 
 #[typetag::serde]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledMark for CompiledTreeHeader {
     async fn render_from_data(
         &self,
@@ -1596,7 +1601,8 @@ impl CompiledMarkCore for CompiledTreeRect {
 }
 
 #[typetag::serde]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledMark for CompiledTreeRect {
     async fn render_from_data(
         &self,

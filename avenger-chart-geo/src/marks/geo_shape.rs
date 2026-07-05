@@ -131,7 +131,8 @@ impl GeoShape<Geo> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Geo> for GeoShape<Geo> {
     avenger_chart_core::impl_mark_trait_common!(GeoShape);
 
@@ -240,7 +241,8 @@ impl CompiledMarkCore for CompiledGeoShape {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledGeoShape {
     async fn render_from_data(
         &self,

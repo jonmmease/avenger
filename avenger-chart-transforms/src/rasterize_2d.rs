@@ -158,7 +158,8 @@ struct Rasterize2DMaterializationIdentity {
 #[derive(Clone, Debug, Default)]
 pub struct Rasterize2DExecutor;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl MaterializationExecutor for Rasterize2DExecutor {
     fn kind(&self) -> &'static str {
         RASTERIZE_2D_MATERIALIZATION_KIND
@@ -719,7 +720,8 @@ impl CompiledRasterize2DTransform {
 }
 
 #[typetag::serde(name = "rasterize_2d")]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledDataTransform for CompiledRasterize2DTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())

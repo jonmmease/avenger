@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 
 use super::super::Polar;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<Polar> for Text<Polar> {
     impl_mark_trait_common!(Text);
 
@@ -329,7 +330,8 @@ impl CompiledMarkCore for CompiledPolarText {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledPolarText {
     async fn render_from_data(
         &self,

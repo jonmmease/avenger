@@ -12,7 +12,7 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-text = { path = "../avenger-text" }
 async-trait = { workspace = true }
 datafusion = { workspace = true }
-datafusion-proto = "54.0.0"
+datafusion-proto = { version = "54.0.0", default-features = false }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_with = "3.0"

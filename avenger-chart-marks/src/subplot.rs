@@ -477,7 +477,8 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
     fn data_context_ref(&self) -> &DataContext {
         &self.state.data
@@ -637,7 +638,8 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl<C> Mark<C> for Subplot<C>
 where
     C: SubplotContainerCoordinateSystem,

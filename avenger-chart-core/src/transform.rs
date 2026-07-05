@@ -67,7 +67,8 @@ impl DataTransformCompileContext {
 }
 
 #[typetag::serde(tag = "type")]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait CompiledDataTransform: Send + Sync {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform>;
 
@@ -250,7 +251,8 @@ mod tests {
     struct IdentityTransform;
 
     #[typetag::serde(name = "test_identity")]
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl CompiledDataTransform for IdentityTransform {
         fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
             Box::new(self.clone())
@@ -272,7 +274,8 @@ mod tests {
     }
 
     #[typetag::serde(name = "test_derived_scalar")]
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl CompiledDataTransform for DerivedScalarTransform {
         fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
             Box::new(self.clone())

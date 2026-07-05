@@ -16,7 +16,8 @@ use crate::{
     window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput},
 };
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait EventStreamHandler<State: Clone + Send + Sync + 'static>: Send + Sync {
     async fn handle(
         &self,
@@ -517,7 +518,8 @@ mod tests {
 
     struct RecordingHandler;
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl EventStreamHandler<TestState> for RecordingHandler {
         async fn handle(
             &self,
@@ -536,7 +538,8 @@ mod tests {
 
     struct ContextRecordingHandler;
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl EventStreamHandler<TestState> for ContextRecordingHandler {
         async fn handle(
             &self,
@@ -567,7 +570,8 @@ mod tests {
     #[derive(Clone)]
     struct HandlerId(&'static str);
 
-    #[async_trait]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl EventStreamHandler<TestState> for HandlerId {
         async fn handle(
             &self,

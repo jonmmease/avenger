@@ -12,7 +12,8 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 
 use crate::error::AvengerAppError;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait SceneGraphBuilder<State: Clone + Send + Sync + 'static>: Send + Sync {
     async fn build(&self, state: &mut State) -> Result<SceneGraph, AvengerAppError>;
 }

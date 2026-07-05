@@ -23,7 +23,8 @@ use serde::{Deserialize, Serialize};
 use crate::symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
 
 // Implement Mark trait for ZeroDCoord Symbol
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
     impl_mark_trait_common!(Symbol);
 
@@ -124,7 +125,8 @@ impl CompiledMarkCore for CompiledZeroDSymbol {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledZeroDSymbol {
     async fn render_from_data(
         &self,

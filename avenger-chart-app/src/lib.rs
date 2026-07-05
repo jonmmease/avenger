@@ -2,10 +2,7 @@
 
 mod event_binding;
 
-use std::{
-    sync::{Arc, Mutex as StdMutex},
-    time::{Duration, Instant},
-};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use async_trait::async_trait;
 use avenger_app::{
@@ -25,6 +22,7 @@ use avenger_chart_core::{
     EvaluationInvalidation, EvaluationInvalidationReason, EvaluationInvalidationSchedule,
     EvaluationInvalidationSubscription,
 };
+use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},
@@ -595,7 +593,8 @@ impl ChartAppState {
 /// Scene graph builder that evaluates the chart session stored in state.
 pub struct ChartSceneGraphBuilder;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
     async fn build(&self, state: &mut ChartAppState) -> Result<SceneGraph, AvengerAppError> {
         let mut runtime = state.runtime.lock().await;
@@ -746,7 +745,8 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
 /// Resize handler that patches only canvas-constrained, bound chart dimensions.
 pub struct ChartResizeHandler;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
     async fn handle(
         &self,
@@ -806,7 +806,8 @@ fn us_to_ms(us: u64) -> f64 {
 /// Resize-settle handler that requests an exact evaluation after preview resize.
 pub struct ChartResizeSettleHandler;
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<ChartAppState> for ChartResizeSettleHandler {
     async fn handle(
         &self,
@@ -973,7 +974,8 @@ struct HoverFocusHandler {
     resolver: Arc<dyn ImageResourceResolver>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<ChartAppState> for HoverFocusHandler {
     async fn handle(
         &self,
@@ -996,7 +998,8 @@ struct GestureActiveHandler {
     active: bool,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl EventStreamHandler<ChartAppState> for GestureActiveHandler {
     async fn handle(
         &self,

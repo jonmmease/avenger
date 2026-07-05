@@ -96,7 +96,8 @@ impl DataTransform for AxisTickSpacingTransform {
 }
 
 #[typetag::serde(name = "test_axis_derived_tick_spacing")]
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl CompiledDataTransform for CompiledAxisTickSpacingTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())

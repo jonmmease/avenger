@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, future::Future, pin::Pin, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 
 use avenger_scales::scales::ScaleImpl;
 use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
@@ -38,6 +38,7 @@ use crate::{
         EvaluatedChildFrameKind, EvaluatedChildFrameSegment, EvaluationContext, RenderContext,
         context::plot_area_pattern_reference_frame,
     },
+    task::ChartFuture,
     theme::Theme,
     tools::ToolCompileContext,
 };
@@ -59,7 +60,8 @@ fn refresh_measurement_params_for_child(
     measurement.params = params;
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for HConcat {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -104,7 +106,8 @@ impl SubplotContainerCoordinateSystem for HConcat {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for VConcat {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -149,7 +152,8 @@ impl SubplotContainerCoordinateSystem for VConcat {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for WrapConcat {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -194,7 +198,8 @@ impl SubplotContainerCoordinateSystem for WrapConcat {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SubplotContainerCoordinateSystem for GridConcat {
     async fn compile_subplot_mark(
         subplot: &dyn SubplotMarkCore,
@@ -457,7 +462,7 @@ impl CompiledConcatSubplot {
         &'a self,
         data: Option<&'a RecordBatch>,
         context: &'a RenderContext<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<SceneMark>, AvengerChartError>> + Send + 'a>> {
+    ) -> ChartFuture<'a, Result<Vec<SceneMark>, AvengerChartError>> {
         Box::pin(async move {
             let concat_measurement =
                 concat_coord_ref(context.coord_measurement()).ok_or_else(|| {
@@ -693,7 +698,8 @@ impl CompiledMarkCore for CompiledConcatSubplot {
 }
 
 #[typetag::serde]
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl CompiledMark for CompiledConcatSubplot {
     async fn render_from_data(
         &self,
