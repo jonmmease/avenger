@@ -12,4 +12,8 @@ and checked in so tests never touch the network.
 - `13/{x}/{y}.png` — nine zoom-13 tiles covering midtown Manhattan
   (x 2411–2413, y 3077–3079), used by the capstone's scatter-regime baseline
 
+The sibling `../carto_light` directory holds the same z11/z13 NYC tiles from
+the greyscale `light_nolabels` style, used by the categorical taxi capstone
+baselines so the basemap doesn't fight the category colors.
+
 Attribution: © OpenStreetMap contributors, © CARTO.

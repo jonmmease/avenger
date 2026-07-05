@@ -45,7 +45,10 @@ use datafusion::{
 };
 use winit::window::WindowAttributes;
 
-const OSM_TILE_TEMPLATE: &str = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+/// Greyscale CARTO basemap so the passenger-class colors don't fight the
+/// map colors.
+const TILE_TEMPLATE: &str =
+    "https://basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png";
 const TAXI_TABLE: &str = "taxi_pickups";
 const TAXI_MAX_ROWS: usize = 11_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
@@ -109,10 +112,10 @@ async fn build_app(
         .await
         .expect("load cached NYC taxi fixture");
 
-    let tiles = RasterTileLayer::xyz(OSM_TILE_TEMPLATE)
-        .id("osm")
+    let tiles = RasterTileLayer::xyz(TILE_TEMPLATE)
+        .id("carto_light")
         .max_zoom(19)
-        .attribution("OpenStreetMap contributors")
+        .attribution("© OpenStreetMap contributors © CARTO")
         .zindex(-10)
         .smooth_zoom();
     let coord = Geo::mercator()

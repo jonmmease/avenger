@@ -1,7 +1,14 @@
 # Categorical Raster Coloring: 3D Rasters with Perceptual Color Mixing
 
-Status (2026-07-05): research + API recommendation, not yet planned for
-implementation. Companion to
+Status (2026-07-05): IMPLEMENTED (scratch/categorical-raster-plan.md,
+commits 8b9807482..37ccd745d + the greyscale-basemap follow-up).
+`Rasterize2D::by(...)`, the `fill_by`/`opacity_by_total` overlay mode with
+hard-coded Oklab mixing, categorical fill domain inference, swatch legends
+(including the view-scoped legend collection fix this surfaced), five
+Cartesian baselines, and the taxi-by-passenger-count capstone over
+greyscale CARTO tiles with the adaptive scatter swap. Deferred: eq_hist
+opacity via QuantileScale, signed-aggregate baseline handling, GPU mixing.
+§§ below are the pre-implementation research and remain accurate. Companion to
 [raster-arrow-representations.md](raster-arrow-representations.md) (the
 categorical dimension kind this builds on) and
 [geo-raster-marks.md](geo-raster-marks.md) (the mark core it extends).

@@ -1145,6 +1145,128 @@ mod phase6 {
                     shared,
                 );
             }
+            // Greyscale (light_nolabels) fixtures for the categorical taxi
+            // capstone: a neutral basemap that doesn't fight the category
+            // colors.
+            let light_fixtures: [(u8, i64, i64, &[u8]); 18] = [
+                (
+                    11,
+                    602,
+                    768,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/602/768.png"),
+                ),
+                (
+                    11,
+                    602,
+                    769,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/602/769.png"),
+                ),
+                (
+                    11,
+                    602,
+                    770,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/602/770.png"),
+                ),
+                (
+                    11,
+                    603,
+                    768,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/603/768.png"),
+                ),
+                (
+                    11,
+                    603,
+                    769,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/603/769.png"),
+                ),
+                (
+                    11,
+                    603,
+                    770,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/603/770.png"),
+                ),
+                (
+                    11,
+                    604,
+                    768,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/604/768.png"),
+                ),
+                (
+                    11,
+                    604,
+                    769,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/604/769.png"),
+                ),
+                (
+                    11,
+                    604,
+                    770,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/11/604/770.png"),
+                ),
+                (
+                    13,
+                    2411,
+                    3077,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2411/3077.png"),
+                ),
+                (
+                    13,
+                    2411,
+                    3078,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2411/3078.png"),
+                ),
+                (
+                    13,
+                    2411,
+                    3079,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2411/3079.png"),
+                ),
+                (
+                    13,
+                    2412,
+                    3077,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2412/3077.png"),
+                ),
+                (
+                    13,
+                    2412,
+                    3078,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2412/3078.png"),
+                ),
+                (
+                    13,
+                    2412,
+                    3079,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2412/3079.png"),
+                ),
+                (
+                    13,
+                    2413,
+                    3077,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2413/3077.png"),
+                ),
+                (
+                    13,
+                    2413,
+                    3078,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2413/3078.png"),
+                ),
+                (
+                    13,
+                    2413,
+                    3079,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2413/3079.png"),
+                ),
+            ];
+            for (z, x, y, bytes) in light_fixtures {
+                let decoded = image::load_from_memory(bytes)
+                    .expect("decode carto light tile fixture")
+                    .into_rgba8();
+                images.insert(
+                    ResourceKey::new(format!("geo/carto_light/{z}/{x}/{y}/256")),
+                    Arc::new(AvengerRgbaImage::from_image(&decoded)),
+                );
+            }
             Self {
                 images,
                 blank: Arc::new(AvengerRgbaImage {
@@ -1174,6 +1296,17 @@ mod phase6 {
             "https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png",
         )
         .id("carto")
+        .min_zoom(zoom)
+        .max_zoom(zoom)
+        .attribution("© OpenStreetMap contributors © CARTO")
+    }
+
+    /// Greyscale basemap for the categorical capstone.
+    fn carto_light_layer(zoom: u8) -> RasterTileLayer {
+        RasterTileLayer::xyz(
+            "https://basemaps.cartocdn.com/rastertiles/light_nolabels/{z}/{x}/{y}.png",
+        )
+        .id("carto_light")
         .min_zoom(zoom)
         .max_zoom(zoom)
         .attribution("© OpenStreetMap contributors © CARTO")
@@ -1390,7 +1523,7 @@ mod phase6 {
             .viewport_id("nyc")
             .center_lon_lat(center_lon_lat.0, center_lon_lat.1)
             .zoom(zoom)
-            .tiles(carto_layer(tile_zoom));
+            .tiles(carto_light_layer(tile_zoom));
         let compiled = Arc::new(
             capstone_plot(df, coord)
                 .compile(&ctx)
