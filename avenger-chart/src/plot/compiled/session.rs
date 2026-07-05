@@ -2325,19 +2325,30 @@ fn facet_scale_builder_precompute_dependency_params(
 #[derive(Clone, Copy)]
 struct DependencyPlaceholderOptions {
     include_raw_domain: bool,
+    /// Whether coordinate-system runtime params are included even when the
+    /// coordinate system declares them retargetable
+    /// (`runtime_params_retarget_cached_marks`).
+    include_retargetable_coordinate_runtime: bool,
 }
 
 impl DependencyPlaceholderOptions {
     const ALL: Self = Self {
         include_raw_domain: true,
+        include_retargetable_coordinate_runtime: true,
     };
 
     // Facet cell profile keys intentionally ignore params that are used only as
     // raw-domain scale overrides. Preview retargeting compares the cached and
     // current scale objects directly, so these params should move marks through
     // affine scale adjustments rather than invalidating the cached cell profile.
+    //
+    // Coordinate runtime params get the same treatment when the coordinate
+    // system declares them retargetable (Geo center/units-per-pixel): the
+    // preview path refreshes scales and the coordinate measurement from the
+    // current params, so cached marks move through scale adjustments too.
     const PROFILE_KEY: Self = Self {
         include_raw_domain: false,
+        include_retargetable_coordinate_runtime: false,
     };
 
     // Scale-domain cache keys intentionally ignore params that are used only
@@ -2346,6 +2357,7 @@ impl DependencyPlaceholderOptions {
     // concrete scales from the current params.
     const SCALE_DOMAIN_CACHE: Self = Self {
         include_raw_domain: false,
+        include_retargetable_coordinate_runtime: true,
     };
 }
 
@@ -2476,7 +2488,11 @@ fn collect_plot_dependency_placeholders_with_options(
     options: DependencyPlaceholderOptions,
 ) {
     collect_plan_placeholders(plot.data.as_ref(), ctx, names, all_param_names);
-    collect_coordinate_transform_dependency_params(plot, names);
+    if options.include_retargetable_coordinate_runtime
+        || !plot.coord_transform.runtime_params_retarget_cached_marks()
+    {
+        collect_coordinate_transform_dependency_params(plot, names);
+    }
     collect_marks_dependency_placeholders(&plot.marks, ctx, names, all_param_names, options);
     for scale_spec in plot.scale_specs.values() {
         match scale_spec {

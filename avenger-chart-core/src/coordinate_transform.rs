@@ -177,6 +177,17 @@ pub trait CoordinateSystemTransformCore: Send + Sync {
         Vec::new()
     }
 
+    /// True when changes to [`Self::runtime_param_dependencies`] move mark
+    /// positions only through the plot's x/y linear scales — a pan/zoom-style
+    /// window change over a fixed projection. Previews may then retarget
+    /// cached data marks with affine scale adjustments instead of rebuilding
+    /// mark data (Geo's center/units-per-pixel params qualify). Coordinate
+    /// systems whose runtime params restructure the plot — a treemap root
+    /// path, parallel-axis ordering — must keep the default `false`.
+    fn runtime_params_retarget_cached_marks(&self) -> bool {
+        false
+    }
+
     /// Optional coordinate-owned measurement provider.
     ///
     /// The high-level facade calls this after generic child-frame measurement

@@ -305,6 +305,89 @@ fn coordinate_serializes_round_trip() {
     let _restored: Geo = bincode::deserialize(&bytes).expect("bincode deserialize");
 }
 
+/// Geo coordinate-param previews retarget cached data marks — the
+/// Cartesian raw-domain behavior. Center/units-per-pixel changes move
+/// positions only through the coordinate-owned x/y linear scales
+/// (`runtime_params_retarget_cached_marks`), so a preview evaluation
+/// reuses the measured profile and applies affine scale adjustments to
+/// the cached marks instead of rebuilding mark data.
+#[tokio::test]
+async fn geo_param_preview_retargets_cached_data_marks() {
+    use avenger_chart::prelude::{EvaluationRequest, Symbol};
+    use avenger_chart_geo::GeoPositionChannels;
+    use datafusion::prelude::col;
+    use std::sync::Arc;
+
+    let geo = Geo::mercator().viewport_id("main");
+    let ctx = Arc::new(SessionContext::new());
+    let df = ctx
+        .sql("SELECT * FROM (VALUES (1.4, 0.4), (1.5, 0.5), (1.6, 0.6)) AS t(x, y)")
+        .await
+        .expect("raw-unit point data");
+    let plot = avenger_chart::plot::Plot::with_coord(geo.clone())
+        .plot_size(200.0, 200.0)
+        .data(df)
+        .mark(
+            Symbol::new()
+                .projected_x(col("x"))
+                .projected_y(col("y"))
+                .size(25.0),
+        );
+    let compiled = Arc::new(plot.compile(&ctx).await.expect("compile"));
+    let mut session = compiled.instantiate(ctx);
+
+    let mut params = IndexMap::new();
+    params.insert(geo.center_x_param(), ScalarValue::Float64(Some(1.5)));
+    params.insert(geo.center_y_param(), ScalarValue::Float64(Some(0.5)));
+    params.insert(
+        geo.units_per_pixel_param(),
+        ScalarValue::Float64(Some(0.01)),
+    );
+    let (_evaluated, exact) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(params))
+        .await
+        .expect("exact evaluation");
+    assert!(exact.facet_layout.plot_component_measure_calls > 0);
+
+    // Zoom in 20% around the same center: a pure coordinate-param change.
+    let mut patch = IndexMap::new();
+    patch.insert(
+        geo.units_per_pixel_param(),
+        ScalarValue::Float64(Some(0.008)),
+    );
+    let (evaluated, preview) = session
+        .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+        .await
+        .expect("preview evaluation");
+
+    assert_eq!(preview.pipeline.preview_profile_reuses, 1);
+    assert_eq!(
+        preview.pipeline.preview_data_mark_reuses, 1,
+        "geo coordinate-param preview should retarget cached data marks"
+    );
+    assert_eq!(preview.pipeline.preview_data_mark_reuse_misses, 0);
+    assert_eq!(
+        preview.pipeline.mark_data_collects, 0,
+        "geo coordinate-param preview should not recollect mark data"
+    );
+
+    // The retargeted symbols carry affine scale adjustments for the renderer.
+    fn symbol_has_adjustment(marks: &[avenger_scenegraph::marks::mark::SceneMark]) -> bool {
+        use avenger_scenegraph::marks::mark::SceneMark;
+        marks.iter().any(|mark| match mark {
+            SceneMark::Group(group) => symbol_has_adjustment(&group.marks),
+            SceneMark::Symbol(symbol) => {
+                symbol.x_adjustment.is_some() || symbol.y_adjustment.is_some()
+            }
+            _ => false,
+        })
+    }
+    assert!(
+        symbol_has_adjustment(&evaluated.scene_graph.marks),
+        "retargeted symbols should carry scale adjustments"
+    );
+}
+
 /// View params (`v.x().domain_start()` etc.) resolve on `Plot<Geo>` marks: the
 /// x/y scales the Geo coordinate system installs are linear raw-projected-unit
 /// scales, so the view-param resolver reads their domains exactly as it does

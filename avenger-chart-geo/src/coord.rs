@@ -486,6 +486,14 @@ impl CoordinateSystemTransformCore for Geo {
         options
     }
 
+    fn runtime_params_retarget_cached_marks(&self) -> bool {
+        // Center/units-per-pixel (and the focus hints) are a pure viewport
+        // window over a fixed projection: pixel positions change by the
+        // same affine transform the x/y linear scales encode, so previews
+        // can retarget cached marks instead of rebuilding mark data.
+        true
+    }
+
     fn runtime_param_dependencies(&self) -> Vec<String> {
         vec![
             self.center_x_param(),

@@ -258,9 +258,9 @@ async fn geo_preview_zoom_profile() {
         frame_times.push((
             elapsed,
             (
+                metrics.pipeline.preview_data_mark_reuses,
                 metrics.pipeline.materialization_ready_used,
                 metrics.pipeline.materialization_stale_fallback_used,
-                metrics.pipeline.materialization_queued,
             ),
             displayed_raster_rect(&plot.scene_graph),
         ));
@@ -282,11 +282,11 @@ async fn geo_preview_zoom_profile() {
         sorted[sorted.len() * 9 / 10],
         sorted[sorted.len() - 1],
     );
-    for (index, (elapsed, (ready, fallback, queued), rect)) in
+    for (index, (elapsed, (reuses, ready, fallback), rect)) in
         frame_times.iter().enumerate().take(40)
     {
         println!(
-            "frame {index:02}: {elapsed:?} ready={ready} fallback={fallback} queued={queued} raster_rect={rect:?}"
+            "frame {index:02}: {elapsed:?} data_mark_reuses={reuses} ready={ready} fallback={fallback} raster_rect={rect:?}"
         );
     }
     if let Some((frame, elapsed, metrics)) = slowest {
