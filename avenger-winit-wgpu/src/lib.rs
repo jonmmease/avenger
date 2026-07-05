@@ -427,6 +427,12 @@ where
     pending_startup_render_invalidation: Option<RenderInvalidation>,
     last_requested_render_invalidation_epoch: u64,
     last_rendered_render_invalidation_epoch: u64,
+    /// Hub epoch snapshotted just before the most recent evaluation
+    /// (event-driven or invalidation-driven scene rebuild) started. Delayed
+    /// invalidations older than this are redundant: that evaluation
+    /// re-derived the session's deferred needs and re-requested any wake-up
+    /// still required.
+    hub_epoch_at_last_evaluation_start: u64,
     pub file_watcher: Option<FileWatcher>,
     window_id: Option<winit::window::WindowId>,
     coalesced_event_count: usize,
@@ -519,6 +525,7 @@ where
             pending_startup_render_invalidation: None,
             last_requested_render_invalidation_epoch: 0,
             last_rendered_render_invalidation_epoch: 0,
+            hub_epoch_at_last_evaluation_start: 0,
             file_watcher,
             window_id: None,
             coalesced_event_count: 0,
@@ -598,6 +605,14 @@ where
             } else {
                 // For non-WASM, maintain the original precise render_pending logic
                 let app_update_start = StdInstant::now();
+                // Snapshot BEFORE the update: if it evaluates (produces a
+                // scene), delayed wake-ups requested before this point are
+                // redundant for the delayed-invalidation test, while ones the
+                // evaluation itself parks get later epochs and survive.
+                let hub_epoch_before = self
+                    .render_invalidation_hub
+                    .as_ref()
+                    .map(|hub| hub.epoch());
                 let scene_graph_opt = {
                     let mut app = self.avenger_app.borrow_mut();
                     self.tokio_runtime
@@ -605,6 +620,11 @@ where
                         .expect("Failed to update app")
                 };
                 let app_update_elapsed = app_update_start.elapsed();
+                if let (true, Some(epoch)) = (scene_graph_opt.scene_graph.is_some(), hub_epoch_before)
+                {
+                    self.hub_epoch_at_last_evaluation_start =
+                        self.hub_epoch_at_last_evaluation_start.max(epoch);
+                }
                 if let Some(cursor) = scene_graph_opt.status.cursor {
                     self.set_cursor(cursor_style_to_winit(cursor));
                 }
@@ -643,20 +663,30 @@ where
     }
 
     fn handle_render_invalidation(&mut self, invalidation: RenderInvalidation) {
-        // The epoch gates coalesce redundant queued events, which is only
-        // valid for `Now` invalidations where queue order matches epoch
+        // The epoch gates below coalesce redundant queued events, which is
+        // only valid for `Now` invalidations where queue order matches epoch
         // order. `After(_)` events get their epoch at REQUEST time but are
         // delivered after their delay, so any immediate invalidation landing
         // inside that window (a tile load, a materialization completing)
-        // advances the trackers past them. Gating those would drop the only
-        // scheduled wake-up for a deferred materialization schedule pass or
-        // preview consume — the raster then never refreshes at gesture end.
-        // Delayed events always run.
+        // advances the trackers past them; gating them on the trackers would
+        // drop the only scheduled wake-up for a deferred materialization
+        // schedule pass or preview consume, and the raster would never
+        // refresh at gesture end. Delayed events instead use an
+        // evaluation-based test: a delayed wake-up is redundant iff any
+        // evaluation started after it was requested, because that evaluation
+        // re-derived the session's deferred needs and re-requested whatever
+        // wake-up is still pending. (Without this, mid-gesture wheel
+        // evaluations each park a soon-stale wake-up whose delivery would
+        // force a redundant rebuild between frames — visible scroll chop.)
         let delayed = matches!(
             invalidation.schedule,
             RenderInvalidationSchedule::After(_)
         );
-        if !delayed {
+        if delayed {
+            if invalidation.epoch <= self.hub_epoch_at_last_evaluation_start {
+                return;
+            }
+        } else {
             if invalidation.epoch <= self.last_rendered_render_invalidation_epoch {
                 return;
             }
@@ -758,6 +788,13 @@ where
                 true
             } else {
                 let rebuild_start = StdInstant::now();
+                // Snapshot BEFORE evaluating: wake-ups the evaluation itself
+                // parks get later epochs and must survive the delayed-event
+                // redundancy test.
+                let hub_epoch_before = self
+                    .render_invalidation_hub
+                    .as_ref()
+                    .map(|hub| hub.epoch());
                 let scene_graph = {
                     let mut app = self.avenger_app.borrow_mut();
                     match self.tokio_runtime.block_on(app.rebuild_scene_graph(true)) {
@@ -768,6 +805,10 @@ where
                         }
                     }
                 };
+                if let Some(epoch) = hub_epoch_before {
+                    self.hub_epoch_at_last_evaluation_start =
+                        self.hub_epoch_at_last_evaluation_start.max(epoch);
+                }
 
                 if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                     let install_start = StdInstant::now();
