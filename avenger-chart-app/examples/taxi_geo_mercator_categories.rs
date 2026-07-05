@@ -306,7 +306,7 @@ async fn cached_taxi_dataframe(ctx: &SessionContext) -> DataFusionResult<DataFra
                 .and(col("pickup_y").gt_eq(lit(TAXI_Y_MIN)))
                 .and(col("pickup_y").lt_eq(lit(TAXI_Y_MAX))),
         )?
-        .select_columns(&["pickup_x", "pickup_y"])?;
+        .select_columns(&["pickup_x", "pickup_y", "pickup_hour"])?;
     let batches = rechunk_record_batches(df.collect().await?, TAXI_BATCH_ROWS)?;
     let schema = batches
         .first()
