@@ -24,13 +24,13 @@ use avenger_chart_core::{
     Scale, ScaleChannelValue, ScaleSpec, define_common_mark_channels,
     impl_mark_base_with_extra_fields,
 };
-use avenger_color::ColorOrGradient;
+use avenger_color::{ColorOrGradient, OklabMixer};
 use avenger_common::{
     types::{ImageAlign, ImageBaseline},
     value::ScalarOrArray,
 };
 use avenger_image::RgbaImage;
-use avenger_scales::scales::coerce::Coercer;
+use avenger_scales::scales::{ConfiguredScale, coerce::Coercer};
 use avenger_scenegraph::marks::{
     image::{SceneImageMark, SceneImageSource},
     mark::SceneMark,
@@ -367,6 +367,17 @@ pub struct UniformRasterImageCache {
     order: VecDeque<UniformRasterImageKey>,
     identity_entries: HashMap<UniformRasterImageIdentityKey, UniformRasterIdentityCachedImage>,
     identity_order: VecDeque<UniformRasterImageIdentityKey>,
+    mixed_entries: HashMap<MixedRasterImageKey, Arc<RgbaImage>>,
+    mixed_order: VecDeque<MixedRasterImageKey>,
+    mixed_identity_entries: HashMap<MixedRasterImageIdentityKey, MixedRasterIdentityCachedImage>,
+    mixed_identity_order: VecDeque<MixedRasterImageIdentityKey>,
+}
+
+/// Identity cache entry for the categorical overlay path; pins the raster
+/// array for the same buffer-identity reasons as the scalar-fill entry.
+struct MixedRasterIdentityCachedImage {
+    raster_values: ArrayRef,
+    image: Arc<RgbaImage>,
 }
 
 impl UniformRasterImageCache {
@@ -421,6 +432,64 @@ impl UniformRasterImageCache {
         }
     }
 
+    fn get_mixed(&self, key: &MixedRasterImageKey) -> Option<Arc<RgbaImage>> {
+        self.mixed_entries.get(key).cloned()
+    }
+
+    fn get_mixed_identity(
+        &self,
+        key: &MixedRasterImageIdentityKey,
+        raster_values: &ArrayRef,
+    ) -> Option<Arc<RgbaImage>> {
+        let entry = self.mixed_identity_entries.get(key)?;
+        if arrays_share_identity(&entry.raster_values, raster_values) {
+            Some(entry.image.clone())
+        } else {
+            None
+        }
+    }
+
+    fn insert_mixed(&mut self, key: MixedRasterImageKey, image: Arc<RgbaImage>) {
+        if self.mixed_entries.contains_key(&key) {
+            self.mixed_entries.insert(key, image);
+            return;
+        }
+        self.mixed_entries.insert(key.clone(), image);
+        self.mixed_order.push_back(key);
+        while self.mixed_entries.len() > UNIFORM_RASTER_IMAGE_CACHE_CAPACITY {
+            if let Some(oldest) = self.mixed_order.pop_front() {
+                self.mixed_entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn insert_mixed_identity(
+        &mut self,
+        key: MixedRasterImageIdentityKey,
+        raster_values: ArrayRef,
+        image: Arc<RgbaImage>,
+    ) {
+        let entry = MixedRasterIdentityCachedImage {
+            raster_values,
+            image,
+        };
+        if self.mixed_identity_entries.contains_key(&key) {
+            self.mixed_identity_entries.insert(key, entry);
+            return;
+        }
+        self.mixed_identity_entries.insert(key.clone(), entry);
+        self.mixed_identity_order.push_back(key);
+        while self.mixed_identity_entries.len() > UNIFORM_RASTER_IMAGE_CACHE_CAPACITY {
+            if let Some(oldest) = self.mixed_identity_order.pop_front() {
+                self.mixed_identity_entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
     fn insert(&mut self, key: UniformRasterImageKey, image: Arc<RgbaImage>) {
         if self.entries.contains_key(&key) {
             self.entries.insert(key, image);
@@ -468,6 +537,61 @@ struct UniformRasterImageKey {
     opacity: u32,
     null_color: [u32; 4],
     non_finite_color: [u32; 4],
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct MixedRasterImageIdentityKey {
+    raster_values_identity: u64,
+    mix_dim: String,
+    category_colors_hash: u64,
+    opacity_scale_hash: u64,
+    x_dim: String,
+    y_dim: String,
+    x_indices_hash: u64,
+    y_indices_hash: u64,
+    flip_x: bool,
+    flip_y: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct MixedRasterImageKey {
+    raster_values_hash: u64,
+    mix_dim: String,
+    category_colors_hash: u64,
+    opacity_scale_hash: u64,
+    x_dim: String,
+    y_dim: String,
+    x_indices_hash: u64,
+    y_indices_hash: u64,
+    flip_x: bool,
+    flip_y: bool,
+}
+
+fn hash_category_colors(category_colors: &[(String, [f32; 4])]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for (category, color) in category_colors {
+        category.hash(&mut hasher);
+        color_bits(*color).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Content fingerprint of a configured scale, for cache keys: scale type,
+/// domain/range array contents, and options.
+fn hash_configured_scale(scale: &ConfiguredScale) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    scale.scale_impl.scale_type().hash(&mut hasher);
+    hash_array_data(&scale.config.domain.to_data(), &mut hasher);
+    hash_array_data(&scale.config.range.to_data(), &mut hasher);
+    let mut options = scale
+        .config
+        .options
+        .iter()
+        .map(|(name, value)| (name.clone(), format!("{value:?}")))
+        .collect::<Vec<_>>();
+    options.sort();
+    options.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub fn scene_image_mark(
@@ -580,18 +704,27 @@ impl GridRasterRow {
         y_dim: &str,
         y_index: usize,
     ) -> Result<usize, AvengerChartError> {
+        self.cell_index_with(&[(x_dim, x_index), (y_dim, y_index)])
+    }
+
+    /// Flat cell index from (dimension, index) assignments covering every
+    /// entry of `values_dims`.
+    pub fn cell_index_with(
+        &self,
+        assignments: &[(&str, usize)],
+    ) -> Result<usize, AvengerChartError> {
         let mut index = 0usize;
         for dim_name in &self.values_dims {
             let dim = self.dimension(dim_name)?;
-            let dim_index = if dim_name == x_dim {
-                x_index
-            } else if dim_name == y_dim {
-                y_index
-            } else {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "UniformRaster2D scalar fill cannot render unselected value dimension '{dim_name}'"
-                )));
-            };
+            let dim_index = assignments
+                .iter()
+                .find(|(name, _)| name == dim_name)
+                .map(|(_, value)| *value)
+                .ok_or_else(|| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "UniformRaster2D cannot render unselected value dimension '{dim_name}'"
+                    ))
+                })?;
             if dim_index >= dim.coords.len() {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "UniformRaster2D index {dim_index} is out of bounds for dimension '{}' with length {}",
@@ -607,6 +740,16 @@ impl GridRasterRow {
             index += dim_index * stride;
         }
         Ok(index)
+    }
+
+    /// The categorical dimension's values, for the overlay (mixing) path.
+    pub fn categorical_dim_values(&self, name: &str) -> Result<&[String], AvengerChartError> {
+        match &self.dimension(name)?.coords {
+            RasterCoords::Categorical { values } => Ok(values),
+            RasterCoords::Uniform { .. } => Err(AvengerChartError::InvalidArgument(format!(
+                "UniformRaster2D dimension '{name}' is uniform; the overlay mix dimension must be categorical"
+            ))),
+        }
     }
 }
 
@@ -1273,6 +1416,253 @@ pub fn build_rgba_image(
     })
 }
 
+/// Categorical overlay: build (or reuse) ONE mixed RGBA image from the K
+/// planes of `mix_dim`. Per pixel the plane values act as convex weights
+/// over the resolved category colors (Oklab mixing — not configurable), and
+/// alpha comes from the opacity scale applied to the plane total. Zero- or
+/// all-null-total pixels are fully transparent.
+///
+/// `category_colors` are matched to planes BY CATEGORY VALUE: every plane
+/// must have a color (a plane without one is an error — the fill scale's
+/// domain should cover all observed categories); extra colors are ignored.
+#[allow(clippy::too_many_arguments)]
+pub fn build_or_reuse_mixed_rgba_image(
+    raster: &GridRasterRow,
+    mix_dim: &str,
+    category_colors: &[(String, [f32; 4])],
+    opacity_scale: &ConfiguredScale,
+    x_dim: &str,
+    y_dim: &str,
+    x_indices: &[usize],
+    y_indices: &[usize],
+    flip_x: bool,
+    flip_y: bool,
+    image_cache: &UniformRasterImageCacheHandle,
+) -> Result<Arc<RgbaImage>, AvengerChartError> {
+    let category_colors_hash = hash_category_colors(category_colors);
+    let opacity_scale_hash = hash_configured_scale(opacity_scale);
+    let identity_key = MixedRasterImageIdentityKey {
+        raster_values_identity: hash_array_identity(&raster.values),
+        mix_dim: mix_dim.to_string(),
+        category_colors_hash,
+        opacity_scale_hash,
+        x_dim: x_dim.to_string(),
+        y_dim: y_dim.to_string(),
+        x_indices_hash: hash_indices(x_indices),
+        y_indices_hash: hash_indices(y_indices),
+        flip_x,
+        flip_y,
+    };
+    if let Some(image) = image_cache
+        .lock()
+        .expect("uniform raster image cache lock poisoned")
+        .get_mixed_identity(&identity_key, &raster.values)
+    {
+        return Ok(image);
+    }
+
+    let key = MixedRasterImageKey {
+        raster_values_hash: hash_array_contents(&raster.values),
+        mix_dim: mix_dim.to_string(),
+        category_colors_hash,
+        opacity_scale_hash,
+        x_dim: x_dim.to_string(),
+        y_dim: y_dim.to_string(),
+        x_indices_hash: hash_indices(x_indices),
+        y_indices_hash: hash_indices(y_indices),
+        flip_x,
+        flip_y,
+    };
+    let content_cached_image = {
+        let mut cache = image_cache
+            .lock()
+            .expect("uniform raster image cache lock poisoned");
+        let image = cache.get_mixed(&key);
+        if let Some(image) = &image {
+            cache.insert_mixed_identity(identity_key.clone(), raster.values.clone(), image.clone());
+        }
+        image
+    };
+    if let Some(image) = content_cached_image {
+        return Ok(image);
+    }
+
+    let build_start = Instant::now();
+    let image = Arc::new(build_mixed_rgba_image(
+        raster,
+        mix_dim,
+        category_colors,
+        opacity_scale,
+        x_dim,
+        y_dim,
+        x_indices,
+        y_indices,
+        flip_x,
+        flip_y,
+    )?);
+    debug!(
+        target: "avenger_chart::raster",
+        mix_dim,
+        planes = raster.categorical_dim_values(mix_dim).map(|values| values.len()).unwrap_or(0),
+        width = x_indices.len(),
+        height = y_indices.len(),
+        build_ms = build_start.elapsed().as_secs_f64() * 1000.0,
+        "mixed categorical raster RGBA image cache miss"
+    );
+
+    let mut cache = image_cache
+        .lock()
+        .expect("uniform raster image cache lock poisoned");
+    cache.insert_mixed(key, image.clone());
+    cache.insert_mixed_identity(identity_key, raster.values.clone(), image.clone());
+    Ok(image)
+}
+
+pub fn build_mixed_rgba_image(
+    raster: &GridRasterRow,
+    mix_dim: &str,
+    category_colors: &[(String, [f32; 4])],
+    opacity_scale: &ConfiguredScale,
+    x_dim: &str,
+    y_dim: &str,
+    x_indices: &[usize],
+    y_indices: &[usize],
+    flip_x: bool,
+    flip_y: bool,
+) -> Result<RgbaImage, AvengerChartError> {
+    let width = u32::try_from(x_indices.len()).map_err(|_| {
+        AvengerChartError::InvalidArgument(
+            "UniformRaster2D image width does not fit in u32".to_string(),
+        )
+    })?;
+    let height = u32::try_from(y_indices.len()).map_err(|_| {
+        AvengerChartError::InvalidArgument(
+            "UniformRaster2D image height does not fit in u32".to_string(),
+        )
+    })?;
+
+    let plane_values = raster.categorical_dim_values(mix_dim)?;
+    // Plane colors matched by category VALUE; plane order, scale domain
+    // order, and legend order are three independent orders.
+    let plane_colors = plane_values
+        .iter()
+        .map(|category| {
+            category_colors
+                .iter()
+                .find(|(candidate, _)| candidate == category)
+                .map(|(_, color)| *color)
+                .ok_or_else(|| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "UniformRaster2D overlay has no color for category '{category}' of dimension '{mix_dim}'"
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mixer = OklabMixer::new(&plane_colors);
+    let plane_count = plane_values.len();
+
+    // Weights as f64 regardless of the stored cell type (counts are UInt64).
+    let weight_values = datafusion::arrow::compute::cast(&raster.values, &DataType::Float64)
+        .map_err(AvengerChartError::ArrowError)?;
+    let weight_values = weight_values
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .expect("cast to Float64 produced a Float64Array");
+
+    // Pass 1: per-pixel totals in pixel order, then batch-scale to alpha.
+    let pixel_count = width as usize * height as usize;
+    let mut totals = Vec::with_capacity(pixel_count);
+    let mut weights = vec![0.0_f32; plane_count];
+    let mut cell_of_pixel = Vec::with_capacity(pixel_count);
+    for py in 0..height as usize {
+        for px in 0..width as usize {
+            let x_offset = if flip_x { width as usize - 1 - px } else { px };
+            let y_offset = if flip_y { height as usize - 1 - py } else { py };
+            let x_index = *x_indices.get(x_offset).ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "UniformRaster2D x pixel index out of bounds".to_string(),
+                )
+            })?;
+            let y_index = *y_indices.get(y_offset).ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "UniformRaster2D y pixel index out of bounds".to_string(),
+                )
+            })?;
+            let mut total = 0.0_f64;
+            for plane in 0..plane_count {
+                let cell = raster.cell_index_with(&[
+                    (x_dim, x_index),
+                    (y_dim, y_index),
+                    (mix_dim, plane),
+                ])?;
+                if plane == 0 {
+                    cell_of_pixel.push(cell);
+                }
+                if weight_values.is_null(cell) {
+                    continue;
+                }
+                let value = weight_values.value(cell);
+                if value.is_finite() && value > 0.0 {
+                    total += value;
+                }
+            }
+            totals.push(total);
+        }
+    }
+    let totals_array = Arc::new(Float64Array::from(totals.clone())) as ArrayRef;
+    let alphas = opacity_scale
+        .scale_to_numeric(&totals_array)
+        .map_err(AvengerChartError::ScaleError)?
+        .as_vec(pixel_count, None);
+
+    // Pass 2: mix per pixel. Plane cell indices differ from the plane-0
+    // index by the mix dimension's stride.
+    let mix_stride = *raster.strides.get(mix_dim).ok_or_else(|| {
+        AvengerChartError::InternalError(format!(
+            "UniformRaster2D missing computed stride for dimension '{mix_dim}'"
+        ))
+    })?;
+    let mut data = Vec::with_capacity(pixel_count * 4);
+    for pixel in 0..pixel_count {
+        let total = totals[pixel];
+        if total <= 0.0 {
+            data.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        }
+        let base_cell = cell_of_pixel[pixel];
+        for (plane, weight) in weights.iter_mut().enumerate() {
+            let cell = base_cell + plane * mix_stride;
+            *weight = if weight_values.is_null(cell) {
+                0.0
+            } else {
+                let value = weight_values.value(cell);
+                if value.is_finite() && value > 0.0 {
+                    value as f32
+                } else {
+                    0.0
+                }
+            };
+        }
+        let Some(mixed) = mixer.mix(&weights) else {
+            data.extend_from_slice(&[0, 0, 0, 0]);
+            continue;
+        };
+        let alpha = alphas[pixel];
+        let alpha = if alpha.is_finite() {
+            alpha.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        push_rgba8(&mut data, [mixed[0], mixed[1], mixed[2], 1.0], alpha);
+    }
+
+    Ok(RgbaImage {
+        width,
+        height,
+        data,
+    })
+}
+
 fn color_bits(color: [f32; 4]) -> [u32; 4] {
     [
         color[0].to_bits(),
@@ -1404,5 +1794,199 @@ fn push_rgba8(data: &mut Vec<u8>, mut rgba: [f32; 4], opacity: f32) {
     rgba[3] *= opacity;
     for component in rgba {
         data.push((component.clamp(0.0, 1.0) * 255.0).round() as u8);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use datafusion::arrow::array::UInt64Array;
+
+    /// 2x2 grid with two categorical planes ("a", "b"), plane-major
+    /// [cat, y, x] layout:
+    ///   plane a: cell(0,0)=4, cell(x0,y1)=1
+    ///   plane b: cell(x1,y0)=2, cell(x0,y1)=1
+    fn two_plane_row() -> GridRasterRow {
+        let mut strides = HashMap::new();
+        strides.insert("x".to_string(), 1usize);
+        strides.insert("y".to_string(), 2usize);
+        strides.insert("cat".to_string(), 4usize);
+        GridRasterRow {
+            dimensions: vec![
+                RasterDimension {
+                    name: "x".to_string(),
+                    coords: RasterCoords::Uniform {
+                        _sampling: Some("linear".to_string()),
+                        start: 0.0,
+                        stop: 2.0,
+                        count: 2,
+                    },
+                },
+                RasterDimension {
+                    name: "y".to_string(),
+                    coords: RasterCoords::Uniform {
+                        _sampling: Some("linear".to_string()),
+                        start: 0.0,
+                        stop: 2.0,
+                        count: 2,
+                    },
+                },
+                RasterDimension {
+                    name: "cat".to_string(),
+                    coords: RasterCoords::Categorical {
+                        values: vec!["a".to_string(), "b".to_string()],
+                    },
+                },
+            ],
+            values_dims: vec!["cat".to_string(), "y".to_string(), "x".to_string()],
+            strides,
+            values: Arc::new(UInt64Array::from(vec![
+                4, 0, 1, 0, // plane a
+                0, 2, 1, 0, // plane b
+            ])) as ArrayRef,
+        }
+    }
+
+    fn category_colors() -> Vec<(String, [f32; 4])> {
+        vec![
+            ("a".to_string(), [1.0, 0.0, 0.0, 1.0]),
+            ("b".to_string(), [0.0, 0.0, 1.0, 1.0]),
+        ]
+    }
+
+    fn opacity_scale() -> ConfiguredScale {
+        avenger_scales::scales::linear::LinearScale::configured((0.0, 4.0), (0.0, 1.0))
+    }
+
+    fn pixel(image: &RgbaImage, px: usize, py: usize) -> [u8; 4] {
+        let offset = (py * image.width as usize + px) * 4;
+        [
+            image.data[offset],
+            image.data[offset + 1],
+            image.data[offset + 2],
+            image.data[offset + 3],
+        ]
+    }
+
+    #[test]
+    fn mixed_rgba_pure_mixed_and_transparent_pixels() {
+        let raster = two_plane_row();
+        let image = build_mixed_rgba_image(
+            &raster,
+            "cat",
+            &category_colors(),
+            &opacity_scale(),
+            "x",
+            "y",
+            &[0, 1],
+            &[0, 1],
+            false,
+            false,
+        )
+        .unwrap();
+
+        // Pure a at (0,0): exact red, total=4 -> alpha 255.
+        assert_eq!(pixel(&image, 0, 0), [255, 0, 0, 255]);
+        // Pure b at (1,0): exact blue, total=2 -> alpha ~128.
+        let blue = pixel(&image, 1, 0);
+        assert_eq!([blue[0], blue[1], blue[2]], [0, 0, 255]);
+        assert!((blue[3] as i32 - 128).unsigned_abs() <= 1, "alpha {}", blue[3]);
+        // 50/50 mix at (0,1) equals the OklabMixer output.
+        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]);
+        let expected = mixer.mix(&[1.0, 1.0]).unwrap();
+        let mixed = pixel(&image, 0, 1);
+        for channel in 0..3 {
+            assert!(
+                (mixed[channel] as f32 / 255.0 - expected[channel]).abs() <= 1.5 / 255.0,
+                "channel {channel}: {mixed:?} vs {expected:?}"
+            );
+        }
+        // Zero-total at (1,1): fully transparent.
+        assert_eq!(pixel(&image, 1, 1), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn mixed_rgba_flip_y_reverses_rows() {
+        let raster = two_plane_row();
+        let unflipped = build_mixed_rgba_image(
+            &raster,
+            "cat",
+            &category_colors(),
+            &opacity_scale(),
+            "x",
+            "y",
+            &[0, 1],
+            &[0, 1],
+            false,
+            false,
+        )
+        .unwrap();
+        let flipped = build_mixed_rgba_image(
+            &raster,
+            "cat",
+            &category_colors(),
+            &opacity_scale(),
+            "x",
+            "y",
+            &[0, 1],
+            &[0, 1],
+            false,
+            true,
+        )
+        .unwrap();
+        assert_eq!(pixel(&flipped, 0, 1), pixel(&unflipped, 0, 0));
+        assert_eq!(pixel(&flipped, 0, 0), pixel(&unflipped, 0, 1));
+    }
+
+    #[test]
+    fn mixed_rgba_missing_plane_color_errors() {
+        let raster = two_plane_row();
+        let colors = vec![("a".to_string(), [1.0, 0.0, 0.0, 1.0])];
+        let err = build_mixed_rgba_image(
+            &raster,
+            "cat",
+            &colors,
+            &opacity_scale(),
+            "x",
+            "y",
+            &[0, 1],
+            &[0, 1],
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("no color for category 'b'"), "{err}");
+    }
+
+    #[test]
+    fn mixed_rgba_cache_hits_and_color_change_misses() {
+        let raster = two_plane_row();
+        let cache = default_uniform_raster_image_cache();
+        let build = |colors: &[(String, [f32; 4])]| {
+            build_or_reuse_mixed_rgba_image(
+                &raster,
+                "cat",
+                colors,
+                &opacity_scale(),
+                "x",
+                "y",
+                &[0, 1],
+                &[0, 1],
+                false,
+                false,
+                &cache,
+            )
+            .unwrap()
+        };
+        let first = build(&category_colors());
+        let second = build(&category_colors());
+        assert!(Arc::ptr_eq(&first, &second), "same inputs must hit the cache");
+        let mut recolored = category_colors();
+        recolored[1].1 = [0.0, 1.0, 0.0, 1.0];
+        let third = build(&recolored);
+        assert!(
+            !Arc::ptr_eq(&first, &third),
+            "changed category colors must rebuild"
+        );
     }
 }
