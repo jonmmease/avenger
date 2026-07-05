@@ -56,7 +56,13 @@ async fn taxi_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFram
                 .and(col("pickup_y").lt_eq(lit(TAXI_Y_MAX))),
         )
         .unwrap()
-        .select_columns(&["pickup_x", "pickup_y"])
+        .filter(
+            col("passenger_count")
+                .gt_eq(lit(1_i64))
+                .and(col("passenger_count").lt_eq(lit(6_i64))),
+        )
+        .unwrap()
+        .select_columns(&["pickup_x", "pickup_y", "passenger_count"])
         .unwrap();
     let batches = df.collect().await.unwrap();
     let schema = batches.first().unwrap().schema();
@@ -81,6 +87,59 @@ fn meters_y(raw: Expr) -> Expr {
 
 fn half_pixel_bins(view_pixels: Expr) -> Expr {
     floor(cast(view_pixels, DataType::Float64) / lit(2.0))
+}
+
+/// Categorical raster child (capstone shape): by(passenger_count) planes,
+/// Oklab overlay, Sqrt density opacity. Used by the `_by` probe variant.
+fn categorical_raster_child(
+    v: &ViewRef,
+    stats: &ScalarAggregateOutput,
+) -> GeoUniformRaster2D<Geo> {
+    use avenger_chart::prelude::LegendableChannel as _;
+    let gate = stats.scalar("n").gt_eq(lit(POINT_BUDGET));
+    let x_start = meters_x(v.x().domain_start());
+    let x_end = meters_x(v.x().domain_end());
+    let y_start = meters_y(v.y().domain_start());
+    let y_end = meters_y(v.y().domain_end());
+    let x_bins = half_pixel_bins(v.x().pixels());
+    let y_bins = half_pixel_bins(v.y().pixels());
+    GeoUniformRaster2D::new()
+        .transform(
+            Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+                .frame(crs::EPSG_3857)
+                .x(|x| x.extent(x_start, x_end).bins(x_bins))
+                .y(|y| y.extent(y_start, y_end).bins(y_bins))
+                .by(col("passenger_count"))
+                .agg("count"),
+            move |mark, hist| {
+                let mark = mark.transform(Filter::new(gate), |mark, _| mark);
+                GeoUniformRaster2DChannels::raster_with(mark, hist.raster(), |r| {
+                    r.x(hist.x_dim())
+                        .y(hist.y_dim())
+                        .fill_by(hist.by_dim(), |fill| {
+                            fill.scale(|s| {
+                                s.domain_discrete(
+                                    ["1", "2", "3", "4", "5", "6"]
+                                        .iter()
+                                        .map(|value| lit(*value))
+                                        .collect::<Vec<_>>(),
+                                )
+                            })
+                            .legend(|l| l.title("Passengers"))
+                        })
+                        .opacity_by_total(|o| {
+                            o.scale_with::<Sqrt>(|s| {
+                                s.domain((0.0, 60.0))
+                                    .range_interval(lit(0.2), lit(1.0))
+                                    .clamp(true)
+                                    .nice(false)
+                                    .zero(false)
+                            })
+                        })
+                })
+            },
+        )
+        .smooth(false)
 }
 
 fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> GeoUniformRaster2D<Geo> {
@@ -130,7 +189,11 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> GeoSymbol<Geo> {
         .fill("#08519c")
 }
 
-fn geo_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
+fn geo_plot_with_children(
+    df: datafusion::dataframe::DataFrame,
+    coord: Geo,
+    categorical: bool,
+) -> Plot<Geo> {
     Plot::with_coord(coord)
         .title("probe")
         .canvas_size(960.0, 720.0)
@@ -142,7 +205,7 @@ fn geo_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
                     .y_domain(col("pickup_y"))
                     .preview_cached(true)
                     .throttle(Duration::from_millis(100)),
-                |group, v| {
+                move |group, v| {
                     let x_start = meters_x(v.x().domain_start());
                     let x_end = meters_x(v.x().domain_end());
                     let y_start = meters_y(v.y().domain_start());
@@ -154,15 +217,22 @@ fn geo_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
                         .and(col("pickup_y").lt_eq(y_end));
                     group
                         .transform(Filter::new(in_view), |group, _| group)
-                        .transform(ScalarAggregate::new().count("n"), |group, stats| {
-                            group
-                                .mark(raster_child(&v, &stats))
-                                .mark(scatter_child(&stats))
+                        .transform(ScalarAggregate::new().count("n"), move |group, stats| {
+                            let raster = if categorical {
+                                categorical_raster_child(&v, &stats)
+                            } else {
+                                raster_child(&v, &stats)
+                            };
+                            group.mark(raster).mark(scatter_child(&stats))
                         })
                 },
             ),
         )
         .tool(GeoPanZoom::new().viewport_id("nyc"))
+}
+
+fn geo_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
+    geo_plot_with_children(df, coord, false)
 }
 
 async fn wait_for_materializations(session: &PlotSession) {
@@ -178,6 +248,18 @@ async fn wait_for_materializations(session: &PlotSession) {
 #[ignore = "manual perf probe; needs the taxi parquet fixture"]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn geo_preview_zoom_profile() {
+    run_zoom_profile(false).await;
+}
+
+/// Categorical (by passenger_count) variant: retarget frames must stay in
+/// the same envelope with K=6 planes.
+#[ignore = "manual perf probe; needs the taxi parquet fixture"]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn geo_preview_zoom_profile_by() {
+    run_zoom_profile(true).await;
+}
+
+async fn run_zoom_profile(categorical: bool) {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .try_init();
@@ -190,7 +272,12 @@ async fn geo_preview_zoom_profile() {
     let center_x_param = coord.center_x_param();
     let center_y_param = coord.center_y_param();
     let upp_param = coord.units_per_pixel_param();
-    let compiled = Arc::new(geo_plot(df, coord).compile(&ctx).await.unwrap());
+    let compiled = Arc::new(
+        geo_plot_with_children(df, coord, categorical)
+            .compile(&ctx)
+            .await
+            .unwrap(),
+    );
     let mut session = compiled.instantiate(ctx);
 
     let warmup_start = Instant::now();
