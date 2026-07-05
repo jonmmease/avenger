@@ -4,9 +4,78 @@
 //! https://searchfox.org/mozilla-central/source/servo/components/style/color/mix.rs
 
 use super::{
-    convert::normalize_hue,
+    convert::{convert_color_space, normalize_hue},
     types::{AbsoluteColor, ColorSpace},
 };
+
+/// Convex K-way mixer over a fixed set of key colors in Oklab.
+///
+/// Built for categorical raster shading: the key colors (one per category)
+/// are converted to Oklab once at construction, then each pixel's weighted
+/// mean costs three multiply-adds per category plus a single Oklab → sRGB
+/// conversion. The mean is convex, so results stay inside the convex hull
+/// of the key colors in Oklab; the final per-channel clamp handles the rare
+/// sub-percent gamut excursion after conversion.
+///
+/// Key-color alpha is ignored — for density-shaded rasters the output alpha
+/// is supplied separately by the caller (an opacity scale over the total).
+/// Non-finite or negative weights count as zero.
+#[derive(Clone, Debug)]
+pub struct OklabMixer {
+    labs: Vec<[f32; 3]>,
+}
+
+impl OklabMixer {
+    pub fn new(key_colors: &[[f32; 4]]) -> Self {
+        let labs = key_colors
+            .iter()
+            .map(|color| {
+                convert_color_space(
+                    &[color[0], color[1], color[2]],
+                    ColorSpace::Srgb,
+                    ColorSpace::Oklab,
+                )
+            })
+            .collect();
+        Self { labs }
+    }
+
+    pub fn len(&self) -> usize {
+        self.labs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.labs.is_empty()
+    }
+
+    /// Weighted convex mix of the key colors; returns sRGB components in
+    /// [0, 1]. `None` when the usable weights sum to zero (rasters render
+    /// such pixels fully transparent).
+    pub fn mix(&self, weights: &[f32]) -> Option<[f32; 3]> {
+        debug_assert_eq!(weights.len(), self.labs.len());
+        let mut acc = [0.0_f32; 3];
+        let mut total = 0.0_f32;
+        for (lab, &weight) in self.labs.iter().zip(weights) {
+            if !weight.is_finite() || weight <= 0.0 {
+                continue;
+            }
+            total += weight;
+            acc[0] += weight * lab[0];
+            acc[1] += weight * lab[1];
+            acc[2] += weight * lab[2];
+        }
+        if total <= 0.0 {
+            return None;
+        }
+        let lab = [acc[0] / total, acc[1] / total, acc[2] / total];
+        let srgb = convert_color_space(&lab, ColorSpace::Oklab, ColorSpace::Srgb);
+        Some([
+            srgb[0].clamp(0.0, 1.0),
+            srgb[1].clamp(0.0, 1.0),
+            srgb[2].clamp(0.0, 1.0),
+        ])
+    }
+}
 
 /// Hue interpolation method for polar color spaces
 ///
@@ -240,6 +309,87 @@ fn interpolate_premultiplied(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_oklab_mixer_pure_weight_reproduces_key_color() {
+        let keys = [
+            [0.9, 0.2, 0.1, 1.0_f32],
+            [0.1, 0.5, 0.8, 1.0],
+            [0.2, 0.7, 0.3, 1.0],
+        ];
+        let mixer = OklabMixer::new(&keys);
+        for (index, key) in keys.iter().enumerate() {
+            let mut weights = [0.0_f32; 3];
+            weights[index] = 7.5; // un-normalized on purpose
+            let mixed = mixer.mix(&weights).expect("nonzero weight");
+            for channel in 0..3 {
+                assert!(
+                    (mixed[channel] - key[channel]).abs() <= 1.5 / 255.0,
+                    "key {index} channel {channel}: {} vs {}",
+                    mixed[channel],
+                    key[channel]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_oklab_mixer_matches_independent_oklab_average() {
+        let black = [0.0_f32, 0.0, 0.0, 1.0];
+        let white = [1.0_f32, 1.0, 1.0, 1.0];
+        let mixer = OklabMixer::new(&[black, white]);
+        let mixed = mixer.mix(&[1.0, 1.0]).expect("nonzero weights");
+
+        // Independent computation through the public conversion API.
+        let lab_black = convert_color_space(&[0.0, 0.0, 0.0], ColorSpace::Srgb, ColorSpace::Oklab);
+        let lab_white = convert_color_space(&[1.0, 1.0, 1.0], ColorSpace::Srgb, ColorSpace::Oklab);
+        let lab_mid = [
+            (lab_black[0] + lab_white[0]) / 2.0,
+            (lab_black[1] + lab_white[1]) / 2.0,
+            (lab_black[2] + lab_white[2]) / 2.0,
+        ];
+        let expected = convert_color_space(&lab_mid, ColorSpace::Oklab, ColorSpace::Srgb);
+        for channel in 0..3 {
+            assert!((mixed[channel] - expected[channel]).abs() < 1e-4);
+        }
+        // And it is measurably NOT the naive gamma-sRGB average (0.5): the
+        // Oklab half-lightness gray encodes near 0.389 in sRGB.
+        assert!(
+            (mixed[0] - 0.5).abs() > 0.05,
+            "Oklab mid-gray should differ from the naive sRGB average, got {}",
+            mixed[0]
+        );
+    }
+
+    #[test]
+    fn test_oklab_mixer_blue_yellow_not_naive_gray() {
+        let blue = [0.0_f32, 0.0, 1.0, 1.0];
+        let yellow = [1.0_f32, 1.0, 0.0, 1.0];
+        let mixer = OklabMixer::new(&[blue, yellow]);
+        let mixed = mixer.mix(&[0.5, 0.5]).expect("nonzero weights");
+        // Naive gamma-sRGB averaging collapses to exactly (0.5, 0.5, 0.5).
+        let max_dev_from_gray = mixed
+            .iter()
+            .map(|c| (c - 0.5_f32).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            max_dev_from_gray > 0.05,
+            "Oklab blue/yellow mix should not collapse to the muddy sRGB gray, got {mixed:?}"
+        );
+        // Convexity + clamp: all channels in range.
+        assert!(mixed.iter().all(|c| (0.0..=1.0).contains(c)));
+    }
+
+    #[test]
+    fn test_oklab_mixer_degenerate_weights() {
+        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]]);
+        assert!(mixer.mix(&[0.0, 0.0]).is_none());
+        assert!(mixer.mix(&[f32::NAN, 0.0]).is_none());
+        // Negative and NaN weights are ignored, not propagated.
+        let mixed = mixer.mix(&[-3.0, 2.0]).expect("one usable weight");
+        assert!((mixed[1] - 1.0).abs() <= 1.5 / 255.0);
+        assert!(mixed[0].abs() <= 1.5 / 255.0);
+    }
 
     #[test]
     fn test_adjust_hue_shorter() {

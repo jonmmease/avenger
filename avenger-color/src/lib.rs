@@ -11,7 +11,7 @@ pub use contrast::{
 };
 pub use convert::{normalize_hue, orthogonal_to_polar, polar_to_orthogonal};
 pub use interpolate::{interpolate_colors, ColorInterpolationError, ColorInterpolationSpace};
-pub use mix::{mix_colors, HueInterpolationMethod};
+pub use mix::{mix_colors, HueInterpolationMethod, OklabMixer};
 pub use model::{
     apply_opacity_to_color, ColorOrGradient, Gradient, GradientStop, LinearGradient, RadialGradient,
 };
