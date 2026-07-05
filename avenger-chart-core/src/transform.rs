@@ -40,6 +40,19 @@ pub struct ViewMaterializationRequest {
     pub empty_dataframe: Option<DataFrame>,
 }
 
+/// A view-chain stage whose output is derived SCALARS (not a replacement
+/// dataframe) offered for asynchronous materialization.
+///
+/// The materialized result is a one-row `RecordBatch` with one column per
+/// measure, in `measure_names` order. The chain executor turns the ready
+/// batch into derived-scalar literals while the input dataframe passes
+/// through the stage unchanged.
+pub struct ViewScalarMaterialization {
+    pub request: MaterializationRequest,
+    /// Measure/derived-scalar names in result-column order.
+    pub measure_names: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataTransformCompileContext {
     pub scope: CoordinationScope,
@@ -93,6 +106,28 @@ pub trait CompiledDataTransform: Send + Sync {
         _dataframe: &DataFrame,
         _ctx: &ViewMaterializationContext<'_>,
     ) -> Result<Option<MaterializationIdentity>, AvengerChartError> {
+        Ok(None)
+    }
+
+    /// Offer this stage's derived SCALARS for asynchronous materialization.
+    ///
+    /// Unlike [`Self::view_materialization_request`], the stage's dataframe
+    /// passes through unchanged; only the derived scalars come from the
+    /// materialized one-row batch. Previews in `RetargetCached` views may
+    /// then serve slightly stale scalar values (the latest ready result for
+    /// this stage's identity) instead of executing the aggregation
+    /// synchronously inside the evaluation. Transforms whose scalars must
+    /// always be exact — or that never execute eagerly — keep the default
+    /// `None`.
+    ///
+    /// The identity contract matches [`Self::view_materialization_identity`]:
+    /// the chain executor overrides the request identity from the UNRESOLVED
+    /// stage transform so resolved params/derived scalars don't churn it.
+    fn view_scalar_materialization_request(
+        &self,
+        _dataframe: &DataFrame,
+        _ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<ViewScalarMaterialization>, AvengerChartError> {
         Ok(None)
     }
 }

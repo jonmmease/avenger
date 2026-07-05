@@ -347,35 +347,55 @@ async fn geo_end_of_scroll_convergence() {
     wait_for_materializations(&session).await;
 
     // Winit-like inbox: invalidations arrive (from executor tasks or the
-    // eval itself) and become due immediately or after their delay.
-    type Inbox = Arc<std::sync::Mutex<Vec<(Instant, String)>>>;
+    // eval itself) and become due immediately or after their delay. Entries
+    // record when they were requested so pop_due can mirror winit's
+    // delayed-event redundancy rule (8cc61ed58): a delayed wake-up requested
+    // before the last evaluation STARTED is redundant — that evaluation
+    // re-parked whatever wake-up is still needed. Without this rule stale
+    // schedule-throttle wake-ups multiply into a self-sustaining eval storm
+    // that real winit never runs.
+    struct InboxEntry {
+        due: Instant,
+        pushed_at: Instant,
+        delayed: bool,
+        reason: String,
+    }
+    type Inbox = Arc<std::sync::Mutex<Vec<InboxEntry>>>;
     let inbox: Inbox = Arc::new(std::sync::Mutex::new(Vec::new()));
     let inbox_writer = inbox.clone();
     let _subscription =
         session.subscribe_to_evaluation_invalidations(Arc::new(move |invalidation| {
             use avenger_chart_core::EvaluationInvalidationSchedule as Schedule;
-            let due = match invalidation.schedule {
-                Schedule::Now => Instant::now(),
-                Schedule::After(delay) => Instant::now() + delay,
+            let now = Instant::now();
+            let (due, delayed) = match invalidation.schedule {
+                Schedule::Now => (now, false),
+                Schedule::After(delay) => (now + delay, true),
             };
-            inbox_writer
-                .lock()
-                .unwrap()
-                .push((due, format!("{:?}", invalidation.reason)));
+            inbox_writer.lock().unwrap().push(InboxEntry {
+                due,
+                pushed_at: now,
+                delayed,
+                reason: format!("{:?}", invalidation.reason),
+            });
         }));
-    let pop_due = |inbox: &Inbox| -> Option<String> {
+    let pop_due = |inbox: &Inbox, last_eval_start: Instant| -> Option<String> {
         let mut inbox = inbox.lock().unwrap();
         let now = Instant::now();
+        // Winit redundancy rule: drop due delayed entries requested before
+        // the last evaluation started.
+        inbox.retain(|entry| {
+            !(entry.delayed && entry.due <= now && entry.pushed_at <= last_eval_start)
+        });
         let index = inbox
             .iter()
             .enumerate()
-            .filter(|(_, (due, _))| *due <= now)
-            .min_by_key(|(_, (due, _))| *due)
+            .filter(|(_, entry)| entry.due <= now)
+            .min_by_key(|(_, entry)| entry.due)
             .map(|(index, _)| index)?;
-        Some(inbox.remove(index).1)
+        Some(inbox.remove(index).reason)
     };
     let earliest_pending = |inbox: &Inbox| -> Option<Instant> {
-        inbox.lock().unwrap().iter().map(|(due, _)| *due).min()
+        inbox.lock().unwrap().iter().map(|entry| entry.due).min()
     };
 
     let (center_x, center_y) = {
@@ -393,9 +413,16 @@ async fn geo_end_of_scroll_convergence() {
     let mut failures = Vec::new();
     let mut zoomed_in = false;
 
-    for trial in 0..trials {
+    // The final trial zooms deep enough to cross the 10k point budget so
+    // the raster->scatter gate flip after gesture end is covered: with
+    // async scalars the count is one cycle stale mid-gesture, and the flip
+    // must still land once the settled count materializes.
+    let total_trials = trials + 1;
+    for trial in 0..total_trials {
+        let gate_flip_trial = trial == trials;
         let mut log: Vec<String> = Vec::new();
         let trial_start = Instant::now();
+        let mut last_eval_start = trial_start;
         let log_eval = |log: &mut Vec<String>,
                             trigger: &str,
                             metrics: &EvaluationMetrics,
@@ -414,13 +441,22 @@ async fn geo_end_of_scroll_convergence() {
         tokio::time::sleep(Duration::from_millis((trial as u64 * 13) % 100)).await;
 
         // Alternate zoom-in / zoom-out gestures so keys revisit cached results.
-        let zoom_out = zoomed_in;
-        zoomed_in = !zoom_out;
+        let zoom_out = if gate_flip_trial { false } else { zoomed_in };
+        if !gate_flip_trial {
+            zoomed_in = !zoom_out;
+        }
+        // The flip gesture must end deep enough that the in-view count
+        // genuinely drops below the 10k budget: 0.6^12 ~ 0.002x span (a
+        // ~75m window in midtown at the probe's default 1M rows).
+        let zoom_factor: f64 = if gate_flip_trial { 0.6 } else { 0.97 };
         for frame in 1..=GESTURE_FRAMES {
             // Winit interleaves completion-invalidation rebuilds with wheel
             // events; mirror that before each wheel frame.
             for _ in 0..3 {
-                let Some(reason) = pop_due(&inbox) else { break };
+                let Some(reason) = pop_due(&inbox, last_eval_start) else {
+                    break;
+                };
+                last_eval_start = Instant::now();
                 let (plot, metrics) = session
                     .evaluate_with_metrics(EvaluationRequest::new().preview())
                     .await
@@ -437,11 +473,12 @@ async fn geo_end_of_scroll_convergence() {
             } else {
                 frame
             };
-            let upp = base_upp * 0.97_f64.powi(step);
+            let upp = base_upp * zoom_factor.powi(step);
             let mut patch = indexmap::IndexMap::new();
             patch.insert(center_x_param.clone(), ScalarValue::Float64(Some(center_x)));
             patch.insert(center_y_param.clone(), ScalarValue::Float64(Some(center_y)));
             patch.insert(upp_param.clone(), ScalarValue::Float64(Some(upp)));
+            last_eval_start = Instant::now();
             let (plot, metrics) = session
                 .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
                 .await
@@ -458,9 +495,10 @@ async fn geo_end_of_scroll_convergence() {
         // Gesture over: evaluate ONLY on invalidations, winit-style.
         let gesture_end = Instant::now();
         let deadline = gesture_end + Duration::from_secs(6);
-        let mut outcome = None;
+        let mut outcome: Option<(Duration, Option<[f32; 4]>)> = None;
         while Instant::now() < deadline {
-            if let Some(reason) = pop_due(&inbox) {
+            if let Some(reason) = pop_due(&inbox, last_eval_start) {
+                last_eval_start = Instant::now();
                 let (plot, metrics) = session
                     .evaluate_with_metrics(EvaluationRequest::new().preview())
                     .await
@@ -477,8 +515,16 @@ async fn geo_end_of_scroll_convergence() {
                 if metrics.pipeline.preview_data_mark_reuses == 0
                     && metrics.pipeline.materialization_ready_used >= 1
                 {
-                    outcome = Some(gesture_end.elapsed());
-                    break;
+                    // The gate-flip trial's FIRST consume legitimately shows
+                    // a raster built with the stale mid-gesture count; the
+                    // settled count then flips the gate through a second
+                    // schedule->rasterize->consume cycle. Wait for the
+                    // scatter takeover (NaN rect marker) there.
+                    let flipped = rect.is_some_and(|r| r[0].is_nan());
+                    if !gate_flip_trial || flipped {
+                        outcome = Some((gesture_end.elapsed(), rect));
+                        break;
+                    }
                 }
                 continue;
             }
@@ -503,15 +549,30 @@ async fn geo_end_of_scroll_convergence() {
             }
         }
         match outcome {
-            Some(latency) => println!(
-                "trial {trial:02} ({}): consumed {:>4}ms after gesture end",
-                if zoom_out { "out" } else { "in " },
-                latency.as_millis()
-            ),
+            Some((latency, rect)) => {
+                println!(
+                    "trial {trial:02} ({}): consumed {:>4}ms after gesture end rect={rect:?}",
+                    if gate_flip_trial {
+                        "flip"
+                    } else if zoom_out {
+                        "out"
+                    } else {
+                        "in "
+                    },
+                    latency.as_millis()
+                );
+
+            }
             None => {
                 println!(
                     "trial {trial:02} ({}): FAILED to converge",
-                    if zoom_out { "out" } else { "in " }
+                    if gate_flip_trial {
+                        "flip"
+                    } else if zoom_out {
+                        "out"
+                    } else {
+                        "in "
+                    }
                 );
                 for line in &log {
                     println!("    {line}");

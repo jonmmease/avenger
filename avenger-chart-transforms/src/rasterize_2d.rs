@@ -1,6 +1,6 @@
 use crate::common::{
     expr_node, map_expr_node, map_expr_nodes, map_optional_expr_node, simple_column_name,
-    validate_output_names,
+    stable_hash_hex, validate_output_names,
 };
 use async_trait::async_trait;
 use avenger_chart_core::{
@@ -2207,15 +2207,6 @@ fn scalar_to_u64(scalar: &ScalarValue, label: &str) -> Result<u64, AvengerChartE
             "{label} must be a non-negative integer, got {other:?}"
         ))),
     }
-}
-
-fn stable_hash_hex(bytes: &[u8]) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
 }
 
 #[cfg(test)]

@@ -1438,6 +1438,7 @@ impl PlotSession {
         ) = new_plot_session_cache_handles();
         let materialization_registry = MaterializationExecutorRegistry::default();
         materialization_registry.register(Rasterize2DExecutor);
+        materialization_registry.register(avenger_chart_transforms::ScalarAggregateExecutor);
         Self {
             program,
             ctx,
@@ -5558,6 +5559,59 @@ mod tests {
             preview.pipeline.mark_data_collects, 0,
             "preview pans should not recollect mark data for retarget-cached view marks"
         );
+
+        Ok(())
+    }
+
+    /// Preview evaluations over a RetargetCached view must serve the eager
+    /// in-view ScalarAggregate from the materialization cache (the exact
+    /// warm-up computes it synchronously and warms the cache) instead of
+    /// executing the aggregation inside the evaluation — that synchronous
+    /// collect was a per-throttle-window frame hitch at large row counts.
+    #[tokio::test]
+    async fn group_view_preview_serves_scalars_from_materialization_cache()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_group_view_adaptive_inferred_fill_plot(&ctx).await?);
+        let mut session = compiled.clone().instantiate(ctx);
+
+        let settled_metrics = evaluate_exact_until_settled(&mut session, None).await?;
+        assert_eq!(
+            settled_metrics.pipeline.view_scalar_syncs, 0,
+            "exact evaluations run the aggregate eagerly without counting as preview syncs"
+        );
+
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.5, 2.5),
+        );
+        let (_preview_plot, preview) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(preview.mode, EvaluationMode::Preview);
+        assert_eq!(preview.pipeline.preview_data_mark_reuses, 1);
+        assert_eq!(
+            preview.pipeline.view_scalar_syncs, 0,
+            "preview must not execute the in-view scalar aggregate synchronously"
+        );
+        assert!(
+            preview.pipeline.view_scalar_async_uses >= 1,
+            "preview scalars should come from the warmed materialization cache"
+        );
+
+        // A second pan still has no ready value for its own key; the stale
+        // (warmed) value keeps serving.
+        let mut patch = IndexMap::new();
+        patch.insert(
+            "__tool_pan_scroll_zoom__x_domain".to_string(),
+            list_domain(0.75, 2.75),
+        );
+        let (_preview_plot, second) = session
+            .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
+            .await?;
+        assert_eq!(second.pipeline.view_scalar_syncs, 0);
+        assert!(second.pipeline.view_scalar_async_uses >= 1);
 
         Ok(())
     }

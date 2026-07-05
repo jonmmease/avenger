@@ -1936,6 +1936,26 @@ impl EvaluationContext {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn record_view_scalar_sync(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_view_scalar_sync();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_view_scalar_async_use(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_view_scalar_async_use();
+        }
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn record_materialization_queued(&self) {
         if let Some(metrics) = &self.evaluation_metrics {
             metrics

@@ -114,3 +114,13 @@ pub(crate) fn validate_output_names<'a>(
     }
     Ok(())
 }
+
+/// FNV-1a hex digest used for materialization key/identity hashing.
+pub(crate) fn stable_hash_hex(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}

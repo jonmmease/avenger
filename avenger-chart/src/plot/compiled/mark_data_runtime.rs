@@ -526,21 +526,95 @@ async fn execute_transform_chain(
                 desired_materialization_ready |= desired_ready;
                 continue;
             }
+
+            // Scalar-producing stages (an eager in-view ScalarAggregate
+            // feeding a density normalizer or adaptive gate): during
+            // previews, serve the derived scalars from the materialization
+            // cache instead of executing the aggregation synchronously
+            // inside the evaluation — that synchronous collect is a
+            // per-throttle-window frame hitch at large row counts. Only
+            // RetargetCached views opt in (`allow_stale`), the same contract
+            // that lets the displayed raster go stale mid-gesture.
+            if materialization_ctx.policy.allow_stale
+                && let Some(mut scalar_materialization) =
+                    transform.view_scalar_materialization_request(&dataframe, &materialization_ctx)?
+            {
+                // Identity from the UNRESOLVED stage transform, same law as
+                // display materializations: resolved params/derived scalars
+                // baked into the identity would churn it every frame.
+                if let Some(identity) = stage
+                    .transform
+                    .view_materialization_identity(&dataframe, &materialization_ctx)?
+                {
+                    scalar_materialization.request.identity = Some(identity);
+                }
+                scalar_materialization.request.priority = materialization_ctx.priority;
+                scalar_materialization.request.policy = materialization_ctx.policy;
+
+                // Preview evaluations (negative priority) take the async
+                // path. Exact evaluations fall through to the synchronous
+                // evaluation below — their scalars must be exact — and warm
+                // the cache for the first preview.
+                if scalar_materialization.request.priority < 0.0 {
+                    if materialization_handling.emits_request() {
+                        eval_ctx.request_materialization(scalar_materialization.request.clone());
+                        materialization_request_count += 1;
+                    }
+                    if let Some(scalars) = scalars_from_materialization_display(
+                        &scalar_materialization,
+                        eval_ctx,
+                        *materialization_handling,
+                    )? {
+                        eval_ctx.record_view_scalar_async_use();
+                        insert_chain_derived_scalars(
+                            scalars,
+                            &mut known_derived_scalars,
+                            &mut derived_scalars,
+                        )?;
+                        continue;
+                    }
+                    // Cold start: no materialized value for this identity
+                    // yet — evaluate synchronously once and warm the cache.
+                    eval_ctx.record_view_scalar_sync();
+                }
+
+                let result = transform.apply(dataframe, &transform_ctx).await?;
+                dataframe = result.dataframe;
+                if let Some(cache) = eval_ctx.materialization_cache() {
+                    match avenger_chart_transforms::scalar_batch_from_literals(
+                        &scalar_materialization.measure_names,
+                        &result.derived_scalars,
+                    ) {
+                        Ok(batch) => cache
+                            .lock()
+                            .expect("materialization cache lock poisoned")
+                            .mark_ready(
+                                &scalar_materialization.request,
+                                MaterializationResult::RecordBatch(batch),
+                            ),
+                        Err(err) => tracing::debug!(
+                            target: "avenger_chart::materialization",
+                            error = %err,
+                            "failed to warm scalar materialization cache from eager result"
+                        ),
+                    }
+                }
+                insert_chain_derived_scalars(
+                    result.derived_scalars,
+                    &mut known_derived_scalars,
+                    &mut derived_scalars,
+                )?;
+                continue;
+            }
         }
 
         let result = transform.apply(dataframe, &transform_ctx).await?;
         dataframe = result.dataframe;
-        for (id, expr) in result.derived_scalars {
-            if known_derived_scalars
-                .insert(id.clone(), expr.clone())
-                .is_some()
-            {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Derived scalar '{id}' was produced more than once in the same data scope"
-                )));
-            }
-            derived_scalars.insert(id, expr);
-        }
+        insert_chain_derived_scalars(
+            result.derived_scalars,
+            &mut known_derived_scalars,
+            &mut derived_scalars,
+        )?;
     }
 
     let final_level = mark_facet_data_scope.sharing_level();
@@ -583,6 +657,82 @@ fn dataframe_from_materialization_result(
                 .to_string(),
         )),
     }
+}
+
+/// Derived-scalar literals for a scalar-producing view stage from the
+/// materialization cache: the desired key's ready batch, else the newest
+/// ready batch for the stage's identity (a slightly stale value from earlier
+/// in the gesture). `None` means no materialized value exists yet — the
+/// caller falls back to synchronous evaluation.
+///
+/// Unlike display materializations, scalar readiness must NOT feed
+/// `desired_materialization_ready` (which declines mark retargeting to
+/// consume a fresh display): a fresh scalar only changes future child keys.
+/// No settled-pin either — scalars are not displayed, so newest-ready always
+/// wins; pinning would only delay adaptive gate flips.
+fn scalars_from_materialization_display(
+    materialization: &avenger_chart_core::ViewScalarMaterialization,
+    eval_ctx: &EvaluationContext,
+    handling: ViewMaterializationHandling,
+) -> Result<Option<DerivedScalarMap>, AvengerChartError> {
+    let Some(cache) = eval_ctx.materialization_cache() else {
+        return Ok(None);
+    };
+    let mut cache = cache.lock().expect("materialization cache lock poisoned");
+
+    let scalars_from_result = |result: MaterializationResult| match result {
+        MaterializationResult::RecordBatch(batch) => {
+            avenger_chart_transforms::scalar_literals_from_batch(
+                &materialization.measure_names,
+                &batch,
+            )
+        }
+        MaterializationResult::RgbaImage(_) => Err(AvengerChartError::InvalidArgument(
+            "Scalar materialization expected a RecordBatch result, got RgbaImage".to_string(),
+        )),
+    };
+
+    if let Some(result) = cache.get_ready(&materialization.request.key) {
+        return scalars_from_result(result).map(Some);
+    }
+
+    if handling.enqueues_cache_miss() {
+        match cache.enqueue(materialization.request.clone()) {
+            MaterializationStatus::Queued => eval_ctx.record_materialization_queued(),
+            MaterializationStatus::Running => eval_ctx.record_materialization_running(),
+            MaterializationStatus::Error(_) => eval_ctx.record_materialization_error(),
+            MaterializationStatus::Ready | MaterializationStatus::Missing => {}
+        }
+    }
+
+    if materialization.request.policy.allow_stale
+        && let Some(identity) = &materialization.request.identity
+        && let Some((_key, result)) = cache.stale_fallback_ready(identity, false)
+    {
+        return scalars_from_result(result).map(Some);
+    }
+
+    Ok(None)
+}
+
+/// Insert chain-produced derived scalars with duplicate detection.
+fn insert_chain_derived_scalars(
+    produced: DerivedScalarMap,
+    known_derived_scalars: &mut DerivedScalarMap,
+    derived_scalars: &mut DerivedScalarMap,
+) -> Result<(), AvengerChartError> {
+    for (id, expr) in produced {
+        if known_derived_scalars
+            .insert(id.clone(), expr.clone())
+            .is_some()
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Derived scalar '{id}' was produced more than once in the same data scope"
+            )));
+        }
+        derived_scalars.insert(id, expr);
+    }
+    Ok(())
 }
 
 /// Display dataframe for a view materialization plus whether the desired

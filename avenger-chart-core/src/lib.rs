@@ -354,7 +354,7 @@ pub use transform::{
     CompiledDataTransform, DataTransform, DataTransformCompileContext,
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformResult,
     DataTransformStage, ViewMaterializationContext, ViewMaterializationRequest,
-    apply_compiled_data_transforms,
+    ViewScalarMaterialization, apply_compiled_data_transforms,
 };
 pub use unit_aspect::CartesianUnitAspect;
 pub use view::{

@@ -498,6 +498,16 @@ impl EvaluationMetrics {
     }
 
     #[allow(dead_code)]
+    pub(crate) fn record_view_scalar_sync(&mut self) {
+        self.pipeline.view_scalar_syncs += 1;
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn record_view_scalar_async_use(&mut self) {
+        self.pipeline.view_scalar_async_uses += 1;
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn record_materialization_error(&mut self) {
         self.pipeline.materialization_errors += 1;
     }
@@ -698,6 +708,14 @@ pub struct EvaluationPipelineMetrics {
     pub materialization_ready_used: usize,
     /// Last-ready stale materialization results used while a desired key is pending.
     pub materialization_stale_fallback_used: usize,
+    /// Number of view-scoped scalar aggregations executed synchronously
+    /// inside an evaluation (exact evals and preview cold starts). Preview
+    /// evaluations in RetargetCached views should keep this at zero — their
+    /// scalars come from ready/stale materialized results.
+    pub view_scalar_syncs: usize,
+    /// Number of view-scoped scalar aggregations served from a ready or
+    /// stale materialized result instead of executing synchronously.
+    pub view_scalar_async_uses: usize,
     /// Materialization errors observed during evaluation.
     pub materialization_errors: usize,
     /// Async materialization completions observed by the chart runtime.

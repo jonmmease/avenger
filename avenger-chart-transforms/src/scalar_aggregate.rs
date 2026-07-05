@@ -62,7 +62,7 @@
 //! })
 //! ```
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use crate::aggregate::{
     AggregateMeasureSpec, AggregateOp, aggregate_expr, map_aggregate_measures,
@@ -71,19 +71,25 @@ use crate::aggregate::{
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DerivedScalarMap, IntoExpr, derived_scalar,
-    params_to_datafusion,
+    DataTransformExecutionContext, DataTransformResult, DerivedScalarMap, IntoExpr,
+    MaterializationExecutionContext, MaterializationExecutor, MaterializationIdentity,
+    MaterializationKey, MaterializationOutputKind, MaterializationRequest, MaterializationResult,
+    SerializableDataFrame, SerializableScalarMap, ViewMaterializationContext,
+    ViewScalarMaterialization, derived_scalar, params_to_datafusion,
 };
 use datafusion::{
-    arrow::datatypes::DataType,
+    arrow::{datatypes::DataType, record_batch::RecordBatch},
     common::{ParamValues, ScalarValue},
     dataframe::DataFrame,
     logical_expr::{Expr, expr_fn::scalar_subquery, lit},
 };
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::Instrument;
 
-use crate::common::expr_node;
+use crate::common::{expr_node, stable_hash_hex};
+
+pub const SCALAR_AGGREGATE_MATERIALIZATION_KIND: &str = "scalar-aggregate";
 
 /// When `ScalarAggregate` computes its published scalars.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -249,6 +255,167 @@ pub struct CompiledScalarAggregateTransform {
     pub evaluation: ScalarAggregateEvaluation,
 }
 
+/// Async-materialization spec for an eager [`ScalarAggregate`] in a view
+/// chain: the input plan (view params staying as `$param` placeholders),
+/// the measures, and the resolved param values.
+///
+/// Mirrors the Rasterize2D pattern: the KEY hashes everything including the
+/// param values, so it moves with the view; the IDENTITY excludes params, so
+/// stale-result fallback finds same-lineage values across a gesture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScalarAggregateMaterializationSpec {
+    pub version: u32,
+    pub source: SerializableDataFrame,
+    pub transform: CompiledScalarAggregateTransform,
+    pub params: SerializableScalarMap,
+}
+
+impl ScalarAggregateMaterializationSpec {
+    pub fn new(
+        source: DataFrame,
+        transform: CompiledScalarAggregateTransform,
+        params: SerializableScalarMap,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(Self {
+            version: 1,
+            source: SerializableDataFrame::from_dataframe(source)?,
+            transform,
+            params,
+        })
+    }
+
+    fn key(&self) -> Result<MaterializationKey, AvengerChartError> {
+        let bytes = serde_json::to_vec(self).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "Failed to serialize ScalarAggregate materialization spec: {err}"
+            ))
+        })?;
+        Ok(MaterializationKey::new(format!(
+            "{SCALAR_AGGREGATE_MATERIALIZATION_KIND}/v{}/{}",
+            self.version,
+            stable_hash_hex(&bytes)
+        )))
+    }
+
+    fn identity(&self) -> Result<MaterializationIdentity, AvengerChartError> {
+        let fingerprint = ScalarAggregateMaterializationIdentity {
+            version: self.version,
+            source: self.source.clone(),
+            transform: self.transform.clone(),
+        };
+        let bytes = serde_json::to_vec(&fingerprint).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "Failed to serialize ScalarAggregate materialization identity: {err}"
+            ))
+        })?;
+        Ok(MaterializationIdentity::new(format!(
+            "{SCALAR_AGGREGATE_MATERIALIZATION_KIND}/v{}/{}",
+            self.version,
+            stable_hash_hex(&bytes)
+        )))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct ScalarAggregateMaterializationIdentity {
+    version: u32,
+    source: SerializableDataFrame,
+    transform: CompiledScalarAggregateTransform,
+}
+
+/// Executor for [`ScalarAggregateMaterializationSpec`] requests: runs the
+/// one-row aggregation on the worker pool and returns the raw batch (one
+/// column per measure, measure order).
+#[derive(Clone, Debug, Default)]
+pub struct ScalarAggregateExecutor;
+
+#[async_trait]
+impl MaterializationExecutor for ScalarAggregateExecutor {
+    fn kind(&self) -> &'static str {
+        SCALAR_AGGREGATE_MATERIALIZATION_KIND
+    }
+
+    async fn run(
+        &self,
+        request: MaterializationRequest,
+        ctx: MaterializationExecutionContext<'_>,
+    ) -> Result<MaterializationResult, AvengerChartError> {
+        let started = Instant::now();
+        let spec: ScalarAggregateMaterializationSpec =
+            serde_json::from_value(request.spec.clone()).map_err(|err| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Invalid ScalarAggregate materialization spec: {err}"
+                ))
+            })?;
+        if spec.version != 1 {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Unsupported ScalarAggregate materialization spec version {}",
+                spec.version
+            )));
+        }
+
+        let params = IndexMap::from(spec.params.clone());
+        let dataframe = spec.source.to_dataframe(ctx.session_context)?;
+        let batch = spec
+            .transform
+            .eager_batch(&dataframe, ctx.session_context, &params)
+            .await?;
+        tracing::debug!(
+            target: "avenger_chart::transforms::scalar_aggregate",
+            key = %request.key,
+            measures = spec.transform.measures.len(),
+            elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
+            "ScalarAggregate materialization finished"
+        );
+        Ok(MaterializationResult::RecordBatch(batch))
+    }
+}
+
+/// Derived-scalar literals from a materialized one-row measure batch.
+pub fn scalar_literals_from_batch(
+    measure_names: &[String],
+    batch: &RecordBatch,
+) -> Result<DerivedScalarMap, AvengerChartError> {
+    let mut derived = DerivedScalarMap::new();
+    for name in measure_names {
+        let column_index = batch.schema().index_of(name).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "ScalarAggregate measure '{name}' missing from materialized result: {err}"
+            ))
+        })?;
+        let value = ScalarValue::try_from_array(batch.column(column_index), 0)
+            .map_err(AvengerChartError::DataFusionError)?;
+        derived.insert(name.clone(), lit(value));
+    }
+    Ok(derived)
+}
+
+/// One-row batch from already-evaluated derived-scalar literals, in measure
+/// order. Used to warm the materialization cache from a synchronous eager
+/// evaluation so the first preview after an exact pass has a ready value.
+pub fn scalar_batch_from_literals(
+    measure_names: &[String],
+    derived: &DerivedScalarMap,
+) -> Result<RecordBatch, AvengerChartError> {
+    use datafusion::arrow::datatypes::{Field, Schema};
+    let mut fields = Vec::with_capacity(measure_names.len());
+    let mut columns = Vec::with_capacity(measure_names.len());
+    for name in measure_names {
+        let Some(Expr::Literal(value, _)) = derived.get(name) else {
+            return Err(AvengerChartError::InternalError(format!(
+                "ScalarAggregate eager result for '{name}' is not a literal"
+            )));
+        };
+        let array = value
+            .to_array_of_size(1)
+            .map_err(AvengerChartError::DataFusionError)?;
+        fields.push(Field::new(name.clone(), array.data_type().clone(), true));
+        columns.push(array);
+    }
+    RecordBatch::try_new(Arc::new(Schema::new(fields)), columns)
+        .map_err(AvengerChartError::ArrowError)
+}
+
 #[typetag::serde(name = "scalar_aggregate")]
 #[async_trait]
 impl CompiledDataTransform for CompiledScalarAggregateTransform {
@@ -280,28 +447,101 @@ impl CompiledDataTransform for CompiledScalarAggregateTransform {
             derived_scalars,
         })
     }
+
+    fn view_scalar_materialization_request(
+        &self,
+        dataframe: &DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<ViewScalarMaterialization>, AvengerChartError> {
+        // Lazy mode never executes eagerly — nothing to make async.
+        if self.evaluation != ScalarAggregateEvaluation::Eager {
+            return Ok(None);
+        }
+        let spec = self.materialization_spec(dataframe.clone(), ctx)?;
+        let key = spec.key()?;
+        let identity = spec.identity()?;
+        tracing::debug!(
+            target: "avenger_chart::transforms::scalar_aggregate",
+            key = %key,
+            identity = %identity,
+            measures = self.measures.len(),
+            priority = ctx.priority,
+            allow_stale = ctx.policy.allow_stale,
+            "created ScalarAggregate materialization request"
+        );
+        let request = MaterializationRequest::new(
+            key,
+            SCALAR_AGGREGATE_MATERIALIZATION_KIND,
+            MaterializationOutputKind::RecordBatch,
+        )
+        .identity(identity)
+        .priority(ctx.priority)
+        .policy(ctx.policy.clone())
+        .spec(serde_json::to_value(&spec).map_err(|err| {
+            AvengerChartError::InternalError(format!(
+                "Failed to encode ScalarAggregate materialization spec: {err}"
+            ))
+        })?);
+        Ok(Some(ViewScalarMaterialization {
+            request,
+            measure_names: self
+                .measures
+                .iter()
+                .map(|measure| measure.name.clone())
+                .collect(),
+        }))
+    }
+
+    fn view_materialization_identity(
+        &self,
+        dataframe: &DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<Option<MaterializationIdentity>, AvengerChartError> {
+        if self.evaluation != ScalarAggregateEvaluation::Eager {
+            return Ok(None);
+        }
+        // Called on the unresolved transform: derived-scalar placeholders
+        // stay symbolic, so the identity is stable while upstream runtime
+        // scalars vary (same law as Rasterize2D).
+        self.materialization_spec(dataframe.clone(), ctx)?
+            .identity()
+            .map(Some)
+    }
 }
 
 impl CompiledScalarAggregateTransform {
+    fn materialization_spec(
+        &self,
+        dataframe: DataFrame,
+        ctx: &ViewMaterializationContext<'_>,
+    ) -> Result<ScalarAggregateMaterializationSpec, AvengerChartError> {
+        ScalarAggregateMaterializationSpec::new(
+            dataframe,
+            self.clone(),
+            SerializableScalarMap::from(ctx.params.clone()),
+        )
+    }
+
     /// Execute one aggregation over the input (all measures in a single
     /// query, params bound the same way final mark-data collection binds
-    /// them) and publish each measure as a literal.
-    async fn eager_scalars(
+    /// them) and return the one-row result batch.
+    pub(crate) async fn eager_batch(
         &self,
         dataframe: &DataFrame,
-        ctx: &DataTransformExecutionContext<'_>,
-    ) -> Result<DerivedScalarMap, AvengerChartError> {
+        session_context: &datafusion::prelude::SessionContext,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> Result<RecordBatch, AvengerChartError> {
         let agg_exprs = self
             .measures
             .iter()
-            .map(|measure| aggregate_expr(measure, ctx.session_context))
+            .map(|measure| aggregate_expr(measure, session_context))
             .collect::<Result<Vec<_>, _>>()?;
         let aggregated = dataframe
             .clone()
             .aggregate(vec![], agg_exprs)
             .map_err(AvengerChartError::DataFusionError)?
             .with_param_values(
-                params_to_datafusion(ctx.params)
+                params_to_datafusion(params)
                     .unwrap_or_else(|| ParamValues::Map(Default::default())),
             )
             .map_err(AvengerChartError::DataFusionError)?;
@@ -319,28 +559,34 @@ impl CompiledScalarAggregateTransform {
                         .collect::<Vec<_>>()
                 ))
             })?;
-        let batch = batches.first().ok_or_else(|| {
+        batches.first().cloned().ok_or_else(|| {
             AvengerChartError::InternalError(
                 "ScalarAggregate eager evaluation returned no batches".to_string(),
             )
-        })?;
+        })
+    }
 
-        let mut derived = DerivedScalarMap::new();
-        for measure in &self.measures {
-            let column_index = batch.schema().index_of(&measure.name).map_err(|err| {
-                AvengerChartError::InternalError(format!(
-                    "ScalarAggregate measure '{}' missing from eager result: {err}",
-                    measure.name
-                ))
-            })?;
-            let value = ScalarValue::try_from_array(batch.column(column_index), 0)
-                .map_err(AvengerChartError::DataFusionError)?;
+    /// Eager evaluation publishing each measure as a literal.
+    async fn eager_scalars(
+        &self,
+        dataframe: &DataFrame,
+        ctx: &DataTransformExecutionContext<'_>,
+    ) -> Result<DerivedScalarMap, AvengerChartError> {
+        let batch = self
+            .eager_batch(dataframe, ctx.session_context, ctx.params)
+            .await?;
+        let measure_names = self
+            .measures
+            .iter()
+            .map(|measure| measure.name.clone())
+            .collect::<Vec<_>>();
+        let derived = scalar_literals_from_batch(&measure_names, &batch)?;
+        for (name, expr) in derived.iter() {
             tracing::debug!(
-                measure = measure.name.as_str(),
-                value = %value,
+                measure = name.as_str(),
+                value = %expr,
                 "scalar aggregate eager value"
             );
-            derived.insert(measure.name.clone(), lit(value));
         }
         Ok(derived)
     }

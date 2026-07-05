@@ -35,8 +35,9 @@ pub use rasterize_2d::{
     Rasterize2DMaterializationSpec, Rasterize2DOutput,
 };
 pub use scalar_aggregate::{
-    CompiledScalarAggregateTransform, ScalarAggregate, ScalarAggregateEvaluation,
-    ScalarAggregateOutput,
+    CompiledScalarAggregateTransform, SCALAR_AGGREGATE_MATERIALIZATION_KIND, ScalarAggregate,
+    ScalarAggregateEvaluation, ScalarAggregateExecutor, ScalarAggregateMaterializationSpec,
+    ScalarAggregateOutput, scalar_batch_from_literals, scalar_literals_from_batch,
 };
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
@@ -5233,6 +5234,142 @@ mod tests {
     }
 
     // ----- ScalarAggregate -----
+
+    async fn scalar_aggregate_materialization(
+        ctx: &SessionContext,
+        dataframe: &DataFrame,
+        transform: ScalarAggregate,
+        params: IndexMap<String, ScalarValue>,
+    ) -> avenger_chart_core::ViewScalarMaterialization {
+        let (stage, _) = compile_transform(transform);
+        let materialization_ctx = ViewMaterializationContext {
+            session_context: ctx,
+            params: &params,
+            time_context: TimeContext::default(),
+            facet_context: None,
+            policy: MaterializationPolicy::default(),
+            priority: 0.0,
+        };
+        stage
+            .transform
+            .view_scalar_materialization_request(dataframe, &materialization_ctx)
+            .unwrap()
+            .expect("eager ScalarAggregate should offer scalar materialization")
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_materialization_key_moves_with_params_identity_stable() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0), (2.0), (3.0)) AS t(x)")
+            .await
+            .unwrap();
+        let mut params_a = IndexMap::new();
+        params_a.insert("domain_start".to_string(), ScalarValue::Float64(Some(0.0)));
+        let mut params_b = IndexMap::new();
+        params_b.insert("domain_start".to_string(), ScalarValue::Float64(Some(2.5)));
+
+        let first = scalar_aggregate_materialization(
+            &ctx,
+            &df,
+            ScalarAggregate::new().count("n"),
+            params_a,
+        )
+        .await;
+        let second = scalar_aggregate_materialization(
+            &ctx,
+            &df,
+            ScalarAggregate::new().count("n"),
+            params_b,
+        )
+        .await;
+
+        assert_eq!(first.measure_names, vec!["n".to_string()]);
+        assert_ne!(
+            first.request.key, second.request.key,
+            "resolved param values must move the materialization key"
+        );
+        assert_eq!(
+            first.request.identity, second.request.identity,
+            "param values must NOT churn the materialization identity"
+        );
+        assert_eq!(
+            first.request.kind.as_ref(),
+            SCALAR_AGGREGATE_MATERIALIZATION_KIND
+        );
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_lazy_declines_materialization() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0)) AS t(x)")
+            .await
+            .unwrap();
+        let (stage, _) = compile_transform(ScalarAggregate::new().count("n").lazy());
+        let materialization_ctx = ViewMaterializationContext {
+            session_context: &ctx,
+            params: &IndexMap::new(),
+            time_context: TimeContext::default(),
+            facet_context: None,
+            policy: MaterializationPolicy::default(),
+            priority: 0.0,
+        };
+        assert!(
+            stage
+                .transform
+                .view_scalar_materialization_request(&df, &materialization_ctx)
+                .unwrap()
+                .is_none(),
+            "lazy ScalarAggregate never executes eagerly - nothing to materialize"
+        );
+    }
+
+    #[tokio::test]
+    async fn scalar_aggregate_executor_matches_eager_values() {
+        let ctx = SessionContext::new();
+        let df = ctx
+            .sql("SELECT * FROM (VALUES (1.0), (2.0), (7.0)) AS t(x)")
+            .await
+            .unwrap();
+        let transform = ScalarAggregate::new().count("n").sum("total", col("x"));
+        let materialization =
+            scalar_aggregate_materialization(&ctx, &df, transform.clone(), IndexMap::new()).await;
+        let result = ScalarAggregateExecutor
+            .run(
+                materialization.request.clone(),
+                MaterializationExecutionContext {
+                    session_context: &ctx,
+                    params: &IndexMap::new(),
+                },
+            )
+            .await
+            .unwrap();
+        let MaterializationResult::RecordBatch(batch) = result else {
+            panic!("expected record batch result");
+        };
+        let materialized =
+            scalar_literals_from_batch(&materialization.measure_names, &batch).unwrap();
+
+        let eager = apply_scalar_aggregate(&ctx, df, transform, &IndexMap::new()).await;
+        for name in &materialization.measure_names {
+            assert_eq!(
+                materialized.get(name),
+                eager.derived_scalars.get(name),
+                "executor value for '{name}' must match the eager evaluation"
+            );
+        }
+
+        // Warm-path round trip: literals -> batch -> literals.
+        let warmed = scalar_batch_from_literals(&materialization.measure_names, &materialized)
+            .unwrap();
+        let round_tripped =
+            scalar_literals_from_batch(&materialization.measure_names, &warmed).unwrap();
+        for name in &materialization.measure_names {
+            assert_eq!(round_tripped.get(name), materialized.get(name));
+        }
+    }
+
 
     fn scalar_aggregate_all_measures() -> ScalarAggregate {
         ScalarAggregate::new()
