@@ -210,8 +210,13 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
     where
         F: FnOnce(ColorChannelConfig) -> ColorChannelConfig,
     {
-        // Utf8-typed channel value so the fill scale defaults to Ordinal.
-        let config = ColorChannelConfig::new(ChannelValue::from(""));
+        // A SCALED Utf8-typed channel value (bare &str literals are
+        // unscaled and would suppress scale building): the Utf8 type makes
+        // the fill scale default to Ordinal with the theme's categorical
+        // scheme.
+        let config = ColorChannelConfig::new(ChannelValue::from(
+            datafusion::logical_expr::lit(""),
+        ));
         self.fill_by = Some((dim, f(config)));
         self
     }

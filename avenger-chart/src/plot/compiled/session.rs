@@ -2994,6 +2994,94 @@ mod tests {
         }
     }
 
+    fn collect_scene_text(scene: &SceneGraph) -> Vec<String> {
+        fn walk(marks: &[avenger_scenegraph::marks::mark::SceneMark], out: &mut Vec<String>) {
+            for mark in marks {
+                match mark {
+                    avenger_scenegraph::marks::mark::SceneMark::Group(group) => {
+                        walk(&group.marks, out)
+                    }
+                    avenger_scenegraph::marks::mark::SceneMark::Text(text) => {
+                        out.extend(text.text.as_vec(text.len as usize, None));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&scene.marks, &mut out);
+        out
+    }
+
+    /// End-to-end categorical raster overlay: Rasterize2D::by -> fill_by
+    /// with an explicit ordinal domain renders ONE mixed image and a
+    /// standard swatch legend with one entry per category.
+    #[tokio::test]
+    async fn categorical_raster_fill_by_renders_overlay_and_swatch_legend()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let df = ctx
+            .sql(
+                "SELECT * FROM (VALUES \
+                 (0.2, 0.2, 'bus'), (0.3, 0.4, 'bus'), (1.5, 0.5, 'car'), \
+                 (0.4, 1.6, 'bus'), (0.5, 1.5, 'car'), (1.6, 1.4, 'car')) AS t(x, y, cat)",
+            )
+            .await?;
+        let plot = Plot::<Cartesian>::new()
+            .canvas_size(420.0, 320.0)
+            .data(df)
+            .mark(UniformRaster2D::new().transform(
+                Rasterize2D::new(col("x"), col("y"))
+                    .x(|x| x.extent(0.0, 2.0).bins(2))
+                    .y(|y| y.extent(0.0, 2.0).bins(2))
+                    .by(col("cat"))
+                    .agg("count"),
+                |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x(hist.x_dim()).y(hist.y_dim()).fill_by(hist.by_dim(), |fill| {
+                            fill.scale(|s| {
+                                s.domain_discrete(vec![lit("bus"), lit("car")])
+                            })
+                            .legend(|l| l.title("Vehicle"))
+                        })
+                    })
+                },
+            ));
+        // A sibling Symbol on the SAME fill scale (the adaptive-swap
+        // pattern): one shared scale, one legend for both marks.
+        let plot = plot.mark(
+            Symbol::new()
+                .x(col("x"))
+                .y(col("y"))
+                .size(20.0)
+                .fill_with(col("cat"), |c| c.scale_with::<Ordinal>(|s| s)),
+        );
+        let compiled = Arc::new(plot.compile(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+        let (evaluated, _) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await?;
+
+        assert_eq!(
+            count_image_marks(&evaluated.scene_graph),
+            1,
+            "fill_by must render ONE mixed overlay image, not per-category strips"
+        );
+        let texts = collect_scene_text(&evaluated.scene_graph);
+        assert!(
+            texts.iter().any(|text| text == "Vehicle"),
+            "legend title missing from scene text: {texts:?}"
+        );
+        for category in ["bus", "car"] {
+            assert_eq!(
+                texts.iter().filter(|text| *text == category).count(),
+                1,
+                "expected exactly one shared legend entry for '{category}': {texts:?}"
+            );
+        }
+        Ok(())
+    }
+
     fn count_image_marks(scene: &SceneGraph) -> usize {
         fn count_from_mark(mark: &SceneMark) -> usize {
             match mark {
