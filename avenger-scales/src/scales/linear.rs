@@ -650,6 +650,44 @@ impl ScaleImpl for LinearScale {
         // print("let scale =", factor(solution[adj_scale].simplify()))
         // print("let offset =", factor(solution[adj_offset].simplify()))
         // ```
+        // Full-precision path when BOTH domains are stored as Float64
+        // (coordinate-owned domains installed by systems that opt into
+        // f64 precision, e.g. Geo): at deep zoom the domain span sits near
+        // f32 epsilon at the domain magnitude, so f32 endpoint quantization
+        // alone corrupts the span — and with it the adjustment — by
+        // percent-level amounts, and retargeted marks wobble frame to
+        // frame. The final scale/offset are in range (pixel) space where
+        // f32 is plenty. Float32-domain scales keep the f32 arithmetic
+        // below, byte-identical to before this branch existed.
+        if from_config.domain.data_type() == &arrow::datatypes::DataType::Float64
+            && to_config.domain.data_type() == &arrow::datatypes::DataType::Float64
+        {
+            let (from_domain_start, from_domain_end) = from_config.numeric_interval_domain_f64()?;
+            let (to_domain_start, to_domain_end) = to_config.numeric_interval_domain_f64()?;
+            let (from_range_start, from_range_end) = from_config.numeric_interval_range()?;
+            let (to_range_start, to_range_end) = to_config.numeric_interval_range()?;
+            let (from_range_start, from_range_end) =
+                (from_range_start as f64, from_range_end as f64);
+            let (to_range_start, to_range_end) = (to_range_start as f64, to_range_end as f64);
+
+            let scale = (from_domain_end - from_domain_start) * (to_range_end - to_range_start)
+                / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
+
+            let offset = -(from_domain_end * from_range_start * to_range_end
+                - from_domain_end * from_range_start * to_range_start
+                - from_domain_start * from_range_end * to_range_end
+                + from_domain_start * from_range_end * to_range_start
+                - from_range_end * to_domain_end * to_range_start
+                + from_range_end * to_domain_start * to_range_end
+                + from_range_start * to_domain_end * to_range_start
+                - from_range_start * to_domain_start * to_range_end)
+                / ((from_range_end - from_range_start) * (to_domain_end - to_domain_start));
+            return Ok(LinearScaleAdjustment {
+                scale: scale as f32,
+                offset: offset as f32,
+            });
+        }
+
         let (from_domain_start, from_domain_end) = from_config.numeric_interval_domain()?;
         let (from_range_start, from_range_end) = from_config.numeric_interval_range()?;
         let (to_domain_start, to_domain_end) = to_config.numeric_interval_domain()?;
@@ -735,6 +773,77 @@ mod tests {
     /// f64 path must place points within a small fraction of a pixel of
     /// the exact answer and stay stable across sub-f32-epsilon domain
     /// shifts.
+    #[test]
+    fn test_adjust_f64_domains_stable_at_deep_zoom() -> Result<(), AvengerScaleError> {
+        use arrow::array::Float64Array;
+
+        // Preview mark retargeting applies `adjust(from, to)` to CACHED
+        // pixel positions every frame. At deep geo zoom the domain span is
+        // near f32 epsilon at the domain magnitude, so an adjustment
+        // computed through the f32 domain accessors wobbles the retargeted
+        // marks frame to frame. With Float64 domain arrays the computation
+        // must run in f64 and track the exact mapping within a hundredth
+        // of a pixel.
+        let scale = LinearScale;
+        let center = -1.291_547_581_226_902_9_f64; // ~NYC in raw units
+        let span = 8.0e-5_f64; // ~500 m viewport
+        let value = center + span * 0.3;
+
+        let config_at = |start: f64, span: f64| ScaleConfig {
+            domain: Arc::new(Float64Array::from(vec![start, start + span])),
+            range: Arc::new(Float32Array::from(vec![0.0, 900.0])),
+            options: vec![("f64_precision".to_string(), true.into())]
+                .into_iter()
+                .collect(),
+            context: ScaleContext::default(),
+        };
+
+        let from_start = center - span * 0.5;
+        let from = config_at(from_start, span);
+        // Exact from-scale pixel position of the test value.
+        let from_px = ((value - from_start) / span * 900.0) as f32;
+
+        // Pan the domain in sub-f32-ulp steps and zoom slightly; the
+        // adjusted position must track the exact to-scale position.
+        let shift = (center.abs() * f64::from(f32::EPSILON)) * 0.4;
+        let mut max_f32_deviation = 0.0_f32;
+        for step in 0..8 {
+            let to_start = from_start + shift * f64::from(step);
+            let to_span = span * (1.0 - 0.001 * f64::from(step));
+            let to = config_at(to_start, to_span);
+            let expected = ((value - to_start) / to_span * 900.0) as f32;
+
+            let adjustment = scale.adjust(&from, &to)?;
+            let adjusted = from_px * adjustment.scale + adjustment.offset;
+            assert!(
+                (adjusted - expected).abs() < 0.01,
+                "step {step}: adjusted {adjusted}, exact {expected}"
+            );
+
+            // The f32 computation this branch replaces deviates visibly.
+            let via_f32 = {
+                let fds = from_start as f32;
+                let fde = (from_start + span) as f32;
+                let tds = to_start as f32;
+                let tde = (to_start + to_span) as f32;
+                let s = (fde - fds) * 900.0 / (900.0 * (tde - tds));
+                let o = -(fde * 0.0 - fde * 0.0 - fds * 900.0 * 900.0 + fds * 900.0 * 0.0
+                    - 900.0 * tde * 0.0
+                    + 900.0 * tds * 900.0
+                    + 0.0
+                    - 0.0)
+                    / (900.0 * (tde - tds));
+                from_px * s + o
+            };
+            max_f32_deviation = max_f32_deviation.max((via_f32 - expected).abs());
+        }
+        assert!(
+            max_f32_deviation > 0.1,
+            "expected the f32 adjustment to deviate visibly, max {max_f32_deviation}"
+        );
+        Ok(())
+    }
+
     #[test]
     fn test_f64_precision_path_stable_at_deep_zoom() -> Result<(), AvengerScaleError> {
         use arrow::array::Float64Array;
