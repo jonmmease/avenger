@@ -1336,7 +1336,10 @@ mod phase6 {
     use datafusion::prelude::ParquetReadOptions;
 
     const POINT_BUDGET: i64 = 10_000;
-    const PASSENGER_DOMAIN: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
+    /// Time-of-day buckets from pickup_hour — measured well balanced on the
+    /// full dataset (2.6M-3.6M rows each), unlike passenger_count (~70%
+    /// singletons). Domain order = legend order.
+    const PERIOD_DOMAIN: [&str; 4] = ["morning", "afternoon", "evening", "night"];
 
     type GeoSymbolMark = PreludeSymbol<Geo>;
 
@@ -1367,7 +1370,7 @@ mod phase6 {
                     .and(col("passenger_count").lt_eq(lit(6_i64))),
             )
             .expect("filter")
-            .select_columns(&["pickup_x", "pickup_y", "passenger_count"])
+            .select_columns(&["pickup_x", "pickup_y", "passenger_count", "pickup_hour"])
             .expect("select")
             .limit(0, Some(50_000))
             .expect("limit");
@@ -1412,8 +1415,35 @@ mod phase6 {
         floor(cast(view_pixels, ArrowDataType::Float64) / lit(2.0))
     }
 
-    fn passenger_fill_domain() -> Vec<Expr> {
-        PASSENGER_DOMAIN.iter().map(|value| lit(*value)).collect()
+    fn period_fill_domain() -> Vec<Expr> {
+        PERIOD_DOMAIN.iter().map(|value| lit(*value)).collect()
+    }
+
+    /// Time-of-day bucket expr over pickup_hour; the alias names the
+    /// categorical raster dimension.
+    fn period_expr() -> Expr {
+        use datafusion::logical_expr::when;
+        when(
+            col("pickup_hour")
+                .gt_eq(lit(6_i64))
+                .and(col("pickup_hour").lt_eq(lit(11_i64))),
+            lit("morning"),
+        )
+        .when(
+            col("pickup_hour")
+                .gt_eq(lit(12_i64))
+                .and(col("pickup_hour").lt_eq(lit(17_i64))),
+            lit("afternoon"),
+        )
+        .when(
+            col("pickup_hour")
+                .gt_eq(lit(18_i64))
+                .and(col("pickup_hour").lt_eq(lit(21_i64))),
+            lit("evening"),
+        )
+        .otherwise(lit("night"))
+        .expect("period case expr")
+        .alias("period")
     }
 
     fn capstone_raster_child(
@@ -1433,7 +1463,7 @@ mod phase6 {
                     .frame(crs::EPSG_3857)
                     .x(|x| x.extent(x_start, x_end).bins(x_bins))
                     .y(|y| y.extent(y_start, y_end).bins(y_bins))
-                    .by(col("passenger_count"))
+                    .by(period_expr())
                     .agg("count"),
                 move |mark, hist| {
                     let mark = mark.transform(Filter::new(gate), |mark, _| mark);
@@ -1441,8 +1471,8 @@ mod phase6 {
                         r.x(hist.x_dim())
                             .y(hist.y_dim())
                             .fill_by(hist.by_dim(), |fill| {
-                                fill.scale(|s| s.domain_discrete(passenger_fill_domain()))
-                                    .legend(|l| l.title("Passengers"))
+                                fill.scale(|s| s.domain_discrete(period_fill_domain()))
+                                    .legend(|l| l.title("Time of day"))
                             })
                             .opacity_by_total(|o| {
                                 o.scale_with::<Sqrt>(|s| {
@@ -1468,8 +1498,8 @@ mod phase6 {
             .projected_x(raw_x)
             .projected_y(raw_y)
             .size(14.0)
-            .fill_with(cast(col("passenger_count"), ArrowDataType::Utf8), |c| {
-                c.scale(|s| s.domain_discrete(passenger_fill_domain()))
+            .fill_with(period_expr(), |c| {
+                c.scale(|s| s.domain_discrete(period_fill_domain()))
             })
     }
 
@@ -1566,14 +1596,14 @@ mod phase6 {
     }
 
     /// CAPSTONE (raster regime): whole-city view, n >> 10k, Oklab-mixed
-    /// passenger-count raster over z11 CARTO tiles with a swatch legend.
+    /// time-of-day raster over z11 CARTO tiles with a swatch legend.
     #[tokio::test]
-    async fn taxi_mercator_by_passenger_overlay() {
+    async fn taxi_mercator_by_period_overlay() {
         assert_capstone_baseline(
             (-73.977, 40.75),
             11.0,
             11,
-            "taxi_mercator_by_passenger_overlay",
+            "taxi_mercator_by_period_overlay",
         )
         .await;
     }
@@ -1582,12 +1612,12 @@ mod phase6 {
     /// the gate swaps to symbols colored by the SAME fill scale, and the
     /// same legend renders identically.
     #[tokio::test]
-    async fn taxi_mercator_by_passenger_scatter() {
+    async fn taxi_mercator_by_period_scatter() {
         assert_capstone_baseline(
             (-73.990, 40.750),
             15.2,
             13,
-            "taxi_mercator_by_passenger_scatter",
+            "taxi_mercator_by_period_scatter",
         )
         .await;
     }

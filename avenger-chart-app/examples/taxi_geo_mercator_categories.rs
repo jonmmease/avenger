@@ -1,14 +1,15 @@
-//! CATEGORICAL adaptive raster-to-scatter taxi demo on Mercator over OSM
-//! tiles: pickups colored by passenger count.
+//! CATEGORICAL adaptive raster-to-scatter taxi demo on Mercator over
+//! greyscale tiles: pickups colored by time of day.
 //!
-//! The raster child uses `Rasterize2D::by(passenger_count)` — one count
-//! plane per passenger class — rendered as a single Oklab-mixed overlay
-//! where per-pixel opacity tracks total density (`opacity_by_total`, Sqrt)
-//! and color is the convex Oklab mix of the class colors. The scatter
-//! child (below `POINT_BUDGET` in view) colors the exact points through
-//! the SAME ordinal fill scale, so one "Passengers" swatch legend serves
-//! both regimes across the adaptive swap. Drag to pan, scroll to zoom,
-//! double-click to reset.
+//! The raster child uses `Rasterize2D::by(...)` over pickup_hour buckets
+//! (morning/afternoon/evening/night — measured well balanced, unlike
+//! passenger_count's ~70% singletons) — one count plane per period —
+//! rendered as a single Oklab-mixed overlay where per-pixel opacity tracks
+//! total density (`opacity_by_total`, Sqrt) and color is the convex Oklab
+//! mix of the period colors. The scatter child (below `POINT_BUDGET` in
+//! view) colors the exact points through the SAME ordinal fill scale, so
+//! one "Time of day" swatch legend serves both regimes across the adaptive
+//! swap. Drag to pan, scroll to zoom, double-click to reset.
 //!
 //! Run with:
 //! ```bash
@@ -54,9 +55,9 @@ const TAXI_MAX_ROWS: usize = 11_000_000;
 const TAXI_BATCH_ROWS: usize = 8192;
 /// Switch to the scatter representation below this in-view pickup count.
 const POINT_BUDGET: i64 = 10_000;
-/// Passenger classes shown in the legend (values stringified by
-/// `Rasterize2D::by`). Explicit so legend colors stay stable across views.
-const PASSENGER_DOMAIN: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
+/// Time-of-day buckets from pickup_hour. Explicit so legend order and
+/// colors stay stable across views.
+const PERIOD_DOMAIN: [&str; 4] = ["morning", "afternoon", "evening", "night"];
 const TAXI_X_MIN: f64 = -8_242_500.0;
 const TAXI_X_MAX: f64 = -8_226_500.0;
 const TAXI_Y_MIN: f64 = 4_968_000.0;
@@ -125,7 +126,7 @@ async fn build_app(
         .tiles(tiles);
 
     let plot = Plot::with_coord(coord.clone())
-        .title("NYC taxi pickups by passenger count")
+        .title("NYC taxi pickups by time of day")
         .canvas_size(960.0, 720.0)
         .mark(
             MarkGroup::<Geo>::new().data(df).view(
@@ -184,11 +185,38 @@ fn meters_y(raw: Expr) -> Expr {
     crs::from_mercator_units_y(crs::EPSG_3857, raw).expect("epsg:3857 is a supported frame")
 }
 
-fn passenger_fill_domain() -> Vec<Expr> {
-    PASSENGER_DOMAIN.iter().map(|value| lit(*value)).collect()
+fn period_fill_domain() -> Vec<Expr> {
+    PERIOD_DOMAIN.iter().map(|value| lit(*value)).collect()
 }
 
-/// Async categorical raster: one count plane per passenger class
+/// Time-of-day bucket expr over pickup_hour; the alias names the
+/// categorical raster dimension.
+fn period_expr() -> Expr {
+    use datafusion::logical_expr::when;
+    when(
+        col("pickup_hour")
+            .gt_eq(lit(6_i64))
+            .and(col("pickup_hour").lt_eq(lit(11_i64))),
+        lit("morning"),
+    )
+    .when(
+        col("pickup_hour")
+            .gt_eq(lit(12_i64))
+            .and(col("pickup_hour").lt_eq(lit(17_i64))),
+        lit("afternoon"),
+    )
+    .when(
+        col("pickup_hour")
+            .gt_eq(lit(18_i64))
+            .and(col("pickup_hour").lt_eq(lit(21_i64))),
+        lit("evening"),
+    )
+    .otherwise(lit("night"))
+    .expect("period case expr")
+    .alias("period")
+}
+
+/// Async categorical raster: one count plane per time-of-day bucket
 /// (`Rasterize2D::by`), rendered as a single Oklab-mixed overlay with
 /// density-driven opacity. Binned in native 3857 meters and tagged with
 /// `frame(crs::EPSG_3857)`.
@@ -206,7 +234,7 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<G
                 .frame(crs::EPSG_3857)
                 .x(|x| x.extent(x_start, x_end).bins(x_bins))
                 .y(|y| y.extent(y_start, y_end).bins(y_bins))
-                .by(col("passenger_count"))
+                .by(period_expr())
                 .agg("count"),
             move |mark, hist| {
                 let mark = mark.transform(Filter::new(gate), |mark, _| mark);
@@ -216,8 +244,8 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<G
                     r.x(hist.x_dim())
                         .y(hist.y_dim())
                         .fill_by(hist.by_dim(), |fill| {
-                            fill.scale(|s| s.domain_discrete(passenger_fill_domain()))
-                                .legend(|legend| legend.title("Passengers"))
+                            fill.scale(|s| s.domain_discrete(period_fill_domain()))
+                                .legend(|legend| legend.title("Time of day"))
                         })
                         .opacity_by_total(|o| {
                             o.scale_with::<Sqrt>(|s| {
@@ -234,8 +262,8 @@ fn raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> UniformRaster2D<G
         .smooth(false)
 }
 
-/// Synchronous scatter of the exact in-view points, colored by passenger
-/// count through the SAME ordinal fill scale as the raster overlay — one
+/// Synchronous scatter of the exact in-view points, colored by time of
+/// day through the SAME ordinal fill scale as the raster overlay — one
 /// legend serves both adaptive regimes.
 fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Geo> {
     let gate = stats.scalar("n").lt(lit(POINT_BUDGET));
@@ -248,8 +276,8 @@ fn scatter_child(stats: &ScalarAggregateOutput) -> Symbol<Geo> {
         .projected_x(raw_x)
         .projected_y(raw_y)
         .size(20.0)
-        .fill_with(cast(col("passenger_count"), DataType::Utf8), |c| {
-            c.scale(|s| s.domain_discrete(passenger_fill_domain()))
+        .fill_with(period_expr(), |c| {
+            c.scale(|s| s.domain_discrete(period_fill_domain()))
         })
 }
 
