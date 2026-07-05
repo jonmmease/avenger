@@ -4949,10 +4949,7 @@ mod tests {
         let (by_name, categories) = raster_categorical_dimension(&batches[0], 0, 2);
         assert_eq!(by_name, "group");
         assert_eq!(categories, vec!["a", "b", "c"]);
-        assert_eq!(
-            raster_values_dims(&batches[0], 0),
-            vec!["group", "y", "x"]
-        );
+        assert_eq!(raster_values_dims(&batches[0], 0), vec!["group", "y", "x"]);
         // Plane-major data: a hits cells 0 and 3 ((0,0) and (2,2));
         // b = 2 hits in cell 0; c = 1 hit at (x=2, y=0) -> cell 1.
         assert_eq!(
@@ -5682,15 +5679,14 @@ mod tests {
         }
 
         // Warm-path round trip: literals -> batch -> literals.
-        let warmed = scalar_batch_from_literals(&materialization.measure_names, &materialized)
-            .unwrap();
+        let warmed =
+            scalar_batch_from_literals(&materialization.measure_names, &materialized).unwrap();
         let round_tripped =
             scalar_literals_from_batch(&materialization.measure_names, &warmed).unwrap();
         for name in &materialization.measure_names {
             assert_eq!(round_tripped.get(name), materialized.get(name));
         }
     }
-
 
     fn scalar_aggregate_all_measures() -> ScalarAggregate {
         ScalarAggregate::new()

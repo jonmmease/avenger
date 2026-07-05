@@ -536,8 +536,8 @@ async fn execute_transform_chain(
             // RetargetCached views opt in (`allow_stale`), the same contract
             // that lets the displayed raster go stale mid-gesture.
             if materialization_ctx.policy.allow_stale
-                && let Some(mut scalar_materialization) =
-                    transform.view_scalar_materialization_request(&dataframe, &materialization_ctx)?
+                && let Some(mut scalar_materialization) = transform
+                    .view_scalar_materialization_request(&dataframe, &materialization_ctx)?
             {
                 // Identity from the UNRESOLVED stage transform, same law as
                 // display materializations: resolved params/derived scalars

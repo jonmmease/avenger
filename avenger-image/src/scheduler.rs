@@ -296,7 +296,9 @@ impl FetchScheduler {
             }
             // Wait until the cursor has rested for the debounce window.
             loop {
-                let Some(last) = state.last_focus_at else { break };
+                let Some(last) = state.last_focus_at else {
+                    break;
+                };
                 let deadline = last + self.focus_debounce;
                 let now = Instant::now();
                 if now >= deadline {
@@ -428,7 +430,12 @@ mod tests {
         }
     }
 
-    fn prefetch(key: &str, priority: f32, scope: &str, center: Option<[f32; 2]>) -> ResourceRequest {
+    fn prefetch(
+        key: &str,
+        priority: f32,
+        scope: &str,
+        center: Option<[f32; 2]>,
+    ) -> ResourceRequest {
         let mut request = request(key, ResourceRequestPurpose::Prefetch, priority);
         request.prefetch_scope = Some(PrefetchScope::new(scope));
         request.screen_center = center;
@@ -458,7 +465,10 @@ mod tests {
                 executed_tx.send(request.key.0.clone()).ok();
             }),
             cancel_pending: Box::new(move |key, _| {
-                cancelled_hook.lock().expect("cancel lock").push(key.0.clone());
+                cancelled_hook
+                    .lock()
+                    .expect("cancel lock")
+                    .push(key.0.clone());
             }),
             begin_request: Box::new(|_| Some(0)),
         };
@@ -516,7 +526,10 @@ mod tests {
         scheduler.enqueue(prefetch("keep", -0.2, "geo/map/base", None), 2);
         scheduler.enqueue(prefetch("stale", -0.3, "geo/map/base", None), 3);
         scheduler.enqueue(prefetch("other-scope", -0.4, "geo/map/labels", None), 4);
-        scheduler.enqueue(request("required", ResourceRequestPurpose::Required, 0.0), 5);
+        scheduler.enqueue(
+            request("required", ResourceRequestPurpose::Required, 0.0),
+            5,
+        );
 
         scheduler.replace_prefetch_set(
             &PrefetchScope::new("geo/map/base"),

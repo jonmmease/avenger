@@ -161,7 +161,9 @@ impl ImageResourceCache {
                     cancel_pending: Box::new(move |key, request_id| {
                         cancel_pending_entry(&cancel_inner, key, request_id);
                     }),
-                    begin_request: Box::new(move |request| try_begin_request(&begin_inner, request)),
+                    begin_request: Box::new(move |request| {
+                        try_begin_request(&begin_inner, request)
+                    }),
                 })
             })
             .clone()

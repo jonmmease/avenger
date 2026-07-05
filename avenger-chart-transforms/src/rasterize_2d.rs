@@ -490,9 +490,7 @@ impl DataTransform for Rasterize2D {
             x_dim_name: x_dim_name.clone(),
             y_dim_name: y_dim_name.clone(),
             frame: self.frame.clone(),
-            by: self
-                .by
-                .map(|by| expr_node(by, "rasterize by expression")),
+            by: self.by.map(|by| expr_node(by, "rasterize by expression")),
             by_dim_name: by_dim_name.clone(),
         };
 
@@ -1848,9 +1846,7 @@ impl CategoricalGridState {
             .as_any()
             .downcast_ref::<StringArray>()
             .ok_or_else(|| {
-                DataFusionError::Internal(
-                    "Rasterize2D by argument must be Utf8".to_string(),
-                )
+                DataFusionError::Internal("Rasterize2D by argument must be Utf8".to_string())
             })?;
         if x.len() != y.len()
             || category.len() != x.len()
@@ -1904,8 +1900,12 @@ impl CategoricalGridState {
         let row_len = plane_count * self.grid_len;
 
         let categories = string_list_array_from_rows(
-            (0..group_count)
-                .map(|_| self.categories.iter().map(String::as_str).collect::<Vec<_>>()),
+            (0..group_count).map(|_| {
+                self.categories
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+            }),
             false,
         )?;
         let mut arrays: Vec<ArrayRef> = vec![categories];
@@ -1947,20 +1947,40 @@ impl CategoricalGridState {
         }
 
         let counts = concat_u64(&|plane| &plane.counts);
-        arrays.push(u64_list_array_from_rows(rows_of(&counts, row_len, group_count, &empty_u64), row_len, false)? as ArrayRef);
+        arrays.push(u64_list_array_from_rows(
+            rows_of(&counts, row_len, group_count, &empty_u64),
+            row_len,
+            false,
+        )? as ArrayRef);
         if self.agg.uses_sums() {
             let sums = concat_f64(&|plane| &plane.sums);
-            arrays.push(f64_list_array_from_rows(rows_of(&sums, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+            arrays.push(f64_list_array_from_rows(
+                rows_of(&sums, row_len, group_count, &empty_f64),
+                row_len,
+                false,
+            )? as ArrayRef);
         }
         if self.agg.uses_values() {
             let values = concat_f64(&|plane| &plane.values);
-            arrays.push(f64_list_array_from_rows(rows_of(&values, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+            arrays.push(f64_list_array_from_rows(
+                rows_of(&values, row_len, group_count, &empty_f64),
+                row_len,
+                false,
+            )? as ArrayRef);
         }
         if self.agg.uses_moments() {
             let means = concat_f64(&|plane| &plane.means);
             let m2s = concat_f64(&|plane| &plane.m2s);
-            arrays.push(f64_list_array_from_rows(rows_of(&means, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
-            arrays.push(f64_list_array_from_rows(rows_of(&m2s, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+            arrays.push(f64_list_array_from_rows(
+                rows_of(&means, row_len, group_count, &empty_f64),
+                row_len,
+                false,
+            )? as ArrayRef);
+            arrays.push(f64_list_array_from_rows(
+                rows_of(&m2s, row_len, group_count, &empty_f64),
+                row_len,
+                false,
+            )? as ArrayRef);
         }
         Ok(arrays)
     }
@@ -2136,9 +2156,7 @@ impl CategoricalGridState {
                 let mut data = Vec::with_capacity(observed.len() * self.grid_len);
                 for (_, plane_index) in &observed {
                     let plane = &self.planes[*plane_index];
-                    data.extend(
-                        (0..self.grid_len).map(|cell| plane.output_cell(offset + cell)),
-                    );
+                    data.extend((0..self.grid_len).map(|cell| plane.output_cell(offset + cell)));
                 }
                 CategoricalRowData::F64(data)
             };
@@ -2560,7 +2578,6 @@ fn build_categorical_raster_array(
         ),
     ])))
 }
-
 
 fn dimensions_list_array(
     config: &Rasterize2DGridConfig,

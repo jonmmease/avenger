@@ -341,8 +341,8 @@ impl MaterializationExecutor for ScalarAggregateExecutor {
         ctx: MaterializationExecutionContext<'_>,
     ) -> Result<MaterializationResult, AvengerChartError> {
         let started = Instant::now();
-        let spec: ScalarAggregateMaterializationSpec =
-            serde_json::from_value(request.spec.clone()).map_err(|err| {
+        let spec: ScalarAggregateMaterializationSpec = serde_json::from_value(request.spec.clone())
+            .map_err(|err| {
                 AvengerChartError::InvalidArgument(format!(
                     "Invalid ScalarAggregate materialization spec: {err}"
                 ))

@@ -23,11 +23,10 @@ use avenger_scenegraph::marks::image::SceneImageUnavailablePolicy;
 use wgpu::{BindGroup, BindGroupLayout, Device, Extent3d, Queue};
 
 use crate::error::AvengerWgpuError;
-use crate::marks::image::{push_unique, push_unique_failed};
 use crate::image_resources::{
-    WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuImageResourceStatus,
-    WgpuMissingImagePolicy,
+    WgpuImagePlaceholder, WgpuImageResourceConfig, WgpuImageResourceStatus, WgpuMissingImagePolicy,
 };
+use crate::marks::image::{push_unique, push_unique_failed};
 
 /// WebGL2 downlevel `max_texture_array_layers`.
 const MAX_TILE_ARRAY_LAYERS: u32 = 256;
@@ -273,8 +272,10 @@ impl TileTextureArrays {
             // Placeholder layer 0: upload once (and again only if the
             // placeholder config produces different pixels — not tracked;
             // the config is fixed per canvas).
-            if !matches!(group.slots[PLACEHOLDER_LAYER as usize].content, SlotContent::Placeholder)
-            {
+            if !matches!(
+                group.slots[PLACEHOLDER_LAYER as usize].content,
+                SlotContent::Placeholder
+            ) {
                 let placeholder = placeholder_pixels(size, &config.placeholder)?;
                 upload_layer(
                     queue,
@@ -296,7 +297,9 @@ impl TileTextureArrays {
                 .filter(|(_, slot)| slot.last_used_epoch == epoch)
             {
                 let layer = layer_index as u32;
-                let Some(key) = slot.key.clone() else { continue };
+                let Some(key) = slot.key.clone() else {
+                    continue;
+                };
                 match desired_slot_content(&key, slot, size, config, &mut status)? {
                     DesiredContent::Image(image) => {
                         if !slot.content.matches_image(&image) {

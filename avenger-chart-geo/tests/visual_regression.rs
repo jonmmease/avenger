@@ -1207,55 +1207,73 @@ mod phase6 {
                     13,
                     2411,
                     3077,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2411/3077.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2411/3077.png"
+                    ),
                 ),
                 (
                     13,
                     2411,
                     3078,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2411/3078.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2411/3078.png"
+                    ),
                 ),
                 (
                     13,
                     2411,
                     3079,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2411/3079.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2411/3079.png"
+                    ),
                 ),
                 (
                     13,
                     2412,
                     3077,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2412/3077.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2412/3077.png"
+                    ),
                 ),
                 (
                     13,
                     2412,
                     3078,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2412/3078.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2412/3078.png"
+                    ),
                 ),
                 (
                     13,
                     2412,
                     3079,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2412/3079.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2412/3079.png"
+                    ),
                 ),
                 (
                     13,
                     2413,
                     3077,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2413/3077.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2413/3077.png"
+                    ),
                 ),
                 (
                     13,
                     2413,
                     3078,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2413/3078.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2413/3078.png"
+                    ),
                 ),
                 (
                     13,
                     2413,
                     3079,
-                    include_bytes!("../../avenger-chart/tests/data/geo/carto_light/13/2413/3079.png"),
+                    include_bytes!(
+                        "../../avenger-chart/tests/data/geo/carto_light/13/2413/3079.png"
+                    ),
                 ),
             ];
             for (z, x, y, bytes) in light_fixtures {
@@ -1319,16 +1337,15 @@ mod phase6 {
     // raster/scatter gate and a shared "Passengers" swatch legend.
     // -----------------------------------------------------------------
 
+    use avenger_chart::prelude::LegendableChannel as _;
     #[allow(unused_imports)]
     use avenger_chart::prelude::{
         self as chart_prelude, EvaluationRequest, Filter, MarkGroup, Rasterize2D, ScalarAggregate,
         ScalarAggregateOutput, ScaleChannelConfig as _, Sqrt, SqrtScaleExt as _,
         Symbol as PreludeSymbol, UniformRaster2D as PreludeUniformRaster2D, View, ViewRef,
     };
-    use avenger_chart::prelude::LegendableChannel as _;
     use avenger_chart_geo::{
-        GeoPositionChannels, GeoUniformRaster2DChannels, UniformRaster2D as GeoUniformRaster2D,
-        crs,
+        GeoPositionChannels, GeoUniformRaster2DChannels, UniformRaster2D as GeoUniformRaster2D, crs,
     };
     use datafusion::arrow::datatypes::DataType as ArrowDataType;
     use datafusion::functions::expr_fn::floor;
@@ -1504,35 +1521,33 @@ mod phase6 {
     }
 
     fn capstone_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
-        Plot::with_coord(coord)
-            .canvas_size(620.0, 400.0)
-            .mark(
-                MarkGroup::<Geo>::new().data(df).view(
-                    View::cartesian()
-                        .id("pickups")
-                        .x_domain(col("pickup_x"))
-                        .y_domain(col("pickup_y"))
-                        .preview_cached(true),
-                    |group, v| {
-                        let x_start = meters_x(v.x().domain_start());
-                        let x_end = meters_x(v.x().domain_end());
-                        let y_start = meters_y(v.y().domain_start());
-                        let y_end = meters_y(v.y().domain_end());
-                        let in_view = col("pickup_x")
-                            .gt_eq(x_start)
-                            .and(col("pickup_x").lt_eq(x_end))
-                            .and(col("pickup_y").gt_eq(y_start))
-                            .and(col("pickup_y").lt_eq(y_end));
-                        group
-                            .transform(Filter::new(in_view), |group, _| group)
-                            .transform(ScalarAggregate::new().count("n"), |group, stats| {
-                                group
-                                    .mark(capstone_raster_child(&v, &stats))
-                                    .mark(capstone_scatter_child(&stats))
-                            })
-                    },
-                ),
-            )
+        Plot::with_coord(coord).canvas_size(620.0, 400.0).mark(
+            MarkGroup::<Geo>::new().data(df).view(
+                View::cartesian()
+                    .id("pickups")
+                    .x_domain(col("pickup_x"))
+                    .y_domain(col("pickup_y"))
+                    .preview_cached(true),
+                |group, v| {
+                    let x_start = meters_x(v.x().domain_start());
+                    let x_end = meters_x(v.x().domain_end());
+                    let y_start = meters_y(v.y().domain_start());
+                    let y_end = meters_y(v.y().domain_end());
+                    let in_view = col("pickup_x")
+                        .gt_eq(x_start)
+                        .and(col("pickup_x").lt_eq(x_end))
+                        .and(col("pickup_y").gt_eq(y_start))
+                        .and(col("pickup_y").lt_eq(y_end));
+                    group
+                        .transform(Filter::new(in_view), |group, _| group)
+                        .transform(ScalarAggregate::new().count("n"), |group, stats| {
+                            group
+                                .mark(capstone_raster_child(&v, &stats))
+                                .mark(capstone_scatter_child(&stats))
+                        })
+                },
+            ),
+        )
     }
 
     /// Session-based capstone assertion: exact-evaluate until the async

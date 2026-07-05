@@ -79,22 +79,32 @@ async fn categorical_raster_overlay_two_categories() {
     let plot = Plot::<Cartesian>::new()
         .plot_size(260.0, 180.0)
         .data(df)
-        .mark(UniformRaster2D::new().transform(
-            Rasterize2D::new(col("x"), col("y"))
-                .x(|x| x.extent(0.0, 4.0).bins(4))
-                .y(|y| y.extent(0.0, 3.0).bins(3))
-                .by(col("cat"))
-                .agg("count"),
-            |mark, hist| {
-                mark.raster_with(hist.raster(), |r| {
-                    r.x(hist.x_dim())
-                        .y(hist.y_dim())
-                        .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Group")))
-                })
-            },
-        ));
+        .mark(
+            UniformRaster2D::new().transform(
+                Rasterize2D::new(col("x"), col("y"))
+                    .x(|x| x.extent(0.0, 4.0).bins(4))
+                    .y(|y| y.extent(0.0, 3.0).bins(3))
+                    .by(col("cat"))
+                    .agg("count"),
+                |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x(hist.x_dim())
+                            .y(hist.y_dim())
+                            .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Group")))
+                    })
+                },
+            ),
+        );
     let compiled = plot.compile(&ctx).await.expect("compile");
-    assert_visual_match(&compiled, &ctx, None, CATEGORY, "overlay_two_categories", 0.9999).await;
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "overlay_two_categories",
+        0.9999,
+    )
+    .await;
 }
 
 /// Six categories through the theme's default categorical scheme
@@ -114,22 +124,32 @@ async fn categorical_raster_overlay_six_categories() {
     let plot = Plot::<Cartesian>::new()
         .plot_size(280.0, 180.0)
         .data(df)
-        .mark(UniformRaster2D::new().transform(
-            Rasterize2D::new(col("x"), col("y"))
-                .x(|x| x.extent(0.0, 6.0).bins(6))
-                .y(|y| y.extent(0.0, 3.0).bins(3))
-                .by(col("cat"))
-                .agg("count"),
-            |mark, hist| {
-                mark.raster_with(hist.raster(), |r| {
-                    r.x(hist.x_dim())
-                        .y(hist.y_dim())
-                        .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Class")))
-                })
-            },
-        ));
+        .mark(
+            UniformRaster2D::new().transform(
+                Rasterize2D::new(col("x"), col("y"))
+                    .x(|x| x.extent(0.0, 6.0).bins(6))
+                    .y(|y| y.extent(0.0, 3.0).bins(3))
+                    .by(col("cat"))
+                    .agg("count"),
+                |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x(hist.x_dim())
+                            .y(hist.y_dim())
+                            .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Class")))
+                    })
+                },
+            ),
+        );
     let compiled = plot.compile(&ctx).await.expect("compile");
-    assert_visual_match(&compiled, &ctx, None, CATEGORY, "overlay_six_categories", 0.9999).await;
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "overlay_six_categories",
+        0.9999,
+    )
+    .await;
 }
 
 /// Density gradient through a Sqrt opacity scale with a visible range
@@ -147,31 +167,41 @@ async fn categorical_raster_overlay_opacity_sqrt() {
     let plot = Plot::<Cartesian>::new()
         .plot_size(280.0, 140.0)
         .data(df)
-        .mark(UniformRaster2D::new().transform(
-            Rasterize2D::new(col("x"), col("y"))
-                .x(|x| x.extent(0.0, 8.0).bins(8))
-                .y(|y| y.extent(0.0, 2.0).bins(2))
-                .by(col("cat"))
-                .agg("count"),
-            |mark, hist| {
-                mark.raster_with(hist.raster(), |r| {
-                    r.x(hist.x_dim())
-                        .y(hist.y_dim())
-                        .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Group")))
-                        .opacity_by_total(|o| {
-                            o.scale_with::<Sqrt>(|s| {
-                                s.domain((0.0, 50.0))
-                                    .range_interval(lit(0.25), lit(1.0))
-                                    .clamp(true)
-                                    .nice(false)
-                                    .zero(false)
+        .mark(
+            UniformRaster2D::new().transform(
+                Rasterize2D::new(col("x"), col("y"))
+                    .x(|x| x.extent(0.0, 8.0).bins(8))
+                    .y(|y| y.extent(0.0, 2.0).bins(2))
+                    .by(col("cat"))
+                    .agg("count"),
+                |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x(hist.x_dim())
+                            .y(hist.y_dim())
+                            .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Group")))
+                            .opacity_by_total(|o| {
+                                o.scale_with::<Sqrt>(|s| {
+                                    s.domain((0.0, 50.0))
+                                        .range_interval(lit(0.25), lit(1.0))
+                                        .clamp(true)
+                                        .nice(false)
+                                        .zero(false)
+                                })
                             })
-                        })
-                })
-            },
-        ));
+                    })
+                },
+            ),
+        );
     let compiled = plot.compile(&ctx).await.expect("compile");
-    assert_visual_match(&compiled, &ctx, None, CATEGORY, "overlay_opacity_sqrt", 0.9999).await;
+    assert_visual_match(
+        &compiled,
+        &ctx,
+        None,
+        CATEGORY,
+        "overlay_opacity_sqrt",
+        0.9999,
+    )
+    .await;
 }
 
 /// Explicit domain includes a category absent from the data: the legend
@@ -191,25 +221,27 @@ async fn categorical_raster_overlay_domain_stability() {
     let plot = Plot::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
-        .mark(UniformRaster2D::new().transform(
-            Rasterize2D::new(col("x"), col("y"))
-                .x(|x| x.extent(0.0, 2.0).bins(2))
-                .y(|y| y.extent(0.0, 2.0).bins(2))
-                .by(col("cat"))
-                .agg("count"),
-            |mark, hist| {
-                mark.raster_with(hist.raster(), |r| {
-                    r.x(hist.x_dim())
-                        .y(hist.y_dim())
-                        .fill_by(hist.by_dim(), |fill| {
-                            fill.scale(|s| {
-                                s.domain_discrete(vec![lit("bike"), lit("bus"), lit("walk")])
+        .mark(
+            UniformRaster2D::new().transform(
+                Rasterize2D::new(col("x"), col("y"))
+                    .x(|x| x.extent(0.0, 2.0).bins(2))
+                    .y(|y| y.extent(0.0, 2.0).bins(2))
+                    .by(col("cat"))
+                    .agg("count"),
+                |mark, hist| {
+                    mark.raster_with(hist.raster(), |r| {
+                        r.x(hist.x_dim())
+                            .y(hist.y_dim())
+                            .fill_by(hist.by_dim(), |fill| {
+                                fill.scale(|s| {
+                                    s.domain_discrete(vec![lit("bike"), lit("bus"), lit("walk")])
+                                })
+                                .legend(|l| l.title("Mode"))
                             })
-                            .legend(|l| l.title("Mode"))
-                        })
-                })
-            },
-        ));
+                    })
+                },
+            ),
+        );
     let compiled = plot.compile(&ctx).await.expect("compile");
     assert_visual_match(
         &compiled,
@@ -296,11 +328,7 @@ fn external_3d_raster_batch() -> RecordBatch {
             ])) as ArrayRef,
         ),
         (
-            Arc::new(Field::new(
-                "values",
-                coord_values.data_type().clone(),
-                true,
-            )),
+            Arc::new(Field::new("values", coord_values.data_type().clone(), true)),
             coord_values,
         ),
     ])) as ArrayRef;

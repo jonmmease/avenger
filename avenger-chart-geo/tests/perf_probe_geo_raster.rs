@@ -91,10 +91,7 @@ fn half_pixel_bins(view_pixels: Expr) -> Expr {
 
 /// Categorical raster child (capstone shape): by(passenger_count) planes,
 /// Oklab overlay, Sqrt density opacity. Used by the `_by` probe variant.
-fn categorical_raster_child(
-    v: &ViewRef,
-    stats: &ScalarAggregateOutput,
-) -> GeoUniformRaster2D<Geo> {
+fn categorical_raster_child(v: &ViewRef, stats: &ScalarAggregateOutput) -> GeoUniformRaster2D<Geo> {
     use avenger_chart::prelude::LegendableChannel as _;
     let gate = stats.scalar("n").gt_eq(lit(POINT_BUDGET));
     let x_start = meters_x(v.x().domain_start());
@@ -511,9 +508,9 @@ async fn geo_end_of_scroll_convergence() {
         let trial_start = Instant::now();
         let mut last_eval_start = trial_start;
         let log_eval = |log: &mut Vec<String>,
-                            trigger: &str,
-                            metrics: &EvaluationMetrics,
-                            rect: Option<[f32; 4]>| {
+                        trigger: &str,
+                        metrics: &EvaluationMetrics,
+                        rect: Option<[f32; 4]>| {
             log.push(format!(
                 "t=+{:>4}ms {trigger}: reuses={} ready={} fallback={} queued={} rect={rect:?}",
                 trial_start.elapsed().as_millis(),
@@ -648,7 +645,6 @@ async fn geo_end_of_scroll_convergence() {
                     },
                     latency.as_millis()
                 );
-
             }
             None => {
                 println!(

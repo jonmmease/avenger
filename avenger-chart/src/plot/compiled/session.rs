@@ -3054,23 +3054,25 @@ mod tests {
         let plot = Plot::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
-            .mark(UniformRaster2D::new().transform(
-                Rasterize2D::new(col("x"), col("y"))
-                    .x(|x| x.extent(0.0, 2.0).bins(2))
-                    .y(|y| y.extent(0.0, 2.0).bins(2))
-                    .by(col("cat"))
-                    .agg("count"),
-                |mark, hist| {
-                    mark.raster_with(hist.raster(), |r| {
-                        r.x(hist.x_dim()).y(hist.y_dim()).fill_by(hist.by_dim(), |fill| {
-                            fill.scale(|s| {
-                                s.domain_discrete(vec![lit("bus"), lit("car")])
-                            })
-                            .legend(|l| l.title("Vehicle"))
+            .mark(
+                UniformRaster2D::new().transform(
+                    Rasterize2D::new(col("x"), col("y"))
+                        .x(|x| x.extent(0.0, 2.0).bins(2))
+                        .y(|y| y.extent(0.0, 2.0).bins(2))
+                        .by(col("cat"))
+                        .agg("count"),
+                    |mark, hist| {
+                        mark.raster_with(hist.raster(), |r| {
+                            r.x(hist.x_dim())
+                                .y(hist.y_dim())
+                                .fill_by(hist.by_dim(), |fill| {
+                                    fill.scale(|s| s.domain_discrete(vec![lit("bus"), lit("car")]))
+                                        .legend(|l| l.title("Vehicle"))
+                                })
                         })
-                    })
-                },
-            ));
+                    },
+                ),
+            );
         // A sibling Symbol on the SAME fill scale (the adaptive-swap
         // pattern): one shared scale, one legend for both marks.
         let plot = plot.mark(
@@ -3109,8 +3111,8 @@ mod tests {
     /// fill_by without an explicit domain: the fill scale's categorical
     /// domain is inferred from the raster's plane dimension values.
     #[tokio::test]
-    async fn categorical_raster_fill_by_infers_domain_from_planes()
-    -> Result<(), AvengerChartError> {
+    async fn categorical_raster_fill_by_infers_domain_from_planes() -> Result<(), AvengerChartError>
+    {
         let ctx = Arc::new(SessionContext::new());
         let df = ctx
             .sql(
@@ -3121,22 +3123,22 @@ mod tests {
         let plot = Plot::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
-            .mark(UniformRaster2D::new().transform(
-                Rasterize2D::new(col("x"), col("y"))
-                    .x(|x| x.extent(0.0, 2.0).bins(2))
-                    .y(|y| y.extent(0.0, 2.0).bins(2))
-                    .by(col("cat"))
-                    .agg("count"),
-                |mark, hist| {
-                    mark.raster_with(hist.raster(), |r| {
-                        r.x(hist.x_dim())
-                            .y(hist.y_dim())
-                            .fill_by(hist.by_dim(), |fill| {
-                                fill.legend(|l| l.title("Mode"))
-                            })
-                    })
-                },
-            ));
+            .mark(
+                UniformRaster2D::new().transform(
+                    Rasterize2D::new(col("x"), col("y"))
+                        .x(|x| x.extent(0.0, 2.0).bins(2))
+                        .y(|y| y.extent(0.0, 2.0).bins(2))
+                        .by(col("cat"))
+                        .agg("count"),
+                    |mark, hist| {
+                        mark.raster_with(hist.raster(), |r| {
+                            r.x(hist.x_dim())
+                                .y(hist.y_dim())
+                                .fill_by(hist.by_dim(), |fill| fill.legend(|l| l.title("Mode")))
+                        })
+                    },
+                ),
+            );
         let compiled = Arc::new(plot.compile(&ctx).await?);
         let mut session = compiled.instantiate(ctx);
         let (evaluated, _) = session

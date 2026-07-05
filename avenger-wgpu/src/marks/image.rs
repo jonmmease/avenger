@@ -455,7 +455,11 @@ pub(crate) fn push_unique(values: &mut Vec<ResourceKey>, key: ResourceKey) {
     }
 }
 
-pub(crate) fn push_unique_failed(status: &mut WgpuImageResourceStatus, key: ResourceKey, message: String) {
+pub(crate) fn push_unique_failed(
+    status: &mut WgpuImageResourceStatus,
+    key: ResourceKey,
+    message: String,
+) {
     if !status.failed.iter().any(|(existing, _)| existing == &key) {
         status.failed.push((key, message));
     }

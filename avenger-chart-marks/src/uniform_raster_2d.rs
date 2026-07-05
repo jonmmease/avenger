@@ -125,10 +125,8 @@ impl<C> UniformRaster2D<C> {
             .with_channel_value(UNIFORM_RASTER_2D_FILL_CHANNEL, fill);
         if let Some(opacity_by_total) = opacity_by_total {
             mark.options.opacity_by_total = Some(opacity_by_total.clone());
-            mark = mark.with_channel_value(
-                UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL,
-                opacity_by_total,
-            );
+            mark = mark
+                .with_channel_value(UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL, opacity_by_total);
         }
         mark
     }
@@ -215,9 +213,9 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
         // the fill scale default to Ordinal with the theme's categorical
         // scheme. NULL so unique-value domain inference never picks the
         // placeholder up as a spurious category.
-        let config = ColorChannelConfig::new(ChannelValue::from(
-            datafusion::logical_expr::lit(ScalarValue::Utf8(None)),
-        ));
+        let config = ColorChannelConfig::new(ChannelValue::from(datafusion::logical_expr::lit(
+            ScalarValue::Utf8(None),
+        )));
         self.fill_by = Some((dim, f(config)));
         self
     }
@@ -230,9 +228,8 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
     {
         // A SCALED literal seed (plain f64 literals are unscaled and would
         // suppress building the opacity scale).
-        let config = OpacityChannelConfig::new(ChannelValue::from(
-            datafusion::logical_expr::lit(1.0_f64),
-        ));
+        let config =
+            OpacityChannelConfig::new(ChannelValue::from(datafusion::logical_expr::lit(1.0_f64)));
         self.opacity_by_total = Some(f(config));
         self
     }
@@ -285,9 +282,7 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
             fill: self.fill.into_inner(),
             x: self.x,
             y: self.y,
-            fill_by: self
-                .fill_by
-                .map(|(dim, config)| (dim, config.into_inner())),
+            fill_by: self.fill_by.map(|(dim, config)| (dim, config.into_inner())),
             opacity_by_total: self.opacity_by_total.map(ChannelConfig::into_inner),
         }
     }
@@ -1591,10 +1586,7 @@ pub fn resolve_category_colors(
 
 /// Maximum per-cell plane total of a categorical raster — the default
 /// opacity domain upper bound when no opacity_by_total scale is configured.
-pub fn max_plane_total(
-    raster: &GridRasterRow,
-    mix_dim: &str,
-) -> Result<f64, AvengerChartError> {
+pub fn max_plane_total(raster: &GridRasterRow, mix_dim: &str) -> Result<f64, AvengerChartError> {
     let plane_count = raster.categorical_dim_values(mix_dim)?.len();
     let mix_stride = *raster.strides.get(mix_dim).ok_or_else(|| {
         AvengerChartError::InternalError(format!(
@@ -2108,7 +2100,11 @@ mod tests {
         // Pure b at (1,0): exact blue, total=2 -> alpha ~128.
         let blue = pixel(&image, 1, 0);
         assert_eq!([blue[0], blue[1], blue[2]], [0, 0, 255]);
-        assert!((blue[3] as i32 - 128).unsigned_abs() <= 1, "alpha {}", blue[3]);
+        assert!(
+            (blue[3] as i32 - 128).unsigned_abs() <= 1,
+            "alpha {}",
+            blue[3]
+        );
         // 50/50 mix at (0,1) equals the OklabMixer output.
         let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]);
         let expected = mixer.mix(&[1.0, 1.0]).unwrap();
@@ -2173,7 +2169,10 @@ mod tests {
             false,
         )
         .unwrap_err();
-        assert!(err.to_string().contains("no color for category 'b'"), "{err}");
+        assert!(
+            err.to_string().contains("no color for category 'b'"),
+            "{err}"
+        );
     }
 
     #[test]
@@ -2198,7 +2197,10 @@ mod tests {
         };
         let first = build(&category_colors());
         let second = build(&category_colors());
-        assert!(Arc::ptr_eq(&first, &second), "same inputs must hit the cache");
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "same inputs must hit the cache"
+        );
         let mut recolored = category_colors();
         recolored[1].1 = [0.0, 1.0, 0.0, 1.0];
         let third = build(&recolored);
