@@ -27,10 +27,12 @@ use avenger_chart_marks::{
     RasterChannelsConfig, UNIFORM_RASTER_2D_FILL_CHANNEL, UNIFORM_RASTER_2D_RASTER_CHANNEL,
     UniformRaster2D, UniformRaster2DOptions,
     uniform_raster_2d::{
-        GridRasterRow, RasterCoords, UniformRasterImageCacheHandle, as_struct_array,
+        GridRasterRow, RasterCoords, UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL,
+        UniformRasterImageCacheHandle, as_struct_array, build_or_reuse_mixed_rgba_image,
         build_or_reuse_rgba_image, channel_array, default_uniform_raster_image_cache,
         extract_grid_raster_row, list_row_values, option_color, raster_crs, required_position,
-        row_for_channel, scale_numeric_extent, scene_image_mark, struct_child_struct,
+        resolve_overlay_inputs, row_for_channel, scale_numeric_extent, scene_image_mark,
+        struct_child_struct,
     },
     uniform_raster_2d_channel_defaults,
 };
@@ -90,10 +92,16 @@ impl GeoUniformRaster2DChannels for UniformRaster2D<Geo> {
         let config = RasterChannelsConfig::new(ColorChannelConfig::new(ChannelValue::from(
             fields.values_data(),
         )));
-        let (fill, x, y) = f(config).into_parts();
-        let x_position = x.map(|x| x.take().0);
-        let y_position = y.map(|y| y.take().0);
-        self.configure_raster(raster_expr, Some(fill), Some((x_position, y_position)))
+        let parts = f(config).into_parts();
+        let x_position = parts.x.map(|x| x.take().0);
+        let y_position = parts.y.map(|y| y.take().0);
+        self.configure_raster_with_overlay(
+            raster_expr,
+            Some(parts.fill),
+            Some((x_position, y_position)),
+            parts.fill_by,
+            parts.opacity_by_total,
+        )
     }
 }
 
@@ -141,6 +149,12 @@ impl CompiledMarkCore for CompiledGeoUniformRaster2D {
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL,
+                required: false,
+                default_value: None,
+                allow_column_ref: false,
             },
         ]
     }
@@ -297,21 +311,59 @@ impl CompiledGeoUniformRaster2D {
         for row in 0..len {
             let raster_row =
                 row_for_channel(raster_array, row, len, UNIFORM_RASTER_2D_RASTER_CHANNEL)?;
-            let fill_row = row_for_channel(fill_array, row, len, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
             let raster = extract_grid_raster_row(raster_array, raster_row)?;
             let geometry =
                 struct_child_struct(as_struct_array(raster_array, "raster")?, "geometry")?;
             let frame = parse_raster_frame(raster_crs(geometry, raster_row).as_deref())?;
-            raster.validate_scalar_render_dims(x_position.dim.name(), y_position.dim.name())?;
-            let fill_values =
-                list_row_values(fill_array, fill_row, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
-            if fill_values.len() != raster.values.len() {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "UniformRaster2D fill row {row} has {} cells, but raster values require {}",
-                    fill_values.len(),
-                    raster.values.len()
-                )));
-            }
+
+            // Resolve the image source: categorical overlay (fill_by) or the
+            // scalar fill path. Overlay inputs borrow per row.
+            let fill_values_storage;
+            let overlay_storage;
+            let image_spec = if let Some(fill_by) = &self.options.fill_by {
+                let mix_dim = fill_by.dim.name();
+                if mix_dim == x_position.dim.name() || mix_dim == y_position.dim.name() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "UniformRaster2D fill_by dimension '{mix_dim}' cannot also be a position dimension"
+                    )));
+                }
+                match resolve_overlay_inputs(
+                    &raster,
+                    fill_by,
+                    self.options.opacity_by_total.is_some(),
+                    context,
+                )? {
+                    Some(inputs) => {
+                        overlay_storage = inputs;
+                        RasterImageSpec::Mixed {
+                            mix_dim,
+                            category_colors: &overlay_storage.0,
+                            opacity_scale: &overlay_storage.1,
+                        }
+                    }
+                    // No observed categories: nothing to draw for this row.
+                    None => continue,
+                }
+            } else {
+                let fill_row =
+                    row_for_channel(fill_array, row, len, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
+                raster.validate_scalar_render_dims(x_position.dim.name(), y_position.dim.name())?;
+                fill_values_storage =
+                    list_row_values(fill_array, fill_row, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
+                if fill_values_storage.len() != raster.values.len() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "UniformRaster2D fill row {row} has {} cells, but raster values require {}",
+                        fill_values_storage.len(),
+                        raster.values.len()
+                    )));
+                }
+                RasterImageSpec::Scalar {
+                    fill_values: &fill_values_storage,
+                    null_color,
+                    non_finite_color,
+                    opacity: opacity_values[row],
+                }
+            };
 
             // 4326 rows are latitude-uniform: never axis-affine on the
             // Mercator screen, so they always take the warped path.
@@ -319,10 +371,7 @@ impl CompiledGeoUniformRaster2D {
             if !identity {
                 if let Some(mark) = build_warped_raster_mark(
                     &raster,
-                    &fill_values,
-                    null_color,
-                    non_finite_color,
-                    opacity_values[row],
+                    &image_spec,
                     x_position,
                     y_position,
                     frame,
@@ -346,10 +395,7 @@ impl CompiledGeoUniformRaster2D {
             };
             let mark = build_identity_raster_mark(
                 &raster,
-                &fill_values,
-                null_color,
-                non_finite_color,
-                opacity_values[row],
+                &image_spec,
                 x_position,
                 y_position,
                 to_raw_units,
@@ -396,15 +442,83 @@ fn parse_raster_frame(crs_tag: Option<&str>) -> Result<RasterFrame, AvengerChart
 /// Warped path: build the RGBA image exactly as the fast path does (image
 /// row 0 = the raster's north/stop edge, matching mesh UV v = 0), then
 /// position it through the measurement's view projector with
+/// How a raster row's RGBA image is produced: the scalar fill path, or the
+/// categorical Oklab overlay. Geometry (identity extent vs warped mesh) is
+/// orthogonal to the image source.
+enum RasterImageSpec<'a> {
+    Scalar {
+        fill_values: &'a datafusion::arrow::array::ArrayRef,
+        null_color: [f32; 4],
+        non_finite_color: [f32; 4],
+        opacity: f32,
+    },
+    Mixed {
+        mix_dim: &'a str,
+        category_colors: &'a [(String, [f32; 4])],
+        opacity_scale: &'a avenger_scales::scales::ConfiguredScale,
+    },
+}
+
+impl RasterImageSpec<'_> {
+    #[allow(clippy::too_many_arguments)]
+    fn build(
+        &self,
+        raster: &GridRasterRow,
+        x_dim: &str,
+        y_dim: &str,
+        x_indices: &[usize],
+        y_indices: &[usize],
+        flip_x: bool,
+        flip_y: bool,
+        image_cache: &UniformRasterImageCacheHandle,
+    ) -> Result<std::sync::Arc<avenger_image::RgbaImage>, AvengerChartError> {
+        match self {
+            Self::Scalar {
+                fill_values,
+                null_color,
+                non_finite_color,
+                opacity,
+            } => build_or_reuse_rgba_image(
+                raster,
+                fill_values,
+                *null_color,
+                *non_finite_color,
+                *opacity,
+                x_dim,
+                y_dim,
+                x_indices,
+                y_indices,
+                flip_x,
+                flip_y,
+                image_cache,
+            ),
+            Self::Mixed {
+                mix_dim,
+                category_colors,
+                opacity_scale,
+            } => build_or_reuse_mixed_rgba_image(
+                raster,
+                mix_dim,
+                category_colors,
+                opacity_scale,
+                x_dim,
+                y_dim,
+                x_indices,
+                y_indices,
+                flip_x,
+                flip_y,
+                image_cache,
+            ),
+        }
+    }
+}
+
 /// [`warped_raster_mesh`]. Returns `Ok(None)` when the mesh is fully
 /// offscreen or degenerate.
 #[allow(clippy::too_many_arguments)]
 fn build_warped_raster_mark(
     raster: &GridRasterRow,
-    fill_values: &datafusion::arrow::array::ArrayRef,
-    null_color: [f32; 4],
-    non_finite_color: [f32; 4],
-    opacity: f32,
+    image_spec: &RasterImageSpec<'_>,
     x_position: &avenger_chart_marks::RasterPositionSpec,
     y_position: &avenger_chart_marks::RasterPositionSpec,
     frame: RasterFrame,
@@ -473,12 +587,8 @@ fn build_warped_raster_mark(
     // and the raster's y dimension is ascending south -> north: flip rows.
     let x_indices = (0..*x_count as usize).collect::<Vec<_>>();
     let y_indices = (0..*y_count as usize).collect::<Vec<_>>();
-    let image = build_or_reuse_rgba_image(
+    let image = image_spec.build(
         raster,
-        fill_values,
-        null_color,
-        non_finite_color,
-        opacity,
         x_dim.name.as_str(),
         y_dim.name.as_str(),
         &x_indices,
@@ -522,10 +632,7 @@ fn build_warped_raster_mark(
 #[allow(clippy::too_many_arguments)]
 fn build_identity_raster_mark(
     raster: &GridRasterRow,
-    fill_values: &datafusion::arrow::array::ArrayRef,
-    null_color: [f32; 4],
-    non_finite_color: [f32; 4],
-    opacity: f32,
+    image_spec: &RasterImageSpec<'_>,
     x_position: &avenger_chart_marks::RasterPositionSpec,
     y_position: &avenger_chart_marks::RasterPositionSpec,
     to_raw_units: f64,
@@ -583,12 +690,8 @@ fn build_identity_raster_mark(
     let height = (scaled_y1 - scaled_y0).abs();
     let x_indices = (0..*x_count as usize).collect::<Vec<_>>();
     let y_indices = (0..*y_count as usize).collect::<Vec<_>>();
-    let image = build_or_reuse_rgba_image(
+    let image = image_spec.build(
         raster,
-        fill_values,
-        null_color,
-        non_finite_color,
-        opacity,
         x_dim.name.as_str(),
         y_dim.name.as_str(),
         &x_indices,

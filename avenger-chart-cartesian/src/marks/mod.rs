@@ -206,23 +206,28 @@ impl CartesianUniformRaster2DChannels for UniformRaster2D<Cartesian> {
         let config = RasterChannelsConfig::new(ColorChannelConfig::new(ChannelValue::from(
             fields.values_data(),
         )));
-        let (fill, x, y) = f(config).into_parts();
-        let (x_position, x_axis_config) = match x {
+        let parts = f(config).into_parts();
+        let (x_position, x_axis_config) = match parts.x {
             Some(x) => {
                 let (position, axis_config) = x.take();
                 (Some(position), axis_config)
             }
             None => (None, None),
         };
-        let (y_position, y_axis_config) = match y {
+        let (y_position, y_axis_config) = match parts.y {
             Some(y) => {
                 let (position, axis_config) = y.take();
                 (Some(position), axis_config)
             }
             None => (None, None),
         };
-        let mut mark =
-            self.configure_raster(raster_expr, Some(fill), Some((x_position, y_position)));
+        let mut mark = self.configure_raster_with_overlay(
+            raster_expr,
+            Some(parts.fill),
+            Some((x_position, y_position)),
+            parts.fill_by,
+            parts.opacity_by_total,
+        );
         if let Some(axis_config) = x_axis_config {
             mark.state_mut()
                 .axis_configs

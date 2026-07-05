@@ -12,10 +12,12 @@ use avenger_chart_marks::{
     RasterPositionSpec, UNIFORM_RASTER_2D_FILL_CHANNEL, UNIFORM_RASTER_2D_RASTER_CHANNEL,
     UniformRaster2D, UniformRaster2DOptions,
     uniform_raster_2d::{
-        GridRasterRow, RasterCoords, UniformRasterImageCacheHandle, as_struct_array,
+        GridRasterRow, RasterCoords, UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL,
+        UniformRasterImageCacheHandle, as_struct_array, build_or_reuse_mixed_rgba_image,
         build_or_reuse_rgba_image, channel_array, default_uniform_raster_image_cache,
         extract_grid_raster_row, list_row_values, option_color, raster_crs, required_position,
-        row_for_channel, scale_numeric_extent, scene_image_mark, struct_child_struct,
+        resolve_overlay_inputs, row_for_channel, scale_numeric_extent, scene_image_mark,
+        struct_child_struct,
     },
     uniform_raster_2d_channel_defaults,
 };
@@ -123,6 +125,12 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
                 required: false,
                 default_value: None,
                 allow_column_ref: true,
+            },
+            ChannelDescriptor {
+                name: UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL,
+                required: false,
+                default_value: None,
+                allow_column_ref: false,
             },
         ]
     }
@@ -320,7 +328,6 @@ impl CompiledCartesianUniformRaster2D {
         for row in 0..len {
             let raster_row =
                 row_for_channel(raster_array, row, len, UNIFORM_RASTER_2D_RASTER_CHANNEL)?;
-            let fill_row = row_for_channel(fill_array, row, len, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
             let raster = extract_grid_raster_row(raster_array, raster_row)?;
             let geometry =
                 struct_child_struct(as_struct_array(raster_array, "raster")?, "geometry")?;
@@ -329,31 +336,49 @@ impl CompiledCartesianUniformRaster2D {
                     "raster declares CRS '{tag}'; Cartesian plots have no CRS — drop .frame(...) or use a Geo plot"
                 )));
             }
-            raster.validate_scalar_render_dims(x_position.dim.name(), y_position.dim.name())?;
-            let fill_values =
-                list_row_values(fill_array, fill_row, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
-            if fill_values.len() != raster.values.len() {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "UniformRaster2D fill row {row} has {} cells, but raster values require {}",
-                    fill_values.len(),
-                    raster.values.len()
-                )));
-            }
 
-            let row_marks = build_scene_marks_for_raster(
-                &raster,
-                &fill_values,
-                null_color,
-                non_finite_color,
-                opacity_values[row],
-                x_position,
-                y_position,
-                self.options.smooth,
-                self.state.zindex,
-                &self.image_cache,
-                context,
-                coord,
-            )?;
+            let row_marks = if let Some(fill_by) = &self.options.fill_by {
+                build_scene_marks_for_mixed_raster(
+                    &raster,
+                    fill_by,
+                    self.options.opacity_by_total.is_some(),
+                    x_position,
+                    y_position,
+                    self.options.smooth,
+                    self.state.zindex,
+                    &self.image_cache,
+                    context,
+                    coord,
+                )?
+            } else {
+                let fill_row =
+                    row_for_channel(fill_array, row, len, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
+                raster.validate_scalar_render_dims(x_position.dim.name(), y_position.dim.name())?;
+                let fill_values =
+                    list_row_values(fill_array, fill_row, UNIFORM_RASTER_2D_FILL_CHANNEL)?;
+                if fill_values.len() != raster.values.len() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "UniformRaster2D fill row {row} has {} cells, but raster values require {}",
+                        fill_values.len(),
+                        raster.values.len()
+                    )));
+                }
+
+                build_scene_marks_for_raster(
+                    &raster,
+                    &fill_values,
+                    null_color,
+                    non_finite_color,
+                    opacity_values[row],
+                    x_position,
+                    y_position,
+                    self.options.smooth,
+                    self.state.zindex,
+                    &self.image_cache,
+                    context,
+                    coord,
+                )?
+            };
 
             for mark in row_marks {
                 marks.push(mark);
@@ -540,6 +565,87 @@ fn build_scene_marks_for_raster(
             ))
         }
     }
+}
+
+/// Categorical overlay render: K planes of `fill_by.dim` become ONE
+/// Oklab-mixed image positioned by the (both-uniform) x/y dimensions.
+#[allow(clippy::too_many_arguments)]
+fn build_scene_marks_for_mixed_raster(
+    raster: &GridRasterRow,
+    fill_by: &avenger_chart_marks::RasterPositionSpec,
+    has_opacity_scale: bool,
+    x_position: &avenger_chart_marks::RasterPositionSpec,
+    y_position: &avenger_chart_marks::RasterPositionSpec,
+    smooth: bool,
+    zindex: Option<i32>,
+    image_cache: &UniformRasterImageCacheHandle,
+    context: &dyn MarkRuntimeContext,
+    coord: &dyn CoordinateSystemTransformCore,
+) -> Result<Vec<SceneMark>, AvengerChartError> {
+    let mix_dim = fill_by.dim.name();
+    if mix_dim == x_position.dim.name() || mix_dim == y_position.dim.name() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "UniformRaster2D fill_by dimension '{mix_dim}' cannot also be a position dimension"
+        )));
+    }
+    let x_dim = raster.dimension(x_position.dim.name())?;
+    let y_dim = raster.dimension(y_position.dim.name())?;
+    let (
+        RasterCoords::Uniform {
+            start: x_start,
+            stop: x_stop,
+            count: x_count,
+            ..
+        },
+        RasterCoords::Uniform {
+            start: y_start,
+            stop: y_stop,
+            count: y_count,
+            ..
+        },
+    ) = (&x_dim.coords, &y_dim.coords)
+    else {
+        return Err(AvengerChartError::InvalidArgument(
+            "UniformRaster2D fill_by overlays require uniform x and y dimensions".to_string(),
+        ));
+    };
+
+    let Some((category_colors, opacity_scale)) =
+        resolve_overlay_inputs(raster, fill_by, has_opacity_scale, context)?
+    else {
+        return Ok(Vec::new());
+    };
+
+    let (scaled_x0, scaled_x1) =
+        scale_numeric_extent(context, "x", &x_position.channel_value, *x_start, *x_stop)?;
+    let (scaled_y0, scaled_y1) =
+        scale_numeric_extent(context, "y", &y_position.channel_value, *y_start, *y_stop)?;
+    let (scaled_x0, scaled_y0, scaled_x1, scaled_y1) =
+        transform_extent(coord, context, scaled_x0, scaled_y0, scaled_x1, scaled_y1)?;
+    let flip_x = scaled_x1 < scaled_x0;
+    let flip_y = scaled_y1 < scaled_y0;
+    let x = scaled_x0.min(scaled_x1);
+    let y = scaled_y0.min(scaled_y1);
+    let width = (scaled_x1 - scaled_x0).abs();
+    let height = (scaled_y1 - scaled_y0).abs();
+    let x_indices = (0..*x_count as usize).collect::<Vec<_>>();
+    let y_indices = (0..*y_count as usize).collect::<Vec<_>>();
+    let image = build_or_reuse_mixed_rgba_image(
+        raster,
+        mix_dim,
+        &category_colors,
+        &opacity_scale,
+        x_dim.name.as_str(),
+        y_dim.name.as_str(),
+        &x_indices,
+        &y_indices,
+        flip_x,
+        flip_y,
+        image_cache,
+    )?;
+    Ok(vec![scene_image_mark(
+        image, x, y, width, height, smooth, zindex,
+    )])
 }
 
 #[typetag::serde]
@@ -1460,6 +1566,150 @@ mod tests {
             vec![
                 0, 0, 255, 255, 255, 255, 255, 255, 255, 0, 0, 255, 0, 255, 0, 255,
             ]
+        );
+    }
+
+    #[test]
+    fn renders_fill_by_overlay_as_single_mixed_image() {
+        use avenger_color::OklabMixer;
+
+        let data = raster_batch_from_parts(
+            &[
+                TestDimension::uniform("x", 0.0, 2.0, 2),
+                TestDimension::Categorical {
+                    name: "cat",
+                    values: vec!["a", "b"],
+                },
+                TestDimension::uniform("y", 0.0, 2.0, 2),
+            ],
+            &["cat", "y", "x"],
+            float64_list(&[
+                // plane a: (0,0)=4, (x0,y1)=1
+                Some(4.0),
+                Some(0.0),
+                Some(1.0),
+                Some(0.0),
+                // plane b: (x1,y0)=2, (x0,y1)=1
+                Some(0.0),
+                Some(2.0),
+                Some(1.0),
+                Some(0.0),
+            ]),
+            // Fill channel data is unused in overlay mode but the channel
+            // must exist.
+            float64_list(&[Some(0.0)]),
+            None,
+        );
+        let mut options = raster_options("x", "y");
+        options.fill_by = Some(position("cat", "fill"));
+        let mark = CompiledCartesianUniformRaster2D {
+            state: compiled_state(),
+            options,
+            image_cache: default_uniform_raster_image_cache(),
+        };
+        let scalars =
+            RecordBatch::new_empty(Arc::new(datafusion::arrow::datatypes::Schema::empty()));
+        let mut context = test_context();
+        context.scales.insert(
+            "fill".to_string(),
+            OrdinalScale::configured(
+                Arc::new(StringArray::from(vec!["a", "b"])) as ArrayRef
+            )
+            .with_range(Arc::new(StringArray::from(vec!["#ff0000", "#0000ff"])) as ArrayRef),
+        );
+        let rendered = mark
+            .render_uniform_raster_mark_data(Some(&data), &scalars, &context, &Cartesian::new())
+            .expect("render overlay raster");
+
+        // ONE mixed image, not per-category strips.
+        assert_eq!(rendered.marks.len(), 1);
+        let SceneMark::Image(image_mark) = &rendered.marks[0] else {
+            panic!("expected image mark");
+        };
+        let image = image_mark
+            .image
+            .first()
+            .expect("image")
+            .inline_image()
+            .expect("inline image");
+        assert_eq!((image.width, image.height), (2, 2));
+        let pixel = |px: usize, py: usize| {
+            let offset = (py * image.width as usize + px) * 4;
+            [
+                image.data[offset],
+                image.data[offset + 1],
+                image.data[offset + 2],
+                image.data[offset + 3],
+            ]
+        };
+        // The y scale range is inverted (pixels top-down), so flip_y is
+        // true: pixel row 1 holds the y=0 cells. Default opacity scale:
+        // linear (0, max_total=4) -> (0.15, 1.0).
+        assert_eq!(pixel(0, 1), [255, 0, 0, 255]);
+        let pure_b = pixel(1, 1);
+        assert_eq!([pure_b[0], pure_b[1], pure_b[2]], [0, 0, 255]);
+        let expected_half = ((0.15_f32 + 0.85 * 0.5) * 255.0).round() as i32;
+        assert!(
+            (pure_b[3] as i32 - expected_half).abs() <= 1,
+            "alpha {} vs {expected_half}",
+            pure_b[3]
+        );
+        let mixed = pixel(0, 0);
+        let mixer = OklabMixer::new(&[[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]]);
+        let expected = mixer.mix(&[1.0, 1.0]).expect("mix");
+        for channel in 0..3 {
+            assert!(
+                (mixed[channel] as f32 / 255.0 - expected[channel]).abs() <= 1.5 / 255.0,
+                "channel {channel}: {mixed:?} vs {expected:?}"
+            );
+        }
+        assert!(
+            (mixed[3] as i32 - expected_half).abs() <= 1,
+            "mixed alpha {}",
+            mixed[3]
+        );
+        assert_eq!(pixel(1, 0), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn fill_by_dimension_conflicting_with_position_errors() {
+        let data = raster_batch_from_parts(
+            &[
+                TestDimension::uniform("x", 0.0, 2.0, 2),
+                TestDimension::Categorical {
+                    name: "cat",
+                    values: vec!["a", "b"],
+                },
+                TestDimension::uniform("y", 0.0, 2.0, 2),
+            ],
+            &["cat", "y", "x"],
+            float64_list(&[Some(1.0); 8]),
+            float64_list(&[Some(0.0)]),
+            None,
+        );
+        let mut options = raster_options("x", "y");
+        options.fill_by = Some(position("x", "fill"));
+        let mark = CompiledCartesianUniformRaster2D {
+            state: compiled_state(),
+            options,
+            image_cache: default_uniform_raster_image_cache(),
+        };
+        let scalars =
+            RecordBatch::new_empty(Arc::new(datafusion::arrow::datatypes::Schema::empty()));
+        let context = test_context();
+        let err = match mark.render_uniform_raster_mark_data(
+            Some(&data),
+            &scalars,
+            &context,
+            &Cartesian::new(),
+        ) {
+            Ok(_) => panic!("conflicting fill_by dim must error"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string()
+                .contains("cannot also be a position dimension"),
+            "{err}"
         );
     }
 

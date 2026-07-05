@@ -40,6 +40,7 @@ pub use avenger_chart_core::{RasterDim, dim};
 
 pub const UNIFORM_RASTER_2D_RASTER_CHANNEL: &str = "raster";
 pub const UNIFORM_RASTER_2D_FILL_CHANNEL: &str = "fill";
+pub const UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL: &str = "opacity_by_total";
 
 pub struct UniformRaster2D<C> {
     pub(crate) state: MarkState,
@@ -81,22 +82,55 @@ impl<C> UniformRaster2D<C> {
 
     #[doc(hidden)]
     pub fn configure_raster(
-        mut self,
+        self,
         raster_expr: Expr,
         fill: Option<ChannelValue>,
         positions: Option<(Option<RasterPositionSpec>, Option<RasterPositionSpec>)>,
     ) -> Self {
+        self.configure_raster_with_overlay(raster_expr, fill, positions, None, None)
+    }
+
+    #[doc(hidden)]
+    pub fn configure_raster_with_overlay(
+        mut self,
+        raster_expr: Expr,
+        fill: Option<ChannelValue>,
+        positions: Option<(Option<RasterPositionSpec>, Option<RasterPositionSpec>)>,
+        fill_by: Option<(RasterDim, ChannelValue)>,
+        opacity_by_total: Option<ChannelValue>,
+    ) -> Self {
         let fields = UniformRaster2DFields::new(raster_expr.clone());
-        let fill = fill.unwrap_or_else(|| ChannelValue::from(fields.values_data()));
+        // The categorical overlay owns the fill channel: its value is the
+        // fill_by channel value (Utf8-typed so the fill scale defaults to
+        // Ordinal); otherwise fill defaults to the raster cell values.
+        let fill = match &fill_by {
+            Some((_, fill_by_value)) => fill_by_value.clone(),
+            None => fill.unwrap_or_else(|| ChannelValue::from(fields.values_data())),
+        };
         if let Some((x_position, y_position)) = positions {
             self.options.x_position = x_position;
             self.options.y_position = y_position;
         }
-        self.with_channel_value(
-            UNIFORM_RASTER_2D_RASTER_CHANNEL,
-            ChannelValue::from(raster_expr).no_scale(),
-        )
-        .with_channel_value(UNIFORM_RASTER_2D_FILL_CHANNEL, fill)
+        if let Some((dim, channel_value)) = fill_by {
+            self.options.fill_by = Some(RasterPositionSpec {
+                dim,
+                channel_value: channel_value.clone(),
+            });
+        }
+        let mut mark = self
+            .with_channel_value(
+                UNIFORM_RASTER_2D_RASTER_CHANNEL,
+                ChannelValue::from(raster_expr).no_scale(),
+            )
+            .with_channel_value(UNIFORM_RASTER_2D_FILL_CHANNEL, fill);
+        if let Some(opacity_by_total) = opacity_by_total {
+            mark.options.opacity_by_total = Some(opacity_by_total.clone());
+            mark = mark.with_channel_value(
+                UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL,
+                opacity_by_total,
+            );
+        }
+        mark
     }
 }
 
@@ -116,6 +150,15 @@ pub struct UniformRaster2DOptions {
     pub x_position: Option<RasterPositionSpec>,
     pub y_position: Option<RasterPositionSpec>,
     pub smooth: bool,
+    /// Categorical overlay: the plane dimension whose values drive the fill
+    /// channel's ordinal scale; K planes render as ONE Oklab-mixed image.
+    #[serde(default)]
+    pub fill_by: Option<RasterPositionSpec>,
+    /// Density channel: per-pixel plane totals run through this channel's
+    /// numeric scale to produce alpha. When absent, a linear scale over
+    /// (0, max total) with range (0.15, 1.0) is used.
+    #[serde(default)]
+    pub opacity_by_total: Option<ChannelValue>,
 }
 
 impl Default for UniformRaster2DOptions {
@@ -126,6 +169,8 @@ impl Default for UniformRaster2DOptions {
             x_position: None,
             y_position: None,
             smooth: false,
+            fill_by: None,
+            opacity_by_total: None,
         }
     }
 }
@@ -140,6 +185,8 @@ pub struct RasterChannelsConfig<A: Clone + Default + Send + Sync + 'static> {
     fill: ColorChannelConfig,
     x: Option<RasterPositionConfig<A>>,
     y: Option<RasterPositionConfig<A>>,
+    fill_by: Option<(RasterDim, ColorChannelConfig)>,
+    opacity_by_total: Option<OpacityChannelConfig>,
 }
 
 impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
@@ -148,7 +195,36 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
             fill,
             x: None,
             y: None,
+            fill_by: None,
+            opacity_by_total: None,
         }
+    }
+
+    /// Categorical overlay: bind the fill channel to the VALUES of a
+    /// categorical raster dimension (one produced by `Rasterize2D::by`, or
+    /// present in an external 3D raster). The dimension's planes render as
+    /// one Oklab-mixed image; the ordinal fill scale supplies category
+    /// colors (theme default categorical scheme unless configured) and the
+    /// standard swatch legend.
+    pub fn fill_by<F>(mut self, dim: RasterDim, f: F) -> Self
+    where
+        F: FnOnce(ColorChannelConfig) -> ColorChannelConfig,
+    {
+        // Utf8-typed channel value so the fill scale defaults to Ordinal.
+        let config = ColorChannelConfig::new(ChannelValue::from(""));
+        self.fill_by = Some((dim, f(config)));
+        self
+    }
+
+    /// Density -> alpha: run the per-pixel plane totals through a numeric
+    /// scale. The range floor is the datashader `min_alpha` analog.
+    pub fn opacity_by_total<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(OpacityChannelConfig) -> OpacityChannelConfig,
+    {
+        let config = OpacityChannelConfig::new(ChannelValue::from(1.0_f64));
+        self.opacity_by_total = Some(f(config));
+        self
     }
 
     pub fn fill<F>(mut self, f: F) -> Self
@@ -194,15 +270,26 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
     }
 
     #[doc(hidden)]
-    pub fn into_parts(
-        self,
-    ) -> (
-        ChannelValue,
-        Option<RasterPositionConfig<A>>,
-        Option<RasterPositionConfig<A>>,
-    ) {
-        (self.fill.into_inner(), self.x, self.y)
+    pub fn into_parts(self) -> RasterChannelsParts<A> {
+        RasterChannelsParts {
+            fill: self.fill.into_inner(),
+            x: self.x,
+            y: self.y,
+            fill_by: self
+                .fill_by
+                .map(|(dim, config)| (dim, config.into_inner())),
+            opacity_by_total: self.opacity_by_total.map(ChannelConfig::into_inner),
+        }
     }
+}
+
+#[doc(hidden)]
+pub struct RasterChannelsParts<A: Clone + Default + Send + Sync + 'static> {
+    pub fill: ChannelValue,
+    pub x: Option<RasterPositionConfig<A>>,
+    pub y: Option<RasterPositionConfig<A>>,
+    pub fill_by: Option<(RasterDim, ChannelValue)>,
+    pub opacity_by_total: Option<ChannelValue>,
 }
 
 #[derive(Clone)]
@@ -1426,6 +1513,127 @@ pub fn build_rgba_image(
 /// must have a color (a plane without one is an error — the fill scale's
 /// domain should cover all observed categories); extra colors are ignored.
 #[allow(clippy::too_many_arguments)]
+/// Resolve everything the categorical overlay needs from the runtime
+/// context: category colors (through the fill_by channel's ordinal scale,
+/// matched by value) and the opacity scale (configured
+/// `opacity_by_total`, or the default linear-over-max-total scale).
+/// Returns `None` when the raster row observed no categories.
+pub fn resolve_overlay_inputs(
+    raster: &GridRasterRow,
+    fill_by: &RasterPositionSpec,
+    has_opacity_scale: bool,
+    context: &dyn MarkRuntimeContext,
+) -> Result<Option<(Vec<(String, [f32; 4])>, ConfiguredScale)>, AvengerChartError> {
+    let mix_dim = fill_by.dim.name();
+    let categories = raster.categorical_dim_values(mix_dim)?.to_vec();
+    if categories.is_empty() {
+        return Ok(None);
+    }
+    let fill_scale_name = fill_by
+        .channel_value
+        .get_scale_name(UNIFORM_RASTER_2D_FILL_CHANNEL)
+        .unwrap_or_else(|| UNIFORM_RASTER_2D_FILL_CHANNEL.to_string());
+    let fill_scale = context.configured_scale(&fill_scale_name).ok_or_else(|| {
+        AvengerChartError::ScaleNotFound(format!(
+            "UniformRaster2D fill_by expected configured scale '{fill_scale_name}'"
+        ))
+    })?;
+    let category_colors = resolve_category_colors(fill_scale, &categories)?;
+    let opacity_scale = if has_opacity_scale {
+        context
+            .configured_scale(UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL)
+            .cloned()
+            .ok_or_else(|| {
+                AvengerChartError::ScaleNotFound(
+                    "UniformRaster2D opacity_by_total scale was configured but not built"
+                        .to_string(),
+                )
+            })?
+    } else {
+        default_total_opacity_scale(raster, mix_dim)?
+    };
+    Ok(Some((category_colors, opacity_scale)))
+}
+
+/// Resolve per-category colors through the fill scale, BY VALUE.
+pub fn resolve_category_colors(
+    scale: &ConfiguredScale,
+    categories: &[String],
+) -> Result<Vec<(String, [f32; 4])>, AvengerChartError> {
+    let values = Arc::new(StringArray::from(
+        categories.iter().map(String::as_str).collect::<Vec<_>>(),
+    )) as ArrayRef;
+    let colors = scale
+        .scale_to_color(&values)
+        .map_err(AvengerChartError::ScaleError)?
+        .as_vec(categories.len(), None);
+    categories
+        .iter()
+        .zip(colors)
+        .map(|(category, color)| {
+            Ok((
+                category.clone(),
+                color_to_rgba(color, &format!("fill_by category '{category}'"))?,
+            ))
+        })
+        .collect()
+}
+
+/// Maximum per-cell plane total of a categorical raster — the default
+/// opacity domain upper bound when no opacity_by_total scale is configured.
+pub fn max_plane_total(
+    raster: &GridRasterRow,
+    mix_dim: &str,
+) -> Result<f64, AvengerChartError> {
+    let plane_count = raster.categorical_dim_values(mix_dim)?.len();
+    let mix_stride = *raster.strides.get(mix_dim).ok_or_else(|| {
+        AvengerChartError::InternalError(format!(
+            "UniformRaster2D missing computed stride for dimension '{mix_dim}'"
+        ))
+    })?;
+    let values = datafusion::arrow::compute::cast(&raster.values, &DataType::Float64)
+        .map_err(AvengerChartError::ArrowError)?;
+    let values = values
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .expect("cast to Float64 produced a Float64Array");
+    if plane_count == 0 || values.is_empty() {
+        return Ok(0.0);
+    }
+    // Removing the mix-dim contribution from a flat index yields an
+    // injective key for the remaining coordinates (contiguous stride
+    // layouts), so totals fold per non-mix cell without reconstructing the
+    // full coordinate tuple.
+    let mut totals: HashMap<usize, f64> = HashMap::new();
+    for index in 0..values.len() {
+        if values.is_null(index) {
+            continue;
+        }
+        let value = values.value(index);
+        if !value.is_finite() || value <= 0.0 {
+            continue;
+        }
+        let mix_coord = (index / mix_stride) % plane_count;
+        let bucket = index - mix_coord * mix_stride;
+        *totals.entry(bucket).or_insert(0.0) += value;
+    }
+    Ok(totals.values().copied().fold(0.0_f64, f64::max))
+}
+
+/// Default opacity scale when `opacity_by_total` is not configured:
+/// linear over (0, max plane total) to (0.15, 1.0) — the range floor is
+/// the datashader min_alpha analog.
+pub fn default_total_opacity_scale(
+    raster: &GridRasterRow,
+    mix_dim: &str,
+) -> Result<ConfiguredScale, AvengerChartError> {
+    let max_total = max_plane_total(raster, mix_dim)?.max(1.0);
+    Ok(avenger_scales::scales::linear::LinearScale::configured(
+        (0.0, max_total as f32),
+        (0.15, 1.0),
+    ))
+}
+
 pub fn build_or_reuse_mixed_rgba_image(
     raster: &GridRasterRow,
     mix_dim: &str,
