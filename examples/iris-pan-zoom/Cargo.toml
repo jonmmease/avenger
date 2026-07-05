@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
 [dependencies]
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph" }
 avenger-scenegraph = { path = "../../avenger-scenegraph" }
@@ -17,6 +20,7 @@ avenger-geometry = { path = "../../avenger-geometry" }
 avenger-eventstream = { path = "../../avenger-eventstream" }
 avenger-app = { path = "../../avenger-app" }
 avenger-winit-wgpu = { path = "../../avenger-winit-wgpu" }
+avenger-text = { path = "../../avenger-text", default-features = false }
 
 cfg-if = "1"
 winit = "0.30.5"

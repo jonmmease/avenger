@@ -104,7 +104,8 @@ cargo run --release
 # Build WASM example
 cd examples/iris-pan-zoom
 wasm-pack build --target web --release
-# Open index.html in browser
+python3 -m http.server 8765
+# Open http://localhost:8765/ in browser
 ```
 
 ## 6. Git Hygiene

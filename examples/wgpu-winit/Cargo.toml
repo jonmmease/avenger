@@ -6,6 +6,9 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
 [dependencies]
 avenger-vega-scenegraph = { path = "../../avenger-vega-scenegraph", default-features = false }
 avenger-wgpu = { path = "../../avenger-wgpu", default-features = false }

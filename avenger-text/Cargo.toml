@@ -28,3 +28,6 @@ avenger-format-number = { path = "../avenger-format-number" }
 path = "../avenger-typst-label"
 default-features = false
 features = ["raster"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = "0.3.77"

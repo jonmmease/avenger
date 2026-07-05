@@ -1,6 +1,6 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
-use avenger_common::{canvas::CanvasDimensions, types::LinearScaleAdjustment};
+use avenger_common::{canvas::CanvasDimensions, time::Instant, types::LinearScaleAdjustment};
 use avenger_scenegraph::{
     marks::{
         arc::SceneArcMark,
@@ -35,7 +35,11 @@ use wgpu::{
     TextureDimension, TextureFormat, TextureFormatFeatureFlags, TextureUsages, TextureView,
     TextureViewDescriptor, Trace,
 };
-use winit::{dpi::Size, event::WindowEvent, window::Window};
+use winit::{
+    dpi::{PhysicalSize, Size},
+    event::WindowEvent,
+    window::Window,
+};
 
 use crate::{
     error::AvengerWgpuError,
@@ -76,6 +80,19 @@ impl CanvasDimensionUtils for CanvasDimensions {
             height: self.to_physical_height(),
         }
     }
+}
+
+fn fallback_to_requested_size_if_needed(
+    requested_size: PhysicalSize<u32>,
+    current_size: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if current_size.width == 0 || current_size.height == 0 {
+            return requested_size;
+        }
+    }
+    current_size
 }
 
 fn truncate_text_to_limit(
@@ -122,12 +139,23 @@ fn truncate_text_to_limit(
     .unwrap_or_else(|_| text.to_string())
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct CanvasConfig {
     pub text_builder_ctor: Option<TextBuildCtor>,
     pub font_resolution: FontResolutionOptions,
     pub image_resource_config: WgpuImageResourceConfig,
     pub sample_count: Option<u32>,
+}
+
+impl Default for CanvasConfig {
+    fn default() -> Self {
+        Self {
+            text_builder_ctor: None,
+            font_resolution: avenger_text::default_font_resolution(),
+            image_resource_config: WgpuImageResourceConfig::default(),
+            sample_count: None,
+        }
+    }
 }
 
 pub trait Canvas {
@@ -1044,7 +1072,9 @@ impl WindowCanvas<'_> {
         let requested_size = dimensions.to_physical_size();
         let accepted_size = window
             .request_inner_size(Size::Physical(requested_size))
-            .unwrap_or_else(|| window.inner_size());
+            .unwrap_or_else(|| {
+                fallback_to_requested_size_if_needed(requested_size, window.inner_size())
+            });
         let dimensions = CanvasDimensions {
             size: [
                 accepted_size.width as f32 / dimensions.scale,

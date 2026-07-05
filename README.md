@@ -24,9 +24,10 @@ To build the example above to WASM, run the following:
 ```
 cd examples/iris-pan-zoom
 wasm-pack build --target web --release
+python3 -m http.server 8765
 ```
 
-Then open `examples/iris-pan-zoom/index.html` in a web browser.
+Then open `http://localhost:8765/` in a web browser.
 
 ## Export PNG
 The `PngCanvas` struct can be used to convert a scene graph to a PNG image headlessly. See the tests in

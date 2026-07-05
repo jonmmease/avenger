@@ -27,9 +27,11 @@ use avenger_scenegraph::{
         group::{Clip, SceneGroup},
         mark::SceneMark,
         symbol::SceneSymbolMark,
+        text::SceneTextMark,
     },
     scene_graph::SceneGraph,
 };
+use avenger_text::types::{TextAlign, TextBaseline, TextSyntaxMode};
 use avenger_winit_wgpu::WinitWgpuAvengerApp;
 use csv::Reader;
 use rand_distr::Distribution;
@@ -288,7 +290,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     // Make y-axis
     let y_axis = make_numeric_axis_marks(
         &y_scale,
-        "Sepal Width",
+        "Sepal Width $y$",
         [0.0, 0.0],
         &AxisConfig {
             dimensions: [chart_state.width, chart_state.height],
@@ -296,6 +298,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             grid: true,
             format_number: None,
             title_font_size: None,
+            title_syntax_mode: TextSyntaxMode::TypstMarkup,
             ..Default::default()
         },
     )
@@ -304,7 +307,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
     // Make x-axis
     let x_axis = make_numeric_axis_marks(
         &x_scale,
-        "Sepal Length",
+        "Sepal Length $x$",
         [0.0, 0.0],
         &AxisConfig {
             dimensions: [chart_state.width, chart_state.height],
@@ -312,6 +315,7 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
             grid: true,
             format_number: None,
             title_font_size: None,
+            title_syntax_mode: TextSyntaxMode::TypstMarkup,
             ..Default::default()
         },
     )
@@ -329,8 +333,21 @@ fn make_scene_graph(chart_state: &ChartState) -> SceneGraph {
         ..Default::default()
     });
 
+    let typst_smoke_label = SceneTextMark {
+        clip: false,
+        text: "Typst math $x$".to_string().into(),
+        text_syntax: TextSyntaxMode::TypstMarkup,
+        x: 170.0.into(),
+        y: 18.0.into(),
+        align: TextAlign::Center.into(),
+        baseline: TextBaseline::Top.into(),
+        font_size: 13.0.into(),
+        color: ColorOrGradient::Color([0.05, 0.05, 0.05, 1.0]).into(),
+        ..Default::default()
+    };
+
     let scene_graph = SceneGraph {
-        marks: vec![group],
+        marks: vec![typst_smoke_label.into(), group],
         width: 340.0,
         height: 300.0,
         origin: [0.0; 2],

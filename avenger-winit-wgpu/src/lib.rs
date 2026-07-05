@@ -15,12 +15,9 @@ use avenger_wgpu::{
     canvas::{Canvas, CanvasFrameOverlay, WindowCanvas},
     error::AvengerWgpuError,
 };
-use std::{
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Instant as StdInstant,
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
 };
 use winit::{
     application::ApplicationHandler,
@@ -418,6 +415,7 @@ where
     /// The hub itself, kept for startup replay: proxy events sent before the
     /// event loop runs are dropped by winit, so invalidations that fire
     /// during app init only survive as hub state.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     render_invalidation_hub: Option<RenderInvalidationHub>,
     pub avenger_app: std::rc::Rc<std::cell::RefCell<AvengerApp<State>>>,
     render_pending: bool,
@@ -442,7 +440,7 @@ where
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
     /// used to log inter-frame delta / fps alongside surface_render_ms.
     #[cfg(not(target_arch = "wasm32"))]
-    last_redraw: Option<StdInstant>,
+    last_redraw: Option<Instant>,
 
     #[cfg(not(target_arch = "wasm32"))]
     tokio_runtime: tokio::runtime::Runtime,
@@ -561,7 +559,6 @@ where
             force
         )
         .entered();
-        let dispatch_start = StdInstant::now();
         let window_scene_sizing = self.window_scene_sizing;
         let scale = self.scale;
 
@@ -604,7 +601,8 @@ where
                 spawn_local(update_future);
             } else {
                 // For non-WASM, maintain the original precise render_pending logic
-                let app_update_start = StdInstant::now();
+                let dispatch_start = Instant::now();
+                let app_update_start = Instant::now();
                 // Snapshot BEFORE the update: if it evaluates (produces a
                 // scene), delayed wake-ups requested before this point are
                 // redundant for the delayed-invalidation test, while ones the
@@ -632,7 +630,7 @@ where
 
                 if let Some(scene_graph) = scene_graph_opt.scene_graph {
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
-                        let install_start = StdInstant::now();
+                        let install_start = Instant::now();
                         if let Err(err) = install_scene_graph(
                             canvas,
                             &scene_graph,
@@ -678,10 +676,7 @@ where
         // wake-up is still pending. (Without this, mid-gesture wheel
         // evaluations each park a soon-stale wake-up whose delivery would
         // force a redundant rebuild between frames — visible scroll chop.)
-        let delayed = matches!(
-            invalidation.schedule,
-            RenderInvalidationSchedule::After(_)
-        );
+        let delayed = matches!(invalidation.schedule, RenderInvalidationSchedule::After(_));
         if delayed {
             if invalidation.epoch <= self.hub_epoch_at_last_evaluation_start {
                 return;
@@ -787,7 +782,7 @@ where
                 });
                 true
             } else {
-                let rebuild_start = StdInstant::now();
+                let rebuild_start = Instant::now();
                 // Snapshot BEFORE evaluating: wake-ups the evaluation itself
                 // parks get later epochs and must survive the delayed-event
                 // redundancy test.
@@ -811,7 +806,7 @@ where
                 }
 
                 if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
-                    let install_start = StdInstant::now();
+                    let install_start = Instant::now();
                     if let Err(err) = install_scene_graph(
                         canvas,
                         &scene_graph,
@@ -979,7 +974,7 @@ where
             event_kind = winit_event_kind_label(event)
         )
         .entered();
-        let pointer_start = StdInstant::now();
+        let pointer_start = Instant::now();
         let outcome = match event {
             WindowEvent::CursorMoved { position, .. } => frame.handle_cursor_moved([
                 position.x as f32 / self.scale,
@@ -1253,7 +1248,7 @@ where
                 WindowEvent::RedrawRequested => {
                     let mut rendered = false;
                     #[cfg(not(target_arch = "wasm32"))]
-                    let render_start = StdInstant::now();
+                    let render_start = Instant::now();
                     if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
                         canvas.update();
 
@@ -1296,7 +1291,7 @@ where
                         #[cfg(not(target_arch = "wasm32"))]
                         {
                             let surface_render_ms = render_start.elapsed().as_secs_f64() * 1000.0;
-                            let now = StdInstant::now();
+                            let now = Instant::now();
                             let frame_dt_ms = self
                                 .last_redraw
                                 .map(|t| now.duration_since(t).as_secs_f64() * 1000.0);
@@ -1378,14 +1373,30 @@ fn sync_canvas_size_to_scene_graph(
     let accepted = canvas
         .window()
         .request_inner_size(Size::Physical(target))
-        .unwrap_or_else(|| canvas.window().inner_size());
+        .unwrap_or_else(|| {
+            fallback_to_requested_size_if_needed(target, canvas.window().inner_size())
+        });
     canvas.resize(accepted);
+}
+
+fn fallback_to_requested_size_if_needed(
+    requested_size: PhysicalSize<u32>,
+    current_size: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        if current_size.width == 0 || current_size.height == 0 {
+            return requested_size;
+        }
+    }
+    current_size
 }
 
 fn logical_to_physical(value: f32, scale: f32) -> u32 {
     ((value * scale).round().max(1.0)) as u32
 }
 
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 fn cursor_style_to_winit(style: CursorStyle) -> CursorIcon {
     match style {
         CursorStyle::Default => CursorIcon::Default,

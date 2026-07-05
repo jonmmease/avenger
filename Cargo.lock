@@ -1308,6 +1308,7 @@ dependencies = [
  "thiserror 2.0.18",
  "ttf-parser",
  "unicode-segmentation",
+ "web-sys",
 ]
 
 [[package]]
@@ -5135,6 +5136,7 @@ dependencies = [
  "avenger-guides",
  "avenger-scales",
  "avenger-scenegraph",
+ "avenger-text",
  "avenger-vega-scenegraph",
  "avenger-wgpu",
  "avenger-winit-wgpu",

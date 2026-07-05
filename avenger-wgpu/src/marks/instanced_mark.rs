@@ -1,6 +1,6 @@
-use std::{ops::Range, time::Instant};
+use std::ops::Range;
 
-use avenger_common::types::LinearScaleAdjustment;
+use avenger_common::{time::Instant, types::LinearScaleAdjustment};
 use avenger_scenegraph::marks::group::Clip;
 use wgpu::{
     util::DeviceExt, CommandBuffer, Device, Extent3d, TexelCopyBufferLayout, TextureFormat,

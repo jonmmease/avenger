@@ -1,11 +1,9 @@
-use std::{
-    ops::{Mul, Range},
-    time::Instant,
-};
+use std::ops::{Mul, Range};
 
 use avenger_color::ColorOrGradient;
 use avenger_common::{
     canvas::CanvasDimensions,
+    time::Instant,
     types::{PathTransform, StrokeCap, StrokeJoin},
 };
 use avenger_scenegraph::marks::{
@@ -185,7 +183,8 @@ pub struct MultiMarkRenderer {
     /// `clear()`/`reset_for_frame` (slot residency is the whole point).
     /// `None` for auxiliary renderers (frame overlay) — tile-hinted marks
     /// then use the atlas path.
-    tile_slots: Option<std::sync::Arc<std::sync::Mutex<crate::marks::tile_array::TileSlotAllocator>>>,
+    tile_slots:
+        Option<std::sync::Arc<std::sync::Mutex<crate::marks::tile_array::TileSlotAllocator>>>,
 }
 
 pub(crate) struct TextLeaderRenderItem {
@@ -2061,8 +2060,12 @@ impl MultiMarkRenderer {
         };
         let mut allocator = tile_slots.lock().expect("tile slot allocator poisoned");
         let mut pending_verts: Vec<(Vec<MultiVertex>, Vec<u32>)> = Vec::new();
-        for (image_source, path) in izip!(mark.image_source_iter(), mark.transformed_path_iter(origin)) {
-            let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) = image_source else {
+        for (image_source, path) in
+            izip!(mark.image_source_iter(), mark.transformed_path_iter(origin))
+        {
+            let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) =
+                image_source
+            else {
                 return Ok(false);
             };
             let Some(layer) = allocator.assign(
@@ -2112,7 +2115,10 @@ impl MultiMarkRenderer {
         drop(allocator);
 
         let start_ind = self.num_indices() as u32;
-        let index_count: u32 = pending_verts.iter().map(|(_, inds)| inds.len() as u32).sum();
+        let index_count: u32 = pending_verts
+            .iter()
+            .map(|(_, inds)| inds.len() as u32)
+            .sum();
         let batch = MultiMarkBatch {
             indices_range: start_ind..(start_ind + index_count),
             clip: clip.maybe_clip(mark.clip),
@@ -2141,7 +2147,9 @@ impl MultiMarkRenderer {
         // Tile-array route (see `add_image_mark`).
         if let Some(size) = mark.tile_texture_size {
             if !(matches!(clip, Clip::Path(_)) && mark.clip) {
-                if let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) = &mark.image {
+                if let avenger_scenegraph::marks::image::SceneImageSource::Resource(resource) =
+                    &mark.image
+                {
                     let layer = self.tile_slots.clone().and_then(|slots| {
                         slots.lock().expect("tile slot allocator poisoned").assign(
                             size,
@@ -2162,12 +2170,7 @@ impl MultiMarkRenderer {
                             .iter()
                             .zip(mark.uvs.iter())
                             .map(|(position, uv)| MultiVertex {
-                                color: [
-                                    layer_f,
-                                    uv[0].clamp(0.0, 1.0),
-                                    uv[1].clamp(0.0, 1.0),
-                                    1.0,
-                                ],
+                                color: [layer_f, uv[0].clamp(0.0, 1.0), uv[1].clamp(0.0, 1.0), 1.0],
                                 position: [position[0] + origin[0], position[1] + origin[1]],
                                 top_left,
                                 bottom_right,

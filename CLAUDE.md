@@ -32,6 +32,7 @@ cd avenger-scenegraph && cargo build --release
 # Build WASM example
 cd examples/iris-pan-zoom
 wasm-pack build --target web --release
+python3 -m http.server 8765
 ```
 
 ## Development Commands

@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Instant as StdInstant};
+use std::{path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_common::time::Instant;
@@ -94,8 +94,8 @@ where
         instant: Instant,
     ) -> Result<AppUpdate, AvengerAppError> {
         tracing::debug!(target: "avenger_app::resize", "app.update start");
-        let update_start = StdInstant::now();
-        let dispatch_start = StdInstant::now();
+        let update_start = Instant::now();
+        let dispatch_start = Instant::now();
         let update_status = self
             .event_stream_manager
             .dispatch_event(event, &self.rtree, instant)
@@ -111,7 +111,7 @@ where
 
         // Reconstruct the scene graph if the need to rerender or rebuild geometry
         if update_status.rerender || update_status.rebuild_geometry {
-            let scene_build_start = StdInstant::now();
+            let scene_build_start = Instant::now();
             let scene_graph = match self
                 .scene_graph_builder
                 .build(self.event_stream_manager.state_mut())
@@ -136,7 +136,7 @@ where
 
         // Rebuild the rtree if the need to rebuild geometry
         if update_status.rebuild_geometry {
-            let rtree_start = StdInstant::now();
+            let rtree_start = Instant::now();
             self.rtree = SceneGraphRTree::from_scene_graph(&self.scene_graph);
             tracing::debug!(
                 target: "avenger_app::resize",

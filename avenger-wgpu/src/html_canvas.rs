@@ -218,6 +218,10 @@ impl<'window> Canvas for HtmlCanvasCanvas<'window> {
         self.renderer.dimensions()
     }
 
+    fn font_resolution(&self) -> &avenger_text::FontResolutionOptions {
+        self.renderer.font_resolution()
+    }
+
     fn texture_format(&self) -> TextureFormat {
         self.renderer.texture_format()
     }

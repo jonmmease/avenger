@@ -13,6 +13,7 @@ cd avenger-scenegraph && cargo build --release
 # Build for WASM
 cd examples/iris-pan-zoom
 wasm-pack build --target web --release
+python3 -m http.server 8765
 ```
 
 ## Code Quality Commands
@@ -123,10 +124,11 @@ cargo run --release
 
 ### WASM Examples
 ```bash
-# Build and open in browser
+# Build and serve in browser
 cd examples/iris-pan-zoom
 wasm-pack build --target web --release
-# Then open index.html in browser
+python3 -m http.server 8765
+# Then open http://localhost:8765/ in browser
 ```
 
 ## Python Development
