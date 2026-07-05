@@ -948,7 +948,7 @@ mod phase6 {
 
     impl CartoFixtureResolver {
         fn new() -> Self {
-            let fixtures: [(u8, i64, i64, &[u8]); 12] = [
+            let fixtures: [(u8, i64, i64, &[u8]); 30] = [
                 (
                     1,
                     0,
@@ -1021,6 +1021,114 @@ mod phase6 {
                     6,
                     include_bytes!("../../avenger-chart/tests/data/geo/carto/4/5/6.png"),
                 ),
+                (
+                    11,
+                    602,
+                    768,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/602/768.png"),
+                ),
+                (
+                    11,
+                    602,
+                    769,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/602/769.png"),
+                ),
+                (
+                    11,
+                    602,
+                    770,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/602/770.png"),
+                ),
+                (
+                    11,
+                    603,
+                    768,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/603/768.png"),
+                ),
+                (
+                    11,
+                    603,
+                    769,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/603/769.png"),
+                ),
+                (
+                    11,
+                    603,
+                    770,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/603/770.png"),
+                ),
+                (
+                    11,
+                    604,
+                    768,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/604/768.png"),
+                ),
+                (
+                    11,
+                    604,
+                    769,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/604/769.png"),
+                ),
+                (
+                    11,
+                    604,
+                    770,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/11/604/770.png"),
+                ),
+                (
+                    13,
+                    2411,
+                    3077,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2411/3077.png"),
+                ),
+                (
+                    13,
+                    2411,
+                    3078,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2411/3078.png"),
+                ),
+                (
+                    13,
+                    2411,
+                    3079,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2411/3079.png"),
+                ),
+                (
+                    13,
+                    2412,
+                    3077,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2412/3077.png"),
+                ),
+                (
+                    13,
+                    2412,
+                    3078,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2412/3078.png"),
+                ),
+                (
+                    13,
+                    2412,
+                    3079,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2412/3079.png"),
+                ),
+                (
+                    13,
+                    2413,
+                    3077,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2413/3077.png"),
+                ),
+                (
+                    13,
+                    2413,
+                    3078,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2413/3078.png"),
+                ),
+                (
+                    13,
+                    2413,
+                    3079,
+                    include_bytes!("../../avenger-chart/tests/data/geo/carto/13/2413/3079.png"),
+                ),
             ];
             let mut images = HashMap::new();
             for (z, x, y, bytes) in fixtures {
@@ -1069,6 +1177,286 @@ mod phase6 {
         .min_zoom(zoom)
         .max_zoom(zoom)
         .attribution("© OpenStreetMap contributors © CARTO")
+    }
+
+    // -----------------------------------------------------------------
+    // Categorical taxi capstone (scratch/categorical-raster-plan.md T7):
+    // taxi sample on Mercator over offline CARTO tiles, colored by
+    // passenger count via Rasterize2D::by + fill_by, with the adaptive
+    // raster/scatter gate and a shared "Passengers" swatch legend.
+    // -----------------------------------------------------------------
+
+    #[allow(unused_imports)]
+    use avenger_chart::prelude::{
+        self as chart_prelude, EvaluationRequest, Filter, MarkGroup, Rasterize2D, ScalarAggregate,
+        ScalarAggregateOutput, ScaleChannelConfig as _, Sqrt, SqrtScaleExt as _,
+        Symbol as PreludeSymbol, UniformRaster2D as PreludeUniformRaster2D, View, ViewRef,
+    };
+    use avenger_chart::prelude::LegendableChannel as _;
+    use avenger_chart_geo::{
+        GeoPositionChannels, GeoUniformRaster2DChannels, UniformRaster2D as GeoUniformRaster2D,
+        crs,
+    };
+    use datafusion::arrow::datatypes::DataType as ArrowDataType;
+    use datafusion::functions::expr_fn::floor;
+    use datafusion::logical_expr::{Expr, expr_fn::cast, lit};
+    use datafusion::prelude::ParquetReadOptions;
+
+    const POINT_BUDGET: i64 = 10_000;
+    const PASSENGER_DOMAIN: [&str; 6] = ["1", "2", "3", "4", "5", "6"];
+
+    type GeoSymbolMark = PreludeSymbol<Geo>;
+
+    /// Regenerate tests/data/taxi_sample_50k.parquet from the scratch taxi
+    /// parquet (not committed; the HoloViz nyc_taxi_wide dataset).
+    /// Deterministic: the first 50k bbox-filtered rows with
+    /// passenger_count in 1..=6, columns pickup_x/pickup_y/passenger_count.
+    #[ignore = "fixture generator; needs ../scratch/data/nyc_taxi_wide.parquet"]
+    #[tokio::test]
+    async fn generate_taxi_sample_fixture() {
+        use datafusion::parquet::arrow::ArrowWriter;
+        let ctx = SessionContext::new();
+        let src = format!(
+            "{}/../scratch/data/nyc_taxi_wide.parquet",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let df = ctx
+            .read_parquet(&src, ParquetReadOptions::default())
+            .await
+            .expect("read scratch taxi parquet")
+            .filter(
+                col("pickup_x")
+                    .gt_eq(lit(-8_242_500.0))
+                    .and(col("pickup_x").lt_eq(lit(-8_226_500.0)))
+                    .and(col("pickup_y").gt_eq(lit(4_968_000.0)))
+                    .and(col("pickup_y").lt_eq(lit(4_983_000.0)))
+                    .and(col("passenger_count").gt_eq(lit(1_i64)))
+                    .and(col("passenger_count").lt_eq(lit(6_i64))),
+            )
+            .expect("filter")
+            .select_columns(&["pickup_x", "pickup_y", "passenger_count"])
+            .expect("select")
+            .limit(0, Some(50_000))
+            .expect("limit");
+        let batches = df.collect().await.expect("collect sample");
+        let schema = batches.first().expect("nonempty sample").schema();
+        let path = format!(
+            "{}/tests/data/taxi_sample_50k.parquet",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        std::fs::create_dir_all(format!("{}/tests/data", env!("CARGO_MANIFEST_DIR")))
+            .expect("create tests/data");
+        let file = std::fs::File::create(&path).expect("create fixture file");
+        let mut writer = ArrowWriter::try_new(file, schema, None).expect("parquet writer");
+        let mut rows = 0usize;
+        for batch in &batches {
+            rows += batch.num_rows();
+            writer.write(batch).expect("write batch");
+        }
+        writer.close().expect("close writer");
+        println!("wrote {rows} rows to {path}");
+    }
+
+    async fn taxi_sample_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {
+        let path = format!(
+            "{}/tests/data/taxi_sample_50k.parquet",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        ctx.read_parquet(&path, ParquetReadOptions::default())
+            .await
+            .expect("read taxi sample fixture (regenerate with generate_taxi_sample_fixture)")
+    }
+
+    fn meters_x(raw: Expr) -> Expr {
+        crs::from_mercator_units_x(crs::EPSG_3857, raw).unwrap()
+    }
+
+    fn meters_y(raw: Expr) -> Expr {
+        crs::from_mercator_units_y(crs::EPSG_3857, raw).unwrap()
+    }
+
+    fn half_pixel_bins(view_pixels: Expr) -> Expr {
+        floor(cast(view_pixels, ArrowDataType::Float64) / lit(2.0))
+    }
+
+    fn passenger_fill_domain() -> Vec<Expr> {
+        PASSENGER_DOMAIN.iter().map(|value| lit(*value)).collect()
+    }
+
+    fn capstone_raster_child(
+        v: &ViewRef,
+        stats: &ScalarAggregateOutput,
+    ) -> GeoUniformRaster2D<Geo> {
+        let gate = stats.scalar("n").gt_eq(lit(POINT_BUDGET));
+        let x_start = meters_x(v.x().domain_start());
+        let x_end = meters_x(v.x().domain_end());
+        let y_start = meters_y(v.y().domain_start());
+        let y_end = meters_y(v.y().domain_end());
+        let x_bins = half_pixel_bins(v.x().pixels());
+        let y_bins = half_pixel_bins(v.y().pixels());
+        PreludeUniformRaster2D::new()
+            .transform(
+                Rasterize2D::new(col("pickup_x"), col("pickup_y"))
+                    .frame(crs::EPSG_3857)
+                    .x(|x| x.extent(x_start, x_end).bins(x_bins))
+                    .y(|y| y.extent(y_start, y_end).bins(y_bins))
+                    .by(col("passenger_count"))
+                    .agg("count"),
+                move |mark, hist| {
+                    let mark = mark.transform(Filter::new(gate), |mark, _| mark);
+                    GeoUniformRaster2DChannels::raster_with(mark, hist.raster(), |r| {
+                        r.x(hist.x_dim())
+                            .y(hist.y_dim())
+                            .fill_by(hist.by_dim(), |fill| {
+                                fill.scale(|s| s.domain_discrete(passenger_fill_domain()))
+                                    .legend(|l| l.title("Passengers"))
+                            })
+                            .opacity_by_total(|o| {
+                                o.scale_with::<Sqrt>(|s| {
+                                    s.domain((0.0, 40.0))
+                                        .range_interval(lit(0.2), lit(1.0))
+                                        .clamp(true)
+                                        .nice(false)
+                                        .zero(false)
+                                })
+                            })
+                    })
+                },
+            )
+            .smooth(false)
+    }
+
+    fn capstone_scatter_child(stats: &ScalarAggregateOutput) -> GeoSymbolMark {
+        let gate = stats.scalar("n").lt(lit(POINT_BUDGET));
+        let raw_x = crs::to_mercator_units_x(crs::EPSG_3857, col("pickup_x")).unwrap();
+        let raw_y = crs::to_mercator_units_y(crs::EPSG_3857, col("pickup_y")).unwrap();
+        PreludeSymbol::new()
+            .transform(Filter::new(gate), |mark, _| mark)
+            .projected_x(raw_x)
+            .projected_y(raw_y)
+            .size(14.0)
+            .fill_with(cast(col("passenger_count"), ArrowDataType::Utf8), |c| {
+                c.scale(|s| s.domain_discrete(passenger_fill_domain()))
+            })
+    }
+
+    fn capstone_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
+        Plot::with_coord(coord)
+            .canvas_size(620.0, 400.0)
+            .mark(
+                MarkGroup::<Geo>::new().data(df).view(
+                    View::cartesian()
+                        .id("pickups")
+                        .x_domain(col("pickup_x"))
+                        .y_domain(col("pickup_y"))
+                        .preview_cached(true),
+                    |group, v| {
+                        let x_start = meters_x(v.x().domain_start());
+                        let x_end = meters_x(v.x().domain_end());
+                        let y_start = meters_y(v.y().domain_start());
+                        let y_end = meters_y(v.y().domain_end());
+                        let in_view = col("pickup_x")
+                            .gt_eq(x_start)
+                            .and(col("pickup_x").lt_eq(x_end))
+                            .and(col("pickup_y").gt_eq(y_start))
+                            .and(col("pickup_y").lt_eq(y_end));
+                        group
+                            .transform(Filter::new(in_view), |group, _| group)
+                            .transform(ScalarAggregate::new().count("n"), |group, stats| {
+                                group
+                                    .mark(capstone_raster_child(&v, &stats))
+                                    .mark(capstone_scatter_child(&stats))
+                            })
+                    },
+                ),
+            )
+    }
+
+    /// Session-based capstone assertion: exact-evaluate until the async
+    /// rasterization settles, resolve the offline tiles, render, compare.
+    async fn assert_capstone_baseline(
+        center_lon_lat: (f64, f64),
+        zoom: f64,
+        tile_zoom: u8,
+        baseline_name: &str,
+    ) {
+        // Single-partition execution: overlapping scatter symbols must draw
+        // in a deterministic order for pixel-stable baselines.
+        let ctx = Arc::new(SessionContext::new_with_config(
+            datafusion::execution::config::SessionConfig::new().with_target_partitions(1),
+        ));
+        let df = taxi_sample_dataframe(&ctx).await;
+        let coord = Geo::mercator()
+            .viewport_id("nyc")
+            .center_lon_lat(center_lon_lat.0, center_lon_lat.1)
+            .zoom(zoom)
+            .tiles(carto_layer(tile_zoom));
+        let compiled = Arc::new(
+            capstone_plot(df, coord)
+                .compile(&ctx)
+                .await
+                .expect("compile capstone plot"),
+        );
+        let mut session = compiled.instantiate(ctx);
+
+        let mut evaluated = None;
+        for _ in 0..20 {
+            let (plot, metrics) = session
+                .evaluate_with_metrics(EvaluationRequest::new().exact())
+                .await
+                .expect("evaluate capstone");
+            let settled = metrics.pipeline.materialization_queued == 0
+                && metrics.pipeline.materialization_running == 0
+                && !session.has_pending_materializations();
+            evaluated = Some(plot);
+            if settled {
+                break;
+            }
+            for _ in 0..600 {
+                if !session.has_pending_materializations() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }
+        let evaluated = evaluated.expect("capstone evaluation");
+        let scene =
+            resolve_ready_image_resources(&evaluated.scene_graph, &CartoFixtureResolver::new())
+                .expect("resolve capstone tiles");
+        let image = render_scene_graph_to_wgpu_image(&scene).await;
+        let baseline_path = PathBuf::from(BASELINE_DIR).join(format!("{baseline_name}.png"));
+        if std::env::var_os(BLESS_ENV).is_some() {
+            save_image(&baseline_path, &image);
+            return;
+        }
+        compare_image(&baseline_path, baseline_name, &image, DEFAULT_THRESHOLD);
+    }
+
+    /// CAPSTONE (raster regime): whole-city view, n >> 10k, Oklab-mixed
+    /// passenger-count raster over z11 CARTO tiles with a swatch legend.
+    #[tokio::test]
+    async fn taxi_mercator_by_passenger_overlay() {
+        assert_capstone_baseline(
+            (-73.977, 40.75),
+            11.0,
+            11,
+            "taxi_mercator_by_passenger_overlay",
+        )
+        .await;
+    }
+
+    /// CAPSTONE (scatter regime): midtown view deep enough that n < 10k,
+    /// the gate swaps to symbols colored by the SAME fill scale, and the
+    /// same legend renders identically.
+    #[tokio::test]
+    async fn taxi_mercator_by_passenger_scatter() {
+        assert_capstone_baseline(
+            (-73.990, 40.750),
+            15.2,
+            13,
+            "taxi_mercator_by_passenger_scatter",
+        )
+        .await;
     }
 
     fn geo_data(file: &str) -> String {
