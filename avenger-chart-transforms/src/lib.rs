@@ -4849,6 +4849,327 @@ mod tests {
         assert_eq!(raster_count_values(&batches[0], 0), vec![1, 0, 0, 2]);
     }
 
+    /// Read a categorical dimension (name + values) from a raster row.
+    fn raster_categorical_dimension(
+        batch: &RecordBatch,
+        row: usize,
+        dimension: usize,
+    ) -> (String, Vec<String>) {
+        let geometry = raster_struct(batch)
+            .column_by_name("geometry")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let dimensions = geometry
+            .column_by_name("dimensions")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let row_dims = dimensions.value(row);
+        let row_dims = row_dims.as_any().downcast_ref::<StructArray>().unwrap();
+        let names = row_dims
+            .column_by_name("name")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let coords = row_dims
+            .column_by_name("coords")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let kinds = coords
+            .column_by_name("kind")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        assert_eq!(kinds.value(dimension), "categorical");
+        let values = coords
+            .column_by_name("values")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let dim_values = values.value(dimension);
+        let dim_values = dim_values.as_any().downcast_ref::<StringArray>().unwrap();
+        (
+            names.value(dimension).to_string(),
+            (0..dim_values.len())
+                .map(|index| dim_values.value(index).to_string())
+                .collect(),
+        )
+    }
+
+    fn raster_values_dims(batch: &RecordBatch, row: usize) -> Vec<String> {
+        let values = raster_struct(batch)
+            .column_by_name("values")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StructArray>()
+            .unwrap();
+        let dims = values
+            .column_by_name("dims")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<ListArray>()
+            .unwrap();
+        let row_dims = dims.value(row);
+        let row_dims = row_dims.as_any().downcast_ref::<StringArray>().unwrap();
+        (0..row_dims.len())
+            .map(|index| row_dims.value(index).to_string())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_by_produces_sorted_planes() {
+        let ctx = SessionContext::new();
+        // Categories arrive in shuffled order; planes must emit sorted.
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![Some("b"), Some("a"), Some("b"), Some("a"), Some("c")],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(0.0), Some(2.0)],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(0.0), Some(0.0)],
+            vec![Some(1.0); 5],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .by(col("group"))
+                .agg("count"),
+        );
+
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].num_rows(), 1);
+        let (by_name, categories) = raster_categorical_dimension(&batches[0], 0, 2);
+        assert_eq!(by_name, "group");
+        assert_eq!(categories, vec!["a", "b", "c"]);
+        assert_eq!(
+            raster_values_dims(&batches[0], 0),
+            vec!["group", "y", "x"]
+        );
+        // Plane-major data: a hits cells 0 and 3 ((0,0) and (2,2));
+        // b = 2 hits in cell 0; c = 1 hit at (x=2, y=0) -> cell 1.
+        assert_eq!(
+            raster_count_values(&batches[0], 0),
+            vec![
+                1, 0, 0, 1, // a
+                2, 0, 0, 0, // b
+                0, 1, 0, 0, // c
+            ]
+        );
+        // The uniform dims are unchanged in slots 0/1.
+        assert_eq!(
+            raster_uniform_dimension(&batches[0], 0, 0),
+            ("x".to_string(), "linear".to_string(), 0.0, 2.0, 2)
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_by_merges_disjoint_categories_across_partitions() {
+        use datafusion::datasource::MemTable;
+        let ctx = SessionContext::new();
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("cat", DataType::Utf8, true),
+            Field::new("x", DataType::Float64, true),
+            Field::new("y", DataType::Float64, true),
+        ]));
+        let batch_for = |cats: Vec<&str>, xs: Vec<f64>, ys: Vec<f64>| {
+            RecordBatch::try_new(
+                schema.clone(),
+                vec![
+                    Arc::new(StringArray::from(cats)) as _,
+                    Arc::new(Float64Array::from(xs)) as _,
+                    Arc::new(Float64Array::from(ys)) as _,
+                ],
+            )
+            .unwrap()
+        };
+        // Partition 0 sees only "b" then "a"; partition 1 sees "c" and "a"
+        // — cross-partition merge must unify planes by VALUE.
+        let partitions = vec![
+            vec![batch_for(
+                vec!["b", "a", "b"],
+                vec![0.0, 0.0, 0.0],
+                vec![0.0, 0.0, 0.0],
+            )],
+            vec![batch_for(vec!["c", "a"], vec![2.0, 0.0], vec![0.0, 0.0])],
+        ];
+        let table = Arc::new(MemTable::try_new(schema.clone(), partitions).unwrap());
+        ctx.register_table("multi_part", table).unwrap();
+        let dataframe = ctx.table("multi_part").await.unwrap();
+
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .by(col("cat"))
+                .agg("count"),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        assert_eq!(batches.len(), 1);
+        let (_, categories) = raster_categorical_dimension(&batches[0], 0, 2);
+        assert_eq!(categories, vec!["a", "b", "c"]);
+        assert_eq!(
+            raster_count_values(&batches[0], 0),
+            vec![
+                2, 0, 0, 0, // a: one per partition
+                2, 0, 0, 0, // b
+                0, 1, 0, 0, // c
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_by_stringifies_integer_categories() {
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("passengers", DataType::Int64, true),
+                Field::new("x", DataType::Float64, true),
+                Field::new("y", DataType::Float64, true),
+            ])),
+            vec![
+                Arc::new(datafusion::arrow::array::Int64Array::from(vec![2, 1, 2])) as _,
+                Arc::new(Float64Array::from(vec![0.0, 0.0, 2.0])) as _,
+                Arc::new(Float64Array::from(vec![0.0, 0.0, 0.0])) as _,
+            ],
+        )
+        .unwrap();
+        let dataframe = ctx.read_batch(batch).unwrap();
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .by(col("passengers"))
+                .agg("count"),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        let (by_name, categories) = raster_categorical_dimension(&batches[0], 0, 2);
+        assert_eq!(by_name, "passengers");
+        assert_eq!(categories, vec!["1", "2"]);
+        assert_eq!(
+            raster_count_values(&batches[0], 0),
+            vec![
+                1, 0, 0, 0, // "1"
+                1, 1, 0, 0, // "2"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_by_composes_with_partition_by() {
+        let ctx = SessionContext::new();
+        // group is the partition; value column doubles as the by category
+        // via a string cast of value parity? Keep it simple: partition by
+        // group, by-categorize on a second string derived from x position.
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![Some("A"), Some("A"), Some("B"), Some("B")],
+            vec![Some(0.0), Some(2.0), Some(0.0), Some(0.0)],
+            vec![Some(0.0), Some(0.0), Some(0.0), Some(0.0)],
+            vec![Some(1.0), Some(2.0), Some(1.0), Some(1.0)],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .partition_by([col("group")])
+                .by(col("value"))
+                .agg("count"),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        let mut by_group: IndexMap<String, (Vec<String>, Vec<u64>)> = IndexMap::new();
+        for batch in &batches {
+            let groups = batch
+                .column_by_name("group")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                let (_, categories) = raster_categorical_dimension(batch, row, 2);
+                by_group.insert(
+                    groups.value(row).to_string(),
+                    (categories, raster_count_values(batch, row)),
+                );
+            }
+        }
+        // A observed value-categories {1, 2}; B only {1} — per-row planes.
+        assert_eq!(by_group["A"].0, vec!["1.0", "2.0"]);
+        assert_eq!(by_group["A"].1, vec![1, 0, 0, 0, 0, 1, 0, 0]);
+        assert_eq!(by_group["B"].0, vec!["1.0"]);
+        assert_eq!(by_group["B"].1, vec![2, 0, 0, 0]);
+    }
+
+    #[tokio::test]
+    async fn rasterize_2d_by_sum_planes() {
+        let ctx = SessionContext::new();
+        let dataframe = rasterize_dataframe(
+            &ctx,
+            vec![Some("a"), Some("a"), Some("b")],
+            vec![Some(0.0), Some(0.0), Some(2.0)],
+            vec![Some(0.0), Some(0.0), Some(0.0)],
+            vec![Some(1.5), Some(2.5), Some(4.0)],
+        );
+        let (transform, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .by(col("group"))
+                .value(col("value"))
+                .agg("sum"),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![transform]).await;
+        assert_eq!(
+            raster_f64_values(&batches[0], 0),
+            vec![
+                Some(4.0),
+                None,
+                None,
+                None, // a
+                None,
+                Some(4.0),
+                None,
+                None, // b
+            ]
+        );
+    }
+
+    #[test]
+    fn rasterize_2d_by_serialization_round_trip_and_untagged_bytes() {
+        let (with_by, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .by(col("cat"))
+                .agg("count"),
+        );
+        let json = serde_json::to_string(&with_by.transform).unwrap();
+        assert!(json.contains("by_dim_name"));
+        let decoded: Box<dyn avenger_chart_core::CompiledDataTransform> =
+            serde_json::from_str(&json).unwrap();
+        assert_eq!(serde_json::to_string(&decoded).unwrap(), json);
+
+        // Without by(...), the serialized form must not mention the new
+        // fields at all — existing materialization keys/identities and
+        // specs stay byte-identical.
+        let (without_by, _) = compile_transform(
+            Rasterize2D::new(col("x"), col("y"))
+                .x(|x| x.extent(0.0, 2.0).bins(2))
+                .y(|y| y.extent(0.0, 2.0).bins(2))
+                .agg("count"),
+        );
+        let json = serde_json::to_string(&without_by.transform).unwrap();
+        assert!(!json.contains("\"by\""));
+        assert!(!json.contains("by_dim_name"));
+    }
+
     #[tokio::test]
     async fn rasterize_2d_partitioned_output_returns_one_raster_per_group() {
         let ctx = SessionContext::new();

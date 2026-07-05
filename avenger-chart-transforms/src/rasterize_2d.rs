@@ -39,7 +39,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 use std::{
     any::Any,
-    collections::hash_map::DefaultHasher,
+    collections::{HashMap, hash_map::DefaultHasher},
     fmt::Debug,
     hash::{Hash, Hasher},
     mem::size_of,
@@ -52,6 +52,7 @@ pub const RASTERIZE_2D_MATERIALIZATION_KIND: &str = "rasterize-2d";
 const RASTERIZE_X: &str = "__avenger_rasterize2d_x";
 const RASTERIZE_Y: &str = "__avenger_rasterize2d_y";
 const RASTERIZE_VALUE: &str = "__avenger_rasterize2d_value";
+const RASTERIZE_BY: &str = "__avenger_rasterize2d_by";
 const INFER_VALUE: &str = "__avenger_rasterize2d_infer_value";
 const INFER_MIN: &str = "__avenger_rasterize2d_min";
 const INFER_MAX: &str = "__avenger_rasterize2d_max";
@@ -82,6 +83,16 @@ pub struct CompiledRasterize2DTransform {
     /// field existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub frame: Option<String>,
+    /// Optional categorical plane dimension: rows are grouped by this
+    /// expression's (stringified) value and the output raster gains a third,
+    /// categorical dimension with one plane per observed category
+    /// (plane-major `values.data`). Skipped when `None` for untagged-spec
+    /// byte identity, like `frame`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub by: Option<LogicalExprNode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_dim_name: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -297,6 +308,7 @@ pub struct Rasterize2D {
     partition_by: Vec<Expr>,
     raster_name: String,
     frame: Option<String>,
+    by: Option<Expr>,
 }
 
 impl Rasterize2D {
@@ -311,6 +323,7 @@ impl Rasterize2D {
             partition_by: Vec::new(),
             raster_name: "raster".to_string(),
             frame: None,
+            by: None,
         }
     }
 
@@ -361,6 +374,17 @@ impl Rasterize2D {
     /// unit-agnostic, so this is an assertion by the author, not an inference.
     pub fn frame(mut self, crs: impl Into<String>) -> Self {
         self.frame = Some(crs.into());
+        self
+    }
+
+    /// Add a categorical plane dimension: rows are grouped by this
+    /// expression's value (stringified to Utf8) and the raster gains a
+    /// third, categorical dimension with one plane per OBSERVED category.
+    /// `values.data` becomes plane-major (`[by, y, x]` dims order) and the
+    /// categorical coords carry the sorted category names. Composes with
+    /// `partition_by` (planes within each partition row) and `frame`.
+    pub fn by(mut self, expr: impl IntoExpr) -> Self {
+        self.by = Some(expr.into_expr());
         self
     }
 }
@@ -435,6 +459,20 @@ impl DataTransform for Rasterize2D {
             )));
         }
 
+        let by_dim_name = self
+            .by
+            .as_ref()
+            .map(|by| by.name_for_alias())
+            .transpose()
+            .map_err(AvengerChartError::DataFusionError)?;
+        if let Some(by_name) = &by_dim_name
+            && (by_name == &x_dim_name || by_name == &y_dim_name)
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Rasterize2D by dimension name \"{by_name}\" must be distinct from the x/y dimension names"
+            )));
+        }
+
         let transform = CompiledRasterize2DTransform {
             x: expr_node(self.x, "rasterize x expression"),
             y: expr_node(self.y, "rasterize y expression"),
@@ -453,6 +491,10 @@ impl DataTransform for Rasterize2D {
             x_dim_name: x_dim_name.clone(),
             y_dim_name: y_dim_name.clone(),
             frame: self.frame.clone(),
+            by: self
+                .by
+                .map(|by| expr_node(by, "rasterize by expression")),
+            by_dim_name: by_dim_name.clone(),
         };
 
         Ok((
@@ -461,6 +503,7 @@ impl DataTransform for Rasterize2D {
                 raster_name: self.raster_name,
                 x_dim_name,
                 y_dim_name,
+                by_dim_name,
             },
         ))
     }
@@ -485,6 +528,7 @@ pub struct Rasterize2DOutput {
     raster_name: String,
     x_dim_name: String,
     y_dim_name: String,
+    by_dim_name: Option<String>,
 }
 
 impl Rasterize2DOutput {
@@ -498,6 +542,17 @@ impl Rasterize2DOutput {
 
     pub fn y_dim(&self) -> RasterDim {
         dim(self.y_dim_name.clone())
+    }
+
+    /// The categorical plane dimension declared with [`Rasterize2D::by`].
+    ///
+    /// Panics when the transform was built without `by(...)` — referencing a
+    /// plane dimension that does not exist is an authoring error.
+    pub fn by_dim(&self) -> RasterDim {
+        dim(self
+            .by_dim_name
+            .clone()
+            .expect("Rasterize2D::by(...) was not configured; by_dim() has no dimension"))
     }
 }
 
@@ -514,6 +569,7 @@ impl CompiledRasterize2DTransform {
                 RASTERIZE_X,
                 RASTERIZE_Y,
                 RASTERIZE_VALUE,
+                RASTERIZE_BY,
                 INFER_VALUE,
                 INFER_MIN,
                 INFER_MAX,
@@ -545,6 +601,7 @@ impl CompiledRasterize2DTransform {
             y_stop,
             y_bins,
             self.frame.clone(),
+            self.by_dim_name.clone(),
         )?;
 
         tracing::debug!(
@@ -570,10 +627,24 @@ impl CompiledRasterize2DTransform {
                 .with_column(RASTERIZE_VALUE, value_expr)
                 .map_err(AvengerChartError::DataFusionError)?;
         }
+        if let Some(by) = &self.by {
+            // Stringify category values so the plane dimension's coords are
+            // Utf8 regardless of the source column type.
+            let by_expr = datafusion::logical_expr::cast(
+                by.to_default_expr(ctx.session_context)?,
+                DataType::Utf8,
+            );
+            prepared = prepared
+                .with_column(RASTERIZE_BY, by_expr)
+                .map_err(AvengerChartError::DataFusionError)?;
+        }
 
         let mut args = vec![col(RASTERIZE_X), col(RASTERIZE_Y)];
         if self.value.is_some() {
             args.push(col(RASTERIZE_VALUE));
+        }
+        if self.by.is_some() {
+            args.push(col(RASTERIZE_BY));
         }
 
         let udf = AggregateUDF::new_from_impl(Rasterize2DUdf::new(config, self.agg));
@@ -673,6 +744,8 @@ impl CompiledDataTransform for CompiledRasterize2DTransform {
             x_dim_name: self.x_dim_name.clone(),
             y_dim_name: self.y_dim_name.clone(),
             frame: self.frame.clone(),
+            by: map_optional_expr_node(&self.by, f)?,
+            by_dim_name: self.by_dim_name.clone(),
         }))
     }
 
@@ -748,6 +821,7 @@ struct Rasterize2DGridConfig {
     y_bins: u32,
     grid_len: usize,
     crs: Option<String>,
+    by_dim_name: Option<String>,
 }
 
 impl Rasterize2DGridConfig {
@@ -764,6 +838,7 @@ impl Rasterize2DGridConfig {
         y_stop: f64,
         y_bins: u32,
         crs: Option<String>,
+        by_dim_name: Option<String>,
     ) -> Result<Self, AvengerChartError> {
         validate_extent("x", x_start, x_stop)?;
         validate_extent("y", y_start, y_stop)?;
@@ -796,6 +871,7 @@ impl Rasterize2DGridConfig {
             y_bins,
             grid_len,
             crs,
+            by_dim_name,
         })
     }
 
@@ -827,6 +903,7 @@ impl PartialEq for Rasterize2DGridConfig {
             && self.y_stop.to_bits() == other.y_stop.to_bits()
             && self.y_bins == other.y_bins
             && self.crs == other.crs
+            && self.by_dim_name == other.by_dim_name
     }
 }
 
@@ -845,6 +922,7 @@ impl Hash for Rasterize2DGridConfig {
         self.y_stop.to_bits().hash(state);
         self.y_bins.hash(state);
         self.crs.hash(state);
+        self.by_dim_name.hash(state);
     }
 }
 
@@ -877,6 +955,17 @@ impl Rasterize2DUdf {
                         DataType::Float64,
                         DataType::Float64,
                         DataType::Float64,
+                    ]),
+                    TypeSignature::Exact(vec![
+                        DataType::Float64,
+                        DataType::Float64,
+                        DataType::Utf8,
+                    ]),
+                    TypeSignature::Exact(vec![
+                        DataType::Float64,
+                        DataType::Float64,
+                        DataType::Float64,
+                        DataType::Utf8,
                     ]),
                 ],
                 Volatility::Immutable,
@@ -925,18 +1014,27 @@ impl AggregateUDFImpl for Rasterize2DUdf {
     }
 
     fn state_fields(&self, args: StateFieldsArgs) -> DataFusionResult<Vec<FieldRef>> {
-        Ok(self
-            .agg
-            .state_specs()
-            .into_iter()
-            .map(|spec| {
-                Arc::new(Field::new(
-                    format!("{}_{}", args.name, spec.name),
-                    DataType::new_list(spec.data_type, false),
-                    false,
-                ))
-            })
-            .collect())
+        let mut fields: Vec<FieldRef> = Vec::new();
+        if self.config.by_dim_name.is_some() {
+            // Plane categories in accumulator-table order; the per-agg state
+            // lists below hold K * grid_len entries, plane-major, aligned to
+            // this list. Merge unifies planes by category VALUE, so states
+            // from partitions that discovered different category sets (or
+            // orders) combine correctly.
+            fields.push(Arc::new(Field::new(
+                format!("{}_categories", args.name),
+                DataType::new_list(DataType::Utf8, false),
+                false,
+            )));
+        }
+        fields.extend(self.agg.state_specs().into_iter().map(|spec| {
+            Arc::new(Field::new(
+                format!("{}_{}", args.name, spec.name),
+                DataType::new_list(spec.data_type, false),
+                false,
+            )) as FieldRef
+        }));
+        Ok(fields)
     }
 
     fn groups_accumulator_supported(&self, _args: AccumulatorArgs) -> bool {
@@ -1044,12 +1142,12 @@ impl Rasterize2DAgg {
 #[derive(Debug)]
 struct Rasterize2DAccumulator {
     config: Rasterize2DGridConfig,
-    state: DenseGridState,
+    state: GridState,
 }
 
 impl Rasterize2DAccumulator {
     fn new(config: Rasterize2DGridConfig, agg: Rasterize2DAgg) -> Self {
-        let state = DenseGridState::new(agg, config.grid_len, 1);
+        let state = GridState::new(&config, agg, 1);
         Self { config, state }
     }
 }
@@ -1066,7 +1164,7 @@ impl Accumulator for Rasterize2DAccumulator {
             target: "avenger_chart::transforms::rasterize_2d",
             rows = 1usize,
             cells = self.config.grid_len,
-            reducer = self.state.agg.name(),
+            reducer = self.state.agg().name(),
             elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
             "constructed Rasterize2D raster struct"
         );
@@ -1089,12 +1187,12 @@ impl Accumulator for Rasterize2DAccumulator {
 #[derive(Debug)]
 struct Rasterize2DGroupsAccumulator {
     config: Rasterize2DGridConfig,
-    state: DenseGridState,
+    state: GridState,
 }
 
 impl Rasterize2DGroupsAccumulator {
     fn new(config: Rasterize2DGridConfig, agg: Rasterize2DAgg) -> Self {
-        let state = DenseGridState::new(agg, config.grid_len, 0);
+        let state = GridState::new(&config, agg, 0);
         Self { config, state }
     }
 }
@@ -1121,7 +1219,7 @@ impl GroupsAccumulator for Rasterize2DGroupsAccumulator {
             target: "avenger_chart::transforms::rasterize_2d",
             rows,
             cells = self.config.grid_len,
-            reducer = emitted.agg.name(),
+            reducer = emitted.agg().name(),
             elapsed_ms = started.elapsed().as_secs_f64() * 1000.0,
             "constructed grouped Rasterize2D raster structs"
         );
@@ -1323,6 +1421,72 @@ impl DenseGridState {
         }
     }
 
+    /// Merge one cell's incoming state into `target`. `count` must be
+    /// non-zero; unused per-agg inputs are ignored.
+    fn merge_cell(&mut self, target: usize, count: u64, sum: f64, value: f64, mean: f64, m2: f64) {
+        match self.agg {
+            Rasterize2DAgg::Count => {
+                self.counts[target] = self.counts[target].saturating_add(count);
+            }
+            Rasterize2DAgg::Sum | Rasterize2DAgg::Mean => {
+                self.counts[target] = self.counts[target].saturating_add(count);
+                self.sums[target] += sum;
+            }
+            Rasterize2DAgg::Min => {
+                if self.counts[target] == 0 || value < self.values[target] {
+                    self.values[target] = value;
+                }
+                self.counts[target] = self.counts[target].saturating_add(count);
+            }
+            Rasterize2DAgg::Max => {
+                if self.counts[target] == 0 || value > self.values[target] {
+                    self.values[target] = value;
+                }
+                self.counts[target] = self.counts[target].saturating_add(count);
+            }
+            Rasterize2DAgg::VarPop
+            | Rasterize2DAgg::StddevPop
+            | Rasterize2DAgg::VarSamp
+            | Rasterize2DAgg::StddevSamp => {
+                merge_moments(
+                    &mut self.counts[target],
+                    &mut self.means[target],
+                    &mut self.m2s[target],
+                    count,
+                    mean,
+                    m2,
+                );
+            }
+        }
+    }
+
+    /// Output cell value at a flat index for f64-valued reducers.
+    fn output_cell(&self, index: usize) -> Option<f64> {
+        let count = self.counts[index];
+        match self.agg {
+            Rasterize2DAgg::Count => unreachable!("count output is UInt64"),
+            Rasterize2DAgg::Sum => (count > 0).then_some(self.sums[index]),
+            Rasterize2DAgg::Min | Rasterize2DAgg::Max => (count > 0).then_some(self.values[index]),
+            Rasterize2DAgg::Mean => (count > 0).then_some(self.sums[index] / count as f64),
+            Rasterize2DAgg::VarPop | Rasterize2DAgg::StddevPop => (count > 0).then(|| {
+                let variance = self.m2s[index] / count as f64;
+                if self.agg == Rasterize2DAgg::VarPop {
+                    variance
+                } else {
+                    variance.sqrt()
+                }
+            }),
+            Rasterize2DAgg::VarSamp | Rasterize2DAgg::StddevSamp => (count > 1).then(|| {
+                let variance = self.m2s[index] / (count - 1) as f64;
+                if self.agg == Rasterize2DAgg::VarSamp {
+                    variance
+                } else {
+                    variance.sqrt()
+                }
+            }),
+        }
+    }
+
     fn state_scalars(&self) -> DataFusionResult<Vec<ScalarValue>> {
         self.state_arrays()?
             .into_iter()
@@ -1431,47 +1595,14 @@ impl DenseGridState {
                 if count == 0 {
                     continue;
                 }
-                let target = target_offset + cell;
-                match self.agg {
-                    Rasterize2DAgg::Count => {
-                        self.counts[target] = self.counts[target].saturating_add(count);
-                    }
-                    Rasterize2DAgg::Sum => {
-                        self.counts[target] = self.counts[target].saturating_add(count);
-                        self.sums[target] += sums_row.as_ref().expect("sum state").value(cell);
-                    }
-                    Rasterize2DAgg::Min => {
-                        let value = values_row.as_ref().expect("min state").value(cell);
-                        if self.counts[target] == 0 || value < self.values[target] {
-                            self.values[target] = value;
-                        }
-                        self.counts[target] = self.counts[target].saturating_add(count);
-                    }
-                    Rasterize2DAgg::Max => {
-                        let value = values_row.as_ref().expect("max state").value(cell);
-                        if self.counts[target] == 0 || value > self.values[target] {
-                            self.values[target] = value;
-                        }
-                        self.counts[target] = self.counts[target].saturating_add(count);
-                    }
-                    Rasterize2DAgg::Mean => {
-                        self.counts[target] = self.counts[target].saturating_add(count);
-                        self.sums[target] += sums_row.as_ref().expect("mean state").value(cell);
-                    }
-                    Rasterize2DAgg::VarPop
-                    | Rasterize2DAgg::StddevPop
-                    | Rasterize2DAgg::VarSamp
-                    | Rasterize2DAgg::StddevSamp => {
-                        merge_moments(
-                            &mut self.counts[target],
-                            &mut self.means[target],
-                            &mut self.m2s[target],
-                            count,
-                            means_row.as_ref().expect("means state").value(cell),
-                            m2s_row.as_ref().expect("m2s state").value(cell),
-                        );
-                    }
-                }
+                self.merge_cell(
+                    target_offset + cell,
+                    count,
+                    sums_row.as_ref().map_or(0.0, |row| row.value(cell)),
+                    values_row.as_ref().map_or(0.0, |row| row.value(cell)),
+                    means_row.as_ref().map_or(0.0, |row| row.value(cell)),
+                    m2s_row.as_ref().map_or(0.0, |row| row.value(cell)),
+                );
             }
         }
         Ok(())
@@ -1525,36 +1656,510 @@ impl DenseGridState {
             .map(|group| {
                 let offset = group * self.grid_len;
                 (0..self.grid_len)
-                    .map(|cell| {
-                        let index = offset + cell;
-                        let count = self.counts[index];
-                        match self.agg {
-                            Rasterize2DAgg::Count => unreachable!("count output is UInt64"),
-                            Rasterize2DAgg::Sum => (count > 0).then_some(self.sums[index]),
-                            Rasterize2DAgg::Min | Rasterize2DAgg::Max => {
-                                (count > 0).then_some(self.values[index])
-                            }
-                            Rasterize2DAgg::Mean => {
-                                (count > 0).then_some(self.sums[index] / count as f64)
-                            }
-                            Rasterize2DAgg::VarPop => {
-                                (count > 0).then_some(self.m2s[index] / count as f64)
-                            }
-                            Rasterize2DAgg::StddevPop => {
-                                (count > 0).then_some((self.m2s[index] / count as f64).sqrt())
-                            }
-                            Rasterize2DAgg::VarSamp => {
-                                (count > 1).then_some(self.m2s[index] / (count - 1) as f64)
-                            }
-                            Rasterize2DAgg::StddevSamp => {
-                                (count > 1).then_some((self.m2s[index] / (count - 1) as f64).sqrt())
-                            }
-                        }
-                    })
+                    .map(|cell| self.output_cell(offset + cell))
                     .collect()
             })
             .collect()
     }
+}
+
+/// Accumulator state: dense 2-D grid, or one dense grid per discovered
+/// category when `Rasterize2D::by(...)` is configured.
+#[derive(Debug)]
+enum GridState {
+    Dense(DenseGridState),
+    Categorical(CategoricalGridState),
+}
+
+impl GridState {
+    fn new(config: &Rasterize2DGridConfig, agg: Rasterize2DAgg, group_count: usize) -> Self {
+        if config.by_dim_name.is_some() {
+            Self::Categorical(CategoricalGridState::new(agg, config.grid_len, group_count))
+        } else {
+            Self::Dense(DenseGridState::new(agg, config.grid_len, group_count))
+        }
+    }
+
+    fn agg(&self) -> Rasterize2DAgg {
+        match self {
+            Self::Dense(state) => state.agg,
+            Self::Categorical(state) => state.agg,
+        }
+    }
+
+    fn resize_groups(&mut self, group_count: usize) {
+        match self {
+            Self::Dense(state) => state.resize_groups(group_count),
+            Self::Categorical(state) => state.resize_groups(group_count),
+        }
+    }
+
+    fn size(&self) -> usize {
+        match self {
+            Self::Dense(state) => state.size(),
+            Self::Categorical(state) => state.size(),
+        }
+    }
+
+    fn group_count(&self) -> usize {
+        match self {
+            Self::Dense(state) => state.group_count(),
+            Self::Categorical(state) => state.group_count,
+        }
+    }
+
+    fn update(
+        &mut self,
+        config: &Rasterize2DGridConfig,
+        arrays: &[ArrayRef],
+        group_indices: Option<&[usize]>,
+        opt_filter: Option<&BooleanArray>,
+    ) -> DataFusionResult<()> {
+        match self {
+            Self::Dense(state) => state.update(config, arrays, group_indices, opt_filter),
+            Self::Categorical(state) => state.update(config, arrays, group_indices, opt_filter),
+        }
+    }
+
+    fn state_scalars(&self) -> DataFusionResult<Vec<ScalarValue>> {
+        match self {
+            Self::Dense(state) => state.state_scalars(),
+            Self::Categorical(state) => state.state_scalars(),
+        }
+    }
+
+    fn state_arrays(&self) -> DataFusionResult<Vec<ArrayRef>> {
+        match self {
+            Self::Dense(state) => state.state_arrays(),
+            Self::Categorical(state) => state.state_arrays(),
+        }
+    }
+
+    fn merge(
+        &mut self,
+        arrays: &[ArrayRef],
+        group_indices: Option<&[usize]>,
+    ) -> DataFusionResult<()> {
+        match self {
+            Self::Dense(state) => state.merge(arrays, group_indices),
+            Self::Categorical(state) => state.merge(arrays, group_indices),
+        }
+    }
+
+    fn take_emit(&mut self, emit_to: EmitTo) -> DataFusionResult<Self> {
+        match self {
+            Self::Dense(state) => state.take_emit(emit_to).map(Self::Dense),
+            Self::Categorical(state) => state.take_emit(emit_to).map(Self::Categorical),
+        }
+    }
+
+    fn build_raster_array(
+        &self,
+        config: &Rasterize2DGridConfig,
+    ) -> DataFusionResult<Arc<StructArray>> {
+        match self {
+            Self::Dense(state) => state.build_raster_array(config),
+            Self::Categorical(state) => state.build_raster_array(config),
+        }
+    }
+}
+
+/// One dense grid per discovered category, sharing a global category table.
+///
+/// Planes are keyed by the STRINGIFIED category value; discovery order is
+/// arbitrary (input order, then merge order), so serialized state carries
+/// the category list and [`CategoricalGridState::merge`] unifies planes by
+/// value. Emission sorts categories per group so output is deterministic.
+#[derive(Debug)]
+struct CategoricalGridState {
+    agg: Rasterize2DAgg,
+    grid_len: usize,
+    group_count: usize,
+    categories: Vec<String>,
+    lookup: HashMap<String, usize>,
+    planes: Vec<DenseGridState>,
+}
+
+impl CategoricalGridState {
+    fn new(agg: Rasterize2DAgg, grid_len: usize, group_count: usize) -> Self {
+        Self {
+            agg,
+            grid_len,
+            group_count,
+            categories: Vec::new(),
+            lookup: HashMap::new(),
+            planes: Vec::new(),
+        }
+    }
+
+    fn plane_index(&mut self, category: &str) -> usize {
+        if let Some(index) = self.lookup.get(category) {
+            return *index;
+        }
+        let index = self.planes.len();
+        let mut plane = DenseGridState::new(self.agg, self.grid_len, 0);
+        plane.resize_groups(self.group_count);
+        self.categories.push(category.to_string());
+        self.lookup.insert(category.to_string(), index);
+        self.planes.push(plane);
+        index
+    }
+
+    fn resize_groups(&mut self, group_count: usize) {
+        self.group_count = group_count;
+        for plane in &mut self.planes {
+            plane.resize_groups(group_count);
+        }
+    }
+
+    fn size(&self) -> usize {
+        size_of::<Self>()
+            + self
+                .categories
+                .iter()
+                .map(|category| category.len() * 2)
+                .sum::<usize>()
+            + self.planes.iter().map(DenseGridState::size).sum::<usize>()
+    }
+
+    fn update(
+        &mut self,
+        config: &Rasterize2DGridConfig,
+        arrays: &[ArrayRef],
+        group_indices: Option<&[usize]>,
+        opt_filter: Option<&BooleanArray>,
+    ) -> DataFusionResult<()> {
+        if arrays.len() != 3 && arrays.len() != 4 {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D with by(...) expected 3 or 4 arguments, got {}",
+                arrays.len()
+            )));
+        }
+        if self.agg != Rasterize2DAgg::Count && arrays.len() != 4 {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D reducer \"{}\" requires a value argument",
+                self.agg.name()
+            )));
+        }
+        let x = f64_array(arrays.first(), "Rasterize2D x argument")?;
+        let y = f64_array(arrays.get(1), "Rasterize2D y argument")?;
+        let value = (arrays.len() == 4)
+            .then(|| f64_array(arrays.get(2), "Rasterize2D value argument"))
+            .transpose()?;
+        let category = arrays
+            .last()
+            .expect("length checked above")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| {
+                DataFusionError::Internal(
+                    "Rasterize2D by argument must be Utf8".to_string(),
+                )
+            })?;
+        if x.len() != y.len()
+            || category.len() != x.len()
+            || value.is_some_and(|value| value.len() != x.len())
+        {
+            return Err(DataFusionError::Internal(
+                "Rasterize2D arguments must have equal lengths".to_string(),
+            ));
+        }
+        if let Some(group_indices) = group_indices
+            && group_indices.len() != x.len()
+        {
+            return Err(DataFusionError::Internal(
+                "Rasterize2D group index length must match argument length".to_string(),
+            ));
+        }
+
+        for row in 0..x.len() {
+            if let Some(filter) = opt_filter
+                && (filter.is_null(row) || !filter.value(row))
+            {
+                continue;
+            }
+            if x.is_null(row) || y.is_null(row) || category.is_null(row) {
+                continue;
+            }
+            let Some(cell_index) = config.cell_index(x.value(row), y.value(row)) else {
+                continue;
+            };
+            let value = match value {
+                Some(value) => {
+                    if value.is_null(row) || !value.value(row).is_finite() {
+                        continue;
+                    }
+                    Some(value.value(row))
+                }
+                None => None,
+            };
+            let plane = self.plane_index(category.value(row));
+            let offset = group_indices.map_or(0, |indices| indices[row] * self.grid_len);
+            self.planes[plane].update_cell(offset + cell_index, value);
+        }
+        Ok(())
+    }
+
+    /// State rows: `categories` (table order) plus each agg state as a
+    /// plane-major `K * grid_len` list per group.
+    fn state_arrays(&self) -> DataFusionResult<Vec<ArrayRef>> {
+        let group_count = self.group_count;
+        let plane_count = self.planes.len();
+        let row_len = plane_count * self.grid_len;
+
+        let categories = string_list_array_from_rows(
+            (0..group_count)
+                .map(|_| self.categories.iter().map(String::as_str).collect::<Vec<_>>()),
+            false,
+        )?;
+        let mut arrays: Vec<ArrayRef> = vec![categories];
+
+        let concat_u64 = |select: &dyn Fn(&DenseGridState) -> &Vec<u64>| -> Vec<u64> {
+            let mut flat = Vec::with_capacity(group_count * row_len);
+            for group in 0..group_count {
+                let offset = group * self.grid_len;
+                for plane in &self.planes {
+                    flat.extend_from_slice(&select(plane)[offset..offset + self.grid_len]);
+                }
+            }
+            flat
+        };
+        let concat_f64 = |select: &dyn Fn(&DenseGridState) -> &Vec<f64>| -> Vec<f64> {
+            let mut flat = Vec::with_capacity(group_count * row_len);
+            for group in 0..group_count {
+                let offset = group * self.grid_len;
+                for plane in &self.planes {
+                    flat.extend_from_slice(&select(plane)[offset..offset + self.grid_len]);
+                }
+            }
+            flat
+        };
+
+        let empty_u64: Vec<u64> = Vec::new();
+        let empty_f64: Vec<f64> = Vec::new();
+        fn rows_of<'a, T>(
+            flat: &'a [T],
+            row_len: usize,
+            group_count: usize,
+            empty: &'a [T],
+        ) -> Vec<&'a [T]> {
+            if row_len == 0 {
+                (0..group_count).map(|_| empty).collect()
+            } else {
+                flat.chunks(row_len).collect()
+            }
+        }
+
+        let counts = concat_u64(&|plane| &plane.counts);
+        arrays.push(u64_list_array_from_rows(rows_of(&counts, row_len, group_count, &empty_u64), row_len, false)? as ArrayRef);
+        if self.agg.uses_sums() {
+            let sums = concat_f64(&|plane| &plane.sums);
+            arrays.push(f64_list_array_from_rows(rows_of(&sums, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+        }
+        if self.agg.uses_values() {
+            let values = concat_f64(&|plane| &plane.values);
+            arrays.push(f64_list_array_from_rows(rows_of(&values, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+        }
+        if self.agg.uses_moments() {
+            let means = concat_f64(&|plane| &plane.means);
+            let m2s = concat_f64(&|plane| &plane.m2s);
+            arrays.push(f64_list_array_from_rows(rows_of(&means, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+            arrays.push(f64_list_array_from_rows(rows_of(&m2s, row_len, group_count, &empty_f64), row_len, false)? as ArrayRef);
+        }
+        Ok(arrays)
+    }
+
+    fn state_scalars(&self) -> DataFusionResult<Vec<ScalarValue>> {
+        self.state_arrays()?
+            .into_iter()
+            .map(|array| {
+                let array = array
+                    .as_any()
+                    .downcast_ref::<ListArray>()
+                    .expect("state array is a ListArray")
+                    .clone();
+                Ok(ScalarValue::List(Arc::new(array)))
+            })
+            .collect()
+    }
+
+    fn merge(
+        &mut self,
+        arrays: &[ArrayRef],
+        group_indices: Option<&[usize]>,
+    ) -> DataFusionResult<()> {
+        let categories = list_array(arrays.first(), "Rasterize2D categories state")?;
+        let counts = list_array(arrays.get(1), "Rasterize2D counts state")?;
+        let rows = counts.len();
+        if let Some(group_indices) = group_indices
+            && rows != group_indices.len()
+        {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D state length {rows} did not match group index length {}",
+                group_indices.len()
+            )));
+        }
+
+        let sums = self
+            .agg
+            .uses_sums()
+            .then(|| list_array(arrays.get(2), "Rasterize2D sums state"))
+            .transpose()?;
+        let values = self
+            .agg
+            .uses_values()
+            .then(|| list_array(arrays.get(2), "Rasterize2D values state"))
+            .transpose()?;
+        let (means, m2s) = if self.agg.uses_moments() {
+            (
+                Some(list_array(arrays.get(2), "Rasterize2D means state")?),
+                Some(list_array(arrays.get(3), "Rasterize2D m2s state")?),
+            )
+        } else {
+            (None, None)
+        };
+
+        for row in 0..rows {
+            if counts.is_null(row) || categories.is_null(row) {
+                continue;
+            }
+            let categories_row = categories.value(row);
+            let categories_row = categories_row
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or_else(|| {
+                    DataFusionError::Internal(
+                        "Rasterize2D categories state must be Utf8 lists".to_string(),
+                    )
+                })?;
+            let plane_count = categories_row.len();
+            let row_len = plane_count * self.grid_len;
+            let target_group = group_indices.map_or(0, |indices| indices[row]);
+            let target_offset = target_group * self.grid_len;
+
+            let counts_row = u64_list_value(counts, row, row_len, "counts")?;
+            let sums_row = sums
+                .map(|array| f64_list_value(array, row, row_len, "sums"))
+                .transpose()?;
+            let values_row = values
+                .map(|array| f64_list_value(array, row, row_len, "values"))
+                .transpose()?;
+            let means_row = means
+                .map(|array| f64_list_value(array, row, row_len, "means"))
+                .transpose()?;
+            let m2s_row = m2s
+                .map(|array| f64_list_value(array, row, row_len, "m2s"))
+                .transpose()?;
+
+            for incoming_plane in 0..plane_count {
+                let local_plane = self.plane_index(categories_row.value(incoming_plane));
+                let plane_offset = incoming_plane * self.grid_len;
+                for cell in 0..self.grid_len {
+                    let source = plane_offset + cell;
+                    let count = counts_row.value(source);
+                    if count == 0 {
+                        continue;
+                    }
+                    self.planes[local_plane].merge_cell(
+                        target_offset + cell,
+                        count,
+                        sums_row.as_ref().map_or(0.0, |row| row.value(source)),
+                        values_row.as_ref().map_or(0.0, |row| row.value(source)),
+                        means_row.as_ref().map_or(0.0, |row| row.value(source)),
+                        m2s_row.as_ref().map_or(0.0, |row| row.value(source)),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn take_emit(&mut self, emit_to: EmitTo) -> DataFusionResult<Self> {
+        let emit_groups = match emit_to {
+            EmitTo::All => self.group_count,
+            EmitTo::First(count) => count,
+        };
+        if emit_groups > self.group_count {
+            return Err(DataFusionError::Internal(format!(
+                "Rasterize2D emit requested {emit_groups} groups but only {} are available",
+                self.group_count
+            )));
+        }
+        let planes = self
+            .planes
+            .iter_mut()
+            .map(|plane| plane.take_emit(emit_to))
+            .collect::<DataFusionResult<Vec<_>>>()?;
+        let emitted = Self {
+            agg: self.agg,
+            grid_len: self.grid_len,
+            group_count: emit_groups,
+            categories: self.categories.clone(),
+            lookup: self.lookup.clone(),
+            planes,
+        };
+        self.group_count -= emit_groups;
+        Ok(emitted)
+    }
+
+    /// Per-group emission: only OBSERVED categories (any nonzero count in
+    /// the group) get planes, sorted by category value for determinism.
+    fn build_raster_array(
+        &self,
+        config: &Rasterize2DGridConfig,
+    ) -> DataFusionResult<Arc<StructArray>> {
+        let mut rows = Vec::with_capacity(self.group_count);
+        for group in 0..self.group_count {
+            let offset = group * self.grid_len;
+            let mut observed = self
+                .planes
+                .iter()
+                .enumerate()
+                .filter(|(_, plane)| {
+                    plane.counts[offset..offset + self.grid_len]
+                        .iter()
+                        .any(|count| *count > 0)
+                })
+                .map(|(index, _)| (self.categories[index].clone(), index))
+                .collect::<Vec<_>>();
+            observed.sort_by(|left, right| left.0.cmp(&right.0));
+
+            let categories = observed
+                .iter()
+                .map(|(category, _)| category.clone())
+                .collect::<Vec<_>>();
+            let data = if self.agg == Rasterize2DAgg::Count {
+                let mut data = Vec::with_capacity(observed.len() * self.grid_len);
+                for (_, plane_index) in &observed {
+                    data.extend_from_slice(
+                        &self.planes[*plane_index].counts[offset..offset + self.grid_len],
+                    );
+                }
+                CategoricalRowData::U64(data)
+            } else {
+                let mut data = Vec::with_capacity(observed.len() * self.grid_len);
+                for (_, plane_index) in &observed {
+                    let plane = &self.planes[*plane_index];
+                    data.extend(
+                        (0..self.grid_len).map(|cell| plane.output_cell(offset + cell)),
+                    );
+                }
+                CategoricalRowData::F64(data)
+            };
+            rows.push(CategoricalRasterRow { categories, data });
+        }
+        build_categorical_raster_array(config, rows)
+    }
+}
+
+struct CategoricalRasterRow {
+    categories: Vec<String>,
+    data: CategoricalRowData,
+}
+
+enum CategoricalRowData {
+    U64(Vec<u64>),
+    F64(Vec<Option<f64>>),
 }
 
 fn take_emit_values<T>(values: &mut Vec<T>, emit_len: usize, all: bool) -> Vec<T> {
@@ -1777,6 +2382,189 @@ fn build_raster_array(
         ),
     ])))
 }
+
+/// Raster rows with a trailing categorical plane dimension: geometry dims
+/// `[x uniform, y uniform, by categorical]`, `values.dims = [by, y, x]`,
+/// plane-major data with per-row plane counts.
+fn build_categorical_raster_array(
+    config: &Rasterize2DGridConfig,
+    rows: Vec<CategoricalRasterRow>,
+) -> DataFusionResult<Arc<StructArray>> {
+    let by_dim_name = config.by_dim_name.as_deref().ok_or_else(|| {
+        DataFusionError::Internal(
+            "Rasterize2D categorical emission requires a by dimension name".to_string(),
+        )
+    })?;
+    let row_count = rows.len();
+
+    // Data list with per-row lengths K_i * grid_len.
+    let mut lengths = Vec::with_capacity(row_count);
+    // Cell type + nullability mirror raster_data_type: count -> UInt64
+    // non-nullable, all other reducers -> nullable Float64.
+    let (data, value_nullable): (ArrayRef, bool) = match rows
+        .first()
+        .map(|row| matches!(row.data, CategoricalRowData::U64(_)))
+    {
+        Some(true) | None => {
+            let mut flat: Vec<u64> = Vec::new();
+            for row in &rows {
+                let CategoricalRowData::U64(values) = &row.data else {
+                    return Err(DataFusionError::Internal(
+                        "Rasterize2D categorical rows mixed cell types".to_string(),
+                    ));
+                };
+                lengths.push(values.len());
+                flat.extend_from_slice(values);
+            }
+            (Arc::new(UInt64Array::from(flat)) as ArrayRef, false)
+        }
+        Some(false) => {
+            let mut flat: Vec<Option<f64>> = Vec::new();
+            for row in &rows {
+                let CategoricalRowData::F64(values) = &row.data else {
+                    return Err(DataFusionError::Internal(
+                        "Rasterize2D categorical rows mixed cell types".to_string(),
+                    ));
+                };
+                lengths.push(values.len());
+                flat.extend(values.iter().copied());
+            }
+            (Arc::new(Float64Array::from(flat)) as ArrayRef, true)
+        }
+    };
+    let data = list_array_from_lengths(data, lengths, value_nullable);
+
+    // Geometry dimensions: per row, x + y uniform dims followed by the
+    // categorical by dim carrying that row's observed categories.
+    let mut names = Vec::with_capacity(row_count * 3);
+    let mut kinds = Vec::with_capacity(row_count * 3);
+    let mut samplings = Vec::with_capacity(row_count * 3);
+    let mut starts = Vec::with_capacity(row_count * 3);
+    let mut stops = Vec::with_capacity(row_count * 3);
+    let mut counts = Vec::with_capacity(row_count * 3);
+    let mut coord_values_builder = ListBuilder::new(StringBuilder::new());
+    for row in &rows {
+        names.push(config.x_dim_name.as_str());
+        kinds.push("uniform");
+        samplings.push(Some(config.x_sampling.as_str()));
+        starts.push(Some(config.x_start));
+        stops.push(Some(config.x_stop));
+        counts.push(Some(config.x_bins));
+        coord_values_builder.append(false);
+
+        names.push(config.y_dim_name.as_str());
+        kinds.push("uniform");
+        samplings.push(Some(config.y_sampling.as_str()));
+        starts.push(Some(config.y_start));
+        stops.push(Some(config.y_stop));
+        counts.push(Some(config.y_bins));
+        coord_values_builder.append(false);
+
+        names.push(by_dim_name);
+        kinds.push("categorical");
+        samplings.push(None);
+        starts.push(None);
+        stops.push(None);
+        counts.push(None);
+        for category in &row.categories {
+            coord_values_builder.values().append_value(category);
+        }
+        coord_values_builder.append(true);
+    }
+    let coord_values = Arc::new(coord_values_builder.finish()) as ArrayRef;
+    let total_dimensions = row_count * 3;
+    debug_assert_eq!(names.len(), total_dimensions);
+    let coords = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("kind", DataType::Utf8, false)),
+            Arc::new(StringArray::from(kinds)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("sampling", DataType::Utf8, true)),
+            Arc::new(StringArray::from(samplings)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("start", DataType::Float64, true)),
+            Arc::new(Float64Array::from(starts)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("stop", DataType::Float64, true)),
+            Arc::new(Float64Array::from(stops)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("count", DataType::UInt32, true)),
+            Arc::new(UInt32Array::from(counts)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("values", coord_values.data_type().clone(), true)),
+            coord_values,
+        ),
+    ])) as ArrayRef;
+    let dimensions = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("name", DataType::Utf8, false)),
+            Arc::new(StringArray::from(names)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("coords", coords.data_type().clone(), false)),
+            coords,
+        ),
+    ])) as ArrayRef;
+    let dimensions = list_array_from_lengths(dimensions, vec![3; row_count], false);
+
+    let crs_values = vec![config.crs.as_deref(); row_count];
+    let geometry = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("kind", DataType::Utf8, false)),
+            Arc::new(StringArray::from(vec!["grid"; row_count])) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("crs", DataType::Utf8, true)),
+            Arc::new(StringArray::from(crs_values)) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new(
+                "dimensions",
+                dimensions.data_type().clone(),
+                false,
+            )),
+            dimensions,
+        ),
+    ])) as ArrayRef;
+
+    let dims = string_list_array_from_rows(
+        (0..row_count).map(|_| {
+            vec![
+                by_dim_name,
+                config.y_dim_name.as_str(),
+                config.x_dim_name.as_str(),
+            ]
+        }),
+        false,
+    )?;
+    let values = Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("dims", dims.data_type().clone(), false)),
+            dims,
+        ),
+        (
+            Arc::new(Field::new("data", data.data_type().clone(), false)),
+            data,
+        ),
+    ])) as ArrayRef;
+
+    Ok(Arc::new(StructArray::from(vec![
+        (
+            Arc::new(Field::new("geometry", geometry.data_type().clone(), false)),
+            geometry,
+        ),
+        (
+            Arc::new(Field::new("values", values.data_type().clone(), false)),
+            values,
+        ),
+    ])))
+}
+
 
 fn dimensions_list_array(
     config: &Rasterize2DGridConfig,
@@ -2230,6 +3018,7 @@ mod tests {
             2.0,
             2,
             crs.map(str::to_string),
+            None,
         )
         .unwrap()
     }
@@ -2497,6 +3286,8 @@ mod tests {
             x_dim_name: "x".to_string(),
             y_dim_name: "y".to_string(),
             frame: frame.map(str::to_string),
+            by: None,
+            by_dim_name: None,
         }
     }
 
