@@ -213,9 +213,10 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
         // A SCALED Utf8-typed channel value (bare &str literals are
         // unscaled and would suppress scale building): the Utf8 type makes
         // the fill scale default to Ordinal with the theme's categorical
-        // scheme.
+        // scheme. NULL so unique-value domain inference never picks the
+        // placeholder up as a spurious category.
         let config = ColorChannelConfig::new(ChannelValue::from(
-            datafusion::logical_expr::lit(""),
+            datafusion::logical_expr::lit(ScalarValue::Utf8(None)),
         ));
         self.fill_by = Some((dim, f(config)));
         self
@@ -227,7 +228,11 @@ impl<A: Clone + Default + Send + Sync + 'static> RasterChannelsConfig<A> {
     where
         F: FnOnce(OpacityChannelConfig) -> OpacityChannelConfig,
     {
-        let config = OpacityChannelConfig::new(ChannelValue::from(1.0_f64));
+        // A SCALED literal seed (plain f64 literals are unscaled and would
+        // suppress building the opacity scale).
+        let config = OpacityChannelConfig::new(ChannelValue::from(
+            datafusion::logical_expr::lit(1.0_f64),
+        ));
         self.opacity_by_total = Some(f(config));
         self
     }

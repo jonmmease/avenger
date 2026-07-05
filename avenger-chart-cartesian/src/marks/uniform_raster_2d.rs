@@ -261,6 +261,9 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
             UNIFORM_RASTER_2D_FILL_CHANNEL | "opacity" => {
                 Some(LegendRendererSelection::BuiltIn(LegendRendererKind::Rect))
             }
+            // The density->alpha scale is an internal mapping, not a
+            // legend-worthy channel.
+            UNIFORM_RASTER_2D_OPACITY_BY_TOTAL_CHANNEL => None,
             _ => None,
         }
     }

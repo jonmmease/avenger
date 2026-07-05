@@ -857,12 +857,15 @@ impl CompiledPlot {
 
         // Add channels that marks indicate shouldn't have legends
         for (channel, scale) in scales {
-            // Find the mark that has this channel
-            if let Some(mark) = self
-                .marks
-                .iter()
-                .find(|m| m.data_context().channels().contains_key(channel))
-            {
+            // Find the mark that has this channel — view-scoped marks carry
+            // their channels on the lowered view data context.
+            if let Some(mark) = self.marks.iter().find(|m| {
+                m.data_context().channels().contains_key(channel)
+                    || m.state()
+                        .view
+                        .as_ref()
+                        .is_some_and(|view| view.data.channels().contains_key(channel))
+            }) {
                 // If the mark that has the channel says no legend, skip it
                 if mark
                     .preferred_legend_renderer(channel, scale.configured())
@@ -922,9 +925,17 @@ impl CompiledPlot {
         channel: &str,
         scale: &ConfiguredScaleWithSpec,
     ) -> Option<LegendRendererSelection> {
-        // Find the first mark that has this channel and get its preference
+        // Find the first mark that has this channel and get its preference.
+        // View-scoped marks carry their channels on the lowered view data
+        // context.
         for mark in &self.marks {
-            if mark.data_context().channels().contains_key(channel) {
+            if mark.data_context().channels().contains_key(channel)
+                || mark
+                    .state()
+                    .view
+                    .as_ref()
+                    .is_some_and(|view| view.data.channels().contains_key(channel))
+            {
                 return mark.preferred_legend_renderer(channel, scale.configured());
             }
         }
@@ -1196,7 +1207,18 @@ impl CompiledPlot {
         let mut all_channels = Vec::new();
 
         for (mark_index, mark) in self.marks.iter().enumerate() {
-            for (channel_name, channel_value) in mark.data_context().channels() {
+            // View-scoped marks carry their channels on the lowered view
+            // data context — the same source scale building reads
+            // (`prepare_scale_mark_for_plot`). Without this, channels like a
+            // categorical raster's fill_by (or any view child's legend-
+            // configured channel) never reach legend planning even though
+            // their scale and legend config exist.
+            let mut channel_entries: Vec<(&String, &avenger_chart_core::ChannelValue)> =
+                mark.data_context().channels().iter().collect();
+            if let Some(view_scope) = mark.state().view.as_ref() {
+                channel_entries.extend(view_scope.data.channels().iter());
+            }
+            for (channel_name, channel_value) in channel_entries {
                 // Skip if no scale or no legend config
                 if !configured_scales.contains_key(channel_name)
                     || !all_legends.contains_key(channel_name)
