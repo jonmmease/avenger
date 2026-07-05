@@ -188,9 +188,9 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
         let y_position = required_position(&self.options.y_position, "y")?;
 
         let x_exprs = raster_domain_exprs_for_position(raster_expr.clone(), x_position);
-        let y_exprs = raster_domain_exprs_for_position(raster_expr, y_position);
+        let y_exprs = raster_domain_exprs_for_position(raster_expr.clone(), y_position);
 
-        Ok(vec![
+        let mut sources = vec![
             MarkScaleDomainSource {
                 channel: "x".to_string(),
                 channel_value: x_position.channel_value.clone(),
@@ -200,10 +200,25 @@ impl CompiledMarkCore for CompiledCartesianUniformRaster2D {
             MarkScaleDomainSource {
                 channel: "y".to_string(),
                 channel_value: y_position.channel_value.clone(),
-                dataframe,
+                dataframe: dataframe.clone(),
                 exprs: y_exprs,
             },
-        ])
+        ];
+        // Categorical overlay: infer the fill domain from the raster's plane
+        // dimension values (same List<Utf8> UDF the categorical position
+        // axes use), so fill_by works without an explicit domain.
+        if let Some(fill_by) = &self.options.fill_by {
+            sources.push(MarkScaleDomainSource {
+                channel: UNIFORM_RASTER_2D_FILL_CHANNEL.to_string(),
+                channel_value: fill_by.channel_value.clone(),
+                dataframe,
+                exprs: vec![raster_categorical_dim_values_expr(
+                    raster_expr,
+                    fill_by.dim.name().to_string(),
+                )],
+            });
+        }
+        Ok(sources)
     }
 
     fn preferred_scale_type(
