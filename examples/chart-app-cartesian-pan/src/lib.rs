@@ -71,6 +71,9 @@ async fn build_app() -> avenger_chart_app::ChartAppBundle {
 
     let plot = Plot::<Cartesian>::new()
         .canvas_size(760.0, 520.0)
+        .configure_title("Grouped scatter: $y = alpha x^2 + beta$", |title| {
+            title.typst()
+        })
         .data(df)
         .mark(
             Symbol::new()
