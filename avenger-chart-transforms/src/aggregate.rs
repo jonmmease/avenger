@@ -4,8 +4,8 @@ use crate::common::{
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
-    SerializableExpr, simplify_to_scalar_sync,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, ExecutionShape,
+    IntoExpr, SerializableExpr, simplify_to_scalar_sync,
 };
 use datafusion::{
     common::ScalarValue,
@@ -207,6 +207,10 @@ impl AggregateOutput {
 impl CompiledDataTransform for CompiledAggregateTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanRewrite
     }
 
     fn map_exprs(

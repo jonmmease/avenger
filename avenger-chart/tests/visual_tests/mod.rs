@@ -110,6 +110,7 @@ pub mod test_transform_impute;
 pub mod test_transform_join_aggregate;
 pub mod test_transform_kde;
 pub mod test_transform_lump;
+pub mod test_transform_sql;
 pub mod test_transform_stack;
 pub mod test_transform_time_unit;
 pub mod test_transform_window;

@@ -6,8 +6,8 @@ use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-    DefaultLogicalExprNodeExt, IntoExpr, NestedBandLevelConfig, NestedBandSpec, SerializableExpr,
-    TimeContext, contains_aggregate, nested, time,
+    DefaultLogicalExprNodeExt, ExecutionShape, IntoExpr, NestedBandLevelConfig, NestedBandSpec,
+    SerializableExpr, TimeContext, contains_aggregate, nested, time,
 };
 use datafusion::{
     arrow::datatypes::DataType,
@@ -379,6 +379,10 @@ pub struct TimeLevelKey {
 impl CompiledDataTransform for CompiledTimeLevelsTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanRewrite
     }
 
     fn map_exprs(

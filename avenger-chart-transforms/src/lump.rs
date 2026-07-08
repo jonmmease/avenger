@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-    DefaultLogicalExprNodeExt, IntoExpr, ScaleChannelValue, SerializableExpr, eval_to_scalars,
-    params_to_datafusion,
+    DefaultLogicalExprNodeExt, ExecutionShape, IntoExpr, ScaleChannelValue, SerializableExpr,
+    eval_to_scalars, params_to_datafusion,
 };
 use datafusion::{
     arrow::datatypes::{DataType, Field},
@@ -324,6 +324,10 @@ impl LumpOutput {
 impl CompiledDataTransform for CompiledLumpTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanRewrite
     }
 
     fn map_exprs(

@@ -353,7 +353,7 @@ pub use tools::{
 pub use transform::{
     CompiledDataTransform, DataTransform, DataTransformCompileContext,
     DataTransformExecutionContext, DataTransformFacetContext, DataTransformResult,
-    DataTransformStage, ViewMaterializationContext, ViewMaterializationRequest,
+    DataTransformStage, ExecutionShape, ViewMaterializationContext, ViewMaterializationRequest,
     ViewScalarMaterialization, apply_compiled_data_transforms,
 };
 pub use unit_aspect::CartesianUnitAspect;

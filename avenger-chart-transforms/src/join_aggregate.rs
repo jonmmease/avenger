@@ -6,7 +6,8 @@ use crate::common::{expr_node, simple_column_name, validate_output_names};
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, ExecutionShape,
+    IntoExpr,
 };
 use datafusion::dataframe::DataFrame;
 use datafusion::logical_expr::{Expr, JoinType, Operator, binary_expr, col, lit};
@@ -151,6 +152,10 @@ impl DataTransform for JoinAggregate {
 impl CompiledDataTransform for CompiledJoinAggregateTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanRewrite
     }
 
     fn map_exprs(

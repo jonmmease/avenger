@@ -2,6 +2,7 @@ mod aggregate;
 mod bin;
 mod calculate;
 mod common;
+pub mod expand;
 mod filter;
 mod fold;
 mod impute;
@@ -11,6 +12,7 @@ pub mod lump;
 mod rasterize_2d;
 mod scalar_aggregate;
 mod select;
+pub mod sql;
 mod stack;
 mod time_fill;
 mod time_levels;
@@ -40,6 +42,7 @@ pub use scalar_aggregate::{
     ScalarAggregateOutput, scalar_batch_from_literals, scalar_literals_from_batch,
 };
 pub use select::{CompiledSelectTransform, Select, SelectExprSpec};
+pub use sql::{CompiledSqlTransform, Sql, SqlOutput};
 pub use stack::{CompiledStackTransform, Stack, StackOffset, StackOutput, TransformSortSpec};
 pub use time_fill::{CompiledTimeFillTransform, TimeFill, TimeFillExtentSpec, TimeFillOutput};
 pub use time_levels::{

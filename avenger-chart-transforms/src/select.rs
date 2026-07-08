@@ -5,8 +5,8 @@ use crate::common::{
 use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, CompiledDataTransform, DataTransform, DataTransformCompileContext,
-    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, IntoExpr,
-    SerializableExpr,
+    DataTransformExecutionContext, DataTransformResult, DefaultLogicalExprNodeExt, ExecutionShape,
+    IntoExpr, SerializableExpr,
 };
 use datafusion::{dataframe::DataFrame, logical_expr::Expr};
 use datafusion_proto::protobuf::LogicalExprNode;
@@ -67,6 +67,10 @@ impl DataTransform for Select {
 impl CompiledDataTransform for CompiledSelectTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanRewrite
     }
 
     fn map_exprs(

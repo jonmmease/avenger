@@ -76,9 +76,9 @@ pub use avenger_chart_transforms::{
     Aggregate, AggregateOutput, Bin, BinOutput, Calculate, CompiledKdeTransform, Filter, Fold,
     FoldOutput, Impute, ImputeOutput, JoinAggregate, Kde, KdeOutput, KdeResolve, Lump, LumpOutput,
     Rasterize2D, Rasterize2DOutput, ScalarAggregate, ScalarAggregateEvaluation,
-    ScalarAggregateOutput, Select, Stack, StackOffset, StackOutput, TimeFill, TimeFillOutput,
-    TimeLevel, TimeLevelConfig, TimeLevelKey, TimeLevelKeys, TimeLevelLabel, TimeLevels,
-    TimeLevelsOutput, TimeUnit, TimeUnitOutput, TimeUnitPart, Window,
+    ScalarAggregateOutput, Select, Sql, SqlOutput, Stack, StackOffset, StackOutput, TimeFill,
+    TimeFillOutput, TimeLevel, TimeLevelConfig, TimeLevelKey, TimeLevelKeys, TimeLevelLabel,
+    TimeLevels, TimeLevelsOutput, TimeUnit, TimeUnitOutput, TimeUnitPart, Window,
 };
 pub use avenger_text::types::TextSyntaxMode;
 

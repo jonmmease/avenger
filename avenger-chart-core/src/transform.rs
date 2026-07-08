@@ -66,11 +66,26 @@ impl DataTransformCompileContext {
     }
 }
 
+/// Declared execution behavior of a compiled transform's `apply`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExecutionShape {
+    /// `apply` is plan-pure: it only builds plan operators and never executes
+    /// the input.
+    PlanRewrite,
+    /// `apply` executes its input and materializes a result, or has not been
+    /// audited. This is the conservative default.
+    PlanBreak,
+}
+
 #[typetag::serde(tag = "type")]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait CompiledDataTransform: Send + Sync {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform>;
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanBreak
+    }
 
     fn map_exprs(
         &self,

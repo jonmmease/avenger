@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use avenger_chart_core::{
     AvengerChartError, ChannelExpr, CompiledDataTransform, DataTransform,
     DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
-    DefaultLogicalExprNodeExt, IntoExpr, SerializableExpr,
+    DefaultLogicalExprNodeExt, ExecutionShape, IntoExpr, SerializableExpr,
 };
 use datafusion::{
     common::ScalarValue,
@@ -197,6 +197,10 @@ impl StackOutput {
 impl CompiledDataTransform for CompiledStackTransform {
     fn clone_box(&self) -> Box<dyn CompiledDataTransform> {
         Box::new(self.clone())
+    }
+
+    fn execution_shape(&self) -> ExecutionShape {
+        ExecutionShape::PlanRewrite
     }
 
     fn map_exprs(
