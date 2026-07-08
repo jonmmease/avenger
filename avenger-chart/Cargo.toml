@@ -97,7 +97,9 @@ datafusion = { workspace = true, features = ["parquet"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
+wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
 
 [[example]]
 name = "simple_bar_chart"

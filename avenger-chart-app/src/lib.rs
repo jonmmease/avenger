@@ -32,7 +32,7 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceCache, ImageResourceResolver};
 use avenger_resource::{
     RenderInvalidationHub, RenderInvalidationReason, RenderInvalidationRequest,
-    RenderInvalidationSchedule, RenderInvalidationSink, ResourceRequest,
+    RenderInvalidationSchedule, RenderInvalidationSink, ResourceRequest, ResourceRequestPurpose,
 };
 use avenger_scenegraph::scene_graph::SceneGraph;
 use datafusion::{prelude::SessionContext, scalar::ScalarValue};
@@ -1013,11 +1013,16 @@ impl EventStreamHandler<ChartAppState> for GestureActiveHandler {
 }
 
 fn request_image_resources(resources: &ChartRuntimeResources, requests: &[ResourceRequest]) {
-    for request in requests
-        .iter()
-        .filter(|request| request.kind.0 == IMAGE_RESOURCE_KIND)
-    {
-        resources.image_resource_resolver.request_image(request);
+    for purpose in [
+        ResourceRequestPurpose::Required,
+        ResourceRequestPurpose::Prefetch,
+    ] {
+        for request in requests
+            .iter()
+            .filter(|request| request.kind.0 == IMAGE_RESOURCE_KIND && request.purpose == purpose)
+        {
+            resources.image_resource_resolver.request_image(request);
+        }
     }
 }
 
@@ -1327,9 +1332,9 @@ mod tests {
         request_image_resources(
             &resources,
             &[
-                image_request.clone(),
-                non_image_request.clone(),
                 prefetch_image_request.clone(),
+                non_image_request.clone(),
+                image_request.clone(),
             ],
         );
 

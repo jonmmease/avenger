@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     hash::{Hash, Hasher},
     sync::{Arc, Mutex},
-    time::Instant,
 };
 
 use datafusion::{
@@ -26,6 +25,7 @@ use avenger_chart_core::{
 };
 use avenger_color::{ColorOrGradient, OklabMixer};
 use avenger_common::{
+    time::Instant,
     types::{ImageAlign, ImageBaseline},
     value::ScalarOrArray,
 };

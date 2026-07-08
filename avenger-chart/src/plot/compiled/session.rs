@@ -1397,13 +1397,26 @@ fn spawn_materialization_task(
     invalidation_hub: EvaluationInvalidationHub,
 ) {
     #[cfg(target_arch = "wasm32")]
-    wasm_bindgen_futures::spawn_local(run_materialization_task(
-        request,
-        executor,
-        cache,
-        session_context,
-        invalidation_hub,
-    ));
+    {
+        use wasm_bindgen::JsCast;
+
+        let task =
+            run_materialization_task(request, executor, cache, session_context, invalidation_hub);
+        let callback = wasm_bindgen::closure::Closure::once(move || {
+            wasm_bindgen_futures::spawn_local(task);
+        });
+        web_sys::window()
+            .and_then(|window| {
+                window
+                    .set_timeout_with_callback_and_timeout_and_arguments_0(
+                        callback.as_ref().unchecked_ref(),
+                        0,
+                    )
+                    .ok()
+            })
+            .expect("schedule wasm materialization task");
+        callback.forget();
+    }
 
     #[cfg(not(target_arch = "wasm32"))]
     tokio::spawn(run_materialization_task(

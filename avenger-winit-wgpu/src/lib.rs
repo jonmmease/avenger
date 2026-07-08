@@ -62,8 +62,23 @@ fn send_render_invalidation_event(
 
             #[cfg(target_arch = "wasm32")]
             {
-                let _ = delay;
-                let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+                use wasm_bindgen::JsCast;
+
+                let delay_ms = delay.as_millis().min(i32::MAX as u128) as i32;
+                let callback = wasm_bindgen::closure::Closure::once(move || {
+                    let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+                });
+                web_sys::window()
+                    .and_then(|window| {
+                        window
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                callback.as_ref().unchecked_ref(),
+                                delay_ms,
+                            )
+                            .ok()
+                    })
+                    .expect("schedule wasm render invalidation");
+                callback.forget();
             }
         }
     }
@@ -677,7 +692,21 @@ where
         // evaluations each park a soon-stale wake-up whose delivery would
         // force a redundant rebuild between frames — visible scroll chop.)
         let delayed = matches!(invalidation.schedule, RenderInvalidationSchedule::After(_));
+        let evaluation_changed = matches!(
+            &invalidation.reason,
+            RenderInvalidationReason::EvaluationChanged { .. }
+        );
         if delayed {
+            if invalidation.epoch <= self.hub_epoch_at_last_evaluation_start {
+                return;
+            }
+        } else if evaluation_changed {
+            // A render-only invalidation (for example, a just-loaded map tile)
+            // can be requested after an evaluation invalidation and render
+            // before the custom event for the evaluation reaches us on wasm.
+            // Do not let that render-only epoch suppress a required scene
+            // rebuild; only an evaluation that started after this request
+            // makes it redundant.
             if invalidation.epoch <= self.hub_epoch_at_last_evaluation_start {
                 return;
             }
@@ -709,11 +738,7 @@ where
             return;
         }
 
-        if matches!(
-            &invalidation.reason,
-            RenderInvalidationReason::EvaluationChanged { .. }
-        ) && !self.rebuild_scene_graph_for_render_invalidation(&invalidation)
-        {
+        if evaluation_changed && !self.rebuild_scene_graph_for_render_invalidation(&invalidation) {
             return;
         }
 
@@ -751,6 +776,14 @@ where
                 let app_clone = self.avenger_app.clone();
                 let canvas_shared = self.canvas.clone();
                 let invalidation_epoch = invalidation.epoch;
+                let hub_epoch_before = self
+                    .render_invalidation_hub
+                    .as_ref()
+                    .map(|hub| hub.epoch());
+                if let Some(epoch) = hub_epoch_before {
+                    self.hub_epoch_at_last_evaluation_start =
+                        self.hub_epoch_at_last_evaluation_start.max(epoch);
+                }
                 #[allow(clippy::await_holding_refcell_ref)]
                 spawn_local(async move {
                     let scene_graph = match app_clone.borrow_mut().rebuild_scene_graph(true).await {
@@ -1099,6 +1132,10 @@ where
 
         cfg_if::cfg_if! {
             if #[cfg(target_arch = "wasm32")] {
+                use wasm_bindgen::JsCast;
+
+                let event_proxy = self.event_proxy.clone();
+                let render_invalidation_hub = self.render_invalidation_hub.clone();
                 let setup_future = async move {
                     match canvas_future.await {
                         Ok(mut canvas) => {
@@ -1112,13 +1149,32 @@ where
                                 log::error!("Failed to set initial scene: {err:?}");
                             }
                             *canvas_shared.borrow_mut() = Some(canvas);
+                            if let Some(invalidation) = render_invalidation_hub
+                                .as_ref()
+                                .and_then(|hub| hub.latest_evaluation_invalidation())
+                            {
+                                send_render_invalidation_event(event_proxy, invalidation);
+                            }
                         }
                         Err(e) => {
                             log::error!("Failed to create canvas: {e:?}");
                         }
                     }
                 };
-                spawn_local(setup_future);
+                let callback = wasm_bindgen::closure::Closure::once(move || {
+                    spawn_local(setup_future);
+                });
+                web_sys::window()
+                    .and_then(|window| {
+                        window
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                callback.as_ref().unchecked_ref(),
+                                0,
+                            )
+                            .ok()
+                    })
+                    .expect("schedule wasm canvas setup");
+                callback.forget();
             } else {
                 match self.tokio_runtime.block_on(canvas_future) {
                     Ok(mut canvas) => {
@@ -1373,23 +1429,25 @@ fn sync_canvas_size_to_scene_graph(
     let accepted = canvas
         .window()
         .request_inner_size(Size::Physical(target))
-        .unwrap_or_else(|| {
-            fallback_to_requested_size_if_needed(target, canvas.window().inner_size())
-        });
+        .map(|accepted| window_accepted_or_requested_size(target, accepted))
+        .unwrap_or_else(|| window_accepted_or_requested_size(target, canvas.window().inner_size()));
     canvas.resize(accepted);
 }
 
-fn fallback_to_requested_size_if_needed(
+#[cfg(target_arch = "wasm32")]
+fn window_accepted_or_requested_size(
     requested_size: PhysicalSize<u32>,
-    current_size: PhysicalSize<u32>,
+    _accepted_size: PhysicalSize<u32>,
 ) -> PhysicalSize<u32> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if current_size.width == 0 || current_size.height == 0 {
-            return requested_size;
-        }
-    }
-    current_size
+    requested_size
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn window_accepted_or_requested_size(
+    _requested_size: PhysicalSize<u32>,
+    accepted_size: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    accepted_size
 }
 
 fn logical_to_physical(value: f32, scale: f32) -> u32 {

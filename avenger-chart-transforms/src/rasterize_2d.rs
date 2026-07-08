@@ -12,6 +12,7 @@ use avenger_chart_core::{
     ViewMaterializationContext, ViewMaterializationRequest, dim, eval_to_scalars,
     params_to_datafusion,
 };
+use avenger_common::time::Instant;
 use datafusion::{
     arrow::{
         array::{
@@ -37,13 +38,14 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
 use std::{
     collections::HashMap,
     fmt::Debug,
     hash::{Hash, Hasher},
     mem::size_of,
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 pub const RASTERIZE_2D_MATERIALIZATION_KIND: &str = "rasterize-2d";
@@ -170,6 +172,7 @@ impl MaterializationExecutor for Rasterize2DExecutor {
         request: MaterializationRequest,
         ctx: MaterializationExecutionContext<'_>,
     ) -> Result<MaterializationResult, AvengerChartError> {
+        #[cfg(not(target_arch = "wasm32"))]
         let started = Instant::now();
         tracing::debug!(
             target: "avenger_chart::transforms::rasterize_2d",
@@ -205,6 +208,15 @@ impl MaterializationExecutor for Rasterize2DExecutor {
             .apply_to_dataframe(dataframe, &transform_ctx)
             .await?;
         let batch = collect_single_batch(result.dataframe, &params).await?;
+        #[cfg(target_arch = "wasm32")]
+        tracing::debug!(
+            target: "avenger_chart::transforms::rasterize_2d",
+            key = %request.key,
+            rows = batch.num_rows(),
+            columns = batch.num_columns(),
+            "Rasterize2D materialization finished"
+        );
+        #[cfg(not(target_arch = "wasm32"))]
         tracing::debug!(
             target: "avenger_chart::transforms::rasterize_2d",
             key = %request.key,
@@ -217,6 +229,7 @@ impl MaterializationExecutor for Rasterize2DExecutor {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn maybe_sleep_for_demo_delay() {
     let Some(delay) = std::env::var("AVENGER_TAXI_RASTER_DELAY_MS")
         .ok()
@@ -228,6 +241,9 @@ fn maybe_sleep_for_demo_delay() {
 
     std::thread::sleep(Duration::from_millis(delay));
 }
+
+#[cfg(target_arch = "wasm32")]
+fn maybe_sleep_for_demo_delay() {}
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

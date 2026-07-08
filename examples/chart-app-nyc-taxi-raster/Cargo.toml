@@ -1,0 +1,38 @@
+[package]
+name = "chart-app-nyc-taxi-raster"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
+[dependencies]
+arrow = { workspace = true }
+avenger-chart = { path = "../../avenger-chart", default-features = false }
+avenger-chart-app = { path = "../../avenger-chart-app", features = ["winit-wgpu"] }
+avenger-chart-geo = { path = "../../avenger-chart-geo" }
+cfg-if = { workspace = true }
+log = { workspace = true }
+palette = { workspace = true }
+winit = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+datafusion = { workspace = true, features = ["parquet"] }
+env_logger = "0.10"
+pollster = "0.4.0"
+tokio = { workspace = true, features = ["rt", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+chrono = { workspace = true, features = ["wasmbind"] }
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
+datafusion = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+js-sys = "0.3.103"
+wasm-bindgen = "0.2.126"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3.103", features = ["Document", "Element", "HtmlElement", "Response", "Window"] }

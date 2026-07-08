@@ -11,6 +11,8 @@ use avenger_resource::{
     RenderInvalidationReason, RenderInvalidationRequest, RenderInvalidationSink, ResourceKey,
     ResourceRequest, ResourceRequestPurpose, ResourceSource,
 };
+#[cfg(target_arch = "wasm32")]
+use std::collections::VecDeque;
 
 use crate::{
     error::AvengerImageError, fetcher::ImageFetcher, ImageResourceResolver, ImageResourceState,
@@ -19,6 +21,8 @@ use crate::{
 
 pub const IMAGE_RESOURCE_KIND: &str = "image";
 pub const DEFAULT_IMAGE_RESOURCE_CACHE_CAPACITY: usize = 512;
+#[cfg(target_arch = "wasm32")]
+const WASM_MAX_CONCURRENT_IMAGE_LOADS: usize = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageResourceLoadOptions {
@@ -52,11 +56,21 @@ enum CachedImageState {
     Failed(Arc<str>),
 }
 
+#[cfg(target_arch = "wasm32")]
+struct WasmQueuedImageLoad {
+    request: ResourceRequest,
+    request_id: u64,
+}
+
 struct ImageResourceCacheInner {
     states: lru::LruCache<ResourceKey, CachedImageState>,
     generation: u64,
     next_request_id: u64,
     render_invalidation_sink: Option<Arc<dyn RenderInvalidationSink>>,
+    #[cfg(target_arch = "wasm32")]
+    queued_image_loads: VecDeque<WasmQueuedImageLoad>,
+    #[cfg(target_arch = "wasm32")]
+    active_image_loads: usize,
 }
 
 impl Default for ImageResourceCacheInner {
@@ -72,6 +86,10 @@ impl ImageResourceCacheInner {
             generation: 0,
             next_request_id: 0,
             render_invalidation_sink: None,
+            #[cfg(target_arch = "wasm32")]
+            queued_image_loads: VecDeque::new(),
+            #[cfg(target_arch = "wasm32")]
+            active_image_loads: 0,
         }
     }
 
@@ -326,6 +344,12 @@ impl ImageResourceResolver for ImageResourceCache {
                         self.scheduler().promote_to_required(&request.key);
                     }
                 }
+                #[cfg(target_arch = "wasm32")]
+                if request.purpose == ResourceRequestPurpose::Required
+                    && promote_queued_wasm_image_load(&self.inner, request)
+                {
+                    pump_wasm_image_loads(self.inner.clone(), self.fetcher.clone());
+                }
             }
         }
     }
@@ -428,18 +452,108 @@ fn finish_image_load(
 #[cfg(target_arch = "wasm32")]
 fn spawn_image_load(
     inner: Arc<Mutex<ImageResourceCacheInner>>,
-    _fetcher: Option<Arc<dyn ImageFetcher>>,
+    fetcher: Option<Arc<dyn ImageFetcher>>,
     request: ResourceRequest,
     request_id: u64,
 ) {
-    finish_image_load(
-        inner,
-        request.key,
-        request_id,
-        CachedImageState::Failed(Arc::from(
-            "ImageResourceCache does not provide a wasm image loader; supply a browser resolver",
-        )),
-    );
+    {
+        let mut inner = inner.lock().expect("image resource cache lock poisoned");
+        inner.queued_image_loads.push_back(WasmQueuedImageLoad {
+            request,
+            request_id,
+        });
+    }
+    pump_wasm_image_loads(inner, fetcher);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn pump_wasm_image_loads(
+    inner: Arc<Mutex<ImageResourceCacheInner>>,
+    fetcher: Option<Arc<dyn ImageFetcher>>,
+) {
+    loop {
+        let Some(entry) = next_wasm_image_load(&inner) else {
+            return;
+        };
+        let inner_for_task = inner.clone();
+        let fetcher_for_task = fetcher.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let key = entry.request.key.clone();
+            let state =
+                match load_resource_image_wasm(&entry.request, fetcher_for_task.clone()).await {
+                    Ok(image) => CachedImageState::Ready(Arc::new(image)),
+                    Err(error) => CachedImageState::Failed(Arc::from(error.to_string())),
+                };
+            finish_image_load(inner_for_task.clone(), key, entry.request_id, state);
+            {
+                let mut inner = inner_for_task
+                    .lock()
+                    .expect("image resource cache lock poisoned");
+                inner.active_image_loads = inner.active_image_loads.saturating_sub(1);
+            }
+            pump_wasm_image_loads(inner_for_task, fetcher_for_task);
+        });
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn next_wasm_image_load(
+    inner: &Arc<Mutex<ImageResourceCacheInner>>,
+) -> Option<WasmQueuedImageLoad> {
+    let mut inner = inner.lock().expect("image resource cache lock poisoned");
+    if inner.active_image_loads >= WASM_MAX_CONCURRENT_IMAGE_LOADS
+        || inner.queued_image_loads.is_empty()
+    {
+        return None;
+    }
+    let best = inner
+        .queued_image_loads
+        .iter()
+        .enumerate()
+        .fold(0usize, |best, (index, entry)| {
+            if wasm_image_load_beats(entry, &inner.queued_image_loads[best]) {
+                index
+            } else {
+                best
+            }
+        });
+    inner.active_image_loads += 1;
+    inner.queued_image_loads.remove(best)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn wasm_image_load_beats(candidate: &WasmQueuedImageLoad, current: &WasmQueuedImageLoad) -> bool {
+    let candidate_required = candidate.request.purpose == ResourceRequestPurpose::Required;
+    let current_required = current.request.purpose == ResourceRequestPurpose::Required;
+    if candidate_required != current_required {
+        return candidate_required;
+    }
+    if candidate.request.priority != current.request.priority {
+        return candidate.request.priority > current.request.priority;
+    }
+    candidate.request_id < current.request_id
+}
+
+#[cfg(target_arch = "wasm32")]
+fn promote_queued_wasm_image_load(
+    inner: &Arc<Mutex<ImageResourceCacheInner>>,
+    request: &ResourceRequest,
+) -> bool {
+    let mut inner = inner.lock().expect("image resource cache lock poisoned");
+    let Some(index) = inner
+        .queued_image_loads
+        .iter()
+        .position(|entry| entry.request.key == request.key)
+    else {
+        return false;
+    };
+    let Some(mut entry) = inner.queued_image_loads.remove(index) else {
+        return false;
+    };
+    entry.request = request.clone();
+    entry.request.purpose = ResourceRequestPurpose::Required;
+    inner.queued_image_loads.push_back(entry);
+    true
 }
 
 fn request_image_render_invalidation(sink: Option<Arc<dyn RenderInvalidationSink>>) {
@@ -450,6 +564,7 @@ fn request_image_render_invalidation(sink: Option<Arc<dyn RenderInvalidationSink
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn load_resource_image(
     request: &ResourceRequest,
     fetcher: Option<Arc<dyn ImageFetcher>>,
@@ -461,6 +576,67 @@ fn load_resource_image(
             "unsupported opaque image resource: {provider}/{id}"
         ))),
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn load_resource_image_wasm(
+    request: &ResourceRequest,
+    fetcher: Option<Arc<dyn ImageFetcher>>,
+) -> Result<RgbaImage, AvengerImageError> {
+    match &request.source {
+        ResourceSource::Url { url } => {
+            if let Some(fetcher) = fetcher {
+                RgbaImage::from_str(url, Some(fetcher))
+            } else {
+                fetch_browser_image(url).await
+            }
+        }
+        ResourceSource::DataUri { data_uri } => RgbaImage::from_str(data_uri, fetcher),
+        ResourceSource::Opaque { provider, id } => Err(AvengerImageError::InternalError(format!(
+            "unsupported opaque image resource: {provider}/{id}"
+        ))),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_browser_image(url: &str) -> Result<RgbaImage, AvengerImageError> {
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let window = web_sys::window().ok_or_else(|| {
+        AvengerImageError::InternalError("browser image fetch requires a window".to_string())
+    })?;
+    let response_value = JsFuture::from(window.fetch_with_str(url))
+        .await
+        .map_err(|error| js_value_error("failed to fetch image", error))?;
+    let response = response_value
+        .dyn_into::<web_sys::Response>()
+        .map_err(|_| {
+            AvengerImageError::InternalError(format!(
+                "failed to fetch image {url}: response was not a Response"
+            ))
+        })?;
+    if !response.ok() {
+        return Err(AvengerImageError::InternalError(format!(
+            "failed to fetch image {url}: HTTP {}",
+            response.status()
+        )));
+    }
+    let buffer = response
+        .array_buffer()
+        .map_err(|error| js_value_error("failed to read image response", error))?;
+    let buffer = JsFuture::from(buffer)
+        .await
+        .map_err(|error| js_value_error("failed to read image response", error))?;
+    let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+    let image = image::load_from_memory(&bytes)?;
+    Ok(RgbaImage::from_image(&image.into_rgba8()))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn js_value_error(context: &str, value: wasm_bindgen::JsValue) -> AvengerImageError {
+    let message = value.as_string().unwrap_or_else(|| format!("{value:?}"));
+    AvengerImageError::InternalError(format!("{context}: {message}"))
 }
 
 #[cfg(test)]

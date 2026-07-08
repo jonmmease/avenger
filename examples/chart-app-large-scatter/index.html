@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avenger Chart App Large Scatter</title>
+    <style>
+        html,
+        body {
+            margin: 0;
+            min-height: 100%;
+            background: #f4f7f8;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+
+        body {
+            display: grid;
+            place-items: center;
+            min-height: 100vh;
+        }
+
+        #wasm-example {
+            background: white;
+            box-shadow: 0 12px 36px rgba(20, 28, 42, 0.16);
+        }
+
+        canvas {
+            display: block;
+            background: white;
+        }
+    </style>
+</head>
+
+<body>
+    <main id="wasm-example" aria-label="Avenger chart canvas"></main>
+    <script type="module">
+        try {
+            const cacheBust = Date.now();
+            const { default: init, run } = await import(`./pkg/chart_app_large_scatter.js?v=${cacheBust}`);
+            console.log("Loading Avenger large scatter WASM...");
+            await init({ module_or_path: `./pkg/chart_app_large_scatter_bg.wasm?v=${cacheBust}` });
+            console.log("Avenger large scatter WASM initialized");
+            await run();
+        } catch (error) {
+            console.error(error);
+            throw error;
+        }
+    </script>
+</body>
+
+</html>

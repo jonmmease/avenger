@@ -590,7 +590,9 @@ dependencies = [
  "tracing-subscriber",
  "typetag",
  "usvg 0.45.1",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -947,6 +949,7 @@ dependencies = [
  "async-trait",
  "avenger-chart-cartesian",
  "avenger-chart-core",
+ "avenger-common",
  "bincode",
  "chrono",
  "datafusion",
@@ -1131,6 +1134,7 @@ dependencies = [
  "base64",
  "cfg-if",
  "image",
+ "js-sys",
  "lazy_static 1.5.0",
  "lru",
  "reqwest",
@@ -1140,6 +1144,9 @@ dependencies = [
  "tiny-skia",
  "urlencoding",
  "usvg 0.45.1",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -1402,6 +1409,7 @@ dependencies = [
  "notify",
  "tokio",
  "tracing",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
@@ -1809,6 +1817,82 @@ dependencies = [
  "tracing-subscriber",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "winit",
+]
+
+[[package]]
+name = "chart-app-large-scatter"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-resource",
+ "cfg-if",
+ "chrono",
+ "console_error_panic_hook",
+ "console_log",
+ "datafusion",
+ "env_logger 0.10.2",
+ "getrandom 0.3.3",
+ "log",
+ "pollster 0.4.0",
+ "tokio",
+ "tracing-subscriber",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "winit",
+]
+
+[[package]]
+name = "chart-app-mercator-tiles"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-geo",
+ "avenger-resource",
+ "cfg-if",
+ "chrono",
+ "console_error_panic_hook",
+ "console_log",
+ "datafusion",
+ "env_logger 0.10.2",
+ "getrandom 0.3.3",
+ "log",
+ "pollster 0.4.0",
+ "tokio",
+ "tracing-subscriber",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "winit",
+]
+
+[[package]]
+name = "chart-app-nyc-taxi-raster"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-chart-geo",
+ "cfg-if",
+ "chrono",
+ "console_error_panic_hook",
+ "console_log",
+ "datafusion",
+ "env_logger 0.10.2",
+ "getrandom 0.3.3",
+ "js-sys",
+ "log",
+ "palette",
+ "pollster 0.4.0",
+ "tokio",
+ "tracing-subscriber",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
  "winit",
 ]
 

@@ -82,17 +82,20 @@ impl CanvasDimensionUtils for CanvasDimensions {
     }
 }
 
-fn fallback_to_requested_size_if_needed(
+#[cfg(target_arch = "wasm32")]
+fn window_accepted_or_requested_size(
     requested_size: PhysicalSize<u32>,
-    current_size: PhysicalSize<u32>,
+    _accepted_size: PhysicalSize<u32>,
 ) -> PhysicalSize<u32> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if current_size.width == 0 || current_size.height == 0 {
-            return requested_size;
-        }
-    }
-    current_size
+    requested_size
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn window_accepted_or_requested_size(
+    _requested_size: PhysicalSize<u32>,
+    accepted_size: PhysicalSize<u32>,
+) -> PhysicalSize<u32> {
+    accepted_size
 }
 
 fn truncate_text_to_limit(
@@ -1072,8 +1075,9 @@ impl WindowCanvas<'_> {
         let requested_size = dimensions.to_physical_size();
         let accepted_size = window
             .request_inner_size(Size::Physical(requested_size))
+            .map(|accepted| window_accepted_or_requested_size(requested_size, accepted))
             .unwrap_or_else(|| {
-                fallback_to_requested_size_if_needed(requested_size, window.inner_size())
+                window_accepted_or_requested_size(requested_size, window.inner_size())
             });
         let dimensions = CanvasDimensions {
             size: [

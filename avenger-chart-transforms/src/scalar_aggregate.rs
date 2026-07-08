@@ -62,7 +62,7 @@
 //! })
 //! ```
 
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use crate::aggregate::{
     AggregateMeasureSpec, AggregateOp, aggregate_expr, map_aggregate_measures,
@@ -77,6 +77,7 @@ use avenger_chart_core::{
     SerializableDataFrame, SerializableScalarMap, ViewMaterializationContext,
     ViewScalarMaterialization, derived_scalar, params_to_datafusion,
 };
+use avenger_common::time::Instant;
 use datafusion::{
     arrow::{datatypes::DataType, record_batch::RecordBatch},
     common::{ParamValues, ScalarValue},
