@@ -282,6 +282,20 @@ units rather than merely invalid (it lives on `Chart`, not `Plot`);
 cell-local idea, not a document title. Widget *items* use `label:` as a
 channel — the same word split one level down.
 
+The wrapper lattice (the same pattern at every position — `Plot` itself
+carries **no position-dependent fields**): `Chart<C>` = plot + document
+furnishings; `Subplot` = plot + cell furnishings (cell name — the `as`
+binder — placement `at { ... }`, `label`, cell sizing) and the
+`Plot<Inner>` → `Mark<Outer>` adapter; a dashboard `Panel` = **chart** +
+panel furnishings (instance key, track context); `mark subplot` is its
+own wrapper (key *expression*, `plot_size`, placement channels) around a
+bare plot template. The wrap-targets encode the two-altitude law in
+types: concat cells take plots (parts of one chart — subtitle stays
+unrepresentable inside), dashboard panels take charts (whole documents,
+titles intact). Rust rename note: `Subplot`'s cell binder should be
+`.name(...)`, reserving `key` for `mark subplot`'s data-driven grouping —
+two concepts, currently one word.
+
 ## Core Declaration Form
 
 The common declaration shapes are:
