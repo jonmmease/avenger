@@ -70,6 +70,14 @@ content updated to the adopted rules, and the
 audit's inventory method and fixture plan. Every one of the 96 baseline
 categories (891 deduped scenarios) has a syntax home in this document.
 
+Added 2026-07-09: a draft [Dashboards](#dashboards) section — the third
+file kind (`dashboard`), chart imports/instantiation, state bindings,
+layout declarations, widgets/tabs/callbacks — normative for syntax, with
+semantics owned by `dashboard-layer.md`, `dashboard-layout.md`, and
+`widgets.md`. It is newer than the rest of this reference: its EBNF,
+interchange-schema, and fixture integration are open questions, and the
+96-category coverage claim above predates it.
+
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
@@ -135,14 +143,19 @@ import 'lib/wheel_zoom.tool.avenger' as co_zoom;
 The version names the language dialect, not the library release. Parsers
 reject files whose major version they do not support. Files are UTF-8.
 
-**A file contains exactly one thing.** After the header, a file holds either
-one `chart` declaration (a chart file — data, params, stores, and all other
-resources live inside the chart's body) or one `define` declaration (a
-definition file: a compound mark, tool, or transform). A project is a
-collection of such files; other projects import its definition files, never
-its chart files. The definition kind is normative from the file's content;
-the conventional extensions mirror it: `.avenger` for charts, and
-`.mark.avenger`, `.tool.avenger`, `.transform.avenger` for definitions.
+**A file contains exactly one thing.** After the header, a file holds
+either one `chart` declaration (a chart file — data, params, stores, and
+all other resources live inside the chart's body), one `define`
+declaration (a definition file: a compound mark, tool, or transform), or
+one `dashboard` declaration (a dashboard file — the document format that
+imports and composes charts; see [Dashboards](#dashboards), draft). A
+project is a collection of such files; other projects import its
+definition files, never its chart files — with one amendment: *dashboard
+files* import chart files (definitions still cannot, and charts cannot
+import charts). The definition kind is normative from the file's content;
+the conventional extensions mirror it: `.avenger` for charts,
+`.mark.avenger`, `.tool.avenger`, `.transform.avenger` for definitions,
+and `.dashboard.avenger` for dashboards.
 Themes are not definitions — a theme is a plain `.css` file, referenced with
 `theme css from` and fetched/pinned like any import. The one plural file
 kind is the data catalog (`.data.avenger`) — host configuration naming the
@@ -3210,6 +3223,214 @@ machinery as built-ins: slots complete as properties with their defaults,
 internal mark names complete inside `part` blocks and event targets, and a
 defined kind is indistinguishable from a native one in the editor.
 
+## Dashboards
+
+**Maturity: draft (2026-07-09)** — newer than the rest of this reference.
+This section is the normative home of the dashboard *syntax*; the
+architecture and semantics live in dedicated documents that win on their
+own turf: `dashboard-layer.md` (component/binding model, engine
+representation, runtime), `dashboard-layout.md` (the layout model),
+`widgets.md` (the widget paradigm). EBNF productions, interchange-schema
+entries, and fixture coverage for this section are pending (see
+[Open Questions](#open-questions)); implementation is sequenced after the
+widget system.
+
+A dashboard is the third file kind: a document that imports charts,
+composes them with widgets and text panels in a document-flow layout, and
+coordinates them through shared state. Its governing law: **concat
+composes aligned plots** (one chart — one data context, coordinated
+scales/guides/layout); **a dashboard composes independent panels** (many
+charts — independent scales, coordinated *state*). Alignment lives below
+that line, state above it; a panel needing aligned plot areas holds a
+concat chart.
+
+```avenger
+avenger 1;
+
+import 'charts/revenue_trend.avenger';        -- chart files: importable by dashboards
+import 'charts/category_detail.avenger';
+import 'std:widgets/range_slider';
+import 'std:widgets/select';
+
+dashboard as exec_overview {
+  title: 'Revenue Overview';
+  theme css from 'themes/corporate.css';
+
+  -- dashboard-scope state: the same constructs, one level above chart-shared
+  param as region   { default: 'all'; }
+  param as date_lo  { default: DATE '2026-01-01'; }
+  param as date_hi  { default: DATE '2026-12-31'; }
+  selection as picked_categories { empty: all; }
+
+  -- shared derived data: the catalog construct, scoped to the dashboard
+  table sql as filtered_orders {
+    materialize: session;
+    sql:
+      SELECT * FROM orders
+      WHERE ("region" = $region OR $region = 'all')
+        AND "date" BETWEEN $date_lo AND $date_hi;
+  }
+
+  -- document-flow layout: fixed width, height grows, one document scroll
+  width: fill { max: 1200; }
+  spacing: 12;
+
+  sidebar left {
+    width: 280;
+
+    widget select as region_w {
+      param: region;
+      options: SELECT DISTINCT "region" FROM orders ORDER BY 1;
+      all_value: 'all';
+      label: 'Region';
+    }
+
+    widget range_slider as dates_w {
+      lo_param: date_lo;
+      hi_param: date_hi;
+      extent: (SELECT min("date"), max("date") FROM orders);
+      label: 'Dates';
+    }
+
+    text as kpi {
+      syntax: typst;
+      content: 'Total: #currency(' || (SELECT sum("amount") FROM filtered_orders) || ')';
+    }
+  }
+
+  row {
+    height: px(220);
+
+    chart revenue_trend as trend {
+      date_lo: $date_lo;                       -- bare $ = alias (two-way)
+      date_hi: $date_hi;
+      highlight: $picked_categories;           -- selection aliasing: cross-filter
+    }
+  }
+
+  row {
+    height: aspect(21, 9);
+
+    chart category_detail as detail {
+      picked: $picked_categories;              -- writes here filter `trend` above
+    }
+  }
+}
+```
+
+### Chart Imports And Instantiation
+
+- A dashboard imports chart files with the ordinary import machinery
+  (binds the chart's declared name, `as` renames, hash pinning and
+  closure fetching unchanged). This is the answer to the former open
+  question "should whole charts become importable" — importable **into
+  dashboards only**; definitions still may not import charts, and charts
+  may not import charts.
+- Instantiation is `chart <name> as <instance> { <bindings> }`, mirroring
+  defined-mark instantiation, with the identical kind-slot rule:
+  coordinate kinds (`cartesian`, `polar`, ...) are reserved words —
+  `chart cartesian as inline_scatter { ... }` declares an inline chart in
+  place — while imported names are user names. Instantiating one chart
+  twice with different bindings is ordinary; that is what makes it a
+  component.
+- **A chart's public interface is its declared state**: params (name +
+  default), named selections and stores, and named marks (event paths).
+  Nothing is added to a chart file to make it embeddable, and unbound
+  params keep their defaults, so every chart remains
+  standalone-renderable.
+
+### State Bindings
+
+Instantiation-body properties bind the chart's state to dashboard scope,
+uniformly across all three families (params, selections, stores):
+
+- **Bare `$name` — aliasing (two-way).** The chart's param and the
+  dashboard's share one cell; chart-internal `set param` writes propagate
+  up. Two charts aliasing their `x_domain` params to one dashboard param
+  are link-zoomed with no further syntax.
+- **A SQL expression — derived (one-way).** The chart param follows the
+  expression over dashboard params. Because `set param` actions are
+  declared syntax, a chart tool writing to a derived-bound param is a
+  **compile-time error** (this is deliberate: the equivalent in
+  property-binding UI toolkits — an imperative write silently discarding
+  a binding — is a documented footgun).
+
+Dashboard-scope `param` / `selection` / `store` declarations use the
+chart constructs unchanged; their scope sits one level above a chart's
+`shared`. Chart-internal state that is not bound at the instantiation
+site stays panel-scoped (instance-namespaced), so two instances of one
+chart never cross-link accidentally — linking is always explicit.
+
+### Data
+
+Charts consume the ambient catalog as always. A dashboard body may
+declare `table sql` views — the catalog construct scoped to the document,
+with `materialize: session` for compute-once-feed-many-panels — and may
+import dataset packs. Widget item relations, slider extents, and KPI text
+are ordinary SQL (scalar subqueries are ordinary expressions); their
+reactive execution is a runtime concern, not new syntax.
+
+### Layout Declarations
+
+Syntax only; the model — document flow vs `fill`, the closed-form
+invariant, pinning behavior — is normative in `dashboard-layout.md`:
+
+- Document policies: `width: fill { max: <px>; } | px(<n>);`,
+  `height: flow | fill [{ min_height: px(<n>); }];` (flow default),
+  `spacing:`.
+- Shell slots (closed set, chrome outside the document scroll): `header`,
+  `footer` (`document` | `pinned`), `sidebar left` / `sidebar right` —
+  each hosting the same row grammar as content.
+- Content: ordered `row { ... }` declarations; per-row
+  `height: px(<n>) | aspect(<w>, <h>) | content;` and
+  `widths: [ ... ]` with the concat track tokens (`px(n)`, `fr(n)`,
+  content-sized); a track cell may hold a nested `column { row ... }`.
+  There are deliberately **no scroll declarations** (one document scroll
+  is the model, not a construct) and **no flexbox vocabulary** (no
+  grow/shrink/basis/justify — the absence is the anti-content-negotiation
+  law).
+- Panel leaves: `chart` instantiations, `widget` instantiations, and
+  `text` panels (`syntax: plain | typst`).
+
+### Widgets, Tabs, Modals, Callbacks
+
+- Widgets instantiate like tools (`widget <kind> as <name> { ... }`),
+  imported from `std:widgets/`; wiring properties name dashboard state
+  (`param: region;`), item properties are SQL. The paradigm — composed vs
+  native tiers, data encoding, sizing — is `widgets.md`.
+- `tabs { tab as <id> { <rows> } ... }` declares an implicit active-tab
+  param and renders driver chrome; a `modal` is
+  `visible:`-driven-by-param structure. Both are sugar over params —
+  layout stays closed-form given params, hidden content evaluates lazily
+  with state retained.
+- `callback <name>(<args>);` declares a host-implemented action — the
+  imperative escape hatch that keeps the language query-only. Invocation
+  form from event actions is an open question.
+- `theme css` in a dashboard cascades to charts that do not declare their
+  own; precedence across the boundary is an open question.
+
+### What Dashboards Deliberately Cannot Do
+
+- **No loops.** Item multiplicity is data: data-encoded widgets
+  (`widgets.md`) at the item level, and data-encoded panel lists (the
+  `mark subplot` precedent) as the recorded future for panel-level
+  multiplicity.
+- **No imperative logic.** Side effects are declared `callback`s handled
+  by the host; the dashboard file remains a pure function of (files,
+  catalog, params).
+- **Not importable by charts or definitions** (whether dashboards can
+  import dashboards — nesting — is open).
+- **No per-panel scrolling, no flexbox words** — see Layout Declarations.
+
+### AST Notes
+
+`Root` gains a `Dashboard(Decl)` variant; every construct above is an
+ordinary `Decl` (`dashboard`, `sidebar`, `header`, `footer`, `row`,
+`column`, `widget`, `text`, `tabs`/`tab`, `modal`, `callback`, and
+`chart`-as-instantiation), so the six-node generic AST absorbs the file
+kind with no new node types — validity lives in the authoring schema, as
+everywhere else.
+
 ## Grammar
 
 The complete surface grammar in EBNF. Terminals come from the shared SQL
@@ -3576,7 +3797,7 @@ generic node types, not a node type per language feature:
 struct File {
     version: u32,                    // the `avenger 1;` pragma
     imports: Vec<Import>,            // source, sha256 pin, rename
-    root: Root,                      // Chart(Decl) | Define(Decl) | Data(Vec<Decl>)
+    root: Root,                      // Chart(Decl) | Define(Decl) | Data(Vec<Decl>) | Dashboard(Decl)
 }
 
 struct Decl {
@@ -4973,7 +5194,14 @@ DataFusion context so completions and type diagnostics know real column names.
 - Should transform aliases be mandatory for all transforms, or only for
   transforms with conventional output handles?
 - Should anything beyond `define` declarations become importable (named data
-  declarations, whole charts as cells)?
+  declarations)? *(Partially answered 2026-07-09: whole charts are
+  importable into `dashboard` files — see [Dashboards](#dashboards) — and
+  remain non-importable everywhere else.)*
+- Dashboards (draft section): EBNF productions, interchange-schema
+  entries, and fixture coverage; the `callback` invocation form from
+  event actions; theme precedence across the dashboard/chart boundary;
+  dashboard-in-dashboard nesting. (The architecture-side questions live
+  in `dashboard-layer.md`.)
 - How do the host-language APIs share the standard library as a single
   source of truth — do Rust/Python `box_plot` builders lower through the
   stdlib definitions (parsed at build time), or remain parallel natives held

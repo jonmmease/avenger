@@ -216,7 +216,7 @@ let frame = solution.region(&panel_id).unwrap().content;      // → CanvasDimen
 1. **The doc-flow driver over avenger-layout.** Rows/tracks/nesting, flow
    + fill policies, aspect arithmetic, hint intake; frame assignment to
    sessions; static export (PNG at content height; PDF paginating at row
-   boundaries). Exit: `dashboard-layer.md`’s exec-overview sketch renders
+   boundaries). Exit: the `exec_overview` sketch (chart-dsl.md, Dashboards) renders
    from the Rust builder.
 2. **Shell slots + the viewport.** Pinned header/sidebars/footer as
    independent region solves; the scroll viewport with wheel/touch and

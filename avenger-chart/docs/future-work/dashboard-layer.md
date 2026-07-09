@@ -5,9 +5,10 @@
 Distilled design, 2026-07-09. The dashboard layer: a document format one
 level above charts that imports and composes them, adds widgets that drive
 param values, and keeps SQL as the expression language. This document
-carries the parts not covered by its two siblings — the component and
-binding model, the document (DSL) surface, the engine representation, the
-runtime, and dashboard-side phasing. `widgets.md` owns the widget
+carries the parts not covered by its siblings — the component and
+binding model, the engine representation, the runtime, and dashboard-side
+phasing. The DSL surface itself lives in chart-dsl.md's Dashboards
+section (the single language reference; moved there 2026-07-09). `widgets.md` owns the widget
 paradigm; `dashboard-layout.md` owns the layout model and its
 avenger-layout reuse. The full exploration record with every dated
 reversal (the egui direction explored and dropped, the layout evolution,
@@ -109,108 +110,31 @@ never a third channel. Tabs declare an implicit active-tab param
 `visible: $detail_id is not null` with a chart click setting
 `$detail_id`. Both are sugar, not semantics.
 
-## The Document Surface (DSL Sketch)
+## The Document Surface
 
-One new file kind; import-then-instantiate mirrors `mark box_plot`; the
-kind slot disambiguates exactly as it does for marks (coordinate kinds are
-reserved words, imported names are user names). The `exec_overview`
-sketch:
+**The syntax moved to chart-dsl.md's [Dashboards] section (2026-07-09)**
+— the single language reference is normative for the file kind, chart
+imports/instantiation, state-binding forms, layout declarations, and the
+widget/tabs/callback surface, including the full `exec_overview` sketch.
+This document remains normative for what the syntax *means*: the
+component model above, the engine representation below, and the runtime.
+One law restated because everything hangs off it: **concat composes
+aligned plots; a dashboard composes independent panels** — coordinated
+scales below the line, coordinated state above it.
 
-```avenger
-avenger 1;
+Design notes that travel with the semantics rather than the syntax:
 
-import 'charts/revenue_trend.avenger';        -- chart files become importable
-import 'charts/category_detail.avenger';
-import 'std:widgets/range_slider';
-import 'std:widgets/select';
-
-dashboard as exec_overview {
-  title: 'Revenue Overview';
-  theme css from 'themes/corporate.css';
-
-  -- dashboard-scope state: same constructs, one level up
-  param as region   { default: 'all'; }
-  param as date_lo  { default: DATE '2026-01-01'; }
-  param as date_hi  { default: DATE '2026-12-31'; }
-  selection as picked_categories { empty: all; }
-
-  -- shared derived data: catalog-style views, computed once, cached
-  table sql as filtered_orders {
-    materialize: session;
-    sql:
-      SELECT * FROM orders
-      WHERE ("region" = $region OR $region = 'all')
-        AND "date" BETWEEN $date_lo AND $date_hi;
-  }
-
-  -- document-flow layout (see dashboard-layout.md)
-  width: fill { max: 1200; }
-  spacing: 12;
-
-  sidebar left {
-    width: 280;
-
-    widget select as region_w {
-      param: region;
-      options: SELECT DISTINCT "region" FROM orders ORDER BY 1;
-      all_value: 'all';
-      label: 'Region';
-    }
-
-    widget range_slider as dates_w {
-      lo_param: date_lo;
-      hi_param: date_hi;
-      extent: (SELECT min("date"), max("date") FROM orders);
-      label: 'Dates';
-    }
-
-    text as kpi {
-      syntax: typst;
-      content: 'Total: #currency(' || (SELECT sum("amount") FROM filtered_orders) || ')';
-    }
-  }
-
-  row {
-    height: px(220);
-
-    chart revenue_trend as trend {
-      date_lo: $date_lo;                       -- bare $ = alias (two-way)
-      date_hi: $date_hi;
-      highlight: $picked_categories;           -- selection aliasing: cross-filter
-    }
-  }
-
-  row {
-    height: aspect(21, 9);
-
-    chart category_detail as detail {
-      source: 'filtered_orders';               -- open design point: table binding
-      picked: $picked_categories;              -- writes here filter `trend` above
-    }
-  }
-}
-```
-
-Notes that carry design weight:
-
-- **The crisp line:** concat/facet remain *one chart* — one data context,
-  coordinated scales/guides, measurement-coordinated layout (plot-area
-  alignment). A dashboard is *many charts* — independent data contexts and
-  scale systems, coordinated **state**, arranged by document layout.
-  Alignment lives below the line; state lives above it. Panels needing
-  aligned plot areas use a concat chart inside one panel.
 - **Data:** charts consume the ambient catalog; a dashboard may declare
   `table sql` views (shared derived relations, `materialize: session`
-  for compute-once-feed-many) and import dataset packs. Widgets' item
-  relations, slider extents, and KPI text are SQL — scalar subqueries are
-  ordinary expressions, so the reactive-scalar machinery
-  (scratch/async-view-scalars-plan.md) is an execution concern, not new
-  syntax.
+  for compute-once-feed-many) and import dataset packs. Widget item
+  relations, extents, and KPI text are ordinary SQL; their reactive
+  execution rides the async-scalar machinery
+  (scratch/async-view-scalars-plan.md).
 - **Theming:** dashboard CSS cascades to charts that don't declare their
   own; precedence across the boundary is an open question below.
-- **Callbacks:** `callback export_csv(...);` declared in the document,
-  handled by the host — the imperative escape hatch that keeps the
-  language query-only (Slint's business-logic split).
+- **Callbacks:** host-implemented actions declared in the document — the
+  imperative escape hatch that keeps the language query-only (Slint's
+  business-logic split).
 
 ## Engine Representation
 
@@ -355,8 +279,9 @@ components are ordinary chart files.
    `DashboardState`; the param/selection bus with aliasing; charts +
    text panels; document-flow layout (dashboard-layout.md phases 1–2);
    static export. Charts' own tools are the input devices — linked zoom
-   and cross-filtering land here. Exit: the `exec_overview` sketch
-   (minus widgets) renders from the Rust builder, natively and in wasm.
+   and cross-filtering land here. Exit: the `exec_overview` document
+   (chart-dsl.md, Dashboards; minus widgets) renders from the Rust
+   builder above, natively and in wasm.
 2. **Widget integration + scalars.** Sidebar widget stacks via the
    chrome plot (consuming widgets.md deliverables); scalar SQL bindings
    (KPI text, extents) on the async-view-scalars machinery; tabs and
