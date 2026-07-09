@@ -58,6 +58,11 @@ work should preserve a path toward external database execution:
   substitute those pieces clearly.
 - Keep transform state serializable through typetag compiled transforms.
 
+[transform-lowering.md](transform-lowering.md) develops this direction in
+full: a lowering pipeline that splices plan-expressible transforms into one
+plan per data context, and a plan-break contract for transforms that must
+execute their input.
+
 ## Performance Caching
 
 Transform sharing scopes can cause the same owner-scope transformed table to be
