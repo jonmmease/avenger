@@ -334,11 +334,15 @@ executing it at bake time is a possible later extension, not v1 scope.
 
 ## The Avenger Pass
 
-With lowering in place, the Avenger side is thin orchestration:
+The user-facing verb is **bake** — baking partially evaluates the plot's
+data pipelines with respect to its live params. "Partial evaluation"
+remains the mechanism term (this document, the crate); `bake` is the API
+vocabulary at the chart level. With lowering in place, the Avenger side is
+thin orchestration:
 
 ```rust
 impl CompiledPlot {
-    async fn pre_evaluate(
+    async fn bake(
         &self,
         ctx: &SessionContext,
         policy: &PartialEvalPolicy,
@@ -436,7 +440,7 @@ decides, per subtree, what travels as data versus what stays as plan.
      time;
    - primitives audited for plan-expressibility.
 3. Avenger pass:
-   - `CompiledPlot::pre_evaluate` orchestration;
+   - `CompiledPlot::bake` orchestration;
    - inline versus manifest embedding selection;
    - as-of stamping on the compiled plot;
    - an end-to-end example: server bakes a plot over local Parquet, client
