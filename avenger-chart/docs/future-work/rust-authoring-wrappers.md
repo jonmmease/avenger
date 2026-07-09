@@ -10,10 +10,12 @@ furnishes it through a wrapper** — `Chart<C>` (document), `Subplot`
 mark properties). Wrappers wrap the atom of their altitude: inside a
 chart the atom is the plot; inside a dashboard the atom is the chart.
 
-Sequencing: independent of the widget plan (widgets attach to `Plot`,
-which is unchanged); best landed as its own small mechanical campaign
-before or alongside widget phase 1, since both touch authoring
-ergonomics.
+Sequencing (decided 2026-07-09): **two strictly ordered campaigns** —
+the coordinate-forwarding removal lands first as a standalone,
+behavior-preserving refactor, and the `Chart`/`Subplot` wrapper work
+follows; see [Implementation Sequencing](#implementation-sequencing).
+Both are independent of the widget plan (widgets attach to `Plot`,
+which keeps its generic surface).
 
 ## The Types
 
@@ -178,7 +180,68 @@ Chart::<Cartesian>::new().data(cars).mark(points)
     .compile(&ctx).await?
 ```
 
+## Implementation Sequencing
+
+Two campaigns, strictly ordered. The order is load-bearing: campaign 1
+shrinks the would-be forwarding surface to ~a dozen methods *before*
+`Chart` exists, so the wrapper is never published with mirrored
+container sugar and nothing on `Chart` ever needs a deprecation cycle —
+and campaign 1 is independently verifiable (byte-identical), halving
+the blast radius of each sweep.
+
+### Campaign 1 — remove coordinate forwarding from `Plot` (first)
+
+Pure API refactor; zero behavior change; **byte-identical baseline
+expectation** (no re-blesses).
+
+1. **Add `configure_coord`** to `Plot<C>` —
+   `pub fn configure_coord(mut self, f: impl FnOnce(C) -> C) -> Self` —
+   beside `configure_guide`. (`with_coord` already exists.)
+2. **Fluent builders on the `Repeat*` coordinate types**, replacing the
+   setter-style surface that existed only for the `Plot` sugar to wrap
+   (`set_columns`/`set_rows`/`set_cell`/`add_cell_when`/
+   `set_domain_coordination`/…): owned-self `.rows()`, `.columns()`,
+   `.items()`, `.responsive_columns()`, `.cell()`, `.cell_when()`,
+   `.matrix_domains[_with_scope]()`, `.item_domains[_with_scope]()`,
+   `.matrix_axes()`, `.axis_guide_visibility()`,
+   `.domain_coordination()`. The concat types are already fluent — the
+   forwarding bodies call them — so verify completeness only
+   (`rows`/`columns`/`column_widths`/`row_heights`/`widths`/`heights`/
+   `responsive_columns`/`axis_guide_visibility`).
+3. **Migrate call sites** from the `Plot` sugar to `with_coord` /
+   `configure_coord`: tests, examples (avenger-chart and
+   avenger-chart-app), and code snippets in the architecture docs
+   (concat-system.md and repeat-system.md at minimum). The inventory is
+   greppable: the ~35 method names scoped to container-typed `Plot`
+   receivers.
+4. **Delete the seven per-`C` impl blocks** (plot.rs:158–386) and any
+   setter surface on the repeat types made dead by step 2.
+5. **Verify.** Strict check per the house rule (debug
+   `cargo check -D warnings` scoped `-p avenger-layout -p
+   avenger-chart`); full release test suite; pin the known pre-existing
+   118-test ParquetFormat plan-serialization failures (chip
+   task_c87ae1b0) as known failures, not regressions. Exit criteria: no
+   coordinate-specific method resolves on any `Plot<C>` receiver; suite
+   green modulo pinned knowns; **zero baseline changes**.
+
+Coordination hazard: the concurrent baking workstream actively edits
+avenger-chart (including plot.rs). Sequence with it or rebase
+deliberately — this campaign's plot.rs delta is pure deletion plus one
+added method, so conflicts stay mechanical.
+
+### Campaign 2 — introduce `Chart<C>`, re-scope `Subplot` (second)
+
+The rest of this document: the `Chart` type with its ~dozen forwarded
+generics and the document furnishings, the field moves (title/subtitle,
+canvas/margins/constraints, locales, state declarations, `compile`
+going `pub(crate)` on `Plot`), `Subplot::name`/`label`/`size`/`at`, and
+the staged artifact renames. Sweep mechanics below. Its timing relative
+to widget phase 1 is the open question at the end; campaign 1 has no
+such dependency and can land immediately.
+
 ## Migration
+
+Campaign 2's sweep (campaign 1's migration is item 3 above):
 
 - **Pure name swap** for every site using no root-only methods:
   `Plot::<C>::new()` → `Chart::<C>::new()` at the outermost constructor.
@@ -208,6 +271,7 @@ Chart::<Cartesian>::new().data(cars).mark(points)
   need bounds per family?
 - Where does `plot_size` on a *root* plot land — `Chart::plot_size`
   (sugar for `layout.plot`) or only through the layout config object?
-- Timing: before widget phase 1 (cleanest — widgets' examples then use
-  the final spelling) or as an independent parallel campaign (touches
-  disjoint files except examples)?
+- Campaign 2 timing: before widget phase 1 (cleanest — widget examples
+  then use the final spelling) or as an independent parallel campaign
+  (touches disjoint files except examples)? Campaign 1 is decided-first
+  and unblocked.
