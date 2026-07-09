@@ -254,6 +254,22 @@ text: value 'Total';            -- literal text (not column "Total")
 inside SQL expression slots. The two are distinct: `none` removes a visual
 property, `NULL` is a data value.
 
+## Charts, Cells, And Plots
+
+One naming law, stated once: **"plot" names the construct; "chart,"
+"cell," and "plot" name its positions.** A *plot* is the
+coordinate-framed renderable unit — the atom the engine renders (the
+Rust authoring type is `Plot<C>` for exactly this reason; a dashboard's
+widget chrome layer is a `Plot<PixelFrame>` with no chart-ness at all).
+A *chart* is a plot in document-root position, carrying the document
+furnishings — title, theme, its own data and params — which is why some
+properties are legal only in chart bodies. A *cell* is a plot in concat
+position; an embedded `plot` (inside `mark subplot`, a parallel-axis
+overlay) is one inside a mark, narrowed by position. "Plot area"
+(`layout.plot`, `target: plot`) is the plot-the-unit's own frame within
+the chart-the-role: a chart is its plot plus chrome. Position determines
+the legal property set; the schema enforces it, as everywhere else.
+
 ## Core Declaration Form
 
 The common declaration shapes are:
