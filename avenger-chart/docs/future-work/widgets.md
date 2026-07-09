@@ -22,7 +22,7 @@ Two tiers are promoted:
 Companions: `chart-dsl.md` (the future `define widget` language surface
 lowers onto the composed tier the way compound marks and tools lower onto
 theirs; native widgets surface as registered kinds the way primitive marks
-do), `scratch/dashboard-layer-exploration.md` (the dashboard layer that
+do), `dashboard-layer.md` (the dashboard layer that
 eventually hosts widgets at document scope), and `tools.md` (the tool
 system this design is a sibling of).
 
@@ -326,7 +326,7 @@ any dashboard layer exists.** Requires content-sized concat tracks
 
 ### 3. Dashboard chrome plot (future)
 
-The dashboard layer (`scratch/dashboard-layer-exploration.md`) hosts every
+The dashboard layer (`dashboard-layer.md`) hosts every
 widget as a hygienically-named group inside one document-spanning
 `Plot<PixelFrame>`, frames assigned by the document layout. Nothing in the
 widget contract changes; it is listed here only to show the contract was
