@@ -94,26 +94,41 @@ Some systems also mint runtime state from their config — `Geo` exposes
 and zoom are params) — which registers during compile and is unaffected
 by the wrapper.
 
-**What `Chart<C>` needs:**
+**Adopted rework (2026-07-09): remove coordinate forwarding from `Plot`
+entirely.** One rule — coordinate options live on the coordinate-system
+type — with exactly two paths on both `Plot` and `Chart`:
 
-- `Chart::with_coord(c: C)` — the mirror constructor, keeping the
-  leaf-system idiom one chain:
+- `with_coord(c: C)` — configured construction (already the leaf-system
+  idiom): `Chart::with_coord(GridConcat::new().rows(2).columns(2))`,
   `Chart::with_coord(Geo::mercator().center_lon_lat(…).zoom(11))`.
-- A **generic `coord` combinator** — `fn coord(self, f: impl FnOnce(C)
-  -> C) -> Self` — one method covering *every* post-construction
-  coordinate tweak with zero per-`C` duplication:
-  `Chart::<GridConcat>::new().coord(|c| c.rows(2).columns(2))`. (Worth
-  adding to `Plot` too for symmetry.)
-- **Mirrored container sugar**: the ~35 per-`C` container methods are
-  chart-root-typical, so the forwarding macro should generate them onto
-  `Chart` alongside the generic surface; leaf systems stay on
-  `with_coord`, and external crates may add `impl Chart<Geo>` sugar
-  later (coherence permits — local type parameter).
-- A read accessor (`coord_system()`), forwarded.
+- `configure_coord(f: impl FnOnce(C) -> C)` — the post-construction
+  combinator (named beside the existing `configure_guide`):
+  `Chart::<HConcat>::new().configure_coord(|c| c.widths([fr(2), px(280)]))`.
+
+Consequences:
+
+- **The 7 per-`C` container impl blocks on `Plot` (~35 methods,
+  plot.rs:158–386) are deleted.** `Plot`'s public surface becomes truly
+  coordinate-agnostic — the pure-construct story completes: zero
+  position fields *and* zero coordinate-specific methods.
+- **`Chart` forwarding collapses** to the ~dozen generic methods plus
+  the two coord paths; the mirroring question is retired.
+- **Container and external coordinate crates play by the same rule** —
+  the `C` builder is the entire integration surface (this is also the
+  Rust-side answer to chart-dsl.md's coordinate-crate extensibility
+  question), and the DSL gains one lowering rule: coordinate-kind chart
+  properties lower to `C` builder calls, never to `Plot`/`Chart`
+  methods.
+- **Prerequisite**: the `Repeat*` types grow fluent owned-self builders
+  (`.rows()`, `.columns()`, `.items()`, `.cell()`, `.cell_when()`,
+  `.matrix_domains()`, …) replacing their setter-style surface
+  (`set_cell`/`add_cell_when`), which existed only because the `Plot`
+  sugar wrapped it. The concat types are already fluent.
+- A forwarded read accessor (`coord_system()`) remains.
 
 The lattice stays clean: the coordinate system is the plot's *essence*
-(the frame), so it never moves to `Chart` — `Chart` only forwards to
-it.
+(the frame), so it never moves to `Chart` — both types only construct
+and thread it.
 
 `Subplot` (the existing concat wrapper, re-scoped to cell furnishings +
 the `Plot<Inner> → Mark<Outer>` coordinate-system-erasing adapter):
@@ -148,6 +163,7 @@ let compiled = root.compile(&ctx).await?;
 // AFTER
 let cell = Plot::<Cartesian>::new().data(df).mark(m);
 let chart = Chart::<HConcat>::new()
+    .configure_coord(|c| c.widths([fr(2.0), fr(1.0)]))   // coord options: C's builder, one door
     .canvas_size(920.0, 460.0).selection(picked)
     .mark(Subplot::new(cell).name("detail").label("Detail").size(310.0, 270.0));
 let compiled: CompiledChart = chart.compile(&ctx).await?;
@@ -182,11 +198,9 @@ Chart::<Cartesian>::new().data(cars).mark(points)
 ## Open Questions
 
 - Forwarding implementation: hand-written delegation vs a local
-  `macro_rules!` vs the `delegate` crate (leaning: local macro; keep the
-  surface auditable). The macro must cover the per-`C` container impls
-  (~35 methods) as well as the generic surface, or the `coord()`
-  combinator becomes the only container path — decide sugar-vs-combinator
-  balance.
+  `macro_rules!` vs the `delegate` crate (leaning: hand-written; with the
+  coordinate rework the surface is ~a dozen methods — small enough to
+  audit without a macro).
 - Does `Chart::from_plot` + `into_chart()` sugar earn its place, or is
   `Chart::new()` forwarding enough for every real construction pattern?
 - Do facet/repeat charts (`Plot<Facet>`-family roots today) carry any
