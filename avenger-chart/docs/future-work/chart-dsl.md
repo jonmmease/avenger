@@ -3337,7 +3337,28 @@ dashboard as exec_overview {
   default), named selections and stores, and named marks (event paths).
   Nothing is added to a chart file to make it embeddable, and unbound
   params keep their defaults, so every chart remains
-  standalone-renderable.
+  standalone-renderable. `avenger info <chart file>` prints the contract;
+  the language server completes binding names at instantiation sites from
+  the imported file's declarations.
+- **Naming: the chart's `as` binder is the export.** A chart file is
+  importable only when its chart is named (the data-file precedent:
+  importable only with exactly one declared name) — anonymous charts stay
+  private, per the hygiene law that anonymous declarations are private
+  everywhere. Imports share the single flat namespace with definitions;
+  the same-name-collision and `as`-rename rules apply unchanged.
+- **What travels: the code closure, not the data environment.** The
+  chart's own imports (stdlib marks/tools, themes, dataset packs) come
+  along, transitively hash-pinned; ambient catalog references do not —
+  the dashboard's project supplies the catalog, which is what retargets
+  one chart across environments.
+- **The instance name is the panel key**, and it is load-bearing: event
+  paths surface instance-prefixed (`trend.points`, the compound-mark
+  rule), chart-internal state is panel-scoped under it (the
+  `generated_tool_name` convention — two instances never cross-link
+  accidentally), hot-reload state survival matches by it, and
+  baselines/introspection address by it. Anonymous instantiation is legal
+  (the mark precedent) but keyed structurally: no addressable event
+  paths, and state survival breaks if panels reorder — name your panels.
 
 ### State Bindings
 
