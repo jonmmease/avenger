@@ -3516,13 +3516,23 @@ invariant, pinning behavior — is normative in `dashboard-layout.md`:
   (`value:`, `label:`) — the mark model applied to input controls;
   `title:` is the widget caption, as everywhere else. The paradigm —
   composed vs native tiers, data encoding, sizing — is `widgets.md`.
-- **The dashboard itself never sets `data:`** — it has no data context
-  (it renders nothing), and context inheritance deliberately stops at the
-  panel boundary: an imported chart's data can never change silently via
-  ambient context. Dashboards *declare* (`table <kind> as`); panels
-  *select* (`data:` in inline charts and widgets); instance-boundary
-  remapping (the `data:` binding on `detail` above) is the recorded open
-  design point.
+- **The dashboard itself never sets `data:`, and the model is scope, not
+  inheritance.** Name resolution is lexical everywhere: an imported chart
+  is a closed scope whose free names resolve at its definition site
+  (ambient catalog + its own declarations), never at its use site — so
+  dashboard-declared tables are visible to *lexically nested* content
+  (inline charts, widgets, text, other dashboard tables) and **invisible
+  to imported charts**. A chart authored against ambient `orders` placed
+  in a dashboard declaring `table sql as orders` does not silently
+  rebind. Values cross a component boundary only through its interface:
+  bindings in, exports out — and the per-instance `data:` remapping (the
+  binding on `detail` above) is therefore a *relation-valued argument*,
+  open for the same reason the catalog restricts params to scalar
+  literals (structural parameterization). Three tiers, three scopings:
+  the ambient catalog is environmental by design (host-supplied — the
+  catalog swap is the point), dashboard tables are lexical to the
+  document, and chart-local `data:` blocks are anonymous, so no name
+  exists to scope.
 - `tabs { tab as <id> { <rows> } ... }` declares an implicit active-tab
   param and renders driver chrome; a `modal` is
   `visible:`-driven-by-param structure. Both are sugar over params —

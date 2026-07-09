@@ -97,6 +97,17 @@ panel key, the `generated_tool_name` convention), so instantiating the
 same chart twice cannot cross-link accidentally. Linking is always an
 explicit act.
 
+**The general law is scope, not inheritance** (named 2026-07-09): the
+language is lexically scoped everywhere, and component boundaries are
+closed scopes with explicit interfaces — bindings in, exports out. An
+imported chart's free names resolve at its definition site (ambient
+catalog + own declarations), never at its use site, so dashboard-declared
+tables reach only lexically nested content; definitions' param hygiene is
+the same rule one level down; and within a chart, the data context is a
+scoped ambient value threaded through transform stages (scope gives the
+structure, dataflow gives the value). "Inheritance" survives only as
+colloquial wording for that intra-tree case.
+
 **Ephemeral vs document state stays crisp** (the Slint lesson): combo-open,
 text cursors, staged form input live in the runtime, never the document.
 Per widget, which states are params is a design decision (sidebar
