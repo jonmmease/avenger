@@ -87,6 +87,16 @@ No dbt-style `ref()` sigil: queries are planned, not templated, so bare
 table names are semantically resolved and SQL qualification is the
 explicit form.
 
+Adopted 2026-07-09: **`data:` is a property, not a declaration.** The
+earlier `data as <name>` chart declaration is retired; a chart, group, or
+mark sets its data context with an anonymous source block —
+`data: { table: 'sales'; }`, `data: { sql: ...; }` — always the block
+form (no bare-string shorthand), with the same reserved source
+properties as before (`table`, `sql`, `url`, `values`, plus table-param
+bindings). Anonymous means private: chart-local relations are never
+referenced by name; named shared relations are catalog (or dashboard)
+`table` declarations, which is also the graduation path.
+
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
@@ -267,8 +277,9 @@ transform <transform-kind> [as <alias>] {
 ```
 
 The body mode depends on the declaration. `chart` and `group` bodies are
-ordered declaration blocks. `mark`, `transform`, `data`, `param`, `scale`,
-`axis`, `legend`, `tool`, `selection`, and `view` bodies are property blocks.
+ordered declaration blocks. `mark`, `transform`, `param`, `scale`,
+`axis`, `legend`, `tool`, `selection`, and `view` bodies are property
+blocks, and the `data:` property takes an anonymous source block.
 
 Examples:
 
@@ -314,7 +325,7 @@ modes:
 chart cartesian as Example {
   title: 'Sales';
 
-  data as sales {
+  data: {
     table: 'sales';
   }
 
@@ -336,8 +347,8 @@ chart cartesian as Example {
 Child-declaration order matters wherever a variable number of the same kind
 of child can appear: transform order defines dataflow in a group, `cell`
 order defines placement in concat containers, and `when` order defines
-conditional-branch priority. A formatter emits properties first, then data
-declarations, then transforms, groups, marks, and cells; the parser allows
+conditional-branch priority. A formatter emits properties first (`data:` among
+them), then transforms, groups, marks, and cells; the parser allows
 interleaving as long as lowering preserves declaration order.
 
 Property blocks contain unordered properties:
@@ -522,7 +533,7 @@ definition's documentation carries proven examples:
 --- avenger 1;
 --- import 'error_bar.mark.avenger';
 --- chart cartesian {
----   data as d { sql: SELECT * FROM 'examples/sales.csv'; }
+---   data: { sql: SELECT * FROM 'examples/sales.csv'; }
 ---   mark error_bar { category: "region"; measure: "amount"; }
 --- }
 --- ```
@@ -556,28 +567,48 @@ specific SQL behavior.
 
 ## Data And Params
 
-Canonical resource declarations can use object bodies:
+**`data:` is a property, not a declaration** (adopted 2026-07-09; the
+earlier sketches' `data as <name>` declaration is retired). Its value is
+an anonymous source block — the standard anonymous block-valued property
+form — set at chart, group, or mark level. A scope inherits its parent's
+data context unless it sets its own `data:`; anonymous means private,
+per the hygiene law, so a chart-local relation is never referenced by
+name. Named, shared relations belong one level up: the catalog's
+`table <kind> as` declarations (and a dashboard's), which is also the
+graduation path when an inline block outgrows its chart.
 
 ```avenger
-data as sales {
-  table: 'sales';
-}
+chart cartesian as sales_by_region {
+  data: { table: 'sales'; }            -- reference a catalog table
 
-data as customers {
-  sql: SELECT * FROM 'customers.csv';
+  mark rect { x: "region"; y: "amount"; }
 }
+```
 
-data as filtered_sales {
-  sql:
+The block's reserved properties select the source — always the block
+form, never a bare value:
+
+```avenger
+data: { table: 'sales'; }              -- catalog table (never a bare string)
+
+data: {                                -- one-off derivation; `sales` is the
+  sql:                                 -- ambient catalog name
     SELECT *
     FROM sales
-    WHERE amount > 0;
+    WHERE "amount" > 0;
 }
+
+data: { sql: SELECT * FROM 'customers.csv'; }   -- chart-owned file
 
 param as selected_region {
   default: 'all';
 }
 ```
+
+Marks may also select interaction state as their source
+(`data: store brush;` — see
+[Tools, Selections, Stores, And Views](#tools-selections-stores-and-views)),
+the same property in its reference form.
 
 Named tables (`table: 'sales'`, and qualified names inside `sql:`
 statements) resolve from the project's data catalog or the host's
@@ -601,9 +632,10 @@ multi-statement payloads are rejected. Whether a query may touch the
 filesystem or network (`FROM 'file.csv'`, URLs) is not a language question:
 the system interpreting the file grants or denies those capabilities.
 
-Resource declarations bind names in the chart scope. A future shorthand may
-allow compact forms such as `param selected_region: "all";`, but the canonical
-grammar should start with object bodies.
+Resource declarations (`param`, `store`, `selection`, ...) bind names in
+the chart scope; `data:` deliberately binds none. A future shorthand may
+allow compact forms such as `param selected_region: "all";`, but the
+canonical grammar should start with object bodies.
 
 ## Data Catalogs
 
@@ -659,8 +691,8 @@ table csv as regions {
 - All `.data.avenger` files in the project load and merge (name collisions
   are errors); `--catalog <file>` restricts the session to specific files —
   the dev/prod switch.
-- Inline `data as` declarations inside charts remain for chart-owned files
-  (the chart-package pattern); the catalog is for shared, named, and remote
+- Inline `data:` blocks inside charts remain for chart-owned files (the
+  chart-package pattern); the catalog is for shared, named, and remote
   tables.
 - Catalogs give tooling real schemas: `avenger tables` lists resolved names
   and columns, and the language server grounds column completion inside
@@ -694,7 +726,7 @@ is one schema.
 
 `table sql as <name>` binds a name to a query over the catalog — a view
 in the database sense, and the catalog-side analogue of a chart's
-`data as` block: shared by every chart instead of owned by one. There is
+`data:` block: shared by every chart instead of owned by one. There is
 deliberately no `view` keyword: the kind slot already says where a
 relation comes from (a file, an external catalog, a query),
 `materialize:` says how it is held, and a consumer writing
@@ -808,11 +840,11 @@ surface:
   parameterization, which is `slot`/define territory.
 
 Charts bind table params at the use site — chart params never appear
-inside the catalog; their values flow in from outside. In a `data as`
+inside the catalog; their values flow in from outside. In a `data:`
 block, bindings are ordinary properties:
 
 ```avenger
-data as trips {
+data: {
   table: 'borough_trips';
   borough: $selected_borough;
   min_fare: 10;
@@ -825,7 +857,7 @@ called as a table function with named arguments, which is also the only
 way to use the same table twice with different bindings:
 
 ```avenger
-data as fare_compare {
+data: {
   sql:
     SELECT 'brooklyn' AS "which", "fare"
     FROM borough_trips(borough => 'Brooklyn')
@@ -915,7 +947,7 @@ import 'https://cdn.example.com/vega-datasets@2.11.data.avenger'
   sha256 '4c1e...';                 -- binds the pack's mount: vega
 
 chart cartesian as cars_scatter {
-  data as cars { table: 'vega.cars'; }
+  data: { table: 'vega.cars'; }
 
   mark symbol {
     x: "Horsepower";
@@ -972,12 +1004,13 @@ group as manual_box_plot {
 }
 ```
 
-Nested groups are the normal way to express branchy dataflow. A group inherits
-data from its parent unless it declares its own data source. Transform stages in
-a group define that group's local data context for child marks and child groups.
+Nested groups are the normal way to express branchy dataflow. A group
+inherits its data context from its parent unless it sets its own `data:`.
+Transform stages in a group define that group's local data context for
+child marks and child groups.
 
-To avoid hidden rewrites, the first implementation should require group-level
-data and transform declarations to appear before child `mark` and `group`
+To avoid hidden rewrites, the first implementation should require
+group-level transform declarations to appear before child `mark` and `group`
 declarations in the same group. If order-sensitive interleaving becomes useful,
 the compiler can later lower it by inserting anonymous groups.
 
@@ -1438,7 +1471,7 @@ and median.
 avenger 1;
 
 chart cartesian as ManualBoxPlot {
-  data as observations {
+  data: {
     table: 'observations';
   }
 
@@ -1821,7 +1854,7 @@ import 'std:marks/box_plot';
 import 'std:marks/violin';
 
 chart cartesian as mpg_by_origin {
-  data as cars { table: 'cars'; }
+  data: { table: 'cars'; }
 
   mark box_plot as mpg_box {
     category: "origin";
@@ -2116,7 +2149,7 @@ chart geo as taxi_density {
   center_lon_lat: [-73.98, 40.75];
   zoom: 11;
 
-  data as trips { sql: SELECT * FROM 'data/nyc_taxi.parquet'; }
+  data: { sql: SELECT * FROM 'data/nyc_taxi.parquet'; }
 
   tiles: osm { zindex: -10; }
 
@@ -2487,7 +2520,7 @@ avenger 1;
 import 'lib/error_bar.mark.avenger';
 
 chart cartesian as sales_errors {
-  data as sales { table: 'sales'; }
+  data: { table: 'sales'; }
 
   mark error_bar as errs {
     category: "region";
@@ -2535,7 +2568,7 @@ chart cartesian as sales_errors {
   built-in compound part paths.
 - The expansion inherits the instantiation site's data context and
   participates in the chart's scales like any inline group; definitions may
-  not declare `data`.
+  not set `data:`.
 
 ### Defining Tools And Behaviors
 
@@ -2647,7 +2680,7 @@ import 'lib/wheel_zoom.tool.avenger';
 import 'lib/hover_highlight.tool.avenger';
 
 chart cartesian as explorer {
-  data as cars { table: 'cars'; }
+  data: { table: 'cars'; }
 
   tool wheel_zoom;
   tool hover_highlight as hover { target: points; }
@@ -2727,7 +2760,7 @@ avenger 1;
 import 'lib/share_within.transform.avenger';
 
 chart cartesian as region_shares {
-  data as sales { table: 'sales'; }
+  data: { table: 'sales'; }
 
   group as shares {
     transform share_within as s {
@@ -3568,8 +3601,8 @@ match_arm     = ident , "{" , { item } , "}" ;
 splice        = ident , ";" ;
                      (* define bodies only: splice point of a block slot *)
 
-resource      = data | param | store | selection | res | theme ;
-data          = "data" , bind , body ;
+resource      = param | store | selection | res | theme ;
+                     (* data is a property: `data: { ... }` *)
 param         = "param" , bind , body ;
 store         = "store" , bind , body ;
 selection     = "selection" , [ kind ] , bind , body ;
@@ -3585,7 +3618,7 @@ theme         = "theme" , "css" ,
    properties and children a given body accepts is schema-driven. *)
 body          = "{" , { item } , "}" ;
 item          = property | child ;
-child         = data | param | table_bind | resource | group | mark
+child         = param | table_bind | resource | group | mark
               | transform | tool | view | view_use | event | cell | plot
               | variable | part | level | adjust | derive | overlay
               | layer | when | field | row | action | scale_edit
@@ -4179,7 +4212,7 @@ ambiguous by convention.
 Full-statement SQL properties use the same idea:
 
 ```avenger
-data as customers {
+data: {
   sql:
     SELECT *
     FROM "customers.csv"
@@ -4328,7 +4361,6 @@ module.exports = grammar({
       $.group_declaration,
       $.mark_declaration,
       $.transform_declaration,
-      $.data_declaration,
       $.param_declaration,
       $.selection_declaration,
       $.tool_declaration,
@@ -4367,7 +4399,6 @@ module.exports = grammar({
       $.property_block,
     ),
 
-    data_declaration: $ => seq("data", $.as_clause, $.property_block),
     param_declaration: $ => seq("param", $.as_clause, $.property_block),
 
     selection_declaration: $ => seq(
@@ -4662,7 +4693,7 @@ correct and enrich it with semantic tokens.
 Initial `avenger.tmLanguage.json` responsibilities:
 
 - Highlight declaration keywords: `chart`, `group`, `mark`, `transform`,
-  `data`, `param`, `selection`, `tool`, `view`, `on`, `facet`, `cell`, `as`.
+  `param`, `selection`, `tool`, `view`, `on`, `facet`, `cell`, `as`.
 - Highlight declaration kinds: coordinate kinds, mark kinds, transform kinds,
   selection/tool/view kinds.
 - Highlight property names before `:`.
@@ -4797,7 +4828,7 @@ LSP semantic token legend should use mostly standard token types so themes work
 well:
 
 ```text
-namespace      chart/group paths and data source names
+namespace      chart/group paths
 type           mark kinds, coordinate kinds, scale kinds
 function       transform kinds and SQL functions
 property       DSL properties and transform output fields
@@ -5002,7 +5033,7 @@ resume from a recovery point if one can be found.
 The Avenger parser should recover at DSL sync points:
 
 - In declaration blocks, sync at declaration starters such as `chart`, `group`,
-  `mark`, `transform`, `data`, `param`, `selection`, `tool`, `view`, `on`,
+  `mark`, `transform`, `param`, `selection`, `tool`, `view`, `on`,
   `facet`, `cell`, or at `}`.
 - In property blocks, sync at a plausible `identifier:` pair or at `}`.
 - If a property semicolon is missing before the next `identifier:`, synthesize
@@ -5060,7 +5091,7 @@ The LSP can offer:
 - Go to definition and references for `as` bindings, `$params`, transform alias
   fields such as `stats.median`, views, tools, selections, and mark paths such
   as `manual_box_plot.outliers`.
-- Document symbols for charts, groups, marks, transforms, params, data sources,
+- Document symbols for charts, groups, marks, transforms, params,
   views, tools, selections, and events.
 - Semantic tokens for precise highlighting beyond Tree-sitter, especially for
   resolved params, aliases, generated fields, and unknown or deprecated names.
@@ -5289,11 +5320,11 @@ DataFusion context so completions and type diagnostics know real column names.
   naming, expansion, and the gallery untouched). Currently forbidden by
   the no-nested-definitions hygiene rule; open until real usage shows
   the need.
-- Shadowing between chart-local relation names and ambient catalog
-  names in full `sql:` statements (a chart's `data as sales` vs a
-  catalog `sales`; store names too). Precedents point at
-  shadow-with-editor-warning (`input` already shadows a registered
-  table; transform aliases shadowing struct-bearing columns warn), but
+- Shadowing between chart-local relation names and ambient catalog names
+  in full `sql:` statements. With `data:` anonymous (adopted 2026-07-09)
+  the chart side of this question mostly dissolves; what remains is
+  store names vs catalog names (and the reserved `input`, which already
+  shadows by rule). Precedents point at shadow-with-editor-warning, but
   the rule is unpinned.
 - How do the host-language APIs share the standard library as a single
   source of truth — do Rust/Python `box_plot` builders lower through the
