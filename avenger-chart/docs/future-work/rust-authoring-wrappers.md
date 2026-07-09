@@ -35,17 +35,34 @@ pub struct Chart<C> {
 
 impl<C> Chart<C> {
     pub fn new() -> Self;                          // wraps Plot::<C>::new()
-    pub fn from_plot(plot: Plot<C>) -> Self;       // build-plot-first style
+    pub fn from_plot(plot: Plot<C>) -> Self;       // build-plot-first / reuse seam
     // document furnishings
     pub fn title(...) / subtitle(...) / theme_css(...) / canvas_size(...)
            / param(...) / selection(...) / store(...);
-    // forwarded Plot builder surface (~15–20 methods, macro-generated or
-    // hand-written): data, mark, tool, widget, event_binding, scale/guide
-    // config — each returns Chart<C> so single-plot charts stay one chain.
+    // forwarded Plot daily verbs (~a dozen, hand-written): data, mark,
+    // tool, widget, event_binding, configure_guide, configure_coord —
+    // each returns Chart<C> so single-plot charts stay one chain.
+    pub fn configure_plot(self, f: impl FnOnce(Plot<C>) -> Plot<C>) -> Self;
+                                                   // escape hatch: forwarding is
+                                                   // sugar, never a gate
+    pub fn plot(&self) -> &Plot<C>;                // introspection/tests
     pub async fn compile(self, ctx: &SessionContext)
         -> Result<CompiledChart, AvengerChartError>;   // ONLY compile entry
 }
 ```
+
+**The wrapper pattern is one pattern, applied at two levels: own the
+inner value, forward the daily verbs, expose `with_X`/`from_X` for
+construction and `configure_X` for the rest.** `Plot` over `C`:
+`with_coord` / `configure_coord`. `Chart` over `Plot`: `from_plot` /
+`configure_plot`. Nothing couples a chart's furnishings to its plot's
+internals (a title constrains no mark), which is why a plain escape
+hatch is safe — the wrapper sorts vocabulary; it protects no invariant.
+`Plot` itself remains fully first-class: it is the currency of every
+nested position (cells, embedded templates, the widget chrome layer),
+and altitude-agnostic component functions return `Plot` (usable via
+`Chart::from_plot` *or* `Subplot::new`) while inherently-document
+components return `Chart`.
 
 `Plot<C>` keeps: `data`, `mark`, `tool`, `widget` (guide-slot chrome is
 per-plot, like legends — cells may carry widgets), `event_binding`,
