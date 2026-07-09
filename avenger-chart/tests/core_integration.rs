@@ -6,6 +6,7 @@ mod core_integration {
     mod test_channel_get_data_type;
     mod test_channel_refs;
     mod test_channel_resolution;
+    mod test_compiled_plot_bake;
     mod test_conditional_domain;
     mod test_contrast_color;
     mod test_coordinate_domain_placeholders;

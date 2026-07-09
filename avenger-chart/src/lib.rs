@@ -98,6 +98,7 @@
 //! ```
 
 pub mod axis;
+pub mod bake;
 pub mod cartesian;
 pub mod channel;
 pub mod concat;

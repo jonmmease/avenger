@@ -586,6 +586,8 @@ mod tests {
             selection_specs: IndexMap::<String, CompiledSelectionSpec>::new(),
             cursor_params: Vec::new(),
             tool_metadata: Vec::<ToolMetadata>::new(),
+            baked_tables: Vec::new(),
+            bake_report: None,
         }
     }
 

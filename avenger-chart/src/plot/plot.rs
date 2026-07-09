@@ -804,6 +804,8 @@ impl<C: CoordinateSystem> Plot<C> {
             selection_specs,
             cursor_params,
             tool_metadata,
+            baked_tables: Vec::new(),
+            bake_report: None,
         };
         compiled.event_datum_fields = compiled.infer_event_datum_fields(session_context).await?;
         compiled.event_coord_fields = compiled.infer_event_coord_fields(session_context).await?;

@@ -38,6 +38,7 @@ avenger-chart-marks-statistical = { path = "../avenger-chart-marks-statistical" 
 avenger-chart-scales = { path = "../avenger-chart-scales" }
 avenger-chart-tools = { path = "../avenger-chart-tools" }
 avenger-chart-transforms = { path = "../avenger-chart-transforms" }
+avenger-datafusion-partial-eval = { path = "../avenger-datafusion-partial-eval" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-polar = { path = "../avenger-chart-polar" }
 avenger-chart-parallel = { path = "../avenger-chart-parallel", optional = true }

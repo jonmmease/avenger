@@ -547,6 +547,7 @@ dependencies = [
  "avenger-chart-transforms",
  "avenger-color",
  "avenger-common",
+ "avenger-datafusion-partial-eval",
  "avenger-geometry",
  "avenger-guides",
  "avenger-image",

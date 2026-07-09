@@ -6371,6 +6371,8 @@ impl CompiledPlot {
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<EvaluationOutcome, AvengerChartError> {
+        crate::bake::register_baked_tables(ctx, &self.baked_tables)?;
+
         // Merge provided params with defaults
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
@@ -6850,6 +6852,8 @@ impl CompiledPlot {
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
+        crate::bake::register_baked_tables(ctx, &self.baked_tables)?;
+
         tracing::debug!(target: "avenger_chart::resize", "plot_session.preview_attempt start");
         if options.layout_snapshot != LayoutSnapshot::Final {
             return Ok(PreviewLayoutProfileAttempt::fallback(

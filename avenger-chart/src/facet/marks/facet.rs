@@ -1365,6 +1365,8 @@ fn build_physical_wrap_subplot(
         selection_specs: Default::default(),
         cursor_params: Vec::new(),
         tool_metadata: Vec::new(),
+        baked_tables: Vec::new(),
+        bake_report: None,
         legend_colorbar_overlays: Default::default(),
     }))
 }

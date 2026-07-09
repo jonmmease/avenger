@@ -1,5 +1,6 @@
 //! CompiledPlot - Immutable, serializable plot ready for rendering
 
+mod bake;
 mod child_frame_container;
 pub(crate) mod child_frame_coordination;
 mod child_frame_runtime;
@@ -53,6 +54,7 @@ use avenger_chart_core::{
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
 
 use crate::{
+    bake::{BakedTableManifestEntry, PlotBakeReport},
     event::ChartEventBinding,
     facet::evaluated_facet_tree::EvaluatedFacetTree,
     layout::{
@@ -281,6 +283,53 @@ pub struct CompiledPlot {
     /// Metadata for tools that expanded into this compiled plot.
     #[serde(default)]
     pub(crate) tool_metadata: Vec<ToolMetadata>,
+
+    /// Baked in-memory tables registered before decoding baked residual plans.
+    ///
+    /// No `skip_serializing_if` here: `CompiledPlot` round-trips through
+    /// bincode, which is not self-describing, so conditionally skipped fields
+    /// break deserialization of plots that were never baked.
+    #[serde(default)]
+    pub(crate) baked_tables: Vec<BakedTableManifestEntry>,
+
+    /// Report from the bake that produced this compiled plot.
+    #[serde(default)]
+    pub(crate) bake_report: Option<PlotBakeReport>,
+}
+
+impl Clone for CompiledPlot {
+    fn clone(&self) -> Self {
+        Self {
+            coord_transform: self.coord_transform.clone(),
+            compiled_guide: self.compiled_guide.clone(),
+            marks: self.marks.clone(),
+            mark_groups: self.mark_groups.clone(),
+            mark_group_index_by_mark: self.mark_group_index_by_mark.clone(),
+            axis_specs: self.axis_specs.clone(),
+            legends: self.legends.clone(),
+            legend_colorbar_overlays: self.legend_colorbar_overlays.clone(),
+            layout_spec: self.layout_spec.clone(),
+            title: self.title.clone(),
+            subtitle: self.subtitle.clone(),
+            theme: self.theme.clone(),
+            time_context: self.time_context.clone(),
+            formatting_context: self.formatting_context.clone(),
+            scale_to_coord_channel: self.scale_to_coord_channel.clone(),
+            scale_specs: self.scale_specs.clone(),
+            data: self.data.clone(),
+            default_params: self.default_params.clone(),
+            param_specs: self.param_specs.clone(),
+            store_specs: self.store_specs.clone(),
+            event_bindings: self.event_bindings.clone(),
+            event_datum_fields: self.event_datum_fields.clone(),
+            event_coord_fields: self.event_coord_fields.clone(),
+            selection_specs: self.selection_specs.clone(),
+            cursor_params: self.cursor_params.clone(),
+            tool_metadata: self.tool_metadata.clone(),
+            baked_tables: self.baked_tables.clone(),
+            bake_report: self.bake_report.clone(),
+        }
+    }
 }
 
 impl CompiledPlot {
@@ -495,6 +544,11 @@ impl CompiledPlot {
 
     pub fn store_specs(&self) -> &IndexMap<String, CompiledStoreSpec> {
         &self.store_specs
+    }
+
+    /// Report from the bake that produced this plot, if any.
+    pub fn bake_report(&self) -> Option<&PlotBakeReport> {
+        self.bake_report.as_ref()
     }
 
     /// Get plot-level event bindings.
