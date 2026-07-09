@@ -304,8 +304,7 @@ components are ordinary chart files.
   enough?
 - Do selections cross the boundary by clause-set aliasing or lower to
   predicates (Mosaic-style) at the seam?
-- Per-instance data remapping (the sketch's `source:` line):
-  ambient-catalog-only in v1, or table binding as real component reuse?
+- Per-instance data remapping (the `data:` binding at an instantiation site — see the exec_overview sketch in chart-dsl.md): ambient-catalog-only in v1, or table binding as real component reuse?
 - Theme precedence across the dashboard/chart boundary.
 - Deferred-commit forms (Streamlit-`st.form`-style staged param writes)
   vs per-widget `debounce_ms` / `commit:` policies — shared with

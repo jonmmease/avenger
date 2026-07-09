@@ -3369,17 +3369,19 @@ dashboard as exec_overview {
     width: 280;
 
     widget select as region_w {
+      title: 'Region';
       param: region;
-      options: SELECT DISTINCT "region" FROM orders ORDER BY 1;
+      data: { sql: SELECT DISTINCT "region" FROM orders ORDER BY 1; }
+      value: "region";                       -- item channels, the mark model
+      label: "region";
       all_value: 'all';
-      label: 'Region';
     }
 
     widget range_slider as dates_w {
+      title: 'Dates';
       lo_param: date_lo;
       hi_param: date_hi;
       extent: (SELECT min("date"), max("date") FROM orders);
-      label: 'Dates';
     }
 
     text as kpi {
@@ -3402,6 +3404,7 @@ dashboard as exec_overview {
     height: aspect(21, 9);
 
     chart category_detail as detail {
+      data: { table: 'filtered_orders'; }      -- open design point: per-instance remapping
       picked: $picked_categories;              -- writes here filter `trend` above
     }
   }
@@ -3508,8 +3511,18 @@ invariant, pinning behavior — is normative in `dashboard-layout.md`:
 
 - Widgets instantiate like tools (`widget <kind> as <name> { ... }`),
   imported from `std:widgets/`; wiring properties name dashboard state
-  (`param: region;`), item properties are SQL. The paradigm — composed vs
-  native tiers, data encoding, sizing — is `widgets.md`.
+  (`param: region;`). Data-encoded widgets take the same `data:` property
+  charts and marks use (block or `store <name>` form) with item channels
+  (`value:`, `label:`) — the mark model applied to input controls;
+  `title:` is the widget caption, as everywhere else. The paradigm —
+  composed vs native tiers, data encoding, sizing — is `widgets.md`.
+- **The dashboard itself never sets `data:`** — it has no data context
+  (it renders nothing), and context inheritance deliberately stops at the
+  panel boundary: an imported chart's data can never change silently via
+  ambient context. Dashboards *declare* (`table <kind> as`); panels
+  *select* (`data:` in inline charts and widgets); instance-boundary
+  remapping (the `data:` binding on `detail` above) is the recorded open
+  design point.
 - `tabs { tab as <id> { <rows> } ... }` declares an implicit active-tab
   param and renders driver chrome; a `modal` is
   `visible:`-driven-by-param structure. Both are sugar over params —
