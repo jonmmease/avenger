@@ -3590,6 +3590,8 @@ functions.
 
 ```ebnf
 file          = version , { import } , ( chart | define | data_file ) ;
+                     (* + dashboard as a fourth alternative: productions
+                        pending, see the draft Dashboards section *)
 data_file     = ( source | table_bind ) , { source | table_bind } ;
                      (* .data.avenger: catalog config. Data files import
                         only data files; chart files may import data files
