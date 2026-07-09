@@ -174,10 +174,13 @@ The pair, mirroring `CompiledPlot` / `PlotSession`:
   in a child frame, the authoritative param/selection bus (per-chart
   scoped stores alias into it), and the document viewport (scroll).
 
-**Plots are the only renderable atoms** — charts are Plots, the widget
-layer is a Plot — the dashboard arranges and coordinates but never
-renders itself. That is "coordinated state, not coordinated scales"
-stated in the type system.
+**Plots are the renderable atoms** — a chart is a plot wrapped in
+document furnishings (`Chart<C>` wraps `Plot<C>` in Rust; title,
+subtitle, theme, locales, state declarations live on the wrapper), the
+widget layer is a bare `Plot<PixelFrame>` that is deliberately not a
+chart, and the dashboard arranges and coordinates but never renders
+itself. That is "coordinated state, not coordinated scales" stated in
+the type system.
 
 The interaction loop:
 
@@ -210,7 +213,7 @@ fn revenue_trend(
     date_lo: &Param,
     date_hi: &Param,
     picked: &Selection,
-) -> Plot<Cartesian> { /* ordinary plot construction */ }
+) -> Chart<Cartesian> { /* Chart forwards the plot builder: one fluent chain */ }
 
 async fn build(ctx: Arc<SessionContext>) -> Result<CompiledDashboard, AvengerChartError> {
     let orders  = ctx.table("orders").await?;

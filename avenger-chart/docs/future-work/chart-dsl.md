@@ -254,31 +254,33 @@ text: value 'Total';            -- literal text (not column "Total")
 inside SQL expression slots. The two are distinct: `none` removes a visual
 property, `NULL` is a data value.
 
-## Charts, Cells, And Plots
+## Charts, Plots, And Subplots
 
-One naming law, stated once: **"plot" names the construct; "chart,"
-"cell," and "plot" name its positions.** A *plot* is the
-coordinate-framed renderable unit — the atom the engine renders (the
-Rust authoring type is `Plot<C>` for exactly this reason; a dashboard's
-widget chrome layer is a `Plot<PixelFrame>` with no chart-ness at all).
-A *chart* is a plot in document-root position, carrying the document
-furnishings — title, theme, its own data and params — which is why some
-properties are legal only in chart bodies. A *cell* is a plot in concat
-position; an embedded `plot` (inside `mark subplot`, a parallel-axis
-overlay) is one inside a mark, narrowed by position. "Plot area"
+One naming law, stated once (revised 2026-07-09): **"plot" names the
+construct, "chart" names the document unit that wraps one, and
+"subplot" is the collective term for plots in nested position.** A
+*plot* is the coordinate-framed renderable atom — the engine's unit
+(Rust `Plot<C>`; a dashboard's widget chrome layer is a
+`Plot<PixelFrame>` that is deliberately *not* a chart, which is the
+distinction earning its type). A *chart* wraps its root plot with the
+document furnishings — `title`, `subtitle`, theme, canvas/layout and
+resize policy, time/format locales, and the document's state
+declarations (Rust `Chart<C>`, a forwarding builder over `Plot<C>`, so
+simple charts stay one fluent chain; `compile()` takes the chart).
+Nested positions keep their grammar keywords — `cell` in concat,
+embedded `plot` in marks, `mark subplot` — and are collectively
+*subplots* (Rust's concat wrapper is already named `Subplot`); the
+schema narrows what each position may declare. "Plot area"
 (`layout.plot`, `target: plot`) is the plot-the-unit's own frame within
-the chart-the-role: a chart is its plot plus chrome. Position determines
-the legal property set; the schema enforces it, as everywhere else.
+the chart: a chart is its plot plus chrome.
 
-The law does **not** imply a Rust `Chart` wrapper type: title and
-subtitle are position-generic chrome (concat cells carry titles today),
-and the genuinely root-only furnishings (theme, canvas/resize policy,
-locales) are validated at the boundary where the role already
-solidifies — the plot handed to `compile()`/a host (`CompiledPlot`,
-`ChartApp` are the role-named layers) or to a dashboard panel (`Panel`
-is the role wrapper at the composition boundary). If static enforcement
-is ever wanted, the seam is a `RootPlot` newtype on `compile()`, not a
-second builder level.
+The heading law: **`title:` heads a chart or a guide-like chrome
+object** (axes, legends, facet strip headers, widgets — all already
+`title:`); **`subtitle:` is chart-only**, unrepresentable on nested
+units rather than merely invalid (it lives on `Chart`, not `Plot`);
+**nested plot units take `label:`** — a cell caption is a smaller,
+cell-local idea, not a document title. Widget *items* use `label:` as a
+channel — the same word split one level down.
 
 ## Core Declaration Form
 
