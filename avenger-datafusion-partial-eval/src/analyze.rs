@@ -19,6 +19,9 @@ pub(crate) fn expr_contains_placeholder(expr: &Expr) -> bool {
     expr_or_subquery_plan_matches(expr, ExprNeedle::Placeholder)
 }
 
+/// Test-support wrapper: production code composes the expr-level detectors
+/// per node instead of whole-plan scans.
+#[cfg(test)]
 pub(crate) fn plan_contains_placeholder(plan: &LogicalPlan) -> bool {
     plan_or_subquery_plan_matches(plan, ExprNeedle::Placeholder)
 }
@@ -27,6 +30,8 @@ pub(crate) fn expr_is_volatile_deep(expr: &Expr) -> bool {
     expr_or_subquery_plan_matches(expr, ExprNeedle::Volatile)
 }
 
+/// Test-support wrapper; see [`plan_contains_placeholder`].
+#[cfg(test)]
 pub(crate) fn plan_is_volatile_deep(plan: &LogicalPlan) -> bool {
     plan_or_subquery_plan_matches(plan, ExprNeedle::Volatile)
 }
@@ -35,6 +40,8 @@ pub(crate) fn expr_contains_temporal_function(expr: &Expr) -> bool {
     expr_or_subquery_plan_matches(expr, ExprNeedle::TemporalFunction)
 }
 
+/// Test-support wrapper; see [`plan_contains_placeholder`].
+#[cfg(test)]
 pub(crate) fn plan_contains_temporal_function(plan: &LogicalPlan) -> bool {
     plan_or_subquery_plan_matches(plan, ExprNeedle::TemporalFunction)
 }
