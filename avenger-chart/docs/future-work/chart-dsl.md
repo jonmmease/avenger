@@ -78,6 +78,15 @@ semantics owned by `dashboard-layer.md`, `dashboard-layout.md`, and
 interchange-schema, and fixture integration are open questions, and the
 96-category coverage claim above predates it.
 
+Adopted 2026-07-09: **filename-as-name** for the one-item file kinds —
+the file stem is the canonical name, imports bind it, in-file `as`
+binders are optional-and-validated, data catalogs (the plural kind) are
+exempt and keep declared names, and one *public* item per file remains
+the law (private nested defines recorded as the future pressure valve).
+No dbt-style `ref()` sigil: queries are planned, not templated, so bare
+table names are semantically resolved and SQL qualification is the
+explicit form.
+
 ## Design Principles
 
 - Every file begins with a version pragma: `avenger 1;`.
@@ -143,19 +152,52 @@ import 'lib/wheel_zoom.tool.avenger' as co_zoom;
 The version names the language dialect, not the library release. Parsers
 reject files whose major version they do not support. Files are UTF-8.
 
-**A file contains exactly one thing.** After the header, a file holds
-either one `chart` declaration (a chart file — data, params, stores, and
-all other resources live inside the chart's body), one `define`
-declaration (a definition file: a compound mark, tool, or transform), or
-one `dashboard` declaration (a dashboard file — the document format that
-imports and composes charts; see [Dashboards](#dashboards), draft). A
-project is a collection of such files; other projects import its
-definition files, never its chart files — with one amendment: *dashboard
-files* import chart files (definitions still cannot, and charts cannot
-import charts). The definition kind is normative from the file's content;
-the conventional extensions mirror it: `.avenger` for charts,
+**A file contains exactly one thing, and the file name is its name**
+(adopted 2026-07-09). After the header, a file holds either one `chart`
+declaration (a chart file — data, params, stores, and all other resources
+live inside the chart's body), one `define` declaration (a definition
+file: a compound mark, tool, or transform), or one `dashboard`
+declaration (a dashboard file — the document format that imports and
+composes charts; see [Dashboards](#dashboards), draft). A project is a
+collection of such files; other projects import its definition files,
+never its chart files — with one amendment: *dashboard files* import
+chart files (definitions still cannot, and charts cannot import charts).
+The definition kind is normative from the file's content; the
+conventional extensions mirror it: `.avenger` for charts,
 `.mark.avenger`, `.tool.avenger`, `.transform.avenger` for definitions,
 and `.dashboard.avenger` for dashboards.
+
+For these one-item kinds, **the file stem is the canonical name** (the
+dbt-model / single-file-component rule): recognized suffixes strip (the
+kind extensions above plus a trailing `@version` tag, which remains
+naming-not-mechanism), and imports bind that name — so an import line is
+self-documenting without fetching the file. Consequences:
+
+- The declaration's `as` binder is **optional, and when present must
+  match the stem** (Java's validation move): drift between file name and
+  in-file name is impossible, while `define mark error_bar` stays
+  greppable for authors who want the name in the text.
+- A stem that is not a valid bare identifier (hyphens, content-addressed
+  URL names) requires `as` on the *import*; `as` also remains the rename
+  and collision-resolution mechanism as before.
+- Every chart file is therefore importable — the former
+  anonymous-charts-are-private file rule dissolves (anonymous
+  *declarations* inside bodies remain private everywhere).
+- The interchange `File` struct carries a loader-populated `name` field,
+  since JSON consumers without filesystem context still need it; printing
+  never emits a binder the source didn't have, preserving the round-trip
+  laws.
+
+The one plural file kind is exempt: a data catalog names things inside
+itself (it is configuration, not an item — the dbt `sources.yml`
+counterpart to the one-per-file models), and importable packs bind their
+single *declared* mount name, whose in-file presence is load-bearing for
+the pack's internal chains. **One public item per file is the law**; if
+definition clusters ever make file sprawl hurt, the designated pressure
+valve is *private nested defines* (helpers visible only to the file's
+single export — imports, naming, expansion, and the gallery untouched),
+currently forbidden by the no-nested-definitions hygiene rule and listed
+in [Open Questions](#open-questions) — never multiple exports.
 Themes are not definitions — a theme is a plain `.css` file, referenced with
 `theme css from` and fetched/pinned like any import. The one plural file
 kind is the data catalog (`.data.avenger`) — host configuration naming the
@@ -711,6 +753,18 @@ table sql as daily_totals {
 - `table sql` entries appear in `avenger tables` and ground column
   completion exactly like file-backed tables; DataFusion derives their
   schemas from the plan without executing them.
+- A view that outgrows the catalog can graduate to its own importable
+  file: a data file declaring exactly one name is importable, and a
+  single `table sql` qualifies — the dbt-model promotion path, with no
+  new machinery.
+- There is deliberately no `ref()` sigil for table references. dbt needs
+  one because it templates SQL strings without parsing them; here every
+  query is planned (sqlparser-rs/DataFusion), so bare names are
+  semantically resolved — existence and schemas validate at compile
+  time, the view DAG is derived from resolution itself, and lineage keys
+  off plans. The explicit form, when wanted, is SQL's own qualification
+  (`warehouse.orders`, `vega.cars` — mounts are schemas); environment
+  retargeting is the catalog swap, which is `ref()`'s other job.
 
 Params parameterize a `table sql` — the same `param` construct charts
 declare, referenced the same way, lowering to the same DataFusion
@@ -3192,13 +3246,16 @@ language.
   `export` declarations; nested instances' internals stay private, and
   block-slot content sees only data-context columns plus declared `exposes`
   handles. Anonymous declarations are private everywhere.
-- `import 'path';` binds exactly one name — the imported definition's
-  declared name; `import 'path' as eb2;` renames it, which is also how two
-  same-named definitions from different sources coexist. (A data file is
-  importable only when it declares exactly one name — in practice a
-  `source tables` mount; see [Dataset Packs](#dataset-packs).) Two imports binding
-  the same name are an error at the import lines. Only the file's single
-  `define` is importable; there is no transitive re-export.
+- `import 'path';` binds exactly one name — **the file stem** (filename-
+  as-name, adopted 2026-07-09; a matching in-file binder is optional and
+  validated); `import 'path' as eb2;` renames it, which is also how two
+  same-named items from different sources coexist, and is *required* when
+  the stem is not a valid bare identifier. (A data file is importable only
+  when it declares exactly one name — in practice a `source tables`
+  mount; catalogs keep declared names; see
+  [Dataset Packs](#dataset-packs).) Two imports binding the same name are
+  an error at the import lines. Only the file's single item is importable;
+  there is no transitive re-export.
 - Import paths resolve relative to the importing file (filesystem path
   locally, URL base when fetched), and the imported file's `avenger` major
   version must match. Source forms, closure fetching, and hash pinning are
@@ -3340,12 +3397,13 @@ dashboard as exec_overview {
   standalone-renderable. `avenger info <chart file>` prints the contract;
   the language server completes binding names at instantiation sites from
   the imported file's declarations.
-- **Naming: the chart's `as` binder is the export.** A chart file is
-  importable only when its chart is named (the data-file precedent:
-  importable only with exactly one declared name) — anonymous charts stay
-  private, per the hygiene law that anonymous declarations are private
-  everywhere. Imports share the single flat namespace with definitions;
-  the same-name-collision and `as`-rename rules apply unchanged.
+- **Naming: the file stem is the chart's name** (filename-as-name; see
+  [Source Header And Versioning](#source-header-and-versioning)). An
+  in-file `as` binder is optional and must match the stem; every chart
+  file is importable. Imports share the single flat namespace with
+  definitions; the same-name-collision and `as`-rename rules apply
+  unchanged, and `as` is required where the stem is not a valid bare
+  identifier.
 - **What travels: the code closure, not the data environment.** The
   chart's own imports (stdlib marks/tools, themes, dataset packs) come
   along, transitively hash-pinned; ambient catalog references do not —
@@ -3817,6 +3875,8 @@ generic node types, not a node type per language feature:
 ```rust
 struct File {
     version: u32,                    // the `avenger 1;` pragma
+    name: Option<Name>,              // filename-derived canonical name (loader-populated;
+                                     // None for plural data catalogs)
     imports: Vec<Import>,            // source, sha256 pin, rename
     root: Root,                      // Chart(Decl) | Define(Decl) | Data(Vec<Decl>) | Dashboard(Decl)
 }
@@ -5223,6 +5283,18 @@ DataFusion context so completions and type diagnostics know real column names.
   event actions; theme precedence across the dashboard/chart boundary;
   dashboard-in-dashboard nesting. (The architecture-side questions live
   in `dashboard-layer.md`.)
+- Private nested defines — the designated pressure valve if one-item
+  file sprawl ever hurts: a helper `define` visible only to the file's
+  single export (one *public* item per file stays the law; imports,
+  naming, expansion, and the gallery untouched). Currently forbidden by
+  the no-nested-definitions hygiene rule; open until real usage shows
+  the need.
+- Shadowing between chart-local relation names and ambient catalog
+  names in full `sql:` statements (a chart's `data as sales` vs a
+  catalog `sales`; store names too). Precedents point at
+  shadow-with-editor-warning (`input` already shadows a registered
+  table; transform aliases shadowing struct-bearing columns warn), but
+  the rule is unpinned.
 - How do the host-language APIs share the standard library as a single
   source of truth — do Rust/Python `box_plot` builders lower through the
   stdlib definitions (parsed at build time), or remain parallel natives held
