@@ -70,6 +70,7 @@ async fn bake_on_server_execute_residual_in_fresh_session() {
     assert_eq!(output.report.baked.len(), 1);
     assert!(output.report.baked[0].rows > 0);
     assert!(output.report.baked[0].bytes > 0);
+    assert_eq!(output.report.baked[0].source_tables, vec!["sales"]);
     assert_eq!(output.report.source_tables, vec!["sales".to_string()]);
     assert_eq!(output.report.remaining_params, vec!["$min".to_string()]);
 

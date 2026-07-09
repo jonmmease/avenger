@@ -153,10 +153,12 @@ impl<'a> FoldSession<'a> {
             let table_name = format!("__pe_baked_{}", self.next_table_id);
             self.next_table_id += 1;
             self.total_bytes += bytes;
-            self.source_tables.extend(source_tables(&subtree));
+            let source_tables = source_tables(&subtree);
+            self.source_tables.extend(source_tables.iter().cloned());
 
             let baked = BakedSubtree {
                 table_name,
+                source_tables: source_tables.into_iter().collect(),
                 mem_table,
                 schema: physical_schema,
                 batches,
@@ -716,6 +718,7 @@ mod tests {
         let display = output.residual.display_indent().to_string();
 
         assert_eq!(output.report.baked.len(), 1);
+        assert_eq!(output.report.baked[0].source_tables, vec!["t".to_string()]);
         assert!(display.contains("Filter"), "{display}");
         assert!(display.contains("__pe_baked_0"), "{display}");
         assert!(!display.contains("__pe_hold"), "{display}");

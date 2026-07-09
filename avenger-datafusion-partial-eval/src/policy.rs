@@ -78,6 +78,8 @@ impl BakeReport {
 pub struct BakedSubtree {
     /// Name of the generated in-memory table scan.
     pub table_name: String,
+    /// Source table names folded into this materialized subtree.
+    pub source_tables: Vec<String>,
     /// Materialized table provider.
     pub mem_table: Arc<MemTable>,
     /// Arrow schema of the materialized batches.
