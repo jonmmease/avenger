@@ -1016,6 +1016,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-datafusion-partial-eval"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "datafusion",
+ "datafusion-common",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-egui"
 version = "0.1.0"
 dependencies = [

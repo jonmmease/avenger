@@ -1,0 +1,14 @@
+[package]
+name = "avenger-datafusion-partial-eval"
+version = "0.1.0"
+edition = "2024"
+description = "Logical-plan partial evaluation for DataFusion plans"
+
+[dependencies]
+arrow = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+futures = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
