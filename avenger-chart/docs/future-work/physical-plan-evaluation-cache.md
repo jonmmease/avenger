@@ -149,14 +149,30 @@ equivalent plans.
 
 `ExecutionPlan` implements neither `Eq` nor `Hash`, so fingerprinting requires
 per-node handling one way or another. A pragmatic first fingerprinter is a hash
-of canonical `datafusion-proto` physical-plan bytes, using a
-`PhysicalExtensionCodec` so extension nodes and UDFs participate. Avenger
-already maintains logical-plan extension codecs and already uses hashed proto
+of `datafusion-proto` physical-plan bytes — with three validated constraints:
+
+- **Node-local serialization is required, not optional.** `MemoryScanExecNode`
+  proto-encodes the full partition data (`repeated bytes partitions`), so
+  hashing whole-subtree proto bytes is O(data) per walk for any plan over a
+  `MemTable`. Fingerprint each node with its children replaced by
+  `EmptyExec` placeholders and combine with child fingerprints; never
+  proto-serialize memory-source leaves at all (they fingerprint as
+  hash(schema, projection, sort info, fetch, source version)).
+- **Dynamic filters must be excluded before serialization.** The proto
+  converter serializes `DynamicFilterPhysicalExpr` successfully — including
+  its runtime state and a process-global expression id — producing
+  silently-never-hitting fingerprints rather than errors. Intercept via a
+  custom `PhysicalProtoConverterExtension` (`physical_expr_to_proto` hook)
+  with a deep recursive guard, since the default converter recurses past the
+  hook for child expressions.
+- Physical expressions implement `DynEq`/`DynHash` and can be hashed
+  directly, subject to the runtime-mutated-state caveats below.
+
+Avenger already maintains logical-plan extension codecs and uses hashed proto
 bytes for materialization keys, so the physical codec is the main new piece.
 Hand-written per-node normalization can replace proto hashing later if proto
-encoding turns out to include unstable details. Physical expressions themselves
-implement `DynEq`/`DynHash` and can be hashed directly, subject to the
-runtime-mutated-state caveats below.
+encoding shows further unstable details (prost map encoding of schema
+metadata is one known miss-only instability).
 
 At the physical layer, chart params will usually appear as literal values or as
 bound physical expressions. Store values will usually appear as a table provider,
@@ -170,10 +186,19 @@ Physical fingerprints need stable invalidation inputs. The cache should require
 source providers to expose version identity where possible:
 
 ```rust
-trait CacheVersionProvider {
-    fn cache_version(&self) -> CacheVersion;
+trait CacheVersionProvider: Send + Sync {
+    /// Resolve a version for a source node, or None if unrecognized.
+    fn source_version(&self, plan: &dyn ExecutionPlan) -> Option<CacheVersion>;
 }
 ```
+
+The trait is a physical-layer *resolver* rather than a method on table
+sources, because `TableProvider`s are not reachable from physical plans.
+Providers register on the cache and are consulted in order; the built-in
+fallback for memory sources is a content hash of the partitions (memoized by
+column-`ArrayRef` pointer identity), which is also the version story for
+baked tables produced by `avenger-datafusion-partial-eval`. File scans need
+no provider — their proto bytes already carry paths, sizes, and mtimes.
 
 Possible source versions:
 
