@@ -20,7 +20,7 @@ Avenger is a Rust-based visualization engine and renderer designed for informati
 - **Language**: Rust (stable toolchain)
 - **GPU Rendering**: wgpu (cross-platform WebGPU implementation)
 - **Geometry Processing**: Lyon (tessellation), rstar (spatial indexing)
-- **Text Rendering**: cosmic-text (cross-platform text support)
+- **Text Rendering**: custom Typst-based stack (`avenger-text` over `avenger-typst-label`'s adapted Typst modules; rustybuzz shaping)
 - **Image Processing**: image crate (PNG/JPEG support)
 - **Data Handling**: Apache Arrow, DataFusion
 - **Build System**: Cargo workspace with pixi for Python integration
@@ -28,7 +28,7 @@ Avenger is a Rust-based visualization engine and renderer designed for informati
 ### Key Dependencies
 - wgpu 25.0.2
 - lyon 1.0.1
-- cosmic-text 0.14.2
+- rustybuzz 0.20.1 (text shaping, via the avenger-text/avenger-typst-label stack)
 - arrow/datafusion 48.0.1
 - winit 0.30.11 (window management)
 - palette 0.7.6 (color handling)

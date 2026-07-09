@@ -117,7 +117,7 @@ The repository is organized as a Rust workspace with these key crates:
 
 - **GPU Rendering**: wgpu (cross-platform WebGPU implementation)
 - **Geometry**: Lyon (tessellation), rstar (spatial indexing)
-- **Text**: cosmic-text (cross-platform text rendering)
+- **Text**: custom Typst-based stack — `avenger-text` (`TextEngine`, measurement, rasterization, path/PDF) over `avenger-typst-label`'s adapted Typst layout modules, rustybuzz shaping (cosmic-text is no longer used)
 - **Images**: image crate with PNG/JPEG support
 - **Data**: Apache Arrow for efficient data handling
 
