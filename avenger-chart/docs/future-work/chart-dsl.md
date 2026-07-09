@@ -270,6 +270,16 @@ overlay) is one inside a mark, narrowed by position. "Plot area"
 the chart-the-role: a chart is its plot plus chrome. Position determines
 the legal property set; the schema enforces it, as everywhere else.
 
+The law does **not** imply a Rust `Chart` wrapper type: title and
+subtitle are position-generic chrome (concat cells carry titles today),
+and the genuinely root-only furnishings (theme, canvas/resize policy,
+locales) are validated at the boundary where the role already
+solidifies — the plot handed to `compile()`/a host (`CompiledPlot`,
+`ChartApp` are the role-named layers) or to a dashboard panel (`Panel`
+is the role wrapper at the composition boundary). If static enforcement
+is ever wanted, the seam is a `RootPlot` newtype on `compile()`, not a
+second builder level.
+
 ## Core Declaration Form
 
 The common declaration shapes are:
