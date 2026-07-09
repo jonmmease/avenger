@@ -249,7 +249,9 @@ added method, so conflicts stay mechanical.
 ### Campaign 2 — introduce `Chart<C>`, re-scope `Subplot` (second)
 
 The rest of this document: the `Chart` type with its ~dozen forwarded
-generics and the document furnishings, the field moves (title/subtitle,
+generics, the plot-access trio (`from_plot` / `configure_plot` /
+`plot()` — the level-2 counterparts of campaign 1's `configure_coord`),
+the document furnishings, the field moves (title/subtitle,
 canvas/margins/constraints, locales, state declarations, `compile`
 going `pub(crate)` on `Plot`), `Subplot::name`/`label`/`size`/`at`, and
 the staged artifact renames. Sweep mechanics below. Its timing relative
