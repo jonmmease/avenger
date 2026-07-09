@@ -1707,7 +1707,9 @@ unscaled *channel* values only.
 ## Composition
 
 Concat and grid containers use ordered `cell` child declarations; cell
-headers are `cell <coord> [as <id>] [at { ... }]`:
+headers are `cell <coord> [as <id>] [at { ... }]`. Per the heading law
+([Charts, Plots, And Subplots](#charts-plots-and-subplots)), a cell may
+carry a `label:` caption; `title:`/`subtitle:` are chart-body-only:
 
 ```avenger
 chart hconcat as overview {
@@ -1716,6 +1718,7 @@ chart hconcat as overview {
   axis_guide_visibility: outer_edges;
 
   cell cartesian as left {
+    label: 'Totals over time';        -- cell caption (heading law: never title/subtitle)
     mark line { x: "date"; y: "total"; }
   }
 
@@ -3955,15 +3958,24 @@ The recommended implementation path is:
 1. Parse the DSL into a stable DSL AST.
 2. Resolve names, SQL snippets, params, aliases, channel references, and event
    targets.
-3. Lower the AST into the Rust authoring model: `Plot`, `MarkGroup`, primitive
-   marks, transform builders, channel values, scales, guides, params, stores,
-   selections, tools, and event bindings.
+3. Lower the AST into the Rust authoring model: a chart file's root
+   lowers to `Chart` (document furnishings — title/subtitle, theme,
+   canvas, locales, state declarations) wrapping a `Plot`; nested
+   positions (cells, embedded plots) lower to bare `Plot`s inside their
+   wrappers (`Subplot` for cells); then `MarkGroup`, primitive marks,
+   transform builders, channel values, scales, guides, params, stores,
+   selections, tools, and event bindings. **Coordinate-kind properties
+   (`rows:`, `projection:`, `responsive_columns:`, ...) lower to the
+   coordinate-system type's builder calls, never to `Plot`/`Chart`
+   methods** (see rust-authoring-wrappers.md — the wrappers carry no
+   coordinate surface beyond `with_coord`/`configure_coord`).
 4. Compile using the existing chart compiler.
 
-For decompilation, a `CompiledPlot` should be able to produce a canonical,
-fully elaborated DSL form if enough compiled metadata is retained. Exact
-authoring-source recovery should instead preserve the original DSL AST or a
-source map.
+For decompilation, the compiled root artifact (`CompiledPlot` today;
+`CompiledChart` is the staged name) should be able to produce a
+canonical, fully elaborated DSL form if enough compiled metadata is
+retained. Exact authoring-source recovery should instead preserve the
+original DSL AST or a source map.
 
 ## AST And Interchange Form
 
