@@ -30,6 +30,14 @@ This document is deliberately independent of both the DSL and the dashboard
 layer: everything here is usable from the Rust API against charts and
 concats that exist today.
 
+Sequencing note (2026-07-09): the Rust authoring-wrapper refactor
+(`rust-authoring-wrappers.md`; execution plan in
+scratch/2026-07-09/01-rust-chart-refactor/) lands **before** widget
+implementation. Examples in this document are written against the
+post-refactor API (`Chart` roots, `Subplot::name`, `configure_coord`);
+the widget contracts themselves attach to `Plot` and are untouched by
+that refactor.
+
 ## The Paradigm
 
 **A widget is a tool with a face.** The engine already has the concept of a
@@ -294,8 +302,8 @@ the frame provider differs.
 ### 1. Chart chrome (guide slots) — the v1 target
 
 ```rust
-Plot::<Cartesian>::new()
-    .mark(...)
+Chart::<Cartesian>::new()                 // post-wrapper-refactor API; .widget()
+    .mark(...)                            // lives on Plot and forwards
     .widget(trend_toggle.position(ChromePosition::TopRight))
 ```
 
@@ -309,11 +317,11 @@ filters, and parameter controls that belong to one chart.
 ### 2. Concat cells (`WidgetCell`)
 
 ```rust
-Plot::<HConcat>::new()
-    .add_selection(regions)
-    .widths([TrackSize::content(), TrackSize::fr(1.0)])
-    .mark(WidgetCell::new(region_filter).key("filters"))
-    .mark(Subplot::new(scatter).key("scatter"));
+Chart::<HConcat>::new()
+    .selection(regions)
+    .configure_coord(|c| c.widths([TrackSize::content(), TrackSize::fr(1.0)]))
+    .mark(WidgetCell::new(region_filter).name("filters"))
+    .mark(Subplot::new(scatter).name("scatter"));
 ```
 
 `WidgetCell` is `Subplot`'s widget sibling: a concat mark wrapping the
@@ -344,7 +352,7 @@ let trend_toggle = Checkbox::new("trend_toggle")
     .label("Show 3-month trend")
     .default(true);
 
-plot.mark(trend_line().visible(trend_toggle.checked()))
+chart.mark(trend_line().visible(trend_toggle.checked()))
     .widget(trend_toggle.position(ChromePosition::TopRight));
 ```
 
@@ -419,7 +427,7 @@ let measure = RadioButtonList::new("measure", measure_items)
 let min_fare = Slider::new("min_fare", 0.0, 100.0)
     .step(1.0)
     .default(10.0)
-    .label("Min fare")
+    .title("Min fare")        // widget caption = title (heading law); label is the item channel
     .format(".0f");
 
 mark.transform_no_output(Filter::new(col("fare").gt_eq(min_fare.value())), |m| m);
@@ -634,8 +642,9 @@ compound marks.
    Exit criterion: the trend-line toggle example renders and round-trips
    interaction in `chart_avenger_app`.
 2. **Data-encoded widgets.** Widget data contexts (materialize + share
-   with sizing); `CheckboxList` (+ `SelectionUpdate::toggle_clause` and
-   `empty_selects_all` if missing); `RadioButtonList`. Exit criterion: the
+   with sizing); `CheckboxList` (`SelectionUpdate::toggle_clause` and
+   `empty_selects_all` verified to exist — selection.rs:357/:734);
+   `RadioButtonList`. Exit criterion: the
    region cross-filter example, checkbox list in a chrome slot.
 3. **Slider.** Frame-local coordinate helpers; drag bindings; step/format;
    throttle. Exit criterion: live range filtering of a scatter at
