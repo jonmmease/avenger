@@ -122,6 +122,19 @@ fn census_cases() -> Vec<(&'static str, DataTransformStage)> {
             ),
         ),
         (
+            "join_aggregate_global",
+            stage(JoinAggregate::new().sum("global_total", col("value"))),
+        ),
+        (
+            "join_aggregate_grouped",
+            stage(
+                JoinAggregate::new()
+                    .group_by([col("category")])
+                    .sum("category_total", col("value"))
+                    .count("category_count"),
+            ),
+        ),
+        (
             "impute_value",
             stage(
                 Impute::new(col("value"))
@@ -215,18 +228,13 @@ async fn break_transforms_do_not_expand() {
 async fn native_only_stages_do_not_expand() {
     let ctx = SessionContext::new();
     let schema = sample_batch().schema();
-    let join_aggregate = stage(
-        JoinAggregate::new()
-            .group_by([col("category")])
-            .sum("category_total", col("value")),
-    );
     let lump = stage(
         Lump::top_n(col("category"), 2)
             .order_by(sum(col("value")))
             .name("category_lump"),
     );
 
-    for stage in [join_aggregate, lump] {
+    for stage in [lump] {
         assert_eq!(
             stage.transform.execution_shape(),
             ExecutionShape::PlanRewrite

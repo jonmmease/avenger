@@ -10,7 +10,7 @@ use avenger_chart_core::{
     IntoExpr,
 };
 use datafusion::dataframe::DataFrame;
-use datafusion::logical_expr::{Expr, JoinType, Operator, binary_expr, col, lit};
+use datafusion::logical_expr::{Expr, WindowFunctionDefinition, col, expr::WindowFunction};
 use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
 
@@ -195,45 +195,19 @@ impl CompiledDataTransform for CompiledJoinAggregateTransform {
             .map(|measure| measure.name.clone())
             .collect::<Vec<_>>();
 
-        let result = if self.group_by.is_empty() {
-            let aggregate = dataframe
-                .clone()
-                .aggregate(Vec::<Expr>::new(), aggregate_exprs(&self.measures, ctx)?)
-                .map_err(AvengerChartError::DataFusionError)?;
-            dataframe
-                .join_on(aggregate, JoinType::Left, [lit(true)])
-                .map_err(AvengerChartError::DataFusionError)?
-        } else {
-            let left_key_names = hidden_key_names(&dataframe, self.group_by.len(), "left");
-            let right_key_names = hidden_key_names(&dataframe, self.group_by.len(), "right");
-            let mut keyed = dataframe;
-            for (group, key_name) in self.group_by.iter().zip(left_key_names.iter()) {
-                keyed = keyed
-                    .with_column(key_name, group.expr.to_default_expr(ctx.session_context)?)
-                    .map_err(AvengerChartError::DataFusionError)?;
-            }
-            let aggregate = keyed
-                .clone()
-                .aggregate(
-                    left_key_names
-                        .iter()
-                        .zip(right_key_names.iter())
-                        .map(|(left, right)| col(left).alias(right))
-                        .collect::<Vec<_>>(),
-                    aggregate_exprs(&self.measures, ctx)?,
-                )
-                .map_err(AvengerChartError::DataFusionError)?;
-            let predicates = left_key_names
-                .iter()
-                .zip(right_key_names.iter())
-                .map(|(left, right)| {
-                    binary_expr(col(left), Operator::IsNotDistinctFrom, col(right))
-                })
-                .collect::<Vec<_>>();
-            keyed
-                .join_on(aggregate, JoinType::Left, predicates)
-                .map_err(AvengerChartError::DataFusionError)?
-        };
+        let partition_by = self
+            .group_by
+            .iter()
+            .map(|group| group.expr.to_default_expr(ctx.session_context))
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        let window_exprs = self
+            .measures
+            .iter()
+            .map(|measure| window_measure_expr(measure, &partition_by, ctx.session_context))
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        let result = dataframe
+            .window(window_exprs)
+            .map_err(AvengerChartError::DataFusionError)?;
 
         let mut projection = output_names
             .iter()
@@ -247,14 +221,36 @@ impl CompiledDataTransform for CompiledJoinAggregateTransform {
     }
 }
 
-fn aggregate_exprs(
-    measures: &[AggregateMeasureSpec],
-    ctx: &DataTransformExecutionContext<'_>,
-) -> Result<Vec<Expr>, AvengerChartError> {
-    measures
-        .iter()
-        .map(|measure| aggregate_expr(measure, ctx.session_context))
-        .collect()
+/// Lower a measure to `agg(...) OVER (PARTITION BY group_keys)` with the
+/// default unbounded frame, so every input row receives the aggregate value of
+/// its partition. NULL group keys form their own partition, matching the
+/// `IsNotDistinctFrom` join predicates this transform previously built.
+fn window_measure_expr(
+    measure: &AggregateMeasureSpec,
+    partition_by: &[Expr],
+    ctx: &datafusion::prelude::SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    let Expr::Alias(alias) = aggregate_expr(measure, ctx)? else {
+        return Err(AvengerChartError::InternalError(format!(
+            "JoinAggregate measure '{}' did not lower to an aliased aggregate expression",
+            measure.name
+        )));
+    };
+    let Expr::AggregateFunction(aggregate) = *alias.expr else {
+        return Err(AvengerChartError::InternalError(format!(
+            "JoinAggregate measure '{}' did not lower to an aggregate function",
+            measure.name
+        )));
+    };
+    // The aggregate's within-group order_by (approx_percentile_cont) is
+    // dropped: its accumulator reads values from the arguments and only uses
+    // the ordering for the descending flag, which aggregate_expr never sets.
+    let mut window = WindowFunction::new(
+        WindowFunctionDefinition::AggregateUDF(aggregate.func),
+        aggregate.params.args,
+    );
+    window.params.partition_by = partition_by.to_vec();
+    Ok(Expr::from(window).alias(&measure.name))
 }
 
 fn validate_measure_names(measures: &[AggregateMeasureSpec]) -> Result<(), AvengerChartError> {
@@ -274,29 +270,4 @@ fn validate_measure_names(measures: &[AggregateMeasureSpec]) -> Result<(), Aveng
         }
     }
     Ok(())
-}
-
-fn hidden_key_names(dataframe: &DataFrame, len: usize, side: &str) -> Vec<String> {
-    let existing = dataframe
-        .schema()
-        .fields()
-        .iter()
-        .map(|field| field.name().clone())
-        .collect::<IndexSet<_>>();
-    (0..len)
-        .map(|index| {
-            let base = format!("__avenger_join_aggregate_{side}_key_{index}");
-            if !existing.contains(&base) {
-                return base;
-            }
-            let mut suffix = 1;
-            loop {
-                let candidate = format!("{base}_{suffix}");
-                if !existing.contains(&candidate) {
-                    break candidate;
-                }
-                suffix += 1;
-            }
-        })
-        .collect()
 }

@@ -30,13 +30,12 @@ pub struct ExpandedStage {
 /// Add the typetag name plus a comment linking the failure; never remove
 /// silently. Consulted before unparsing.
 pub const NATIVE_ONLY_STAGES: &[&str] = &[
-    // DataFusion 54 unparses JoinAggregate's self-join plan with duplicate
-    // `input.category` qualifications that fail SQL planning; covered by
-    // `expansion_census::native_only_stages_do_not_expand`.
-    "join_aggregate",
     // DataFusion 54 unparses Lump's self-join/window plan with duplicate
     // `input.category` qualifications that fail SQL planning; covered by
-    // `expansion_census::native_only_stages_do_not_expand`.
+    // `expansion_census::native_only_stages_do_not_expand`. Lump can escape
+    // this list the same way JoinAggregate did: replace the self-join with
+    // stacked window projections (count OVER partition, then a rank over the
+    // counts, with a CASE for the "Other" bucket).
     "lump",
 ];
 

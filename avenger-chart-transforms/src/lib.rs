@@ -1656,6 +1656,74 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn joinaggregate_groups_null_keys_into_their_own_partition() {
+        // NULL group keys form a single partition that receives its own
+        // aggregate value (Vega joinaggregate semantics, previously provided
+        // by IsNotDistinctFrom join predicates) rather than a NULL measure.
+        let ctx = SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("category", DataType::Utf8, true),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec![
+                    Some("A"),
+                    None,
+                    Some("A"),
+                    None,
+                    Some("B"),
+                ])) as _,
+                Arc::new(Float64Array::from(vec![1.0, 10.0, 2.0, 20.0, 4.0])) as _,
+            ],
+        )
+        .unwrap();
+        let dataframe = ctx.read_batch(batch).unwrap();
+        let (compiled_transform, _) = compile_transform(
+            JoinAggregate::new()
+                .group_by([col("category")])
+                .sum("category_total", col("value")),
+        );
+        let batches = transformed_batches(&ctx, dataframe, vec![compiled_transform]).await;
+        let mut rows = batches
+            .iter()
+            .flat_map(|batch| {
+                let category = batch
+                    .column_by_name("category")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .unwrap();
+                let total = batch
+                    .column_by_name("category_total")
+                    .unwrap()
+                    .as_any()
+                    .downcast_ref::<Float64Array>()
+                    .unwrap();
+                (0..batch.num_rows())
+                    .map(|index| {
+                        (
+                            (category.is_valid(index)).then(|| category.value(index).to_string()),
+                            (total.is_valid(index)).then(|| total.value(index)),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(
+            rows,
+            vec![
+                (None, Some(30.0)),
+                (None, Some(30.0)),
+                (Some("A".to_string()), Some(3.0)),
+                (Some("A".to_string()), Some(3.0)),
+                (Some("B".to_string()), Some(4.0)),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn joinaggregate_multiple_measures_and_count_work() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);

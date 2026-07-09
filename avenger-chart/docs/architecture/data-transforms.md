@@ -187,8 +187,9 @@ per-facet scalars by construction.
 - `Filter`: filters rows with a boolean-coerced DataFusion predicate.
 - `Fold`: converts multiple field/value expressions into long-form rows.
 - `Impute`: fills missing key rows or null values with configured methods.
-- `JoinAggregate`: computes aggregate values and joins them back to each input
-  row.
+- `JoinAggregate`: computes aggregate values over the group keys and appends
+  them to each input row, implemented as window functions
+  (`agg(...) OVER (PARTITION BY group_keys)`).
 - `Lump`: groups low-ranked categorical values into an "Other" category or
   drops them.
 - `ScalarAggregate`: passes rows through unchanged and publishes whole-input
