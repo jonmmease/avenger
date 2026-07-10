@@ -1003,6 +1003,8 @@ async fn compile_facet_row_subplot_mark(
 }
 
 impl CompiledMarkCore for CompiledFacetRowSubplot {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -1451,6 +1453,8 @@ async fn compile_facet_wrap_subplot_mark(
 }
 
 impl CompiledMarkCore for CompiledFacetWrapSubplot {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
@@ -1602,6 +1606,8 @@ pub fn facet_subplot_ref(mark: &dyn CompiledMark) -> Option<FacetSubplotRef<'_>>
 }
 
 impl CompiledMarkCore for CompiledFacetColumnSubplot {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }

@@ -584,6 +584,8 @@ pub struct CompiledTreeLabel {
 }
 
 impl CompiledMarkCore for CompiledTreeLabel {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -1128,6 +1130,8 @@ pub struct CompiledTreeHeader {
 }
 
 impl CompiledMarkCore for CompiledTreeHeader {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }
@@ -1500,6 +1504,8 @@ pub struct CompiledTreeRect {
 }
 
 impl CompiledMarkCore for CompiledTreeRect {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

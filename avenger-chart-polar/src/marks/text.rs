@@ -53,6 +53,8 @@ pub struct CompiledPolarText {
 }
 
 impl CompiledMarkCore for CompiledPolarText {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

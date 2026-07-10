@@ -62,6 +62,8 @@ pub struct CompiledCartesianRect {
 }
 
 impl CompiledMarkCore for CompiledCartesianRect {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

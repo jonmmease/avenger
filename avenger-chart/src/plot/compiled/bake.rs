@@ -614,16 +614,31 @@ fn retarget_subplot_data_snapshots(
     Ok(())
 }
 
-/// Deep-clone a mark through its serde representation (the same machinery
-/// that ships compiled plots, so it is lossless for every mark type) and
-/// retarget the clone's data context to `replacement`, preserving
-/// transforms and channels. The freshly deserialized `Arc` is uniquely
-/// owned, so the trait-level `state_mut` reaches the same storage that
-/// `data_context()` reads — including subplot payload state.
+/// Retarget a mark's data context to `replacement`, preserving transforms
+/// and channels. Fast path: the mark's own `with_data_context` (a struct
+/// clone — every built-in mark implements it). Fallback for mark types
+/// without it (e.g. external crates): a serde round-trip deep clone (the
+/// same machinery that ships compiled plots, so it is lossless), whose
+/// freshly deserialized `Arc` is uniquely owned so the trait-level
+/// `state_mut` reaches the same storage that `data_context()` reads —
+/// including subplot payload state. The fallback serializes the OLD
+/// snapshot it is about to discard, so it can be slow for marks carrying
+/// large inline sources; `with_data_context` is the supported remedy.
 fn mark_with_retargeted_data_node(
     mark: &Arc<dyn CompiledMark>,
     replacement: &LogicalPlanNode,
 ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    let context = mark.data_context();
+    let retargeted_context = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
+        Some(replacement.clone()),
+        context.transforms().to_vec(),
+        context.channels().clone(),
+        context.pattern_channels().clone(),
+    );
+    if let Some(retargeted) = mark.with_data_context(retargeted_context.clone()) {
+        return Ok(retargeted);
+    }
+
     let encoded = bincode::serialize(mark).map_err(|err| {
         AvengerChartError::InternalError(format!(
             "Failed to serialize mark for bake snapshot retargeting: {err}"
@@ -634,19 +649,14 @@ fn mark_with_retargeted_data_node(
             "Failed to deserialize mark for bake snapshot retargeting: {err}"
         ))
     })?;
-    let state = Arc::get_mut(&mut cloned)
+    Arc::get_mut(&mut cloned)
         .ok_or_else(|| {
             AvengerChartError::InternalError(
                 "Freshly deserialized mark was not uniquely owned during bake emit".to_string(),
             )
         })?
-        .state_mut();
-    state.data = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
-        Some(replacement.clone()),
-        state.data.transforms().to_vec(),
-        state.data.channels().clone(),
-        state.data.pattern_channels().clone(),
-    );
+        .state_mut()
+        .data = retargeted_context;
     Ok(cloned)
 }
 

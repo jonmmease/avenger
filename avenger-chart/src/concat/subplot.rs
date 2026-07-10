@@ -631,6 +631,8 @@ pub fn compiled_subplot(mark: &dyn CompiledMark) -> Option<&CompiledConcatSubplo
 }
 
 impl CompiledMarkCore for CompiledConcatSubplot {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }

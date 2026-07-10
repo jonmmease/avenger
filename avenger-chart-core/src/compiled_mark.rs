@@ -21,6 +21,23 @@ use crate::{
     ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
 };
 
+/// Implements [`CompiledMarkCore::with_data_context`] for a `Clone` mark
+/// type: clone, replace the state's data context, re-`Arc`. Expand inside
+/// the type's `impl CompiledMarkCore` block.
+#[macro_export]
+macro_rules! impl_mark_with_data_context {
+    () => {
+        fn with_data_context(
+            &self,
+            data: $crate::CompiledDataContext,
+        ) -> Option<std::sync::Arc<dyn $crate::CompiledMark>> {
+            let mut mark = self.clone();
+            $crate::CompiledMarkCore::state_mut(&mut mark).data = data;
+            Some(std::sync::Arc::new(mark))
+        }
+    };
+}
+
 pub struct RenderedMarkData {
     pub marks: Vec<SceneMark>,
     pub source_row_indices: Option<Vec<Vec<usize>>>,
@@ -93,6 +110,16 @@ pub struct MarkScaleDomainSource {
 pub trait CompiledMarkCore: Any + Send + Sync {
     /// Get the mark's state (compiled version with CompiledDataContext).
     fn state(&self) -> &CompiledMarkState;
+
+    /// Return a copy of this mark with its data context replaced, or `None`
+    /// when the mark type does not provide a cheap clone (callers fall back
+    /// to a serde round-trip of the mark). Baking uses this to retarget
+    /// compile-time data-plan snapshots to the baked residual. Implement via
+    /// [`impl_mark_with_data_context`](crate::impl_mark_with_data_context)
+    /// on any `Clone` mark type.
+    fn with_data_context(&self, _data: CompiledDataContext) -> Option<Arc<dyn CompiledMark>> {
+        None
+    }
 
     /// Get mutable reference to the mark's state.
     fn state_mut(&mut self) -> &mut CompiledMarkState;

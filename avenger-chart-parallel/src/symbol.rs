@@ -131,6 +131,8 @@ pub struct CompiledParallelSymbol {
 }
 
 impl CompiledMarkCore for CompiledParallelSymbol {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

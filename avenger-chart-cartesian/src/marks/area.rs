@@ -76,6 +76,8 @@ struct AreaRenderPartitionKey {
 }
 
 impl CompiledMarkCore for CompiledCartesianArea {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

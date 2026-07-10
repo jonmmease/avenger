@@ -77,6 +77,8 @@ pub struct CompiledCartesianSymbol {
 }
 
 impl CompiledMarkCore for CompiledCartesianSymbol {
+    avenger_chart_core::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         &self.state
     }

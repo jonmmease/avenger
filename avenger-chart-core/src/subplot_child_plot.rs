@@ -477,6 +477,8 @@ impl PositionedSubplotMarkCore for CompiledPositionedSubplot {
 }
 
 impl CompiledMarkCore for CompiledPositionedSubplot {
+    crate::impl_mark_with_data_context!();
+
     fn state(&self) -> &CompiledMarkState {
         self.payload.compiled_state()
     }
