@@ -1269,6 +1269,43 @@ impl CompiledFacetWrapSubplot {
             context,
         ))
     }
+
+    /// Rebuild this mark with an updated state and/or child plot,
+    /// REGENERATING `physical_subplot` through the same constructor compile
+    /// uses so the payload and its physical lowering cannot diverge. The
+    /// physical plot's synthetic column mark and compiled guide both capture
+    /// the state's data-plan snapshot, so any bake mutation (child-plot
+    /// emit, plot-data snapshot retarget) must come through here — patching
+    /// the payload alone leaves the RENDER path pointing at stale plans.
+    pub(crate) fn rebuilt_with(
+        &self,
+        state: CompiledMarkState,
+        child: Arc<CompiledPlot>,
+        session_context: &SessionContext,
+    ) -> Result<Self, AvengerChartError> {
+        let physical_subplot = build_physical_wrap_subplot(
+            &state,
+            child.clone(),
+            self.config.facet_title().map(ToOwned::to_owned),
+            self.config.facet_position().map(ToOwned::to_owned),
+            self.config.facet_guide_visible(),
+            self.config.axis_guide_visibility(),
+            self.config.facet_empty_cell_policy(),
+            session_context,
+        )?;
+        Ok(Self {
+            payload: CompiledSubplotPayload::new(
+                state,
+                child as Arc<dyn avenger_chart_core::CompiledSubplotChildPlot>,
+                self.payload.label().map(ToOwned::to_owned),
+                self.payload.key().map(ToOwned::to_owned),
+                self.payload.data_source(),
+            ),
+            physical_subplot,
+            config: self.config.clone(),
+            facet_column_mode: self.facet_column_mode.clone(),
+        })
+    }
 }
 
 fn synthetic_column_state_for_wrap(

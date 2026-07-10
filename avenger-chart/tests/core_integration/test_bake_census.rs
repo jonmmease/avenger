@@ -193,6 +193,65 @@ async fn census_faceted_aggregate() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Facet wrap: like the faceted row, the plot data (with a live param
+/// filter) bakes to one table serving all cells and the per-cell chain
+/// stays live — but wrap marks RENDER through a regenerated physical
+/// lowering, so byte-equality here proves the physical-subplot
+/// regeneration keeps payload and render path consistent. The
+/// param-filtered plot data is the shape that exposed the facet_col guide
+/// fail-open.
+#[tokio::test]
+async fn census_facet_wrap() -> Result<(), Box<dyn std::error::Error>> {
+    let server_ctx = SessionContext::new();
+    server_ctx.register_batch("segmented_sales", segmented_sales_batch())?;
+    let data = server_ctx
+        .sql("SELECT * FROM segmented_sales WHERE value > $min")
+        .await?;
+    let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+        Aggregate::new().sum("total", col("value")),
+        |group, aggregate| {
+            group.mark(
+                Symbol::new()
+                    .x(aggregate.output("total"))
+                    .y(aggregate.output("total"))
+                    .size(72.0),
+            )
+        },
+    ));
+    let compiled = Plot::<FacetWrap>::new()
+        .canvas_size(520.0, 260.0)
+        .data(data)
+        .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
+        .compile(&server_ctx)
+        .await?;
+
+    let sets = [0.5, 3.5]
+        .map(|min| (params(&[("min", min)]), params(&[("min", min)])))
+        .to_vec();
+    let report = assert_bake_equivalence(
+        "facet-wrap",
+        &server_ctx,
+        &compiled,
+        &BakePolicy::default(),
+        &sets,
+    )
+    .await?;
+
+    // Root plot data baked; child plot inherits (NoData); the per-cell
+    // chain stays live.
+    assert_eq!(report.contexts.len(), 3, "{:#?}", report.contexts);
+    assert_eq!(count_baked(&report), 1);
+    assert!(report.contexts.iter().any(|status| matches!(
+        status,
+        ContextBakeStatus::NotBaked {
+            context_id: BakeContextId::ChildMarkGroup { .. },
+            reason: NotBakedReason::FacetScopedTransforms,
+        }
+    )));
+    assert!(report.self_contained, "{:#?}", report.contexts);
+    Ok(())
+}
+
 fn threshold_store_batch() -> RecordBatch {
     RecordBatch::try_new(
         Arc::new(Schema::new(vec![

@@ -26,7 +26,9 @@ use crate::bake::{
 };
 
 use super::{CompiledPlot, compiled_subplot_payload_child_plot_arc};
-use crate::facet::marks::{CompiledFacetColumnSubplot, CompiledFacetRowSubplot};
+use crate::facet::marks::{
+    CompiledFacetColumnSubplot, CompiledFacetRowSubplot, CompiledFacetWrapSubplot,
+};
 
 #[derive(Clone)]
 struct BakeTarget {
@@ -124,7 +126,7 @@ impl CompiledPlot {
         for (assembled, residual) in assembly.contexts.iter().zip(residuals.iter()) {
             match primary_baked_table(assembled, residual, &partial_report.baked) {
                 PrimaryMatch::One(primary) => {
-                    emit_proto_context(&mut baked, &assembled.target, residual)?;
+                    emit_proto_context(&mut baked, &assembled.target, residual, ctx)?;
                     let keeps_live_stages = matches!(
                         assembled.target.kind,
                         BakeTargetKind::MarkGroup {
@@ -337,7 +339,7 @@ async fn assemble_plot_tree(
 /// opposed to once, globally). Facet subplots always do; positioned subplots
 /// do when they partition parent data.
 fn mark_evaluates_child_per_cell(mark: &dyn CompiledMark) -> bool {
-    if matches!(mark.mark_type(), "facet_col" | "facet_row") {
+    if matches!(mark.mark_type(), "facet_col" | "facet_row" | "facet_wrap") {
         return true;
     }
     mark.as_positioned_subplot()
@@ -512,6 +514,7 @@ fn emit_proto_context(
     compiled: &mut CompiledPlot,
     target: &BakeTarget,
     residual: &LogicalPlan,
+    ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
     let node = LogicalPlanNode::from_logical_plan(residual)?;
     let mut apply = |plot: &mut CompiledPlot| match &target.kind {
@@ -524,7 +527,7 @@ fn emit_proto_context(
             // plan, or the baked plot keeps a live source-table reference
             // that fails open during guide measurement in a fresh session.
             if let Some(original) = original.as_ref() {
-                retarget_subplot_data_snapshots(plot, original, &node)?;
+                retarget_subplot_data_snapshots(plot, original, &node, ctx)?;
             }
             Ok(())
         }
@@ -551,13 +554,14 @@ fn emit_proto_context(
             Ok(())
         }
     };
-    mutate_plot_at_path(compiled, &target.plot_path, &mut apply)
+    mutate_plot_at_path(compiled, &target.plot_path, &mut apply, ctx)
 }
 
 fn mutate_plot_at_path<F>(
     plot: &mut CompiledPlot,
     path: &[usize],
     apply: &mut F,
+    ctx: &SessionContext,
 ) -> Result<(), AvengerChartError>
 where
     F: FnMut(&mut CompiledPlot) -> Result<(), AvengerChartError>,
@@ -579,8 +583,8 @@ where
         let mut child_plot = compiled_subplot_payload_child_plot_arc(payload)
             .as_ref()
             .clone();
-        mutate_plot_at_path(&mut child_plot, rest, apply)?;
-        rebuild_subplot_mark_with_child(mark.as_ref(), child_plot)?
+        mutate_plot_at_path(&mut child_plot, rest, apply, ctx)?;
+        rebuild_subplot_mark_with_child(mark.as_ref(), child_plot, ctx)?
     };
     plot.marks[mark_index] = replacement;
     Ok(())
@@ -595,13 +599,14 @@ fn retarget_subplot_data_snapshots(
     plot: &mut CompiledPlot,
     original: &LogicalPlanNode,
     replacement: &LogicalPlanNode,
+    ctx: &SessionContext,
 ) -> Result<(), AvengerChartError> {
     for index in 0..plot.marks.len() {
         let context = plot.marks[index].as_ref().data_context();
         if context.store_data().is_some() || context.logical_plan_node() != Some(original) {
             continue;
         }
-        plot.marks[index] = mark_with_retargeted_data_node(&plot.marks[index], replacement)?;
+        plot.marks[index] = mark_with_retargeted_data_node(&plot.marks[index], replacement, ctx)?;
     }
     // The compiled coordinate guide is built at compile time and captures its
     // own copy of the facet data plan (facet band guides measure partition
@@ -627,6 +632,7 @@ fn retarget_subplot_data_snapshots(
 fn mark_with_retargeted_data_node(
     mark: &Arc<dyn CompiledMark>,
     replacement: &LogicalPlanNode,
+    ctx: &SessionContext,
 ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
     let context = mark.data_context();
     let retargeted_context = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
@@ -635,6 +641,25 @@ fn mark_with_retargeted_data_node(
         context.channels().clone(),
         context.pattern_channels().clone(),
     );
+    // facet_wrap marks RENDER through `physical_subplot`, a lowering that
+    // captures the state's data snapshot in its own synthetic mark and
+    // guide. A state-only retarget (the generic paths below) would leave
+    // the render path on the stale plan, so wrap marks regenerate the
+    // physical from the retargeted state instead.
+    if mark.mark_type() == "facet_wrap" {
+        let subplot = mark
+            .as_any()
+            .downcast_ref::<CompiledFacetWrapSubplot>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "facet_wrap mark did not downcast during bake retarget".to_string(),
+                )
+            })?;
+        let mut state = subplot.payload.compiled_state().clone();
+        state.data = retargeted_context;
+        let child = compiled_subplot_payload_child_plot_arc(&subplot.payload);
+        return Ok(Arc::new(subplot.rebuilt_with(state, child, ctx)?));
+    }
     if let Some(retargeted) = mark.with_data_context(retargeted_context.clone()) {
         return Ok(retargeted);
     }
@@ -673,6 +698,10 @@ fn subplot_payload_for_mark(mark: &dyn CompiledMark) -> Option<&CompiledSubplotP
             .as_any()
             .downcast_ref::<CompiledFacetRowSubplot>()
             .map(|subplot| &subplot.payload),
+        "facet_wrap" => mark
+            .as_any()
+            .downcast_ref::<CompiledFacetWrapSubplot>()
+            .map(|subplot| &subplot.payload),
         _ => None,
     }
 }
@@ -680,8 +709,10 @@ fn subplot_payload_for_mark(mark: &dyn CompiledMark) -> Option<&CompiledSubplotP
 fn rebuild_subplot_mark_with_child(
     mark: &dyn CompiledMark,
     child_plot: CompiledPlot,
+    ctx: &SessionContext,
 ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
-    let child_arc: Arc<dyn CompiledSubplotChildPlot> = Arc::new(child_plot);
+    let child_concrete = Arc::new(child_plot);
+    let child_arc: Arc<dyn CompiledSubplotChildPlot> = child_concrete.clone();
     match mark.mark_type() {
         "facet_col" => {
             let subplot = mark
@@ -707,6 +738,25 @@ fn rebuild_subplot_mark_with_child(
                 })?;
             let mut rebuilt = subplot.clone();
             rebuilt.payload = payload_with_child_plot(&subplot.payload, child_arc);
+            return Ok(Arc::new(rebuilt));
+        }
+        "facet_wrap" => {
+            let subplot = mark
+                .as_any()
+                .downcast_ref::<CompiledFacetWrapSubplot>()
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "facet_wrap mark did not downcast during bake emit".to_string(),
+                    )
+                })?;
+            // Regenerate the physical lowering from the new child; a
+            // payload-only rebuild would leave the RENDER path on the old
+            // child plot.
+            let rebuilt = subplot.rebuilt_with(
+                subplot.payload.compiled_state().clone(),
+                child_concrete,
+                ctx,
+            )?;
             return Ok(Arc::new(rebuilt));
         }
         _ => {}
@@ -1117,6 +1167,119 @@ mod tests {
             assembly.contexts[0].context_id,
             BakeContextId::PlotData
         ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn facet_wrap_inherited_chain_stays_live_and_plot_data_assembles()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let data = register_sales(&ctx).await;
+        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+            Aggregate::new().sum("total", col("value")),
+            |group, aggregate| {
+                group.mark(
+                    Symbol::new()
+                        .x(aggregate.output("total"))
+                        .y(aggregate.output("total"))
+                        .size(48.0),
+                )
+            },
+        ));
+        let compiled = Plot::<FacetWrap>::new()
+            .data(data)
+            .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
+            .compile(&ctx)
+            .await?;
+
+        let assembly = assemble(&compiled, &ctx).await;
+        assert!(
+            assembly.statuses.iter().any(|status| matches!(
+                status,
+                ContextBakeStatus::NotBaked {
+                    context_id: BakeContextId::ChildMarkGroup { subplot_path, index: 0, .. },
+                    reason: NotBakedReason::FacetScopedTransforms,
+                } if subplot_path == &[0]
+            )),
+            "statuses: {:#?}",
+            assembly.statuses
+        );
+        assert_eq!(assembly.contexts.len(), 1, "{:#?}", assembly.statuses);
+        assert!(matches!(
+            assembly.contexts[0].context_id,
+            BakeContextId::PlotData
+        ));
+        Ok(())
+    }
+
+    /// Wrap marks render through `physical_subplot`; a plot-data emit must
+    /// leave BOTH the payload snapshot and the regenerated physical lowering
+    /// (its synthetic column mark) pointing at the baked residual, with the
+    /// child plot Arc passed through untouched.
+    #[tokio::test]
+    async fn facet_wrap_bake_regenerates_physical_subplot() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let ctx = SessionContext::new();
+        ctx.register_batch("sales", sales_batch())?;
+        let data = ctx.sql("SELECT * FROM sales WHERE value > $min").await?;
+        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+            Aggregate::new().sum("total", col("value")),
+            |group, aggregate| {
+                group.mark(
+                    Symbol::new()
+                        .x(aggregate.output("total"))
+                        .y(aggregate.output("total"))
+                        .size(48.0),
+                )
+            },
+        ));
+        let compiled = Plot::<FacetWrap>::new()
+            .data(data)
+            .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
+            .compile(&ctx)
+            .await?;
+        let original_node = compiled.data.clone().expect("plot data");
+        let original_wrap = compiled.marks[0]
+            .as_any()
+            .downcast_ref::<CompiledFacetWrapSubplot>()
+            .expect("wrap mark");
+        let original_child = compiled_subplot_payload_child_plot_arc(&original_wrap.payload);
+
+        let (baked, report) = compiled.bake(&ctx, &BakePolicy::default()).await?;
+        assert!(report.self_contained, "{:#?}", report.contexts);
+        let baked_node = baked.data.as_ref().expect("baked plot data");
+        assert_ne!(baked_node, &original_node);
+
+        let wrap = baked.marks[0]
+            .as_any()
+            .downcast_ref::<CompiledFacetWrapSubplot>()
+            .expect("baked wrap mark");
+        // Payload snapshot retargeted...
+        assert_eq!(
+            wrap.payload.compiled_state().data.logical_plan_node(),
+            Some(baked_node)
+        );
+        // ...the physical lowering's synthetic column mark regenerated from
+        // the retargeted state...
+        let synthetic = wrap.physical_subplot().marks[0].as_ref();
+        assert_eq!(
+            synthetic.data_context().logical_plan_node(),
+            Some(baked_node)
+        );
+        // ...the child plot passed through by Arc identity (nothing inside
+        // it was baked in this chart)...
+        assert!(Arc::ptr_eq(
+            &compiled_subplot_payload_child_plot_arc(&wrap.payload),
+            &original_child
+        ));
+        // ...and no mark anywhere still targets the original plan.
+        assert!(
+            !baked
+                .marks
+                .iter()
+                .chain(wrap.physical_subplot().marks.iter())
+                .any(|mark| mark.data_context().logical_plan_node() == Some(&original_node))
+        );
         Ok(())
     }
 
