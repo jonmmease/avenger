@@ -7,6 +7,9 @@ use datafusion_common::ScalarValue;
 const DEFAULT_MAX_BAKED_BYTES_PER_SUBTREE: usize = 64 * 1024 * 1024;
 const DEFAULT_MAX_BAKED_BYTES_TOTAL: usize = 256 * 1024 * 1024;
 
+/// Default prefix for generated baked-table names.
+pub const DEFAULT_TABLE_NAME_PREFIX: &str = "__pe_baked_";
+
 /// Controls which subtrees may be baked and how much data may be embedded.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartialEvalPolicy {
@@ -18,6 +21,11 @@ pub struct PartialEvalPolicy {
     pub fixed_params: Vec<(String, ScalarValue)>,
     /// Resolved table names that must stay symbolic.
     pub unfoldable_tables: HashSet<String>,
+    /// Prefix for generated baked-table names (a per-call counter is
+    /// appended). Callers evaluating multiple plans destined for one
+    /// `SessionContext` should pass a call-unique prefix so registrations
+    /// from different evaluations cannot collide.
+    pub table_name_prefix: String,
 }
 
 impl Default for PartialEvalPolicy {
@@ -27,6 +35,7 @@ impl Default for PartialEvalPolicy {
             max_baked_bytes_total: DEFAULT_MAX_BAKED_BYTES_TOTAL,
             fixed_params: Vec::new(),
             unfoldable_tables: HashSet::new(),
+            table_name_prefix: DEFAULT_TABLE_NAME_PREFIX.to_string(),
         }
     }
 }

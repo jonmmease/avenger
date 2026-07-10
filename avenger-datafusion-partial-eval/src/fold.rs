@@ -150,7 +150,7 @@ impl<'a> FoldSession<'a> {
                 vec![batches.clone()],
             )?);
 
-            let table_name = format!("__pe_baked_{}", self.next_table_id);
+            let table_name = format!("{}{}", self.policy.table_name_prefix, self.next_table_id);
             self.next_table_id += 1;
             self.total_bytes += bytes;
             let source_tables = source_tables(&subtree);

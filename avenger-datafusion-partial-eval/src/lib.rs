@@ -31,7 +31,8 @@ use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::SessionContext;
 
 pub use policy::{
-    BakeReport, BakedSubtree, PartialEvalOutput, PartialEvalPolicy, SkipReason, SkippedSubtree,
+    BakeReport, BakedSubtree, DEFAULT_TABLE_NAME_PREFIX, PartialEvalOutput, PartialEvalPolicy,
+    SkipReason, SkippedSubtree,
 };
 
 /// Partially evaluate a single logical plan.

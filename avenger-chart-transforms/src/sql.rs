@@ -89,6 +89,28 @@ impl CompiledDataTransform for CompiledSqlTransform {
         ExecutionShape::PlanRewrite
     }
 
+    /// Session tables named in the query besides the reserved `input`
+    /// relation. CTE names are excluded by the resolver.
+    fn referenced_session_tables(&self) -> Vec<String> {
+        let Ok(statement) = parse_single_query(&self.query) else {
+            return Vec::new();
+        };
+        let Ok((table_refs, _ctes)) =
+            datafusion::sql::resolve::resolve_table_references(&statement, true)
+        else {
+            return Vec::new();
+        };
+        table_refs
+            .into_iter()
+            .filter(|table_ref| {
+                !(table_ref.table() == INPUT_TABLE
+                    && table_ref.schema().is_none()
+                    && table_ref.catalog().is_none())
+            })
+            .map(|table_ref| table_ref.to_string())
+            .collect()
+    }
+
     async fn apply(
         &self,
         dataframe: DataFrame,
@@ -441,6 +463,36 @@ mod tests {
             time_context: TimeContext::default(),
             facet_context: None,
         }
+    }
+
+    #[test]
+    fn referenced_session_tables_excludes_input_and_ctes() {
+        let side_join = CompiledSqlTransform {
+            query: "SELECT input.value, s.threshold FROM input \
+                    JOIN side_thresholds s ON input.k = s.k"
+                .to_string(),
+        };
+        assert_eq!(
+            side_join.referenced_session_tables(),
+            vec!["side_thresholds".to_string()]
+        );
+
+        let input_only = CompiledSqlTransform {
+            query: "SELECT value * 2.0 AS doubled FROM input WHERE value > $min".to_string(),
+        };
+        assert!(input_only.referenced_session_tables().is_empty());
+
+        let with_cte = CompiledSqlTransform {
+            query: "WITH totals AS (SELECT k, SUM(value) AS total FROM input GROUP BY k) \
+                    SELECT input.value, totals.total FROM input \
+                    JOIN totals ON input.k = totals.k"
+                .to_string(),
+        };
+        assert!(
+            with_cte.referenced_session_tables().is_empty(),
+            "{:?}",
+            with_cte.referenced_session_tables()
+        );
     }
 
     async fn collect_sql(query: &str) -> Result<Vec<RecordBatch>, AvengerChartError> {

@@ -52,11 +52,19 @@ struct AssembledContext {
     context_id: BakeContextId,
     plan: LogicalPlan,
     base_table_names: Vec<String>,
+    /// Session tables the ORIGINAL transform chain reads besides its input.
+    /// Relevant whenever the chain remains live after the bake: base-only
+    /// emits keep their stages, and pass-through contexts keep the whole
+    /// original chain.
+    live_stage_tables: Vec<String>,
 }
 
 struct Assembly {
     contexts: Vec<AssembledContext>,
     statuses: Vec<ContextBakeStatus>,
+    /// Session tables read by transform chains that stay live on NOT-baked
+    /// contexts (skipped groups keep their original stages).
+    live_stage_tables: Vec<String>,
 }
 
 impl CompiledPlot {
@@ -72,7 +80,10 @@ impl CompiledPlot {
         policy: &BakePolicy,
     ) -> Result<(CompiledPlot, PlotBakeReport), AvengerChartError> {
         let assembly = assemble(self, ctx).await;
-        let partial_policy = policy.to_partial_eval_policy(self.runtime_unfoldable_tables());
+        let partial_policy = policy.to_partial_eval_policy(
+            self.runtime_unfoldable_tables(),
+            crate::bake::unique_bake_table_prefix(),
+        );
 
         let (residuals, partial_report) = if assembly.contexts.is_empty() {
             (Vec::new(), BakeReport::empty())
@@ -103,12 +114,34 @@ impl CompiledPlot {
             .collect::<Vec<_>>();
         let mut any_context_baked = false;
         let mut all_baked_self_contained = true;
+        // Session tables still read by chains that remain live after the bake
+        // (skipped contexts and preserved pass-through chains).
+        let mut live_table_refs = assembly.live_stage_tables.clone();
+        // Baked tables actually referenced by an EMITTED residual; anything
+        // else in the crate report is dead weight for this plot's manifest.
+        let mut manifest_names: HashSet<String> = HashSet::new();
 
         for (assembled, residual) in assembly.contexts.iter().zip(residuals.iter()) {
             match primary_baked_table(assembled, residual, &partial_report.baked) {
                 PrimaryMatch::One(primary) => {
                     emit_proto_context(&mut baked, &assembled.target, residual)?;
-                    let self_contained = residual_self_contained(residual, &baked_table_names);
+                    let keeps_live_stages = matches!(
+                        assembled.target.kind,
+                        BakeTargetKind::MarkGroup {
+                            keep_transforms: true,
+                            ..
+                        }
+                    );
+                    let self_contained = residual_self_contained(residual, &baked_table_names)
+                        && (!keeps_live_stages || assembled.live_stage_tables.is_empty());
+                    if keeps_live_stages {
+                        live_table_refs.extend(assembled.live_stage_tables.iter().cloned());
+                    }
+                    manifest_names.extend(
+                        table_names(residual)
+                            .into_iter()
+                            .filter(|name| baked_table_names.contains(name)),
+                    );
                     all_baked_self_contained &= self_contained;
                     any_context_baked = true;
                     statuses.push(ContextBakeStatus::Baked {
@@ -119,6 +152,7 @@ impl CompiledPlot {
                     });
                 }
                 PrimaryMatch::None => {
+                    live_table_refs.extend(assembled.live_stage_tables.iter().cloned());
                     statuses.push(ContextBakeStatus::NotBaked {
                         context_id: assembled.context_id.clone(),
                         reason: NotBakedReason::BaseNotFolded {
@@ -127,6 +161,7 @@ impl CompiledPlot {
                     });
                 }
                 PrimaryMatch::Multiple(table_names) => {
+                    live_table_refs.extend(assembled.live_stage_tables.iter().cloned());
                     statuses.push(ContextBakeStatus::NotBaked {
                         context_id: assembled.context_id.clone(),
                         reason: NotBakedReason::MultiplePrimaryTables { table_names },
@@ -135,23 +170,20 @@ impl CompiledPlot {
             }
         }
 
-        baked.baked_tables = if any_context_baked {
-            partial_report
-                .baked
-                .iter()
-                .map(|table| {
-                    BakedTableManifestEntry::from_batches(
-                        table.table_name.clone(),
-                        table.schema.clone(),
-                        &table.batches,
-                        table.rows,
-                        table.bytes,
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?
-        } else {
-            Vec::new()
-        };
+        baked.baked_tables = partial_report
+            .baked
+            .iter()
+            .filter(|table| manifest_names.contains(&table.table_name))
+            .map(|table| {
+                BakedTableManifestEntry::from_batches(
+                    table.table_name.clone(),
+                    table.schema.clone(),
+                    &table.batches,
+                    table.rows,
+                    table.bytes,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         let report = PlotBakeReport {
             as_of: partial_report.as_of,
@@ -167,7 +199,9 @@ impl CompiledPlot {
             unused_fixed_params: partial_report.unused_fixed_params,
             remaining_params: partial_report.remaining_params,
             contexts: statuses,
-            self_contained: any_context_baked && all_baked_self_contained,
+            self_contained: any_context_baked
+                && all_baked_self_contained
+                && live_table_refs.is_empty(),
         };
         baked.bake_report = Some(report.clone());
         Ok((baked, report))
@@ -191,6 +225,7 @@ async fn assemble(compiled: &CompiledPlot, ctx: &SessionContext) -> Assembly {
     let mut assembly = Assembly {
         contexts: Vec::new(),
         statuses: Vec::new(),
+        live_stage_tables: Vec::new(),
     };
     assemble_plot_tree(compiled, ctx, Vec::new(), None, false, &mut assembly).await;
     assembly
@@ -260,9 +295,17 @@ async fn assemble_plot_tree(
                 context_id,
                 reason: NotBakedReason::NoData,
             }),
-            Err(reason) => assembly
-                .statuses
-                .push(ContextBakeStatus::NotBaked { context_id, reason }),
+            Err(reason) => {
+                // The skipped context keeps its original transform chain
+                // live; any session tables those stages read stay required
+                // at evaluation time.
+                assembly
+                    .live_stage_tables
+                    .extend(live_stage_session_tables(group.data.transforms()));
+                assembly
+                    .statuses
+                    .push(ContextBakeStatus::NotBaked { context_id, reason });
+            }
         }
     }
 
@@ -328,6 +371,7 @@ fn assemble_plot_data_plan(
         context_id: plot_data_context_id(&plot_path),
         plan,
         base_table_names,
+        live_stage_tables: Vec::new(),
     })
 }
 
@@ -369,6 +413,7 @@ async fn assemble_data_context(
     if data_mode == MarkDataMode::Unit {
         return Ok(None);
     };
+    let live_stage_tables = live_stage_session_tables(data_context.transforms());
 
     if under_facet {
         // A chain in a per-cell plot evaluates against facet-scoped data, and
@@ -397,6 +442,7 @@ async fn assemble_data_context(
                     context_id,
                     plan: base_plan,
                     base_table_names,
+                    live_stage_tables,
                 }))
             }
             None if data_context.transforms().is_empty() => Ok(None),
@@ -450,7 +496,16 @@ async fn assemble_data_context(
         context_id,
         plan: result.dataframe.logical_plan().clone(),
         base_table_names,
+        live_stage_tables,
     }))
+}
+
+/// Session tables read by a transform chain's stages besides their inputs.
+fn live_stage_session_tables(transforms: &[avenger_chart_core::DataTransformStage]) -> Vec<String> {
+    transforms
+        .iter()
+        .flat_map(|stage| stage.transform.referenced_session_tables())
+        .collect()
 }
 
 fn emit_proto_context(
@@ -682,9 +737,11 @@ fn plan_consumes_derived_scalars(plan: &LogicalPlan) -> bool {
 }
 
 fn residual_self_contained(plan: &LogicalPlan, baked_table_names: &HashSet<String>) -> bool {
-    table_names(plan)
-        .into_iter()
-        .all(|name| baked_table_names.contains(&name))
+    table_names(plan).into_iter().all(|name| {
+        // Anonymous scans (`?table?`) carry inline providers that serialize
+        // with the plan; only NAMED scans need a manifest entry behind them.
+        name == datafusion::logical_expr::UNNAMED_TABLE || baked_table_names.contains(&name)
+    })
 }
 
 fn table_names(plan: &LogicalPlan) -> Vec<String> {
@@ -1051,7 +1108,10 @@ mod tests {
                 .map(|context| context.plan.clone())
                 .collect(),
             &ctx,
-            &BakePolicy::default().to_partial_eval_policy(compiled.runtime_unfoldable_tables()),
+            &BakePolicy::default().to_partial_eval_policy(
+                compiled.runtime_unfoldable_tables(),
+                crate::bake::unique_bake_table_prefix(),
+            ),
         )
         .await?;
         assert_eq!(partial_report.baked.len(), 1);
@@ -1069,6 +1129,133 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(primary_tables.len(), 2);
         assert_eq!(primary_tables[0], primary_tables[1]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bakes_use_disjoint_table_names_across_bakes() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let ctx = SessionContext::new();
+        let compiled = shared_chain_plot(&ctx).await?;
+
+        let (first, _) = compiled.bake(&ctx, &BakePolicy::default()).await?;
+        let (second, _) = compiled.bake(&ctx, &BakePolicy::default()).await?;
+        let first_names = first
+            .baked_tables
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect::<HashSet<_>>();
+        let second_names = second
+            .baked_tables
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect::<HashSet<_>>();
+
+        assert!(!first_names.is_empty());
+        assert!(
+            first_names.is_disjoint(&second_names),
+            "{first_names:?} vs {second_names:?}"
+        );
+        Ok(())
+    }
+
+    fn big_batch() -> RecordBatch {
+        let regions = (0..4096)
+            .map(|index| if index % 2 == 0 { "EU" } else { "NA" })
+            .collect::<Vec<_>>();
+        let values = (0..4096).map(|index| index as f64).collect::<Vec<_>>();
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(regions)) as _,
+                Arc::new(Float64Array::from(values)) as _,
+            ],
+        )
+        .expect("big batch")
+    }
+
+    /// A baked table referenced only by a NOT-emitted (pass-through) residual
+    /// must not ship in the plot manifest.
+    #[tokio::test]
+    async fn manifest_drops_tables_unreferenced_by_emitted_residuals()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        ctx.register_batch("sales", sales_batch())?;
+        ctx.register_batch("big", big_batch())?;
+        ctx.register_batch("side", sales_batch())?;
+
+        // Group A: folds fully and is emitted.
+        let folding = ctx.sql("SELECT region, value FROM sales").await?;
+        // Group B: the join's side folds within budget, the big base does
+        // not, so B passes through — its baked side table is dead weight.
+        let partial = ctx
+            .sql(
+                "SELECT big.value, side.value AS threshold \
+                 FROM big JOIN side ON big.region = side.region",
+            )
+            .await?;
+        let compiled = Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .data(folding)
+                    .mark(Symbol::new().x(col("value")).y(col("value")).size(48.0)),
+            )
+            .mark(
+                MarkGroup::new()
+                    .data(partial)
+                    .mark(Symbol::new().x(col("value")).y(col("threshold")).size(24.0)),
+            )
+            .compile(&ctx)
+            .await?;
+
+        let policy = BakePolicy {
+            max_baked_bytes_per_subtree: 8 * 1024,
+            ..BakePolicy::default()
+        };
+        let (baked, report) = compiled.bake(&ctx, &policy).await?;
+
+        let emitted_primaries = report
+            .contexts
+            .iter()
+            .filter_map(|status| match status {
+                ContextBakeStatus::Baked { primary_table, .. } => Some(primary_table.clone()),
+                ContextBakeStatus::NotBaked { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(emitted_primaries.len(), 1, "{:#?}", report.contexts);
+        assert!(report.contexts.iter().any(|status| matches!(
+            status,
+            ContextBakeStatus::NotBaked {
+                reason: NotBakedReason::BaseNotFolded { .. },
+                ..
+            }
+        )));
+        // The manifest holds ONLY the emitted context's table, even though
+        // the crate report also baked B's side subtree.
+        let manifest_names = baked
+            .baked_tables
+            .iter()
+            .map(|entry| entry.name.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(manifest_names, emitted_primaries);
+        Ok(())
+    }
+
+    /// An unnamed inline scan (`?table?`) carries its provider with the plan
+    /// and must not flag the residual as needing external tables.
+    #[tokio::test]
+    async fn residual_self_contained_allows_unnamed_scans() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let ctx = SessionContext::new();
+        let plan = ctx.read_batch(sales_batch())?.logical_plan().clone();
+        assert_eq!(
+            table_names(&plan),
+            vec![datafusion::logical_expr::UNNAMED_TABLE.to_string()]
+        );
+        assert!(residual_self_contained(&plan, &HashSet::new()));
         Ok(())
     }
 }

@@ -15,7 +15,8 @@ use datafusion::prelude::SessionContext;
 use datafusion_common::ScalarValue;
 
 use avenger_datafusion_partial_eval::{
-    PartialEvalPolicy, SkipReason, partial_evaluate, partial_evaluate_set,
+    DEFAULT_TABLE_NAME_PREFIX, PartialEvalPolicy, SkipReason, partial_evaluate,
+    partial_evaluate_set,
 };
 
 fn sales_batch() -> RecordBatch {
@@ -139,6 +140,33 @@ async fn fixed_params_fold_more_and_are_inventoried() {
         .await
         .unwrap();
     assert_eq!(sorted_rows(&expected), sorted_rows(&actual));
+}
+
+/// A caller-provided table-name prefix namespaces the generated baked tables
+/// (and their residual scans), so plans baked in separate calls can register
+/// side by side in one consuming session.
+#[tokio::test]
+async fn table_name_prefix_namespaces_baked_tables() {
+    let sql = "SELECT region, sum(value) AS total FROM sales GROUP BY region";
+    let (ctx, plan) = server_ctx_and_plan(sql).await;
+
+    let policy = PartialEvalPolicy {
+        table_name_prefix: "__pe_baked_abc123_".to_string(),
+        ..PartialEvalPolicy::default()
+    };
+    let output = partial_evaluate(plan.clone(), &ctx, &policy).await.unwrap();
+    assert_eq!(output.report.baked[0].table_name, "__pe_baked_abc123_0");
+    let display = output.residual.display_indent().to_string();
+    assert!(display.contains("__pe_baked_abc123_0"), "{display}");
+
+    // The default policy keeps the historical prefix.
+    let default_output = partial_evaluate(plan, &ctx, &PartialEvalPolicy::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        default_output.report.baked[0].table_name,
+        format!("{DEFAULT_TABLE_NAME_PREFIX}0")
+    );
 }
 
 /// `partial_evaluate_set` shares one bake registry across plans (identical

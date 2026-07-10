@@ -87,6 +87,14 @@ pub trait CompiledDataTransform: Send + Sync {
         ExecutionShape::PlanBreak
     }
 
+    /// Session tables this stage reads BESIDES its input dataframe, best
+    /// effort (e.g. tables named in a `sql` stage's query). Used for
+    /// self-containment reporting on baked plots whose chains stay live —
+    /// a stage that reads only its input keeps the empty default.
+    fn referenced_session_tables(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     fn map_exprs(
         &self,
         _f: &mut dyn FnMut(Expr) -> Result<Expr, AvengerChartError>,

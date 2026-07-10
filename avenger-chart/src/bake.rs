@@ -5,7 +5,16 @@
 //! materialized, param-independent tables and keeps residual param-bearing work
 //! symbolic.
 
-use std::{collections::HashSet, io::Cursor, sync::Arc, time::SystemTime};
+use std::{
+    collections::HashSet,
+    hash::{Hash, Hasher},
+    io::Cursor,
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::SystemTime,
+};
 
 use arrow::{
     datatypes::SchemaRef,
@@ -44,14 +53,36 @@ impl BakePolicy {
     pub(crate) fn to_partial_eval_policy(
         &self,
         unfoldable_tables: HashSet<String>,
+        table_name_prefix: String,
     ) -> avenger_datafusion_partial_eval::PartialEvalPolicy {
         avenger_datafusion_partial_eval::PartialEvalPolicy {
             max_baked_bytes_per_subtree: self.max_baked_bytes_per_subtree,
             max_baked_bytes_total: self.max_baked_bytes_total,
             fixed_params: self.fixed_params.clone(),
             unfoldable_tables,
+            table_name_prefix,
         }
     }
+}
+
+/// Bake-unique prefix for generated table names, so baked plots from
+/// different bakes (including re-bakes of the same chart over changed data)
+/// can register side by side in one consuming `SessionContext` without
+/// clobbering each other.
+pub(crate) fn unique_bake_table_prefix() -> String {
+    static BAKE_SEQ: AtomicU64 = AtomicU64::new(0);
+    let seq = BAKE_SEQ.fetch_add(1, Ordering::Relaxed);
+    let nanos = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (nanos, seq).hash(&mut hasher);
+    format!(
+        "{}{:012x}_",
+        avenger_datafusion_partial_eval::DEFAULT_TABLE_NAME_PREFIX,
+        hasher.finish() & 0xffff_ffff_ffff
+    )
 }
 
 /// A data context addressed by a plot-level bake report.
@@ -183,12 +214,38 @@ pub struct PlotBakeReport {
     pub self_contained: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct BakedTableManifestEntry {
     pub(crate) name: String,
     pub(crate) arrow_ipc_bytes: Vec<u8>,
     pub(crate) rows: usize,
     pub(crate) bytes: usize,
+    /// Decoded-provider cache: IPC bytes decode into a `MemTable` once per
+    /// plot instance (clones share the cache through the `Arc`), so repeated
+    /// evaluations only pay the catalog registration.
+    #[serde(skip)]
+    decoded: Arc<OnceLock<Arc<MemTable>>>,
+}
+
+impl std::fmt::Debug for BakedTableManifestEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BakedTableManifestEntry")
+            .field("name", &self.name)
+            .field("ipc_len", &self.arrow_ipc_bytes.len())
+            .field("rows", &self.rows)
+            .field("bytes", &self.bytes)
+            .field("decoded", &self.decoded.get().is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for BakedTableManifestEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.arrow_ipc_bytes == other.arrow_ipc_bytes
+            && self.rows == other.rows
+            && self.bytes == other.bytes
+    }
 }
 
 impl BakedTableManifestEntry {
@@ -212,17 +269,22 @@ impl BakedTableManifestEntry {
             arrow_ipc_bytes,
             rows,
             bytes,
+            decoded: Arc::new(OnceLock::new()),
         })
     }
 
     pub(crate) fn mem_table(&self) -> Result<Arc<MemTable>, AvengerChartError> {
+        if let Some(decoded) = self.decoded.get() {
+            return Ok(Arc::clone(decoded));
+        }
         let cursor = Cursor::new(&self.arrow_ipc_bytes);
         let mut reader = StreamReader::try_new(cursor, None)?;
         let schema = reader.schema();
         let batches = reader
             .by_ref()
             .collect::<Result<Vec<_>, arrow::error::ArrowError>>()?;
-        Ok(Arc::new(MemTable::try_new(schema, vec![batches])?))
+        let table = Arc::new(MemTable::try_new(schema, vec![batches])?);
+        Ok(Arc::clone(self.decoded.get_or_init(|| table)))
     }
 }
 
@@ -235,4 +297,68 @@ pub(crate) fn register_baked_tables(
         ctx.register_table(&entry.name, entry.mem_table()?)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow::{
+        array::Float64Array,
+        datatypes::{DataType, Field, Schema},
+    };
+
+    use super::*;
+
+    fn entry() -> BakedTableManifestEntry {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Float64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Float64Array::from(vec![1.0, 2.0])) as _],
+        )
+        .expect("batch");
+        BakedTableManifestEntry::from_batches(
+            "__pe_baked_test_0".to_string(),
+            schema,
+            &[batch],
+            2,
+            16,
+        )
+        .expect("entry")
+    }
+
+    #[test]
+    fn mem_table_decodes_once_and_clones_share_the_cache() {
+        let entry = entry();
+        let first = entry.mem_table().expect("decode");
+        let second = entry.mem_table().expect("cached");
+        assert!(Arc::ptr_eq(&first, &second));
+
+        // Plot clones share the cache through the Arc.
+        let cloned = entry.clone();
+        let third = cloned.mem_table().expect("shared");
+        assert!(Arc::ptr_eq(&first, &third));
+
+        // Serde round-trips reset the cache (it is skipped) but preserve the
+        // payload; the fresh instance decodes independently.
+        let encoded = bincode::serialize(&entry).expect("serialize");
+        let decoded: BakedTableManifestEntry = bincode::deserialize(&encoded).expect("deserialize");
+        assert_eq!(entry, decoded);
+        let fresh = decoded.mem_table().expect("fresh decode");
+        assert!(!Arc::ptr_eq(&first, &fresh));
+    }
+
+    #[test]
+    fn unique_bake_table_prefix_is_unique_and_prefixed() {
+        let first = unique_bake_table_prefix();
+        let second = unique_bake_table_prefix();
+        assert_ne!(first, second);
+        assert!(
+            first.starts_with(avenger_datafusion_partial_eval::DEFAULT_TABLE_NAME_PREFIX),
+            "{first}"
+        );
+        assert!(first.ends_with('_'), "{first}");
+    }
 }

@@ -428,6 +428,55 @@ async fn faceted_explicit_group_bakes_base_and_keeps_chain_live()
     Ok(())
 }
 
+/// A live (facet-skipped) chain that reads a session side table from inside
+/// a `sql` stage keeps the chart dependent on that table, so the plot-wide
+/// self-containment flag must be false even though the plot data itself
+/// baked cleanly.
+#[tokio::test]
+async fn live_sql_side_table_flips_self_containment() -> Result<(), Box<dyn std::error::Error>> {
+    let server_ctx = SessionContext::new();
+    server_ctx
+        .register_batch("side_thresholds", sales_batch())
+        .expect("register side thresholds");
+    let data = segmented_sales_dataframe(&server_ctx).await;
+    let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+        Sql::new(
+            "SELECT input.value, s.value AS threshold FROM input \
+             JOIN side_thresholds s ON input.region = s.region",
+        ),
+        |group, _| group.mark(Symbol::new().x(col("value")).y(col("threshold")).size(48.0)),
+    ));
+    let compiled = Plot::<FacetColumn>::new()
+        .canvas_size(520.0, 260.0)
+        .data(data)
+        .mark(Subplot::new(leaf).column(col("region")))
+        .compile(&server_ctx)
+        .await?;
+
+    let (_baked, report) = compiled.bake(&server_ctx, &BakePolicy::default()).await?;
+
+    // The plot data still bakes...
+    assert!(report.contexts.iter().any(|status| matches!(
+        status,
+        ContextBakeStatus::Baked {
+            context_id: BakeContextId::PlotData,
+            ..
+        }
+    )));
+    // ...the per-cell chain stays live...
+    assert!(report.contexts.iter().any(|status| matches!(
+        status,
+        ContextBakeStatus::NotBaked {
+            reason: NotBakedReason::FacetScopedTransforms,
+            ..
+        }
+    )));
+    // ...and the live chain's side-table read makes the plot NOT
+    // self-contained.
+    assert!(!report.self_contained, "{:#?}", report.contexts);
+    Ok(())
+}
+
 fn threshold_store_batch() -> RecordBatch {
     RecordBatch::try_new(
         Arc::new(Schema::new(vec![
