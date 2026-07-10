@@ -179,6 +179,19 @@ fn propagated_subplot_overflow(
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[typetag::serde]
 impl CompiledGuide for FacetRowGuide {
+    fn with_retargeted_data_plan(
+        &self,
+        original: &datafusion_proto::protobuf::LogicalPlanNode,
+        replacement: &datafusion_proto::protobuf::LogicalPlanNode,
+    ) -> Option<Arc<dyn CompiledGuide>> {
+        if self.facet_data_plan.as_ref() != Some(original) {
+            return None;
+        }
+        let mut retargeted = self.clone();
+        retargeted.facet_data_plan = Some(replacement.clone());
+        Some(Arc::new(retargeted))
+    }
+
     async fn measure_overflow(
         &self,
         scales: &HashMap<String, ConfiguredScale>,

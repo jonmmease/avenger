@@ -2,9 +2,17 @@
 
 ## Status
 
-Direction note. The generic evaluator crate can start at any time; the Avenger
-integration has a prerequisite (compile-time lowering of transforms into
-DataFusion plans, see below). The motivating use case:
+Direction note, now substantially built (2026-07). The generic crate landed
+as `avenger-datafusion-partial-eval` (`6d743a197`, public-API tests
+`7f882ebd5`); the chart-level `CompiledPlot::bake` landed in proto-emit form
+(`92240a330`), faceted baking via plot-data folding (`b34fa9477`), and the
+robustness pass — manifest decode caching, bake-unique table names, manifest
+filtering, live-chain self-containment inspection (`c83970927`). The
+flagship server/client example lives at `examples/chart-bake-server-client`.
+As-built notes are inlined below where the implementation diverged from this
+design; the implementation plan of record is
+`scratch/compiled-plot-bake-plan.md` on `jonmmease/facet-fresh-start`.
+The motivating use case:
 
 - a plot is constructed and compiled on a server that has access to the data
   files;
@@ -259,6 +267,16 @@ The bake pass should pick per table: inline for single-use tables under a size
 threshold, manifest for shared or large ones. IPC compression is an open
 question below.
 
+> **As-built (2026-07-09/10):** manifest-only. Every baked table — primary
+> included — ships in the plot-level manifest and registers into the
+> consuming session before plan decode; inline-primary emit was considered
+> and declined once its motivations disappeared (manifest entries decode
+> once per plot instance behind a shared cache, and table names are
+> bake-unique — `PartialEvalPolicy::table_name_prefix` — so artifacts from
+> different bakes register side by side). The manifest is filtered to tables
+> referenced by EMITTED residuals; tables baked for pass-through contexts do
+> not ship.
+
 Baked tables carry exact row and byte counts; recording them as table
 statistics improves client-side planning over the baked scans. Each baked
 table's content hash is also a ready-made source version: if the physical
@@ -320,8 +338,12 @@ sort themselves out:
   param-dependent ones stay symbolic;
 - store and selection scans stay symbolic by rule;
 - facet cell filters and selection clauses are injected above the shared chain
-  at evaluation time, so they sit on top of the baked scan naturally and one
-  baked chain serves every facet cell.
+  at evaluation time, so they sit on top of the baked scan naturally.
+  (As-built caveat: "one baked CHAIN serves every facet cell" turned out to
+  be unreachable — shared-scale domain inference evaluates group chains at
+  the sharing-owner scope, which a pre-grouped table cannot reproduce; see
+  transform-lowering.md's owner-scope domain law. What serves every cell is
+  one baked TABLE of base rows, with per-cell chains live above it.)
 
 The server-bake use case is therefore an independent argument for scheduling
 the lowering migration ahead of the DSL surface syntax that also wants it.
@@ -337,32 +359,42 @@ executing it at bake time is a possible later extension, not v1 scope.
 The user-facing verb is **bake** — baking partially evaluates the plot's
 data pipelines with respect to its live params. "Partial evaluation"
 remains the mechanism term (this document, the crate); `bake` is the API
-vocabulary at the chart level. With lowering in place, the Avenger side is
-thin orchestration:
+vocabulary at the chart level. As built:
 
 ```rust
 impl CompiledPlot {
-    async fn bake(
+    pub async fn bake(
         &self,
         ctx: &SessionContext,
-        policy: &PartialEvalPolicy,
-    ) -> Result<(CompiledPlot, BakeReport)>;
+        policy: &BakePolicy,
+    ) -> Result<(CompiledPlot, PlotBakeReport)>;
 }
 ```
 
-It iterates the compiled data contexts, runs `partial_evaluate` on each lowered
-plan (deduplicating across contexts), chooses inline versus manifest embedding
-per baked table, and stamps the as-of report. Its output is chart-level, not
-plan-level: a folded data context's base data becomes the baked table, and the
-remainder is unparsed back into a `sql` transform stage with placeholders
-intact (already scope-lowered and marked so recompilation does not re-inject
-facet keys), so the baked plot is itself an ordinary, printable chart
-definition (see [transform-lowering.md](transform-lowering.md)). Parse and
-unparse sit at the pass boundary; the fold itself still runs on optimized
-logical plans.
-Policy, not mechanism: size budgets, per-context opt-outs, fixed params. Store
-data, channels, scales, and everything above the data layer pass through
-untouched.
+It assembles the plot's data contexts across the whole subplot tree
+(plot-level data, mark groups, child plots — gating every transform stage
+on `ExecutionShape::PlanRewrite`), runs ONE `partial_evaluate_set` call over
+all assembled plans (cross-context dedup and a shared byte budget), emits
+each context whose base scan folded into exactly one baked table, ships the
+referenced tables in the plot manifest, and stamps `PlotBakeReport` —
+every context accounted for as `Baked` or `NotBaked` with a reason. Subplot
+marks and compiled facet guides carry compile-time snapshots of the plot's
+data plan; the emit retargets those to the residual so the artifact holds no
+source-table references.
+
+An earlier revision of this section also unparsed residuals back into `sql`
+transform stages so the baked plot stayed a printable chart definition; that
+emit form was **descoped by owner decision on 2026-07-09** — proto emit is
+the only emit form, and the pass never parses or unparses SQL.
+
+Policy, not mechanism: size budgets and fixed params on `BakePolicy`
+(unfoldable tables are computed, not caller-settable). Store data, channels,
+scales, and everything above the data layer pass through untouched. Faceted
+charts bake through their plot data; per-cell chains stay live
+(`NotBakedReason::FacetScopedTransforms`) per the owner-scope domain law in
+[transform-lowering.md](transform-lowering.md), and explicit-data groups
+under facets get a base-only bake that folds the base while preserving the
+chain.
 
 ## Relationship To avenger-datafusion-cache
 
@@ -427,24 +459,30 @@ decides, per subtree, what travels as data versus what stays as plan.
 ## Implementation Phases
 
 1. Generic crate (`avenger-datafusion-partial-eval`, DataFusion-only
-   dependencies):
+   dependencies): LANDED (`6d743a197`, `7f882ebd5`).
    - foldability predicates (public, tested independently);
    - frontier walk with per-subtree and total byte budgets;
    - execute-and-splice with actual-size abort;
    - exact dedup by logical-subtree fingerprint (modulo-projection dedup is a
      future extension);
-   - `BakeReport` with folded source versions;
+   - `BakeReport` (as-built it records folded source *table names*; source
+     versions — snapshot IDs, ETags, content hashes — remain future work);
    - pure-DataFusion test suite (no chart machinery).
 2. Lowering alignment (prerequisite, tracked with the transform-system work):
-   - static transform prefixes lowered into data-context plans at compile
-     time;
-   - primitives audited for plan-expressibility.
-3. Avenger pass:
+   LANDED for the class-1 set (see transform-lowering.md's as-built status);
+   plan-break stages report `NotBakedReason::PlanBreakStage` and pass
+   through.
+3. Avenger pass: LANDED (`92240a330`, `b34fa9477`, `c83970927`).
    - `CompiledPlot::bake` orchestration;
-   - inline versus manifest embedding selection;
+   - manifest-only embedding (inline-primary declined; see "Embedding
+     Results");
    - as-of stamping on the compiled plot;
-   - an end-to-end example: server bakes a plot over local Parquet, client
-     wasm session renders and interacts with zero backend calls.
+   - the end-to-end example (`examples/chart-bake-server-client`): a server
+     process bakes a plot whose rows come from local Parquet and a native
+     client process renders and interacts with zero data access. (The
+     server currently loads the parquet into memory before compiling —
+     DataFusion 54's codec cannot round-trip `ParquetFormat`; a wasm client
+     variant remains open.)
 4. Extensions:
    - param-free `ScalarAggregate` folding to literals;
    - param-free scale-domain precompute into fixed domains;

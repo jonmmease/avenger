@@ -26,7 +26,9 @@ use crate::bake::{
 };
 
 use super::{CompiledPlot, compiled_subplot_payload_child_plot_arc};
-use crate::facet::marks::{CompiledFacetColumnSubplot, CompiledFacetRowSubplot};
+use crate::facet::marks::{
+    CompiledFacetColumnSubplot, CompiledFacetRowSubplot, CompiledFacetWrapSubplot,
+};
 
 #[derive(Clone)]
 struct BakeTarget {
@@ -516,7 +518,16 @@ fn emit_proto_context(
     let node = LogicalPlanNode::from_logical_plan(residual)?;
     let mut apply = |plot: &mut CompiledPlot| match &target.kind {
         BakeTargetKind::PlotData => {
+            let original = plot.data.take();
             plot.data = Some(node.clone());
+            // Subplot marks snapshot the plot's data plan into their
+            // mark-local contexts at compile time (facet guides measure from
+            // that snapshot). Retarget snapshots that byte-match the replaced
+            // plan, or the baked plot keeps a live source-table reference
+            // that fails open during guide measurement in a fresh session.
+            if let Some(original) = original.as_ref() {
+                retarget_subplot_data_snapshots(plot, original, &node)?;
+            }
             Ok(())
         }
         BakeTargetKind::MarkGroup {
@@ -575,6 +586,92 @@ where
     };
     plot.marks[mark_index] = replacement;
     Ok(())
+}
+
+/// Rewrite mark-local data-context SNAPSHOTS of the plot's replaced data
+/// plan on subplot marks. Compile snapshots the plot data into these
+/// contexts (facet band guides measure partition values from them); after a
+/// plot-data emit they would otherwise keep referencing the original source
+/// tables, which do not exist in a consuming session.
+fn retarget_subplot_data_snapshots(
+    plot: &mut CompiledPlot,
+    original: &LogicalPlanNode,
+    replacement: &LogicalPlanNode,
+) -> Result<(), AvengerChartError> {
+    for index in 0..plot.marks.len() {
+        let mark = plot.marks[index].as_ref();
+        let context = mark.data_context();
+        if context.store_data().is_some() || context.logical_plan_node() != Some(original) {
+            continue;
+        }
+        if let Some(rebuilt) = rebuild_subplot_mark_with_data_node(mark, replacement)? {
+            plot.marks[index] = rebuilt;
+        }
+    }
+    // The compiled coordinate guide is built at compile time and captures its
+    // own copy of the facet data plan (facet band guides measure partition
+    // values from it).
+    if let Some(guide) = plot.compiled_guide.as_ref()
+        && let Some(retargeted) = guide.with_retargeted_data_plan(original, replacement)
+    {
+        plot.compiled_guide = Some(retargeted);
+    }
+    Ok(())
+}
+
+/// Rebuild a subplot mark with its mark-local data context retargeted to
+/// `replacement`, preserving transforms and channels. Returns `None` for
+/// marks that do not own a subplot payload (left untouched).
+fn rebuild_subplot_mark_with_data_node(
+    mark: &dyn CompiledMark,
+    replacement: &LogicalPlanNode,
+) -> Result<Option<Arc<dyn CompiledMark>>, AvengerChartError> {
+    fn retarget_payload(payload: &mut CompiledSubplotPayload, replacement: &LogicalPlanNode) {
+        let state = payload.compiled_state_mut();
+        state.data = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
+            Some(replacement.clone()),
+            state.data.transforms().to_vec(),
+            state.data.channels().clone(),
+            state.data.pattern_channels().clone(),
+        );
+    }
+
+    match mark.mark_type() {
+        "facet_col" => {
+            if let Some(subplot) = mark.as_any().downcast_ref::<CompiledFacetColumnSubplot>() {
+                let mut rebuilt = subplot.clone();
+                retarget_payload(&mut rebuilt.payload, replacement);
+                return Ok(Some(Arc::new(rebuilt)));
+            }
+        }
+        "facet_row" => {
+            if let Some(subplot) = mark.as_any().downcast_ref::<CompiledFacetRowSubplot>() {
+                let mut rebuilt = subplot.clone();
+                retarget_payload(&mut rebuilt.payload, replacement);
+                return Ok(Some(Arc::new(rebuilt)));
+            }
+        }
+        "facet_wrap" => {
+            if let Some(subplot) = mark.as_any().downcast_ref::<CompiledFacetWrapSubplot>() {
+                let mut rebuilt = subplot.clone();
+                retarget_payload(&mut rebuilt.payload, replacement);
+                return Ok(Some(Arc::new(rebuilt)));
+            }
+        }
+        _ => {}
+    }
+    if let Some(subplot) = mark.as_positioned_subplot() {
+        let mut payload = subplot.payload().clone();
+        retarget_payload(&mut payload, replacement);
+        return Ok(Some(Arc::new(CompiledPositionedSubplot::new(
+            payload,
+            subplot.spec().clone(),
+            subplot.plot_width(),
+            subplot.plot_height(),
+            subplot.partition_expr().cloned(),
+        ))));
+    }
+    Ok(None)
 }
 
 fn subplot_payload_for_mark(mark: &dyn CompiledMark) -> Option<&CompiledSubplotPayload> {
@@ -1129,6 +1226,68 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(primary_tables.len(), 2);
         assert_eq!(primary_tables[0], primary_tables[1]);
+        Ok(())
+    }
+
+    /// Compile snapshots the plot's data plan into subplot mark-local
+    /// contexts and into the compiled facet guide; a plot-data emit must
+    /// retarget both, or the baked plot keeps live source-table references
+    /// that fail open during facet guide measurement in a fresh session.
+    #[tokio::test]
+    async fn plot_data_bake_retargets_subplot_and_guide_snapshots()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        ctx.register_batch("sales", sales_batch())?;
+        let data = ctx.sql("SELECT * FROM sales WHERE value > $min").await?;
+        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+            Aggregate::new().sum("total", col("value")),
+            |group, aggregate| {
+                group.mark(
+                    Symbol::new()
+                        .x(aggregate.output("total"))
+                        .y(aggregate.output("total"))
+                        .size(48.0),
+                )
+            },
+        ));
+        let compiled = Plot::<FacetColumn>::new()
+            .data(data)
+            .mark(Subplot::new(leaf).column(col("region")))
+            .compile(&ctx)
+            .await?;
+
+        // Compile produced byte-equal snapshots of the plot data plan.
+        let original_node = compiled.data.clone().expect("plot data");
+        assert_eq!(
+            compiled.marks[0]
+                .as_ref()
+                .data_context()
+                .logical_plan_node(),
+            Some(&original_node)
+        );
+
+        let (baked, _) = compiled.bake(&ctx, &BakePolicy::default()).await?;
+        let baked_plot_node = baked.data.as_ref().expect("baked plot data");
+        assert_ne!(baked_plot_node, &original_node);
+
+        // The mark snapshot now points at the residual...
+        assert_eq!(
+            baked.marks[0].as_ref().data_context().logical_plan_node(),
+            Some(baked_plot_node)
+        );
+        // ...and it decodes in a fresh session once the manifest registers
+        // (the residual references only baked tables).
+        let client_ctx = SessionContext::new();
+        assert!(baked_plot_node.to_logical_plan(&client_ctx).is_err());
+        crate::bake::register_baked_tables(&client_ctx, &baked.baked_tables)?;
+        let plan = baked_plot_node.to_logical_plan(&client_ctx)?;
+        assert!(
+            table_names(&plan)
+                .iter()
+                .all(|name| name.starts_with("__pe_baked_")),
+            "{:?}",
+            table_names(&plan)
+        );
         Ok(())
     }
 

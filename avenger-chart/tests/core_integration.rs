@@ -1,6 +1,7 @@
 mod core_integration {
     mod test_axis_channel_config;
     mod test_axis_inference_works;
+    mod test_bake_census;
     mod test_calc;
     mod test_channel_config;
     mod test_channel_get_data_type;

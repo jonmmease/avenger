@@ -2,13 +2,22 @@
 
 ## Status
 
-Direction note. This is the prerequisite named by
+Direction note, partially built. This is the prerequisite named by
 [logical-plan-partial-evaluation.md](logical-plan-partial-evaluation.md)
 ("compile-time lowering of transforms") made concrete, and the compile-side
 counterpart of the `transform sql` direction in [chart-dsl.md](chart-dsl.md).
 It defines two supported execution shapes for data transforms, a lowering
 pipeline of deterministic compiler passes, and the contract that keeps the
 non-lowered shape correct everywhere it appears.
+
+**As-built (2026-07):** implementation steps 1 and 2 landed (the `Sql`
+transform, `ExecutionShape` declarations, `expand_stage` derived expansion,
+and the round-trip census; `join_aggregate` was refactored to window
+functions, leaving only `lump` native-only). Step 3 (the scope injector) was
+built and then **retired** — see the as-built note under "Scope Lowering
+Rule". Step 4 (the chart-level expansion pass) was **descoped** by owner
+decision on 2026-07-09 together with the printable/sql-stage bake emit;
+`expand_stage` survives as the editor action's engine.
 
 Design stance up front: **plan breaks are a permanently supported shape.**
 Transforms that must execute their input are always possible and always
@@ -357,6 +366,22 @@ chicken-and-egg error: cells are data-dependent and unknown at compile time.
 Plan breaks must follow the same rule internally — one grouped execution, not
 one execution per cell.
 
+> **As-built (2026-07-09, the owner-scope domain law):** the injector was
+> implemented and then removed, because the rule's premise fails at the
+> CHART level today: unbaked shared-scale domain inference evaluates a mark
+> group's transform chain at the *sharing-owner* scope (a per-cell `SUM`
+> contributes the GLOBAL total to a shared domain), and a table pre-grouped
+> to leaf cells cannot reproduce owner-scope chain output. No correct
+> one-table lowering exists while domain inference has this shape. Bake v1
+> instead serves faceted charts through plot-data baking: the plot's data
+> plan folds into ONE table of raw rows (facet-key columns included), and
+> per-cell chains stay live above it — which satisfies this section's
+> "per-cell filters apply above the shared result" clause with the shared
+> result being the un-aggregated base. Scope lowering as written remains the
+> right target if and when domain inference is redesigned to consume grouped
+> chain output; the retired injector is recoverable from branch history
+> (`jonmmease/facet-fresh-start`, pre-`b34fa9477`).
+
 ### Scope And The `sql` Stage
 
 The authored query string cannot capture facet scope, for two reasons: a
@@ -381,17 +406,21 @@ Two boundary rules keep this sound:
 
 - Scope is injected exactly once, by this pass, at the plan level. Derived
   expansion emits the portable form (the transform's own `group_by`, no facet
-  keys), and every stage carries its scope declaration. The one place an
-  already-scoped query legitimately appears in a document is a baked
-  artifact: pre-evaluation folds the scope-lowered plan, so its residual
-  `sql` stage contains the injected keys and is marked already-scoped so that
-  recompiling the baked chart does not double-inject.
+  keys), and every stage carries its scope declaration. (An earlier revision
+  also defined an "already-scoped" marking for baked-artifact residual `sql`
+  stages; that emit form was descoped 2026-07-09 — baked artifacts are
+  proto-only — so no already-scoped queries exist in any document.)
 - A per-cell `sql` stage whose query the rewriter cannot handle (v1 supports
   a declared subset; input-lineage self-joins are the canonical hard case)
   falls back to per-cell eager execution — a plan break under the contract:
   always possible, less efficient, never wrong.
 
 Row-preserving queries are scope-invariant and need no injection.
+
+This whole subsection inherits the as-built caveat above: with the injector
+retired, per-cell `sql` stages evaluate per cell like every other stage
+(correct, unshared), and this design reactivates only alongside a
+domain-inference redesign.
 
 ## The Plan Break Contract
 
@@ -441,6 +470,12 @@ declaration), pushdown-ability of the break itself, and streaming (a break
 materializes its input fully).
 
 ## Expansion Model
+
+(As-built note: the derived expansion mechanism below exists —
+`expand_stage` in `avenger-chart-transforms` — and passed its round-trip
+census. Its chart-level consumer, the expansion PASS of implementation step
+4, was descoped 2026-07-09; the surviving consumers are tests and the future
+editor action.)
 
 Expansion and pre-evaluation apply to class-1 (plan-pure) stages only, by
 design. There are no hand-written expansions: the single expansion mechanism
@@ -498,10 +533,10 @@ and it settles how expansions must be exposed in Rust:
   declared-dependencies obligation without inspecting Rust.
 - **Document expansion emits the portable form.** The generated query keeps
   the transform's own semantics (its `group_by`, sort keys, offsets) but not
-  the facet keys: stage-level scope is preserved as a declaration and the
-  scope pass injects keys at compile time, exactly as for any user-authored
-  `sql` stage. Already-scoped, marked stages appear in only one kind of
-  document: baked artifacts, whose residual stages carry the injected keys.
+  the facet keys: stage-level scope is preserved as a declaration. (The
+  scope-injection and baked-artifact clauses that used to complete this
+  bullet are inoperative as-built: the injector is retired and baked
+  artifacts are proto-only.)
 - **Readability is a requirement internal lowering does not have.** All
   expansions are derived and pass through the unparser, whose output needs a
   formatting and naming pass before it is worth editing — doubly so for
@@ -522,29 +557,28 @@ worth landing now: they carry standalone value, and stage 2 retires the
 design's biggest unknown (unparser fidelity) before anything is built on top
 of it.
 
-1. **The `Sql` transform primitive.** Parse-and-splice `apply` (one query
-   over the reserved `input` relation, `SELECT`/`VALUES` only), handle-based
-   channel binding, placeholder flow, typetag serialization. No dependencies;
-   immediate user value as the custom-transform escape hatch, and the DSL's
-   `transform sql` lands on it later.
+1. **The `Sql` transform primitive.** LANDED (`fb6f66313`). Parse-and-splice
+   `apply` (one query over the reserved `input` relation, `SELECT`/`VALUES`
+   only), handle-based channel binding, placeholder flow, typetag
+   serialization. No dependencies; immediate user value as the
+   custom-transform escape hatch, and the DSL's `transform sql` lands on it
+   later.
 2. **Execution-shape declaration, derived expansion, round-trip census.**
-   Declare plan-pure versus break on every transform; implement
-   `expand(spec, input_schema, registry)` as symbolic-scan + `apply` +
-   unparse; then run the census: for every class-1 stage in the visual test
-   corpus, the expanded chart must render byte-identical to the original.
-   This is the unparser-fidelity gate — gaps get fixed upstream or the
-   affected stage is marked native-only — and it is the cheapest possible
-   de-risking of the entire direction. It also yields the editor action's
-   engine, minus LSP plumbing.
-3. **Scope lowering.** The plan-level injector for per-cell `sql` stages
-   (GROUP BY / PARTITION BY / DISTINCT / input-lineage self-join keys), the
-   v1 supported subset and its fallback, wired into compile so user-authored
-   `sql` stages are facet-correct immediately.
-4. **The expansion pass.** Collapse contiguous plan-pure runs into `sql`
-   stages across a compiled chart, respecting break and scope boundaries. Run
-   it on demand (artifacts, the editor action, tests) rather than in the
-   default evaluation path at first — zero baseline risk until there is a
-   reason to flip it on (an open question below).
+   LANDED (`fb6f66313`; `join_aggregate` window rewrite `9cff96a16` leaves
+   only `lump` native-only). Declare plan-pure versus break on every
+   transform; implement `expand(spec, input_schema, registry)` as
+   symbolic-scan + `apply` + unparse; then run the census: for every class-1
+   stage in the visual test corpus, the expanded chart must render
+   byte-identical to the original. This is the unparser-fidelity gate — gaps
+   get fixed upstream or the affected stage is marked native-only — and it
+   is the cheapest possible de-risking of the entire direction. It also
+   yields the editor action's engine, minus LSP plumbing.
+3. **Scope lowering.** BUILT AND RETIRED (2026-07-09) — blocked by the
+   owner-scope domain law; see the as-built note under "Scope Lowering
+   Rule". Reactivates only with a domain-inference redesign.
+4. **The expansion pass.** DESCOPED (owner decision 2026-07-09, together
+   with the printable bake emit). The derived expansion engine remains for
+   the editor action; no chart-level collapse pass is planned.
 
 In parallel, at any time: class-2 refactors (`kde` first), validated by the
 baseline suite; their payoff amplifies once stage 4 exists. Dependent and

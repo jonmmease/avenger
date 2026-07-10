@@ -43,6 +43,7 @@ members = [
     "examples/wgpu-winit",
     "examples/iris-pan-zoom",
     "examples/chart-app-cartesian-pan",
+    "examples/chart-bake-server-client",
     "examples/chart-app-large-scatter",
     "examples/chart-app-mercator-tiles",
     "examples/chart-app-nyc-taxi-raster",

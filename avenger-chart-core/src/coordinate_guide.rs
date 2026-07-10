@@ -435,5 +435,19 @@ pub trait CompiledGuide: Send + Sync + 'static {
         false
     }
 
+    /// Return a copy of this guide with any captured data-plan snapshot equal
+    /// to `original` retargeted to `replacement`, or `None` when the guide
+    /// captures no matching plan. Baking replaces a plot's data plan and uses
+    /// this to keep guide-held snapshots (e.g. facet band guides measuring
+    /// partition values) pointing at the baked residual instead of the
+    /// original source tables.
+    fn with_retargeted_data_plan(
+        &self,
+        _original: &datafusion_proto::protobuf::LogicalPlanNode,
+        _replacement: &datafusion_proto::protobuf::LogicalPlanNode,
+    ) -> Option<std::sync::Arc<dyn CompiledGuide>> {
+        None
+    }
+
     fn as_any(&self) -> &dyn Any;
 }

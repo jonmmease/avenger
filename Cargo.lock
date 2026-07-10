@@ -1909,6 +1909,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "chart-bake-server-client"
+version = "0.1.0"
+dependencies = [
+ "avenger-app",
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-resource",
+ "bincode",
+ "datafusion",
+ "env_logger 0.10.2",
+ "log",
+ "pollster 0.4.0",
+ "tokio",
+ "winit",
+]
+
+[[package]]
 name = "chinese-number"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
