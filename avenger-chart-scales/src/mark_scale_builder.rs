@@ -2440,6 +2440,31 @@ async fn apply_nested_level_labels(
         .collect()
 }
 
+/// Component accessor for a nested-band struct expression.
+///
+/// `nested()` builds `named_struct("name", expr, ...)`, and accessing a
+/// component as `get_field(named_struct(...), "name")` is semantically the
+/// component expression itself. Returning the component directly yields a
+/// simpler plan and keeps DataFusion 54's leaf-expression extraction pass
+/// (`push_down_leaf_projections`) from pushing struct accessors down through
+/// aggregate boundaries, where its intermediate schemas can mix qualified
+/// and unqualified same-name fields and fail with `AmbiguousReference`.
+/// Non-literal struct expressions fall back to `get_field`.
+fn nested_component_expr(nested_expr: &Expr, field_name: &str) -> Expr {
+    if let Expr::ScalarFunction(function) = nested_expr
+        && function.func.name() == "named_struct"
+    {
+        for pair in function.args.chunks_exact(2) {
+            if let Expr::Literal(ScalarValue::Utf8(Some(name)), _) = &pair[0]
+                && name == field_name
+            {
+                return pair[1].clone();
+            }
+        }
+    }
+    get_field(nested_expr.clone(), field_name.to_string())
+}
+
 async fn collect_nested_level_labels(
     data_expressions: &[(Arc<DataFrame>, Expr)],
     config: &NestedBandSpec,
@@ -2469,13 +2494,12 @@ async fn collect_nested_level_labels(
         let mut select_exprs = Vec::new();
         for prefix_level in 0..prefix_len {
             select_exprs.push(
-                get_field(nested_expr.clone(), field_names[prefix_level].clone())
+                nested_component_expr(nested_expr, &field_names[prefix_level])
                     .alias(nested_label_prefix_col(prefix_level)),
             );
         }
         select_exprs.push(
-            get_field(nested_expr.clone(), level_field_name.clone())
-                .alias(NESTED_LABEL_COMPONENT_COL),
+            nested_component_expr(nested_expr, level_field_name).alias(NESTED_LABEL_COMPONENT_COL),
         );
         select_exprs.push(label_expr.clone().alias(NESTED_LABEL_VALUE_COL));
 
@@ -2724,12 +2748,12 @@ async fn ordered_nested_level_components(
         let mut select_exprs = Vec::new();
         for prefix_level in 0..prefix_len {
             select_exprs.push(
-                get_field(nested_expr.clone(), field_names[prefix_level].clone())
+                nested_component_expr(nested_expr, &field_names[prefix_level])
                     .alias(nested_order_prefix_col(prefix_level)),
             );
         }
         select_exprs.push(
-            get_field(nested_expr.clone(), field_names[level].clone())
+            nested_component_expr(nested_expr, &field_names[level])
                 .alias(NESTED_ORDER_COMPONENT_COL),
         );
         for name in &order_column_names {
