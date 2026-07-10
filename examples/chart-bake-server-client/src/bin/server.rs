@@ -102,45 +102,38 @@ async fn run() -> Result<(), Box<dyn Error>> {
     })
     .await?;
 
-    // ── The compiled chart: the same pipeline built over an UNNAMED
-    // in-memory scan of the parquet rows. Unnamed scans serialize INLINE
-    // (Arrow IPC bytes inside the plan), so the unbaked spec below is
-    // genuinely self-contained — it ships every raw row. Two notes:
-    // - a named registered table would serialize as a reference and the
-    //   spec would silently depend on the consuming session having it;
-    // - compiling over the parquet scan directly fails — DataFusion 54's
-    //   logical-plan codec cannot round-trip ParquetFormat. Once fixed
-    //   upstream, `register_parquet` becomes the natural source here.
+    // ── The compiled chart: the pipeline built DIRECTLY over the parquet
+    // scan. The bake folds the param-free aggregate over parquet into the
+    // artifact, so "bakes a chart over local Parquet" is literal.
     let server_ctx = SessionContext::new();
-    let batches = parquet_ctx
-        .read_parquet(
+    server_ctx
+        .register_parquet(
+            "trips",
             parquet.to_string_lossy().as_ref(),
             ParquetReadOptions::default(),
         )
-        .await?
-        .collect()
         .await?;
-    let schema = batches[0].schema();
-    let raw_rows = concat_batches(&schema, &batches)?;
-    let data = server_ctx
-        .read_batch(raw_rows)?
-        .aggregate(
-            vec![col("region"), col("day")],
-            vec![sum(col("value")).alias("total")],
-        )?
-        .filter(col("total").gt(placeholder("$min")))?
-        .sort(vec![
-            col("region").sort(true, false),
-            col("day").sort(true, false),
-        ])?;
+    let data = daily_totals_pipeline(server_ctx.table("trips").await?)?;
     let compiled = daily_totals_chart(data).compile(&server_ctx).await?;
 
-    // ── Architecture 2: the unbaked self-contained spec. It embeds every
-    // raw row and re-runs the aggregate per interaction.
-    let unbaked_size = bincode::serialize(&compiled)?.len();
+    // ── Architecture 2: the unbaked SELF-CONTAINED spec, measured on a
+    // separate inline variant. Self-containment without baking means
+    // embedding every raw row in the spec (unnamed scans serialize inline;
+    // the parquet-backed spec above instead serializes a file reference and
+    // would need the file shipped alongside). Every interaction re-runs the
+    // aggregate over the embedded rows.
+    let batches = server_ctx.table("trips").await?.collect().await?;
+    let schema = batches[0].schema();
+    let raw_rows = concat_batches(&schema, &batches)?;
+    let inline_ctx = SessionContext::new();
+    let inline_compiled =
+        daily_totals_chart(daily_totals_pipeline(inline_ctx.read_batch(raw_rows)?)?)
+            .compile(&inline_ctx)
+            .await?;
+    let unbaked_size = bincode::serialize(&inline_compiled)?.len();
     let unbaked_eval = median_ms(|min| {
-        let compiled = &compiled;
-        let ctx = &server_ctx;
+        let compiled = &inline_compiled;
+        let ctx = &inline_ctx;
         async move {
             let outcome = compiled.evaluate(ctx, Some(min_params(min))).await?;
             Ok(outcome.scene_graph.marks.len())
@@ -226,6 +219,23 @@ async fn run() -> Result<(), Box<dyn Error>> {
 
 fn min_params(min: f64) -> IndexMap<String, ScalarValue> {
     IndexMap::from([("min".to_string(), ScalarValue::Float64(Some(min)))])
+}
+
+/// Daily totals per (region, day) with the live `$min` threshold above the
+/// aggregate — the shape that makes baking pay.
+fn daily_totals_pipeline(
+    raw: datafusion::dataframe::DataFrame,
+) -> Result<datafusion::dataframe::DataFrame, Box<dyn Error>> {
+    Ok(raw
+        .aggregate(
+            vec![col("region"), col("day")],
+            vec![sum(col("value")).alias("total")],
+        )?
+        .filter(col("total").gt(placeholder("$min")))?
+        .sort(vec![
+            col("region").sort(true, false),
+            col("day").sort(true, false),
+        ])?)
 }
 
 /// Median wall-clock milliseconds of `work` across the timed params, after

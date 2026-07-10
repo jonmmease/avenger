@@ -56,10 +56,9 @@ What to look at:
   manifest registration happens inside `evaluate`; the client does nothing
   special.
 
-Note: the chart compiles over an unnamed in-memory scan of the parquet rows
-rather than the parquet scan itself, for two reasons: unnamed scans serialize
-inline (which is what makes the UNBAKED spec genuinely self-contained for the
-comparison), and DataFusion 54's logical-plan codec cannot round-trip
-`ParquetFormat` (compiling over a direct parquet scan fails at plan
-serialization). Once that is fixed upstream, `register_parquet` becomes the
-natural source here.
+Note: the main chart compiles DIRECTLY over the registered parquet table —
+the bake folds the parquet scan, so the artifact is what makes the client
+independent of the file. The unbaked-spec comparison row is measured on a
+separate inline variant (unnamed scans serialize their rows into the spec;
+a parquet-backed spec serializes a file *reference* and would need the file
+shipped alongside, which is architecture 1 with extra steps).

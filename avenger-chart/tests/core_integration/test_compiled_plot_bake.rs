@@ -302,6 +302,64 @@ async fn nested_faceted_aggregate_bakes_root_data_and_keeps_leaf_chain_live()
     Ok(())
 }
 
+/// A chart compiled DIRECTLY over a parquet scan bakes into a
+/// self-contained artifact (requires datafusion-proto's `parquet` feature,
+/// restored for native builds in avenger-chart-core): the scan folds, the
+/// `$min` filter stays live, and the baked plot renders identically in a
+/// fresh session with no file access.
+#[tokio::test]
+async fn parquet_backed_chart_bakes_self_contained() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("sales.parquet");
+    let writer_ctx = SessionContext::new();
+    writer_ctx
+        .read_batch(sales_batch())?
+        .write_parquet(
+            path.to_str().expect("utf8 temp path"),
+            datafusion::dataframe::DataFrameWriteOptions::new(),
+            None,
+        )
+        .await?;
+
+    let server_ctx = SessionContext::new();
+    server_ctx
+        .register_parquet(
+            "sales",
+            path.to_str().expect("utf8 temp path"),
+            datafusion::prelude::ParquetReadOptions::default(),
+        )
+        .await?;
+    let data = server_ctx
+        .sql(
+            "SELECT * FROM (SELECT region, SUM(value) AS total \
+             FROM sales GROUP BY region) q WHERE total > $min ORDER BY region",
+        )
+        .await?;
+    let compiled = Plot::<Cartesian>::new()
+        .data(data)
+        .mark(Symbol::new().x(col("total")).y(col("total")).size(64.0))
+        .compile(&server_ctx)
+        .await?;
+
+    let (baked, report) = compiled.bake(&server_ctx, &BakePolicy::default()).await?;
+    assert!(report.self_contained, "{:#?}", report.contexts);
+    assert_eq!(report.source_tables, vec!["sales".to_string()]);
+
+    let encoded = bincode::serialize(&baked)?;
+    let decoded: CompiledPlot = bincode::deserialize(&encoded)?;
+    let client_ctx = SessionContext::new();
+    for min in [2.5, 4.5] {
+        let unbaked_eval = compiled.evaluate(&server_ctx, Some(params(min))).await?;
+        let baked_eval = decoded.evaluate(&client_ctx, Some(params(min))).await?;
+        assert_eq!(
+            bincode::serialize(&baked_eval.scene_graph)?,
+            bincode::serialize(&unbaked_eval.scene_graph)?,
+            "parquet-backed baked and unbaked scenes diverge at min={min}"
+        );
+    }
+    Ok(())
+}
+
 /// An unfaceted mark group that inherits plot data through a plan-pure chain
 /// bakes to the chain's output (the chain no longer re-runs per evaluation).
 #[tokio::test]
