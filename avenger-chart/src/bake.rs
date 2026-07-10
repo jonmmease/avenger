@@ -66,6 +66,22 @@ pub enum BakeContextId {
         /// Optional author-provided group id.
         id: Option<String>,
     },
+    /// The plot-level data plan of a child plot reached through subplot mark
+    /// indices from the baked plot root.
+    ChildPlotData {
+        /// Mark-index path through nested subplot payloads.
+        subplot_path: Vec<usize>,
+    },
+    /// A mark-group data context inside a child plot reached through subplot
+    /// mark indices from the baked plot root.
+    ChildMarkGroup {
+        /// Mark-index path through nested subplot payloads.
+        subplot_path: Vec<usize>,
+        /// Index into the child plot's mark-group list.
+        index: usize,
+        /// Optional author-provided group id.
+        id: Option<String>,
+    },
 }
 
 /// How a baked context was emitted.
@@ -93,6 +109,12 @@ pub enum NotBakedReason {
     },
     /// The transform chain produced or consumed derived scalars.
     DerivedScalars,
+    /// The group inherits facet-partitioned data and its transform chain must
+    /// keep evaluating per facet scope at runtime (shared-scale domains
+    /// evaluate the chain at the sharing-owner scope, which a pre-grouped
+    /// table cannot reproduce). The chain's base data is served by the
+    /// enclosing plot's `PlotData`/`ChildPlotData` bake.
+    FacetScopedTransforms,
     /// Assembly failed before partial evaluation could run.
     AssemblyError {
         /// Error message.

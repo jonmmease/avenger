@@ -1,8 +1,12 @@
-use std::collections::{BTreeSet, HashSet};
+use std::{
+    collections::{BTreeSet, HashSet},
+    sync::Arc,
+};
 
 use avenger_chart_core::{
-    AvengerChartError, CompiledDataContext, DataTransformExecutionContext, ExecutionShape,
-    LogicalPlanNodeExt, TimeContext, apply_compiled_data_transforms,
+    AvengerChartError, CompiledDataContext, CompiledMark, CompiledPositionedSubplot,
+    CompiledSubplotChildPlot, CompiledSubplotPayload, DataTransformExecutionContext,
+    ExecutionShape, LogicalPlanNodeExt, MarkDataMode, TimeContext, apply_compiled_data_transforms,
     derived_scalar_id_from_placeholder,
 };
 use avenger_datafusion_partial_eval::{BakeReport, BakedSubtree, partial_evaluate_set};
@@ -21,12 +25,25 @@ use crate::bake::{
     FixedParamBinding, NotBakedReason, PlotBakeReport,
 };
 
-use super::CompiledPlot;
+use super::{CompiledPlot, compiled_subplot_payload_child_plot_arc};
+use crate::facet::marks::{CompiledFacetColumnSubplot, CompiledFacetRowSubplot};
 
 #[derive(Clone)]
-enum BakeTarget {
+struct BakeTarget {
+    plot_path: Vec<usize>,
+    kind: BakeTargetKind,
+}
+
+#[derive(Clone)]
+enum BakeTargetKind {
     PlotData,
-    MarkGroup(usize),
+    MarkGroup {
+        index: usize,
+        /// Emit the residual as the group's base plan while PRESERVING the
+        /// group's live transform chain (base-only bake), instead of
+        /// replacing the whole chain with its pre-evaluated output.
+        keep_transforms: bool,
+    },
 }
 
 #[derive(Clone)]
@@ -88,7 +105,7 @@ impl CompiledPlot {
         let mut all_baked_self_contained = true;
 
         for (assembled, residual) in assembly.contexts.iter().zip(residuals.iter()) {
-            match primary_baked_table(assembled, &partial_report.baked) {
+            match primary_baked_table(assembled, residual, &partial_report.baked) {
                 PrimaryMatch::One(primary) => {
                     emit_proto_context(&mut baked, &assembled.target, residual)?;
                     let self_contained = residual_self_contained(residual, &baked_table_names);
@@ -171,67 +188,169 @@ impl CompiledPlot {
 }
 
 async fn assemble(compiled: &CompiledPlot, ctx: &SessionContext) -> Assembly {
-    let mut contexts = Vec::new();
-    let mut statuses = Vec::new();
+    let mut assembly = Assembly {
+        contexts: Vec::new(),
+        statuses: Vec::new(),
+    };
+    assemble_plot_tree(compiled, ctx, Vec::new(), None, false, &mut assembly).await;
+    assembly
+}
 
-    match assemble_plot_data(compiled, ctx).await {
-        Ok(Some(context)) => contexts.push(context),
-        Ok(None) => statuses.push(ContextBakeStatus::NotBaked {
-            context_id: BakeContextId::PlotData,
+async fn assemble_plot_tree(
+    compiled: &CompiledPlot,
+    ctx: &SessionContext,
+    plot_path: Vec<usize>,
+    inherited_plot_plan: Option<LogicalPlan>,
+    under_facet: bool,
+    assembly: &mut Assembly,
+) {
+    let explicit_plot_plan = match compiled_plot_plan(compiled, ctx) {
+        Ok(plan) => plan,
+        Err(reason) => {
+            assembly.statuses.push(ContextBakeStatus::NotBaked {
+                context_id: plot_data_context_id(&plot_path),
+                reason,
+            });
+            None
+        }
+    };
+    let inherited_or_explicit_plan = explicit_plot_plan
+        .clone()
+        .or_else(|| inherited_plot_plan.clone());
+
+    match explicit_plot_plan {
+        Some(plan) => match assemble_plot_data_plan(plot_path.clone(), plan) {
+            Ok(context) => assembly.contexts.push(context),
+            Err(reason) => assembly.statuses.push(ContextBakeStatus::NotBaked {
+                context_id: plot_data_context_id(&plot_path),
+                reason,
+            }),
+        },
+        None => assembly.statuses.push(ContextBakeStatus::NotBaked {
+            context_id: plot_data_context_id(&plot_path),
             reason: NotBakedReason::NoData,
-        }),
-        Err(reason) => statuses.push(ContextBakeStatus::NotBaked {
-            context_id: BakeContextId::PlotData,
-            reason,
         }),
     }
 
     for (index, group) in compiled.mark_groups.iter().enumerate() {
-        let context_id = BakeContextId::MarkGroup {
-            index,
-            id: group.id.clone(),
+        let target = BakeTarget {
+            plot_path: plot_path.clone(),
+            kind: BakeTargetKind::MarkGroup {
+                index,
+                keep_transforms: false,
+            },
         };
+        let context_id = mark_group_context_id(&plot_path, index, group.id.clone());
         match assemble_data_context(
             &group.data,
-            BakeTarget::MarkGroup(index),
+            target,
             context_id.clone(),
             ctx,
             compiled.time_context.clone(),
+            group.data_mode,
+            inherited_or_explicit_plan.as_ref(),
+            under_facet,
         )
         .await
         {
-            Ok(Some(context)) => contexts.push(context),
-            // Groups without their own plan inherit the parent plot's data;
-            // report them so every context is accounted for.
-            Ok(None) => statuses.push(ContextBakeStatus::NotBaked {
+            Ok(Some(context)) => assembly.contexts.push(context),
+            // Groups without their own plan or transform chain inherit the
+            // parent plot's data and are not separate bake contexts.
+            Ok(None) => assembly.statuses.push(ContextBakeStatus::NotBaked {
                 context_id,
                 reason: NotBakedReason::NoData,
             }),
-            Err(reason) => statuses.push(ContextBakeStatus::NotBaked { context_id, reason }),
+            Err(reason) => assembly
+                .statuses
+                .push(ContextBakeStatus::NotBaked { context_id, reason }),
         }
     }
 
-    Assembly { contexts, statuses }
+    for (mark_index, mark) in compiled.marks.iter().enumerate() {
+        let Some(payload) = subplot_payload_for_mark(mark.as_ref()) else {
+            continue;
+        };
+        let child_plot = compiled_subplot_payload_child_plot_arc(payload);
+        let child_inherited_plan = payload
+            .inherits_parent_data()
+            .then(|| inherited_or_explicit_plan.clone())
+            .flatten();
+        let child_under_facet = under_facet || mark_evaluates_child_per_cell(mark.as_ref());
+        let mut child_path = plot_path.clone();
+        child_path.push(mark_index);
+        Box::pin(assemble_plot_tree(
+            child_plot.as_ref(),
+            ctx,
+            child_path,
+            child_inherited_plan,
+            child_under_facet,
+            assembly,
+        ))
+        .await;
+    }
 }
 
-async fn assemble_plot_data(
+/// Whether a subplot mark evaluates its child plot once per facet cell (as
+/// opposed to once, globally). Facet subplots always do; positioned subplots
+/// do when they partition parent data.
+fn mark_evaluates_child_per_cell(mark: &dyn CompiledMark) -> bool {
+    if matches!(mark.mark_type(), "facet_col" | "facet_row") {
+        return true;
+    }
+    mark.as_positioned_subplot()
+        .is_some_and(|subplot| subplot.partition_expr().is_some())
+}
+
+fn compiled_plot_plan(
     compiled: &CompiledPlot,
     ctx: &SessionContext,
-) -> Result<Option<AssembledContext>, NotBakedReason> {
-    let Some(node) = compiled.data.as_ref() else {
-        return Ok(None);
-    };
-    let plan = node.to_logical_plan(ctx).map_err(assembly_error)?;
+) -> Result<Option<LogicalPlan>, NotBakedReason> {
+    compiled
+        .data
+        .as_ref()
+        .map(|node| node.to_logical_plan(ctx).map_err(assembly_error))
+        .transpose()
+}
+
+fn assemble_plot_data_plan(
+    plot_path: Vec<usize>,
+    plan: LogicalPlan,
+) -> Result<AssembledContext, NotBakedReason> {
     if plan_consumes_derived_scalars(&plan) {
         return Err(NotBakedReason::DerivedScalars);
     }
     let base_table_names = table_names(&plan);
-    Ok(Some(AssembledContext {
-        target: BakeTarget::PlotData,
-        context_id: BakeContextId::PlotData,
+    Ok(AssembledContext {
+        target: BakeTarget {
+            plot_path: plot_path.clone(),
+            kind: BakeTargetKind::PlotData,
+        },
+        context_id: plot_data_context_id(&plot_path),
         plan,
         base_table_names,
-    }))
+    })
+}
+
+fn plot_data_context_id(plot_path: &[usize]) -> BakeContextId {
+    if plot_path.is_empty() {
+        BakeContextId::PlotData
+    } else {
+        BakeContextId::ChildPlotData {
+            subplot_path: plot_path.to_vec(),
+        }
+    }
+}
+
+fn mark_group_context_id(plot_path: &[usize], index: usize, id: Option<String>) -> BakeContextId {
+    if plot_path.is_empty() {
+        BakeContextId::MarkGroup { index, id }
+    } else {
+        BakeContextId::ChildMarkGroup {
+            subplot_path: plot_path.to_vec(),
+            index,
+            id,
+        }
+    }
 }
 
 async fn assemble_data_context(
@@ -240,13 +359,51 @@ async fn assemble_data_context(
     context_id: BakeContextId,
     ctx: &SessionContext,
     time_context: TimeContext,
+    data_mode: MarkDataMode,
+    inherited_base_plan: Option<&LogicalPlan>,
+    under_facet: bool,
 ) -> Result<Option<AssembledContext>, NotBakedReason> {
     if data_context.store_data().is_some() {
         return Err(NotBakedReason::StoreData);
     }
-    let Some(node) = data_context.logical_plan_node() else {
+    if data_mode == MarkDataMode::Unit {
         return Ok(None);
     };
+
+    if under_facet {
+        // A chain in a per-cell plot evaluates against facet-scoped data, and
+        // shared-scale domain inference additionally evaluates it at the
+        // sharing-owner scope (e.g. a global aggregate over all cells). No
+        // single pre-evaluated table reproduces both, so the chain must stay
+        // live. Groups with an explicit base plan get a base-only bake (the
+        // base folds, the chain keeps running on it); inherited groups are
+        // served by the enclosing plot-data bake instead.
+        return match data_context.logical_plan_node() {
+            Some(node) => {
+                let base_plan = node.to_logical_plan(ctx).map_err(assembly_error)?;
+                if plan_consumes_derived_scalars(&base_plan) {
+                    return Err(NotBakedReason::DerivedScalars);
+                }
+                let base_table_names = table_names(&base_plan);
+                let mut target = target;
+                if let BakeTargetKind::MarkGroup {
+                    keep_transforms, ..
+                } = &mut target.kind
+                {
+                    *keep_transforms = true;
+                }
+                Ok(Some(AssembledContext {
+                    target,
+                    context_id,
+                    plan: base_plan,
+                    base_table_names,
+                }))
+            }
+            None if data_context.transforms().is_empty() => Ok(None),
+            None => Err(NotBakedReason::FacetScopedTransforms),
+        };
+    }
+
     for (stage_index, stage) in data_context.transforms().iter().enumerate() {
         if stage.transform.execution_shape() != ExecutionShape::PlanRewrite {
             return Err(NotBakedReason::PlanBreakStage {
@@ -256,7 +413,15 @@ async fn assemble_data_context(
         }
     }
 
-    let base_plan = node.to_logical_plan(ctx).map_err(assembly_error)?;
+    let base_plan = if let Some(node) = data_context.logical_plan_node() {
+        node.to_logical_plan(ctx).map_err(assembly_error)?
+    } else if data_context.transforms().is_empty() {
+        return Ok(None);
+    } else if let Some(inherited_base_plan) = inherited_base_plan {
+        inherited_base_plan.clone()
+    } else {
+        return Ok(None);
+    };
     let base_table_names = table_names(&base_plan);
     let dataframe = DataFrame::new(ctx.state(), base_plan);
     let params = IndexMap::new();
@@ -294,25 +459,146 @@ fn emit_proto_context(
     residual: &LogicalPlan,
 ) -> Result<(), AvengerChartError> {
     let node = LogicalPlanNode::from_logical_plan(residual)?;
-    match target {
-        BakeTarget::PlotData => {
-            compiled.data = Some(node);
+    let mut apply = |plot: &mut CompiledPlot| match &target.kind {
+        BakeTargetKind::PlotData => {
+            plot.data = Some(node.clone());
+            Ok(())
         }
-        BakeTarget::MarkGroup(index) => {
-            let group = compiled.mark_groups.get_mut(*index).ok_or_else(|| {
+        BakeTargetKind::MarkGroup {
+            index,
+            keep_transforms,
+        } => {
+            let group = plot.mark_groups.get_mut(*index).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
                     "Compiled mark group index {index} is out of bounds during bake emit"
                 ))
             })?;
+            let transforms = if *keep_transforms {
+                group.data.transforms().to_vec()
+            } else {
+                Vec::new()
+            };
             group.data = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
-                Some(node),
-                Vec::new(),
+                Some(node.clone()),
+                transforms,
                 group.data.channels().clone(),
                 group.data.pattern_channels().clone(),
             );
+            Ok(())
         }
-    }
+    };
+    mutate_plot_at_path(compiled, &target.plot_path, &mut apply)
+}
+
+fn mutate_plot_at_path<F>(
+    plot: &mut CompiledPlot,
+    path: &[usize],
+    apply: &mut F,
+) -> Result<(), AvengerChartError>
+where
+    F: FnMut(&mut CompiledPlot) -> Result<(), AvengerChartError>,
+{
+    let Some((&mark_index, rest)) = path.split_first() else {
+        return apply(plot);
+    };
+    let replacement = {
+        let mark = plot.marks.get(mark_index).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Compiled subplot mark index {mark_index} is out of bounds during bake emit"
+            ))
+        })?;
+        let payload = subplot_payload_for_mark(mark.as_ref()).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Compiled mark index {mark_index} does not own a child plot during bake emit"
+            ))
+        })?;
+        let mut child_plot = compiled_subplot_payload_child_plot_arc(payload)
+            .as_ref()
+            .clone();
+        mutate_plot_at_path(&mut child_plot, rest, apply)?;
+        rebuild_subplot_mark_with_child(mark.as_ref(), child_plot)?
+    };
+    plot.marks[mark_index] = replacement;
     Ok(())
+}
+
+fn subplot_payload_for_mark(mark: &dyn CompiledMark) -> Option<&CompiledSubplotPayload> {
+    if let Some(subplot) = mark.as_positioned_subplot() {
+        return Some(subplot.payload());
+    }
+    match mark.mark_type() {
+        "facet_col" => mark
+            .as_any()
+            .downcast_ref::<CompiledFacetColumnSubplot>()
+            .map(|subplot| &subplot.payload),
+        "facet_row" => mark
+            .as_any()
+            .downcast_ref::<CompiledFacetRowSubplot>()
+            .map(|subplot| &subplot.payload),
+        _ => None,
+    }
+}
+
+fn rebuild_subplot_mark_with_child(
+    mark: &dyn CompiledMark,
+    child_plot: CompiledPlot,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    let child_arc: Arc<dyn CompiledSubplotChildPlot> = Arc::new(child_plot);
+    match mark.mark_type() {
+        "facet_col" => {
+            let subplot = mark
+                .as_any()
+                .downcast_ref::<CompiledFacetColumnSubplot>()
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "facet_col mark did not downcast during bake emit".to_string(),
+                    )
+                })?;
+            let mut rebuilt = subplot.clone();
+            rebuilt.payload = payload_with_child_plot(&subplot.payload, child_arc);
+            return Ok(Arc::new(rebuilt));
+        }
+        "facet_row" => {
+            let subplot = mark
+                .as_any()
+                .downcast_ref::<CompiledFacetRowSubplot>()
+                .ok_or_else(|| {
+                    AvengerChartError::InternalError(
+                        "facet_row mark did not downcast during bake emit".to_string(),
+                    )
+                })?;
+            let mut rebuilt = subplot.clone();
+            rebuilt.payload = payload_with_child_plot(&subplot.payload, child_arc);
+            return Ok(Arc::new(rebuilt));
+        }
+        _ => {}
+    }
+    if let Some(subplot) = mark.as_positioned_subplot() {
+        let payload = payload_with_child_plot(subplot.payload(), child_arc);
+        return Ok(Arc::new(CompiledPositionedSubplot::new(
+            payload,
+            subplot.spec().clone(),
+            subplot.plot_width(),
+            subplot.plot_height(),
+            subplot.partition_expr().cloned(),
+        )));
+    }
+    Err(AvengerChartError::InternalError(
+        "Compiled mark does not own a replaceable child plot during bake emit".to_string(),
+    ))
+}
+
+fn payload_with_child_plot(
+    payload: &CompiledSubplotPayload,
+    child_plot: Arc<dyn CompiledSubplotChildPlot>,
+) -> CompiledSubplotPayload {
+    CompiledSubplotPayload::new(
+        payload.compiled_state().clone(),
+        child_plot,
+        payload.label().map(ToOwned::to_owned),
+        payload.key().map(ToOwned::to_owned),
+        payload.data_source(),
+    )
 }
 
 enum PrimaryMatch<'a> {
@@ -323,13 +609,32 @@ enum PrimaryMatch<'a> {
 
 fn primary_baked_table<'a>(
     context: &AssembledContext,
+    residual: &LogicalPlan,
     baked: &'a [BakedSubtree],
 ) -> PrimaryMatch<'a> {
     if context.base_table_names.is_empty() {
         return PrimaryMatch::None;
     }
 
-    let matches = baked
+    let all_matches = primary_matches(context, baked);
+    let residual_table_names = table_names(residual).into_iter().collect::<HashSet<_>>();
+    let referenced = all_matches
+        .iter()
+        .copied()
+        .filter(|table| residual_table_names.contains(&table.table_name))
+        .collect::<Vec<_>>();
+    if !referenced.is_empty() {
+        return primary_match_from_tables(referenced);
+    }
+
+    primary_match_from_tables(all_matches)
+}
+
+fn primary_matches<'a>(
+    context: &AssembledContext,
+    baked: &'a [BakedSubtree],
+) -> Vec<&'a BakedSubtree> {
+    baked
         .iter()
         .filter(|table| {
             context
@@ -337,9 +642,11 @@ fn primary_baked_table<'a>(
                 .iter()
                 .all(|name| table.source_tables.iter().any(|source| source == name))
         })
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
+}
 
-    match matches.as_slice() {
+fn primary_match_from_tables(tables: Vec<&BakedSubtree>) -> PrimaryMatch<'_> {
+    match tables.as_slice() {
         [] => PrimaryMatch::None,
         [table] => PrimaryMatch::One(table),
         tables => PrimaryMatch::Multiple(
@@ -405,5 +712,363 @@ fn transform_tag(stage: &avenger_chart_core::DataTransformStage) -> Option<Strin
 fn assembly_error(err: AvengerChartError) -> NotBakedReason {
     NotBakedReason::AssemblyError {
         message: err.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use avenger_chart_core::{
+        CoordinationScope, DataTransform, DataTransformCompileContext, DataTransformStage,
+    };
+    use avenger_chart_transforms::{Aggregate, Calculate, Filter, Kde, Sql};
+    use datafusion::{
+        arrow::{
+            array::{Float64Array, StringArray},
+            datatypes::{DataType, Field, Schema},
+            record_batch::RecordBatch,
+        },
+        common::ScalarValue,
+        prelude::{col, lit},
+    };
+
+    use crate::prelude::*;
+
+    use super::*;
+
+    fn sales_batch() -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("value", DataType::Float64, false),
+            ])),
+            vec![
+                Arc::new(StringArray::from(vec!["EU", "EU", "NA", "NA"])) as _,
+                Arc::new(Float64Array::from(vec![1.0, 2.0, 3.0, 4.0])) as _,
+            ],
+        )
+        .expect("sales batch")
+    }
+
+    async fn register_sales(ctx: &SessionContext) -> DataFrame {
+        ctx.register_batch("sales", sales_batch())
+            .expect("register sales");
+        ctx.table("sales").await.expect("sales table")
+    }
+
+    fn stage<T>(transform: T) -> DataTransformStage
+    where
+        T: DataTransform,
+    {
+        let (compiled, _) = transform
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+            .expect("compile transform");
+        DataTransformStage::new(CoordinationScope::Free, compiled)
+    }
+
+    fn data_context(
+        dataframe: DataFrame,
+        transforms: Vec<DataTransformStage>,
+    ) -> CompiledDataContext {
+        CompiledDataContext::new(Some(dataframe), transforms, IndexMap::new())
+    }
+
+    #[tokio::test]
+    async fn plan_pure_chain_assembles_with_unbound_placeholders()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let dataframe = register_sales(&ctx).await;
+        let min = Param::new("min", ScalarValue::Float64(Some(0.0)));
+        let data_context = data_context(
+            dataframe,
+            vec![
+                stage(Filter::new(col("value").gt(min.expr()))),
+                stage(Calculate::new().expr("double_value", col("value") * lit(2.0))),
+                stage(
+                    Aggregate::new()
+                        .group_by([col("region")])
+                        .sum("total", col("double_value")),
+                ),
+            ],
+        );
+
+        let assembled = match assemble_data_context(
+            &data_context,
+            BakeTarget {
+                plot_path: Vec::new(),
+                kind: BakeTargetKind::MarkGroup {
+                    index: 0,
+                    keep_transforms: false,
+                },
+            },
+            BakeContextId::MarkGroup {
+                index: 0,
+                id: Some("synthetic".to_string()),
+            },
+            &ctx,
+            TimeContext::default(),
+            MarkDataMode::Inherit,
+            None,
+            false,
+        )
+        .await
+        {
+            Ok(Some(assembled)) => assembled,
+            Ok(None) => panic!("expected assembled context"),
+            Err(reason) => panic!("unexpected not-baked reason: {reason:?}"),
+        };
+
+        let display = assembled.plan.display_indent().to_string();
+        assert_eq!(assembled.base_table_names, vec!["sales".to_string()]);
+        assert!(display.contains("Aggregate"), "{display}");
+        assert!(display.contains("Filter"), "{display}");
+        assert!(display.contains("double_value"), "{display}");
+        assert!(display.contains("$min"), "{display}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plan_break_stage_reports_not_baked_reason() -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let dataframe = register_sales(&ctx).await;
+        let data_context = data_context(
+            dataframe,
+            vec![stage(
+                Kde::new(col("value")).bandwidth(lit(1.0)).steps(lit(8_i64)),
+            )],
+        );
+
+        let err = match assemble_data_context(
+            &data_context,
+            BakeTarget {
+                plot_path: Vec::new(),
+                kind: BakeTargetKind::MarkGroup {
+                    index: 0,
+                    keep_transforms: false,
+                },
+            },
+            BakeContextId::MarkGroup { index: 0, id: None },
+            &ctx,
+            TimeContext::default(),
+            MarkDataMode::Inherit,
+            None,
+            false,
+        )
+        .await
+        {
+            Ok(_) => panic!("kde should remain a plan break"),
+            Err(reason) => reason,
+        };
+
+        assert_eq!(
+            err,
+            NotBakedReason::PlanBreakStage {
+                stage_index: 0,
+                stage_type: Some("kde".to_string()),
+            }
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn sql_stage_assembles_via_parse_and_splice_apply()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let dataframe = register_sales(&ctx).await;
+        let data_context = data_context(
+            dataframe,
+            vec![stage(Sql::new(
+                "SELECT region, value * 2.0 AS adjusted \
+                 FROM input WHERE value >= $min",
+            ))],
+        );
+
+        let assembled = match assemble_data_context(
+            &data_context,
+            BakeTarget {
+                plot_path: Vec::new(),
+                kind: BakeTargetKind::MarkGroup {
+                    index: 0,
+                    keep_transforms: false,
+                },
+            },
+            BakeContextId::MarkGroup { index: 0, id: None },
+            &ctx,
+            TimeContext::default(),
+            MarkDataMode::Inherit,
+            None,
+            false,
+        )
+        .await
+        {
+            Ok(Some(assembled)) => assembled,
+            Ok(None) => panic!("expected assembled sql context"),
+            Err(reason) => panic!("unexpected not-baked reason: {reason:?}"),
+        };
+
+        let display = assembled.plan.display_indent().to_string();
+        assert_eq!(assembled.base_table_names, vec!["sales".to_string()]);
+        assert!(display.contains("SubqueryAlias: input"), "{display}");
+        assert!(display.contains("adjusted"), "{display}");
+        assert!(display.contains("$min"), "{display}");
+        Ok(())
+    }
+
+    async fn shared_chain_plot(ctx: &SessionContext) -> Result<CompiledPlot, AvengerChartError> {
+        ctx.register_batch("sales", sales_batch())?;
+        let sql = "SELECT region, SUM(value) AS total FROM sales GROUP BY region ORDER BY region";
+        let left = ctx.sql(sql).await?;
+        let right = ctx.sql(sql).await?;
+
+        Plot::<Cartesian>::new()
+            .mark(
+                MarkGroup::new()
+                    .data(left)
+                    .mark(Symbol::new().x(col("total")).y(col("total")).size(48.0)),
+            )
+            .mark(
+                MarkGroup::new()
+                    .data(right)
+                    .mark(Symbol::new().x(col("total")).y(col("total")).size(24.0)),
+            )
+            .compile(ctx)
+            .await
+    }
+
+    #[tokio::test]
+    async fn faceted_inherited_chain_stays_live_and_plot_data_assembles()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let data = register_sales(&ctx).await;
+        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+            Aggregate::new().sum("total", col("value")),
+            |group, aggregate| {
+                group.mark(
+                    Symbol::new()
+                        .x(aggregate.output("total"))
+                        .y(aggregate.output("total"))
+                        .size(48.0),
+                )
+            },
+        ));
+        let compiled = Plot::<FacetColumn>::new()
+            .data(data)
+            .mark(Subplot::new(leaf).column(col("region")))
+            .compile(&ctx)
+            .await?;
+
+        let assembly = assemble(&compiled, &ctx).await;
+        // The inherited per-cell chain stays live: it is a status, not a
+        // context, and the only assembled context is the root plot data.
+        assert!(
+            assembly.statuses.iter().any(|status| matches!(
+                status,
+                ContextBakeStatus::NotBaked {
+                    context_id: BakeContextId::ChildMarkGroup { subplot_path, index: 0, .. },
+                    reason: NotBakedReason::FacetScopedTransforms,
+                } if subplot_path == &[0]
+            )),
+            "statuses: {:#?}",
+            assembly.statuses
+        );
+        assert_eq!(assembly.contexts.len(), 1, "{:#?}", assembly.statuses);
+        assert!(matches!(
+            assembly.contexts[0].context_id,
+            BakeContextId::PlotData
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn faceted_explicit_group_gets_base_only_bake() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let ctx = SessionContext::new();
+        let dataframe = register_sales(&ctx).await;
+        let data_context = data_context(
+            dataframe,
+            vec![stage(
+                Aggregate::new()
+                    .group_by([col("region")])
+                    .sum("total", col("value")),
+            )],
+        );
+
+        let assembled = match assemble_data_context(
+            &data_context,
+            BakeTarget {
+                plot_path: vec![0],
+                kind: BakeTargetKind::MarkGroup {
+                    index: 0,
+                    keep_transforms: false,
+                },
+            },
+            BakeContextId::ChildMarkGroup {
+                subplot_path: vec![0],
+                index: 0,
+                id: None,
+            },
+            &ctx,
+            TimeContext::default(),
+            MarkDataMode::Inherit,
+            None,
+            true,
+        )
+        .await
+        {
+            Ok(Some(assembled)) => assembled,
+            Ok(None) => panic!("expected base-only assembled context"),
+            Err(reason) => panic!("unexpected not-baked reason: {reason:?}"),
+        };
+
+        // The assembled plan is the base only; the chain stays live and is
+        // preserved through emit.
+        assert!(matches!(
+            assembled.target.kind,
+            BakeTargetKind::MarkGroup {
+                index: 0,
+                keep_transforms: true,
+            }
+        ));
+        let display = assembled.plan.display_indent().to_string();
+        assert!(!display.contains("Aggregate"), "{display}");
+        assert_eq!(assembled.base_table_names, vec!["sales".to_string()]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bake_uses_one_partial_eval_set_for_cross_context_dedup()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let compiled = shared_chain_plot(&ctx).await?;
+
+        let assembly = assemble(&compiled, &ctx).await;
+        assert_eq!(assembly.contexts.len(), 2);
+        let (_, partial_report) = partial_evaluate_set(
+            assembly
+                .contexts
+                .iter()
+                .map(|context| context.plan.clone())
+                .collect(),
+            &ctx,
+            &BakePolicy::default().to_partial_eval_policy(compiled.runtime_unfoldable_tables()),
+        )
+        .await?;
+        assert_eq!(partial_report.baked.len(), 1);
+        assert!(partial_report.baked[0].occurrences >= 2);
+
+        let (baked, report) = compiled.bake(&ctx, &BakePolicy::default()).await?;
+        assert_eq!(baked.baked_tables.len(), 1);
+        let primary_tables = report
+            .contexts
+            .iter()
+            .filter_map(|status| match status {
+                ContextBakeStatus::Baked { primary_table, .. } => Some(primary_table.clone()),
+                ContextBakeStatus::NotBaked { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(primary_tables.len(), 2);
+        assert_eq!(primary_tables[0], primary_tables[1]);
+        Ok(())
     }
 }
