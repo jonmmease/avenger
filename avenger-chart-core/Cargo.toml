@@ -41,5 +41,16 @@ typetag = "0.2"
 bincode = "1.3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
+# datafusion-proto compiles its ListingTable ParquetFormat serialization arm
+# only under its `parquet` feature (on by default upstream; our base
+# dependency disables defaults for wasm builds). Without it, serializing any
+# plan that scans parquet fails with a misleading "Error deserializing
+# unknown file format: ParquetFormat" internal error. Native builds get the
+# feature; wasm builds keep the trimmed dependency exactly as before.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+datafusion-proto = { version = "54.0.0", default-features = false, features = [
+    "parquet",
+] }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 datafusion = { workspace = true, features = ["parquet"] }
