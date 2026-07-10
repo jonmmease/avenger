@@ -119,35 +119,37 @@ async fn scalar_gate_filters_downstream_rows() {
     }
 }
 
-/// Lazy scalars cannot be referenced by later transform stages at the pinned
-/// DataFusion version (compiled transform expressions are protobuf-backed and
-/// cannot represent scalar subqueries). The failure must be actionable.
+/// Lazy scalars referenced by later transform stages resolve into scalar
+/// subqueries inside protobuf-backed compiled expressions. DataFusion 48
+/// could not serialize `ScalarSubquery` (the reference failed with
+/// actionable guidance); DataFusion >= 54 serializes it, so the chain
+/// evaluates inline. Both threshold branches prove the subquery really
+/// computes (n = 5): below-threshold keeps every row, above drops them all.
 #[tokio::test]
-async fn lazy_scalar_stage_reference_fails_actionably() {
-    let ctx = SessionContext::new();
-    let df = xy_dataframe(&ctx, 5).await;
-    let plot = Plot::<Cartesian>::new().data(df).mark(
-        Symbol::new()
-            .transform(ScalarAggregate::new().count("n").lazy(), |mark, stats| {
-                mark.transform(Filter::new(stats.scalar("n").lt(lit(10_i64))), |mark, _| {
-                    mark
+async fn lazy_scalar_stage_reference_resolves_inline() {
+    for (threshold, expected) in [(10_i64, 5_usize), (3_i64, 0_usize)] {
+        let ctx = SessionContext::new();
+        let df = xy_dataframe(&ctx, 5).await;
+        let plot = Plot::<Cartesian>::new().data(df).mark(
+            Symbol::new()
+                .transform(ScalarAggregate::new().count("n").lazy(), |mark, stats| {
+                    mark.transform(
+                        Filter::new(stats.scalar("n").lt(lit(threshold))),
+                        |mark, _| mark,
+                    )
                 })
-            })
-            .x(col("x"))
-            .y(col("y"))
-            .size(20.0),
-    );
-    let compiled = plot.compile(&ctx).await.unwrap();
-    let err = compiled
-        .evaluate(&ctx, None)
-        .await
-        .err()
-        .expect("lazy stage reference should fail at DataFusion 48");
-    let message = err.to_string();
-    assert!(
-        message.contains("eager evaluation mode"),
-        "expected actionable guidance, got: {message}"
-    );
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 20.0))))
+                .size(20.0),
+        );
+        let compiled = plot.compile(&ctx).await.unwrap();
+        let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+        assert_eq!(
+            count_symbols(&evaluated.scene_graph),
+            expected,
+            "threshold={threshold}"
+        );
+    }
 }
 
 /// A scalar referenced by a later `Calculate` expression.
@@ -330,24 +332,20 @@ async fn scalar_in_size_channel_eager() {
     );
 }
 
-/// Lazy scalars in channel expressions hit the same protobuf limitation as
-/// stage references at the pinned DataFusion version (channel expressions
-/// are protobuf-backed too) and must fail with actionable guidance.
+/// Lazy scalars in channel expressions ride the same protobuf path as stage
+/// references: unserializable at DataFusion 48, inline scalar subqueries at
+/// DataFusion >= 54. The rendered sizes must match the eager variant
+/// exactly (`scalar_in_size_channel_eager`).
 #[tokio::test]
-async fn lazy_scalar_channel_reference_fails_actionably() {
+async fn lazy_scalar_channel_reference_resolves_inline() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 4).await;
     let plot = scalar_sized_plot(df, ScalarAggregate::new().max("hi", col("y")).lazy());
     let compiled = plot.compile(&ctx).await.unwrap();
-    let err = compiled
-        .evaluate(&ctx, None)
-        .await
-        .err()
-        .expect("lazy channel reference should fail at DataFusion 48");
-    let message = err.to_string();
-    assert!(
-        message.contains("eager evaluation mode"),
-        "expected actionable guidance, got: {message}"
+    let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+    assert_eq!(
+        collect_symbol_sizes(&evaluated.scene_graph),
+        vec![25.0, 50.0, 75.0, 100.0],
     );
 }
 
