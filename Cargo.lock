@@ -1919,6 +1919,7 @@ dependencies = [
  "bincode",
  "datafusion",
  "env_logger 0.10.2",
+ "indexmap 2.14.0",
  "log",
  "pollster 0.4.0",
  "tokio",

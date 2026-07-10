@@ -78,6 +78,7 @@ serde_json = { workspace = true }
 serde_with = "3.0"
 typetag = "0.2"
 erased-serde = "0.4.8"
+bincode = "1.3"
 
 tracing = { workspace = true }
 lyon_path = { workspace = true }
@@ -89,7 +90,6 @@ pdfium-render = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
-bincode = "1.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.14"
 

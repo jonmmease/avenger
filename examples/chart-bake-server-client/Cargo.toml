@@ -20,6 +20,7 @@ avenger-resource = { path = "../../avenger-resource" }
 bincode = "1.3"
 datafusion = { workspace = true, features = ["parquet"] }
 env_logger = "0.10"
+indexmap = { workspace = true }
 log = { workspace = true }
 pollster = "0.4.0"
 tokio = { workspace = true, features = ["rt", "sync"] }

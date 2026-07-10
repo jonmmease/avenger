@@ -26,9 +26,7 @@ use crate::bake::{
 };
 
 use super::{CompiledPlot, compiled_subplot_payload_child_plot_arc};
-use crate::facet::marks::{
-    CompiledFacetColumnSubplot, CompiledFacetRowSubplot, CompiledFacetWrapSubplot,
-};
+use crate::facet::marks::{CompiledFacetColumnSubplot, CompiledFacetRowSubplot};
 
 #[derive(Clone)]
 struct BakeTarget {
@@ -599,14 +597,11 @@ fn retarget_subplot_data_snapshots(
     replacement: &LogicalPlanNode,
 ) -> Result<(), AvengerChartError> {
     for index in 0..plot.marks.len() {
-        let mark = plot.marks[index].as_ref();
-        let context = mark.data_context();
+        let context = plot.marks[index].as_ref().data_context();
         if context.store_data().is_some() || context.logical_plan_node() != Some(original) {
             continue;
         }
-        if let Some(rebuilt) = rebuild_subplot_mark_with_data_node(mark, replacement)? {
-            plot.marks[index] = rebuilt;
-        }
+        plot.marks[index] = mark_with_retargeted_data_node(&plot.marks[index], replacement)?;
     }
     // The compiled coordinate guide is built at compile time and captures its
     // own copy of the facet data plan (facet band guides measure partition
@@ -619,59 +614,40 @@ fn retarget_subplot_data_snapshots(
     Ok(())
 }
 
-/// Rebuild a subplot mark with its mark-local data context retargeted to
-/// `replacement`, preserving transforms and channels. Returns `None` for
-/// marks that do not own a subplot payload (left untouched).
-fn rebuild_subplot_mark_with_data_node(
-    mark: &dyn CompiledMark,
+/// Deep-clone a mark through its serde representation (the same machinery
+/// that ships compiled plots, so it is lossless for every mark type) and
+/// retarget the clone's data context to `replacement`, preserving
+/// transforms and channels. The freshly deserialized `Arc` is uniquely
+/// owned, so the trait-level `state_mut` reaches the same storage that
+/// `data_context()` reads — including subplot payload state.
+fn mark_with_retargeted_data_node(
+    mark: &Arc<dyn CompiledMark>,
     replacement: &LogicalPlanNode,
-) -> Result<Option<Arc<dyn CompiledMark>>, AvengerChartError> {
-    fn retarget_payload(payload: &mut CompiledSubplotPayload, replacement: &LogicalPlanNode) {
-        let state = payload.compiled_state_mut();
-        state.data = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
-            Some(replacement.clone()),
-            state.data.transforms().to_vec(),
-            state.data.channels().clone(),
-            state.data.pattern_channels().clone(),
-        );
-    }
-
-    match mark.mark_type() {
-        "facet_col" => {
-            if let Some(subplot) = mark.as_any().downcast_ref::<CompiledFacetColumnSubplot>() {
-                let mut rebuilt = subplot.clone();
-                retarget_payload(&mut rebuilt.payload, replacement);
-                return Ok(Some(Arc::new(rebuilt)));
-            }
-        }
-        "facet_row" => {
-            if let Some(subplot) = mark.as_any().downcast_ref::<CompiledFacetRowSubplot>() {
-                let mut rebuilt = subplot.clone();
-                retarget_payload(&mut rebuilt.payload, replacement);
-                return Ok(Some(Arc::new(rebuilt)));
-            }
-        }
-        "facet_wrap" => {
-            if let Some(subplot) = mark.as_any().downcast_ref::<CompiledFacetWrapSubplot>() {
-                let mut rebuilt = subplot.clone();
-                retarget_payload(&mut rebuilt.payload, replacement);
-                return Ok(Some(Arc::new(rebuilt)));
-            }
-        }
-        _ => {}
-    }
-    if let Some(subplot) = mark.as_positioned_subplot() {
-        let mut payload = subplot.payload().clone();
-        retarget_payload(&mut payload, replacement);
-        return Ok(Some(Arc::new(CompiledPositionedSubplot::new(
-            payload,
-            subplot.spec().clone(),
-            subplot.plot_width(),
-            subplot.plot_height(),
-            subplot.partition_expr().cloned(),
-        ))));
-    }
-    Ok(None)
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+    let encoded = bincode::serialize(mark).map_err(|err| {
+        AvengerChartError::InternalError(format!(
+            "Failed to serialize mark for bake snapshot retargeting: {err}"
+        ))
+    })?;
+    let mut cloned: Arc<dyn CompiledMark> = bincode::deserialize(&encoded).map_err(|err| {
+        AvengerChartError::InternalError(format!(
+            "Failed to deserialize mark for bake snapshot retargeting: {err}"
+        ))
+    })?;
+    let state = Arc::get_mut(&mut cloned)
+        .ok_or_else(|| {
+            AvengerChartError::InternalError(
+                "Freshly deserialized mark was not uniquely owned during bake emit".to_string(),
+            )
+        })?
+        .state_mut();
+    state.data = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
+        Some(replacement.clone()),
+        state.data.transforms().to_vec(),
+        state.data.channels().clone(),
+        state.data.pattern_channels().clone(),
+    );
+    Ok(cloned)
 }
 
 fn subplot_payload_for_mark(mark: &dyn CompiledMark) -> Option<&CompiledSubplotPayload> {
@@ -1275,6 +1251,13 @@ mod tests {
             baked.marks[0].as_ref().data_context().logical_plan_node(),
             Some(baked_plot_node)
         );
+        // ...and inside the facet child, nothing still targets the original.
+        assert!(
+            !baked
+                .marks
+                .iter()
+                .any(|mark| mark.data_context().logical_plan_node() == Some(&original_node))
+        );
         // ...and it decodes in a fresh session once the manifest registers
         // (the residual references only baked tables).
         let client_ctx = SessionContext::new();
@@ -1287,6 +1270,58 @@ mod tests {
                 .all(|name| name.starts_with("__pe_baked_")),
             "{:?}",
             table_names(&plan)
+        );
+        Ok(())
+    }
+
+    /// PLAIN marks also receive compile-time snapshots of the plot data
+    /// (evaluation prefers the mark's own context over plot data, so an
+    /// un-retargeted snapshot keeps the baked chart on the ORIGINAL plan —
+    /// re-executing folded work and, for inline sources, embedding every raw
+    /// row in the artifact).
+    #[tokio::test]
+    async fn plot_data_bake_retargets_plain_mark_snapshots()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        // Unnamed in-memory source: serializes INLINE, so a leaked snapshot
+        // would visibly bloat the artifact.
+        let raw = ctx.read_batch(big_batch())?;
+        let data = raw
+            .aggregate(
+                vec![col("region")],
+                vec![datafusion::functions_aggregate::expr_fn::sum(col("value")).alias("total")],
+            )?
+            .filter(col("total").gt(datafusion::prelude::placeholder("$min")))?;
+        let compiled = Plot::<Cartesian>::new()
+            .data(data)
+            .mark(Symbol::new().x(col("total")).y(col("total")).size(48.0))
+            .compile(&ctx)
+            .await?;
+        let original_node = compiled.data.clone().expect("plot data");
+        assert_eq!(
+            compiled.marks[0]
+                .as_ref()
+                .data_context()
+                .logical_plan_node(),
+            Some(&original_node),
+            "compile should snapshot plot data into the plain mark"
+        );
+
+        let (baked, report) = compiled.bake(&ctx, &BakePolicy::default()).await?;
+        assert!(report.self_contained, "{:#?}", report.contexts);
+        let baked_plot_node = baked.data.as_ref().expect("baked plot data");
+        assert_eq!(
+            baked.marks[0].as_ref().data_context().logical_plan_node(),
+            Some(baked_plot_node)
+        );
+
+        // The artifact must not carry the raw rows through a leaked
+        // snapshot: it stays well under the raw source's serialized size.
+        let artifact_len = bincode::serialize(&baked)?.len();
+        let unbaked_len = bincode::serialize(&compiled)?.len();
+        assert!(
+            artifact_len * 2 < unbaked_len,
+            "artifact {artifact_len} bytes vs unbaked {unbaked_len} bytes"
         );
         Ok(())
     }

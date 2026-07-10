@@ -11,7 +11,7 @@ pub fn data_dir() -> PathBuf {
 }
 
 pub fn parquet_path() -> PathBuf {
-    data_dir().join("sales.parquet")
+    data_dir().join("trips.parquet")
 }
 
 pub fn artifact_path() -> PathBuf {
@@ -20,44 +20,47 @@ pub fn artifact_path() -> PathBuf {
         .join("baked-chart.bin")
 }
 
-/// The chart the server bakes: per-region totals over sales rows above a
-/// live `$min` threshold. The `$min` filter sits BELOW the aggregate, so the
-/// bake embeds the raw rows and the client re-aggregates them per param
-/// value — interactively, with zero access to the parquet source.
+/// Upper end of the cursor-driven `$min` sweep; daily totals in the
+/// generated data top out a little above this.
 ///
-/// `$min` is bound to the cursor's horizontal position, so the baked chart
-/// stays interactive through machinery that serializes with the plot: move
-/// the cursor across the chart to sweep the threshold.
-pub fn sales_threshold_chart(data: DataFrame) -> Plot<Cartesian> {
+/// The pipeline the server bakes is daily `SUM(value)` per (region, day)
+/// with the live `$min` threshold ABOVE the aggregate: the aggregate is
+/// param-free, so partial evaluation executes it once at bake time and the
+/// artifact embeds only the few thousand pre-aggregated rows instead of the
+/// millions of raw events. The client's cost per interaction is a filter
+/// over the small baked table.
+pub const MIN_SWEEP_MAX: f64 = 100_000.0;
+
+/// The chart: one point per (region, day) daily total, colored by region,
+/// with `$min` bound to the cursor's horizontal position. The binding
+/// serializes with the plot, so the baked chart stays interactive in a
+/// session that has never seen the data: move the cursor across the chart
+/// to sweep the threshold.
+pub fn daily_totals_chart(data: DataFrame) -> Plot<Cartesian> {
     let min = Param::new("min", ScalarValue::Float64(Some(0.0)));
     Plot::<Cartesian>::new()
-        .canvas_size(760.0, 520.0)
-        .title("Baked sales — move the cursor to sweep the $min threshold")
+        .canvas_size(860.0, 520.0)
+        .title("Baked daily totals — move the cursor to sweep the $min threshold")
         .add_params([min])
         .data(data)
         .mark(
             Symbol::new()
-                .x(col("region"))
+                .x(col("day"))
                 .y(col("total"))
                 .fill(col("region"))
-                .size(160.0),
+                .size(24.0),
         )
         .event_binding(
             ChartEventBinding::on(ChartEventType::CursorMoved)
                 .set_param(
                     "min",
-                    avenger_chart::event::x() / avenger_chart::event::canvas_width() * lit(100.0),
+                    avenger_chart::event::x() / avenger_chart::event::canvas_width()
+                        * lit(MIN_SWEEP_MAX),
                 )
                 .throttle_ms(16)
                 .exact(),
         )
 }
-
-/// SQL evaluated over the `sales` table registered by whichever side owns
-/// the data. The scan below the `$min` filter is param-free and folds into
-/// the baked artifact; the filter and aggregate stay live above it.
-pub const SALES_QUERY: &str = "SELECT region, SUM(value) AS total, COUNT(*) AS orders \
-     FROM sales WHERE value >= $min GROUP BY region ORDER BY region";
 
 pub fn init_logging() {
     let _ = env_logger::try_init();
