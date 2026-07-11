@@ -297,6 +297,24 @@ async fn temporal_scatter(ctx: &SessionContext) -> CompiledPlot {
         .expect("compile temporal_scatter")
 }
 
+/// Evaluate the same chart shape on a PLAIN (uncached) context and return
+/// its scene bytes — the cache-on/off equivalence baseline.
+async fn plain_twin_scene<F, Fut>(
+    build: F,
+    chart_params: Option<IndexMap<String, ScalarValue>>,
+) -> Vec<u8>
+where
+    F: FnOnce(SessionContext) -> Fut,
+    Fut: std::future::Future<Output = (SessionContext, CompiledPlot)>,
+{
+    let (ctx, compiled) = build(SessionContext::new()).await;
+    let evaluated = compiled
+        .evaluate(&ctx, chart_params)
+        .await
+        .expect("plain twin evaluation");
+    bincode::serialize(&evaluated.scene_graph).expect("scene bytes")
+}
+
 // ---------------------------------------------------------------------------
 // Phase 0 probe
 // ---------------------------------------------------------------------------
@@ -314,6 +332,7 @@ async fn probe(
     cache: &Arc<EvaluationCache>,
     compiled: &CompiledPlot,
     chart_params: Option<IndexMap<String, ScalarValue>>,
+    plain_twin: Option<&[u8]>,
 ) -> (CacheMetricsSnapshot, CacheMetricsSnapshot) {
     let first = compiled
         .evaluate(ctx, chart_params.clone())
@@ -335,6 +354,13 @@ async fn probe(
     let m3 = cache.metrics();
 
     let first_bytes = bincode::serialize(&first.scene_graph).expect("scene bytes");
+    if let Some(plain_scene) = plain_twin {
+        assert_eq!(
+            first_bytes, plain_scene,
+            "census `{label}`: cached context must be scene-byte identical to an \
+             uncached twin"
+        );
+    }
     assert_eq!(
         first_bytes,
         bincode::serialize(&second.scene_graph).expect("scene bytes"),
@@ -381,6 +407,14 @@ async fn probe(
 
 #[tokio::test]
 async fn census_scatter_param_filter() {
+    let twin = plain_twin_scene(
+        |ctx| async move {
+            let compiled = scatter_param_filter(&ctx).await;
+            (ctx, compiled)
+        },
+        Some(params(&[("min", 2.5)])),
+    )
+    .await;
     let (ctx, cache) = cached_ctx();
     let compiled = scatter_param_filter(&ctx).await;
     probe(
@@ -389,26 +423,67 @@ async fn census_scatter_param_filter() {
         &cache,
         &compiled,
         Some(params(&[("min", 2.5)])),
+        Some(&twin),
     )
     .await;
 }
 
 #[tokio::test]
 async fn census_colored_scatter_legend() {
+    let twin = plain_twin_scene(
+        |ctx| async move {
+            let compiled = colored_scatter_legend(&ctx).await;
+            (ctx, compiled)
+        },
+        None,
+    )
+    .await;
     let (ctx, cache) = cached_ctx();
     let compiled = colored_scatter_legend(&ctx).await;
-    probe("colored_scatter_legend", &ctx, &cache, &compiled, None).await;
+    probe(
+        "colored_scatter_legend",
+        &ctx,
+        &cache,
+        &compiled,
+        None,
+        Some(&twin),
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn census_nested_band_bar() {
+    let twin = plain_twin_scene(
+        |ctx| async move {
+            let compiled = nested_band_bar(&ctx).await;
+            (ctx, compiled)
+        },
+        None,
+    )
+    .await;
     let (ctx, cache) = cached_ctx();
     let compiled = nested_band_bar(&ctx).await;
-    probe("nested_band_bar", &ctx, &cache, &compiled, None).await;
+    probe(
+        "nested_band_bar",
+        &ctx,
+        &cache,
+        &compiled,
+        None,
+        Some(&twin),
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn census_facet_wrap_aggregate() {
+    let twin = plain_twin_scene(
+        |ctx| async move {
+            let compiled = facet_wrap_aggregate(&ctx).await;
+            (ctx, compiled)
+        },
+        Some(params(&[("min", 0.5)])),
+    )
+    .await;
     let (ctx, cache) = cached_ctx();
     let compiled = facet_wrap_aggregate(&ctx).await;
     probe(
@@ -417,22 +492,55 @@ async fn census_facet_wrap_aggregate() {
         &cache,
         &compiled,
         Some(params(&[("min", 0.5)])),
+        Some(&twin),
     )
     .await;
 }
 
 #[tokio::test]
 async fn census_join_aggregate_faceted() {
+    let twin = plain_twin_scene(
+        |ctx| async move {
+            let compiled = join_aggregate_faceted(&ctx).await;
+            (ctx, compiled)
+        },
+        None,
+    )
+    .await;
     let (ctx, cache) = cached_ctx();
     let compiled = join_aggregate_faceted(&ctx).await;
-    probe("join_aggregate_faceted", &ctx, &cache, &compiled, None).await;
+    probe(
+        "join_aggregate_faceted",
+        &ctx,
+        &cache,
+        &compiled,
+        None,
+        Some(&twin),
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn census_temporal_scatter() {
+    let twin = plain_twin_scene(
+        |ctx| async move {
+            let compiled = temporal_scatter(&ctx).await;
+            (ctx, compiled)
+        },
+        None,
+    )
+    .await;
     let (ctx, cache) = cached_ctx();
     let compiled = temporal_scatter(&ctx).await;
-    probe("temporal_scatter", &ctx, &cache, &compiled, None).await;
+    probe(
+        "temporal_scatter",
+        &ctx,
+        &cache,
+        &compiled,
+        None,
+        Some(&twin),
+    )
+    .await;
 }
 
 /// A BAKED chart evaluated on a cached context: the two layers composing.
@@ -450,6 +558,14 @@ async fn census_baked_chart_on_cached_context() {
     let encoded = bincode::serialize(&baked).expect("serialize baked");
     let decoded: CompiledPlot = bincode::deserialize(&encoded).expect("deserialize baked");
 
+    // Twin: the same artifact on a fresh PLAIN context.
+    let plain_ctx = SessionContext::new();
+    let plain_eval = decoded
+        .evaluate(&plain_ctx, Some(params(&[("min", 2.5)])))
+        .await
+        .expect("plain baked evaluation");
+    let twin = bincode::serialize(&plain_eval.scene_graph).expect("scene bytes");
+
     // Evaluate the self-contained artifact on a fresh CACHED context.
     let (ctx, cache) = cached_ctx();
     probe(
@@ -458,6 +574,7 @@ async fn census_baked_chart_on_cached_context() {
         &cache,
         &decoded,
         Some(params(&[("min", 2.5)])),
+        Some(&twin),
     )
     .await;
 }
@@ -512,4 +629,241 @@ async fn disabled_cache_records_nothing_and_is_undiscoverable() {
     );
     let compiled = colored_scatter_legend(&ctx).await;
     compiled.evaluate(&ctx, None).await.expect("evaluate");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: behavior suite (param reuse, store invalidation, preview)
+// ---------------------------------------------------------------------------
+
+/// Param sweep: repeated and novel values, every scene checked against an
+/// uncached twin, reuse strictly growing across the sweep.
+#[tokio::test]
+async fn param_change_reuses_upstream() {
+    let (cached_ctx, cache) = cached_ctx();
+    let plain_ctx = SessionContext::new();
+    let cached = scatter_param_filter(&cached_ctx).await;
+    let plain = scatter_param_filter(&plain_ctx).await;
+
+    // a, a (warm), b, c, b (repeat)
+    let sweep = [2.5, 2.5, 3.5, 4.5, 3.5];
+    let mut hits_at = Vec::new();
+    for min in sweep {
+        let p = Some(params(&[("min", min)]));
+        let cached_eval = cached
+            .evaluate(&cached_ctx, p.clone())
+            .await
+            .expect("cached evaluation");
+        let plain_eval = plain
+            .evaluate(&plain_ctx, p)
+            .await
+            .expect("plain evaluation");
+        assert_eq!(
+            bincode::serialize(&cached_eval.scene_graph).expect("scene"),
+            bincode::serialize(&plain_eval.scene_graph).expect("scene"),
+            "param sweep: cached and uncached scenes diverge at min={min}"
+        );
+        hits_at.push(cache.metrics().hits);
+    }
+    let m = cache.metrics();
+    println!("param sweep hits: {hits_at:?} | {m:?}");
+
+    assert!(
+        hits_at[2] > hits_at[1],
+        "first NOVEL literal must reuse param-independent upstream subtrees: {hits_at:?}"
+    );
+    assert!(
+        hits_at[4] > hits_at[3],
+        "repeated literal must reuse its own subtrees too: {hits_at:?}"
+    );
+    assert_eq!(
+        m.admitted_writes,
+        m.committed_writes + m.discarded_writes,
+        "all admitted writes resolved: {m:?}"
+    );
+    assert!(m.entries > 0);
+}
+
+fn threshold_store_batch() -> RecordBatch {
+    record_batch(
+        vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new("lo", DataType::Float64, false),
+            Field::new("hi", DataType::Float64, false),
+        ],
+        vec![
+            Arc::new(StringArray::from(vec!["active"])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![3.0])) as ArrayRef,
+            Arc::new(Float64Array::from(vec![6.0])) as ArrayRef,
+        ],
+    )
+}
+
+/// Store-bearing chart: two mark groups, one reading a Shared store. A
+/// store patch must invalidate store-dependent results (visible scene
+/// change, no false hit) while the store-independent work keeps reusing.
+#[tokio::test]
+async fn store_change_invalidates_without_false_hits() {
+    async fn store_chart(ctx: &SessionContext) -> CompiledPlot {
+        ctx.register_batch("sales", sales_batch())
+            .expect("register sales");
+        let data = ctx
+            .sql(
+                "SELECT * FROM (SELECT region, SUM(value) AS total \
+                 FROM sales GROUP BY region) q ORDER BY region",
+            )
+            .await
+            .expect("sales query");
+        Plot::<Cartesian>::new()
+            .data(data)
+            .add_store(
+                Store::from_record_batch("threshold_band", threshold_store_batch())
+                    .primary_key(["id"])
+                    .sharing(CoordinationScope::Shared),
+            )
+            .mark(MarkGroup::new().mark(Symbol::new().x(col("total")).y(col("total")).size(64.0)))
+            .mark(
+                MarkGroup::new()
+                    .data_store(StoreData::new("threshold_band"))
+                    .mark(
+                        Rect::new()
+                            .x(lit(2.0))
+                            .x2(lit(4.0))
+                            .y(col("lo"))
+                            .y2(col("hi"))
+                            .fill("rgba(37, 99, 235, 0.18)"),
+                    ),
+            )
+            .compile(ctx)
+            .await
+            .expect("compile store chart")
+    }
+
+    fn band_row(lo: f64, hi: f64) -> IndexMap<String, ScalarValue> {
+        let mut row = IndexMap::new();
+        row.insert(
+            "id".to_string(),
+            ScalarValue::Utf8(Some("active".to_string())),
+        );
+        row.insert("lo".to_string(), ScalarValue::Float64(Some(lo)));
+        row.insert("hi".to_string(), ScalarValue::Float64(Some(hi)));
+        row
+    }
+
+    let (cached_ctx, cache) = cached_ctx();
+    let cached_compiled = Arc::new(store_chart(&cached_ctx).await);
+    let mut cached_session = cached_compiled.instantiate(Arc::new(cached_ctx));
+    let plain_ctx = SessionContext::new();
+    let plain_compiled = Arc::new(store_chart(&plain_ctx).await);
+    let mut plain_session = plain_compiled.instantiate(Arc::new(plain_ctx));
+
+    async fn scene(session: &mut PlotSession) -> Vec<u8> {
+        let evaluated = session
+            .evaluate(EvaluationRequest::default())
+            .await
+            .expect("session evaluation");
+        bincode::serialize(&evaluated.scene_graph).expect("scene bytes")
+    }
+
+    // Warm: two evaluations, scenes equal to the uncached twin throughout.
+    let scene_a_plain = scene(&mut plain_session).await;
+    let scene_a1 = scene(&mut cached_session).await;
+    let scene_a2 = scene(&mut cached_session).await;
+    assert_eq!(
+        scene_a1, scene_a_plain,
+        "pre-patch scene equal to uncached twin"
+    );
+    assert_eq!(scene_a1, scene_a2, "repeated evaluation stable");
+    let hits_before_patch = cache.metrics().hits;
+
+    // Patch the store on BOTH sessions (move the band, visibly).
+    let owner_path = cached_session
+        .store_owner_path_for_diagnostics("threshold_band", &std::collections::HashMap::new())
+        .expect("store owner path");
+    let patch = |lo: f64, hi: f64| {
+        vec![avenger_chart::plot::ScopedStoreAssignment {
+            store_name: "threshold_band".to_string(),
+            owner_path: owner_path.clone(),
+            replace_scoped_values: true,
+            update: avenger_chart::plot::StoreStateUpdate::UpsertRows {
+                rows: vec![band_row(lo, hi)],
+            },
+        }]
+    };
+    assert!(
+        cached_session
+            .apply_scoped_store_patch(patch(1.0, 8.0))
+            .expect("patch")
+    );
+    assert!(
+        plain_session
+            .apply_scoped_store_patch(patch(1.0, 8.0))
+            .expect("patch")
+    );
+
+    let scene_b_plain = scene(&mut plain_session).await;
+    let scene_b = scene(&mut cached_session).await;
+    assert_eq!(
+        scene_b, scene_b_plain,
+        "post-patch scene equal to uncached twin (no false hit on store data)"
+    );
+    assert_ne!(
+        scene_b, scene_a1,
+        "the store change is visible in the scene"
+    );
+    let m = cache.metrics();
+    assert!(
+        m.hits > hits_before_patch,
+        "store-independent subtrees keep reusing after the patch: {m:?}"
+    );
+}
+
+/// Preview-mode evaluations against a warmed session: pins today's metric
+/// interplay ahead of the Phase 4 observe-only policy, and checks exact
+/// evaluations stay correct around a preview.
+#[tokio::test]
+async fn preview_then_full_evaluation() {
+    let (cached_ctx, cache) = cached_ctx();
+    let compiled = Arc::new(colored_scatter_legend(&cached_ctx).await);
+    let mut session = compiled.instantiate(Arc::new(cached_ctx));
+
+    let plain_ctx = SessionContext::new();
+    let plain_compiled = Arc::new(colored_scatter_legend(&plain_ctx).await);
+    let mut plain_session = plain_compiled.instantiate(Arc::new(plain_ctx));
+
+    async fn exact_scene(session: &mut PlotSession) -> Vec<u8> {
+        let evaluated = session
+            .evaluate(EvaluationRequest::default())
+            .await
+            .expect("exact evaluation");
+        bincode::serialize(&evaluated.scene_graph).expect("scene bytes")
+    }
+
+    // Warm with two exact evaluations (populates the layout profile).
+    let plain_scene = exact_scene(&mut plain_session).await;
+    let warm1 = exact_scene(&mut session).await;
+    let warm2 = exact_scene(&mut session).await;
+    assert_eq!(warm1, plain_scene);
+    assert_eq!(warm1, warm2);
+    let before_preview = cache.metrics();
+
+    // A preview-mode evaluation (approximate by design: no scene assert).
+    session
+        .evaluate(EvaluationRequest::default().preview())
+        .await
+        .expect("preview evaluation");
+    let after_preview = cache.metrics();
+    println!(
+        "preview delta: hits +{} misses +{} admitted +{} committed +{}",
+        after_preview.hits - before_preview.hits,
+        after_preview.misses - before_preview.misses,
+        after_preview.admitted_writes - before_preview.admitted_writes,
+        after_preview.committed_writes - before_preview.committed_writes,
+    );
+
+    // Exact evaluation after the preview: still correct.
+    let after = exact_scene(&mut session).await;
+    assert_eq!(
+        after, plain_scene,
+        "exact evaluation correct after a preview"
+    );
 }
