@@ -1900,16 +1900,13 @@ impl PlotSession {
         &mut self,
         request: EvaluationRequest,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
-        // Physical result cache (native only): snapshot metrics for the
-        // per-evaluation delta, and hold preview-mode evaluations to
-        // observe-only — mid-interaction previews should serve hits without
-        // churning admissions; the guard restores the previous setting on
-        // every exit path.
-        #[cfg(not(target_arch = "wasm32"))]
+        // Physical result cache: snapshot metrics for the per-evaluation
+        // delta, and hold preview-mode evaluations to observe-only —
+        // mid-interaction previews should serve hits without churning
+        // admissions; the guard restores the previous setting on every exit
+        // path.
         let cache = crate::physical_cache::physical_cache_from_ctx(self.ctx.as_ref());
-        #[cfg(not(target_arch = "wasm32"))]
         let cache_before = cache.as_ref().map(|cache| cache.metrics());
-        #[cfg(not(target_arch = "wasm32"))]
         let _observe_only_guard = match (&cache, request.mode) {
             (Some(cache), EvaluationMode::Preview) => {
                 Some(crate::physical_cache::ObserveOnlyGuard::new(cache))
@@ -1919,8 +1916,7 @@ impl PlotSession {
 
         let result = self.evaluate_with_metrics_inner(request).await;
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let result = result.map(|(evaluated, mut metrics)| {
+        result.map(|(evaluated, mut metrics)| {
             if let (Some(cache), Some(before)) = (&cache, &cache_before) {
                 metrics.physical_cache = Some(crate::physical_cache::metrics_delta(
                     before,
@@ -1928,8 +1924,7 @@ impl PlotSession {
                 ));
             }
             (evaluated, metrics)
-        });
-        result
+        })
     }
 
     async fn evaluate_with_metrics_inner(

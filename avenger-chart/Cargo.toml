@@ -60,6 +60,7 @@ async-trait = { workspace = true }
 datafusion = { workspace = true }
 datafusion-common = { workspace = true }
 datafusion-proto = { version = "54.0.0", default-features = false }
+avenger-datafusion-cache = { path = "../avenger-datafusion-cache" }
 datafusion-proto-common = { version = "54.0.0", default-features = false }
 prost = "0.14"
 futures = { workspace = true }
@@ -92,9 +93,6 @@ pdfium-render = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tempfile = "3.14"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-avenger-datafusion-cache = { path = "../avenger-datafusion-cache" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 datafusion = { workspace = true, features = ["parquet"] }

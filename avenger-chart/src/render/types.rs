@@ -256,9 +256,9 @@ pub struct EvaluationMetrics {
     /// Wall-clock timings for the most important evaluation phases.
     pub timings: EvaluationTimingMetrics,
     /// Physical result-cache activity for this evaluation, when a cache is
-    /// installed on the session context (always `None` on wasm32 and on
-    /// cacheless contexts). Set once per evaluation at the session level;
-    /// not merged by `merge_from`.
+    /// installed on the session context (`None` on cacheless contexts).
+    /// Set once per evaluation at the session level; not merged by
+    /// `merge_from`.
     pub physical_cache: Option<PhysicalCacheMetricsDelta>,
 }
 

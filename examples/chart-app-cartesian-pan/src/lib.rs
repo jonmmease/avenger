@@ -1,15 +1,34 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use avenger_chart::physical_cache::{
+    EvaluationCache, EvaluationCacheConfig, cached_session_context,
+};
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
     ChartAppOptions, ChartResizeBinding, WindowSceneSizing, WinitWgpuAvengerApp,
     WinitWgpuAvengerAppOptions, chart_avenger_app_with_default_runtime_resources,
 };
-use datafusion::prelude::SessionContext;
 use winit::window::WindowAttributes;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
+
+/// The physical result cache backing the app's session context; exposed so
+/// the browser console (or native code) can inspect reuse while panning.
+static PHYSICAL_CACHE: OnceLock<Arc<EvaluationCache>> = OnceLock::new();
+
+/// Snapshot the physical cache metrics as a debug string. In the browser:
+/// call `wasm.cache_metrics()` from the console before and after panning —
+/// preview evaluations during the gesture should show `hits` growing with
+/// `admitted_writes` unchanged (observe-only), and post-gesture settling
+/// should admit and then hit.
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn cache_metrics() -> String {
+    match PHYSICAL_CACHE.get() {
+        Some(cache) => format!("{:?}", cache.metrics()),
+        None => "physical cache not initialized".to_string(),
+    }
+}
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
 pub async fn run() {
@@ -52,7 +71,12 @@ fn app_options(
 }
 
 async fn build_app() -> avenger_chart_app::ChartAppBundle {
-    let ctx = Arc::new(SessionContext::new());
+    // Physical result cache installed at context build time; repeated and
+    // preview evaluations reuse executed subtrees (AVENGER_PHYSICAL_CACHE=0
+    // disables on native; wasm has no env).
+    let (ctx, cache) = cached_session_context(EvaluationCacheConfig::default());
+    let _ = PHYSICAL_CACHE.set(cache);
+    let ctx = Arc::new(ctx);
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES
