@@ -2,7 +2,9 @@
 
 ## Status
 
-Draft design, 2026-07-09. The Rust API change implied by the naming law
+Active implementation design, 2026-07-09. Campaign 1 (coordinate-forwarding
+removal) was implemented in `d35c6a199` on 2026-07-11; Campaign 2 remains
+planned. The Rust API change implied by the naming law
 in `chart-dsl.md` ("Charts, Plots, And Subplots"): **`Plot<C>` becomes a
 pure construct with zero position-dependent fields, and every position
 furnishes it through a wrapper** — `Chart<C>` (document), `Subplot`
@@ -222,8 +224,8 @@ expectation** (no re-blesses).
    `.items()`, `.responsive_columns()`, `.cell()`, `.cell_when()`,
    `.matrix_domains[_with_scope]()`, `.item_domains[_with_scope]()`,
    `.matrix_axes()`, `.axis_guide_visibility()`,
-   `.with_repeat_domain_coordination()`. The concat types are already fluent — the
-   forwarding bodies call them — so verify completeness only
+   `.with_repeat_domain_coordination()`. The concat types are already fluent —
+   the forwarding bodies call them — so verify completeness only
    (`rows`/`columns`/`column_widths`/`row_heights`/`widths`/`heights`/
    `responsive_columns`/`axis_guide_visibility`).
 3. **Migrate call sites** from the `Plot` sugar to `with_coord` /
@@ -249,6 +251,14 @@ Coordination hazard: the concurrent baking workstream actively edits
 avenger-chart (including plot.rs). Sequence with it or rebase
 deliberately — this campaign's plot.rs delta is pure deletion plus one
 added method, so conflicts stay mechanical.
+
+**Implementation status:** completed in `d35c6a199` (2026-07-11). The scoped
+strict check, 729 visual tests, doc tests, formatting, and full release
+workspace build passed with zero baseline changes. The workspace test gate
+retained the preflight `avenger-svg` smoothing-snapshot failure and also
+exposed an order-sensitive pre-existing chart-app temporal-coordinate test
+that passes alone and with its focused family. Rust 1.96 clippy remains
+blocked by existing lints outside the campaign diff.
 
 ### Campaign 2 — introduce `Chart<C>`, re-scope `Subplot` (second)
 
