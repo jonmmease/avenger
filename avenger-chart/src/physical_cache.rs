@@ -103,6 +103,53 @@ pub fn cached_session_context(
     (SessionContext::new_with_state(builder.build()), cache)
 }
 
+/// Scoped observe-only hint: construction flips the cache to observe-only
+/// (hits keep being served, no new writes are admitted); drop restores the
+/// PREVIOUS value, so an outer host-level hint (for example a gesture in
+/// progress) is never clobbered by a nested preview evaluation.
+pub struct ObserveOnlyGuard {
+    cache: Arc<EvaluationCache>,
+    previous: bool,
+}
+
+impl ObserveOnlyGuard {
+    /// Flip `cache` to observe-only until the guard drops.
+    pub fn new(cache: &Arc<EvaluationCache>) -> Self {
+        Self {
+            cache: Arc::clone(cache),
+            previous: cache.swap_observe_only(true),
+        }
+    }
+}
+
+impl Drop for ObserveOnlyGuard {
+    fn drop(&mut self) {
+        self.cache.set_observe_only(self.previous);
+    }
+}
+
+/// Counter deltas between two metric snapshots (plus end-state entries and
+/// bytes), in the shape carried by
+/// [`EvaluationMetrics`](crate::render::types::EvaluationMetrics).
+pub fn metrics_delta(
+    before: &CacheMetricsSnapshot,
+    after: &CacheMetricsSnapshot,
+) -> crate::render::types::PhysicalCacheMetricsDelta {
+    crate::render::types::PhysicalCacheMetricsDelta {
+        hits: after.hits.saturating_sub(before.hits),
+        misses: after.misses.saturating_sub(before.misses),
+        admitted_writes: after.admitted_writes.saturating_sub(before.admitted_writes),
+        committed_writes: after
+            .committed_writes
+            .saturating_sub(before.committed_writes),
+        discarded_writes: after
+            .discarded_writes
+            .saturating_sub(before.discarded_writes),
+        entries: after.entries,
+        bytes: after.bytes,
+    }
+}
+
 /// The cache installed on `ctx`'s session config, if any.
 ///
 /// Session-side features (evaluation metrics deltas, the preview-mode
@@ -123,6 +170,29 @@ mod tests {
         assert!(!kill_switch_from(Some("")));
         assert!(!kill_switch_from(Some("false")));
         assert!(!kill_switch_from(None));
+    }
+
+    #[test]
+    fn observe_only_guard_restores_previous_value() {
+        let cache = EvaluationCache::new(EvaluationCacheConfig::default());
+        // Host-level hint already active: the guard must restore it.
+        cache.set_observe_only(true);
+        {
+            let _guard = ObserveOnlyGuard::new(&cache);
+            let _inner = ObserveOnlyGuard::new(&cache); // nesting is safe
+        }
+        assert!(
+            cache.swap_observe_only(false),
+            "outer host-level observe-only must survive the guards"
+        );
+        // And from a clean state, drop returns to writes-enabled.
+        {
+            let _guard = ObserveOnlyGuard::new(&cache);
+        }
+        assert!(
+            !cache.swap_observe_only(false),
+            "guard restored writes-enabled"
+        );
     }
 
     #[test]

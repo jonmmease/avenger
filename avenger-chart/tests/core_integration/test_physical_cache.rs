@@ -823,8 +823,9 @@ async fn store_change_invalidates_without_false_hits() {
 #[tokio::test]
 async fn preview_then_full_evaluation() {
     let (cached_ctx, cache) = cached_ctx();
-    let compiled = Arc::new(colored_scatter_legend(&cached_ctx).await);
-    let mut session = compiled.instantiate(Arc::new(cached_ctx));
+    let session_ctx = Arc::new(cached_ctx);
+    let compiled = Arc::new(colored_scatter_legend(session_ctx.as_ref()).await);
+    let mut session = compiled.instantiate(Arc::clone(&session_ctx));
 
     let plain_ctx = SessionContext::new();
     let plain_compiled = Arc::new(colored_scatter_legend(&plain_ctx).await);
@@ -860,10 +861,71 @@ async fn preview_then_full_evaluation() {
         after_preview.committed_writes - before_preview.committed_writes,
     );
 
-    // Exact evaluation after the preview: still correct.
+    assert_eq!(
+        after_preview.admitted_writes, before_preview.admitted_writes,
+        "preview evaluations must not admit writes (observe-only policy)"
+    );
+
+    // Exact evaluation after the preview: still correct, and admission is
+    // enabled again (the guard restored the setting).
     let after = exact_scene(&mut session).await;
     assert_eq!(
         after, plain_scene,
         "exact evaluation correct after a preview"
     );
+
+    // A NOVEL chart shape after the preview proves writes re-enabled: it
+    // must be able to warm up and admit again.
+    let novel_before = cache.metrics().admitted_writes;
+    let novel = scatter_param_filter(session_ctx.as_ref()).await;
+    for _ in 0..2 {
+        novel
+            .evaluate(session_ctx.as_ref(), Some(params(&[("min", 2.5)])))
+            .await
+            .expect("novel evaluation");
+    }
+    assert!(
+        cache.metrics().admitted_writes > novel_before,
+        "admission works again after the preview guard dropped"
+    );
+}
+
+/// The per-evaluation cache delta lands in `EvaluationMetrics`.
+#[tokio::test]
+async fn metrics_delta_reported_per_evaluation() {
+    let (cached_ctx, _cache) = cached_ctx();
+    let session_ctx = Arc::new(cached_ctx);
+    let compiled = Arc::new(colored_scatter_legend(session_ctx.as_ref()).await);
+    let mut session = compiled.instantiate(Arc::clone(&session_ctx));
+
+    let (_evaluated, first) = session
+        .evaluate_with_metrics(EvaluationRequest::default())
+        .await
+        .expect("evaluation 1");
+    let delta1 = first
+        .physical_cache
+        .expect("delta present on cached context");
+    assert!(delta1.misses > 0, "cold evaluation misses: {delta1:?}");
+    assert_eq!(delta1.hits, 0, "cold evaluation has no hits: {delta1:?}");
+
+    session
+        .evaluate(EvaluationRequest::default())
+        .await
+        .expect("evaluation 2");
+    let (_evaluated, third) = session
+        .evaluate_with_metrics(EvaluationRequest::default())
+        .await
+        .expect("evaluation 3");
+    let delta3 = third.physical_cache.expect("delta present");
+    assert!(delta3.hits > 0, "warmed evaluation serves hits: {delta3:?}");
+
+    // A cacheless session reports no delta.
+    let plain_ctx = Arc::new(SessionContext::new());
+    let plain_compiled = Arc::new(colored_scatter_legend(plain_ctx.as_ref()).await);
+    let mut plain_session = plain_compiled.instantiate(plain_ctx);
+    let (_evaluated, metrics) = plain_session
+        .evaluate_with_metrics(EvaluationRequest::default())
+        .await
+        .expect("plain evaluation");
+    assert!(metrics.physical_cache.is_none(), "no cache, no delta");
 }

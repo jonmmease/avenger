@@ -310,7 +310,15 @@ impl EvaluationCache {
     /// still served and fingerprints still observed, but no new writes are
     /// admitted while enabled.
     pub fn set_observe_only(&self, observe_only: bool) {
-        self.inner.lock().unwrap().observe_only = observe_only;
+        self.swap_observe_only(observe_only);
+    }
+
+    /// Set observe-only mode and return the PREVIOUS value — the building
+    /// block for scoped guards that must restore an outer setting (for
+    /// example a host-level gesture hint) rather than clobbering it.
+    pub fn swap_observe_only(&self, observe_only: bool) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        std::mem::replace(&mut inner.observe_only, observe_only)
     }
 
     /// Look up a key. Updates hit/miss/pending metrics and the entry's

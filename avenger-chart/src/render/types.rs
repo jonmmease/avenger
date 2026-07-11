@@ -219,6 +219,26 @@ impl Default for EvaluationOptions {
     }
 }
 
+/// Physical result-cache activity attributed to one evaluation
+/// (counter deltas across the evaluation, plus end-of-evaluation state).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PhysicalCacheMetricsDelta {
+    /// Cache hits served during this evaluation.
+    pub hits: u64,
+    /// Cache misses during this evaluation.
+    pub misses: u64,
+    /// Writes admitted during this evaluation.
+    pub admitted_writes: u64,
+    /// Writes committed during this evaluation.
+    pub committed_writes: u64,
+    /// Writes discarded during this evaluation.
+    pub discarded_writes: u64,
+    /// Committed entries retained at the END of the evaluation (state).
+    pub entries: usize,
+    /// Approximate retained bytes at the END of the evaluation (state).
+    pub bytes: usize,
+}
+
 /// Opt-in counters for evaluation performance diagnostics.
 ///
 /// This is intentionally not part of the normal evaluated plot output. Use it
@@ -235,6 +255,11 @@ pub struct EvaluationMetrics {
     pub pipeline: EvaluationPipelineMetrics,
     /// Wall-clock timings for the most important evaluation phases.
     pub timings: EvaluationTimingMetrics,
+    /// Physical result-cache activity for this evaluation, when a cache is
+    /// installed on the session context (always `None` on wasm32 and on
+    /// cacheless contexts). Set once per evaluation at the session level;
+    /// not merged by `merge_from`.
+    pub physical_cache: Option<PhysicalCacheMetricsDelta>,
 }
 
 impl EvaluationMetrics {
