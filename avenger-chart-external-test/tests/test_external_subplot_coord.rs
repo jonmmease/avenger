@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use avenger_chart::plot::{CompiledPlot, Plot};
+use avenger_chart::plot::{Chart, CompiledPlot, Plot};
 use avenger_chart_cartesian::{
     Cartesian, CartesianSubplotPositionChannels, CARTESIAN_SUBPLOT_X_CHANNEL,
     CARTESIAN_SUBPLOT_Y_CHANNEL,
@@ -83,7 +83,7 @@ async fn external_coordinate_can_compile_subplot_mark() {
 #[tokio::test]
 async fn external_coordinate_subplot_can_be_added_to_plot() {
     let ctx = SessionContext::new();
-    let plot = Plot::<ExternalSubplotCoord>::new()
+    let plot = Chart::<ExternalSubplotCoord>::new()
         .data(external_position_data(&ctx))
         .mark(
             Subplot::new(Plot::<ZeroDCoord>::new())
@@ -177,7 +177,7 @@ async fn polar_subplot_mapping_uses_polar_channels() {
 #[tokio::test]
 async fn non_point_positioned_subplot_transform_returns_clear_error() {
     let ctx = SessionContext::new();
-    let plot = Plot::<NonPointSubplotCoord>::new()
+    let plot = Chart::<NonPointSubplotCoord>::new()
         .data(external_position_data(&ctx))
         .mark(
             Subplot::new(Plot::<ZeroDCoord>::new())

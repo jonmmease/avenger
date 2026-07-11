@@ -1,4 +1,4 @@
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_external_test::external_coord_system::{MeasuredExternalCoord, MeasuredRect};
 use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
 use datafusion::prelude::SessionContext;
@@ -21,7 +21,7 @@ fn find_rect<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneRectMark
 #[tokio::test]
 async fn external_coordinate_provider_installs_measurement_for_mark_rendering() {
     let ctx = SessionContext::new();
-    let compiled = Plot::<MeasuredExternalCoord>::new()
+    let compiled = Chart::<MeasuredExternalCoord>::new()
         .mark(MeasuredRect::new())
         .plot_size(400.0, 300.0)
         .compile(&ctx)
