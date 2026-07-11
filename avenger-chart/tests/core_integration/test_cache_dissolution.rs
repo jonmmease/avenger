@@ -1,6 +1,7 @@
-//! Staleness probes and measurements for the PartitionSlotCache /
-//! ScaleDomainCache dissolution campaign
-//! (`scratch/slot-domain-cache-dissolution-plan.md`).
+//! Regression tests for the PartitionSlotCache / ScaleDomainCache
+//! dissolution campaign (`scratch/slot-domain-cache-dissolution-plan.md`):
+//! both memos are per-evaluation, so host-side data mutation between
+//! session evaluations must be reflected by the next evaluation.
 //!
 //! The mutable-data-behind-a-stable-plan path probed here is `INSERT INTO`
 //! a registered `MemTable` between PlotSession evaluations: compiled plots
@@ -23,10 +24,8 @@ use datafusion::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
-    common::ScalarValue,
     prelude::{SessionContext, col},
 };
-use indexmap::IndexMap;
 
 fn events_batch(regions: &[&str], values: &[f64]) -> RecordBatch {
     RecordBatch::try_new(
@@ -73,14 +72,14 @@ async fn scene_fresh(compiled: &CompiledPlot, ctx: &SessionContext) -> Vec<u8> {
     bincode::serialize(&evaluated.scene_graph).expect("scene bytes")
 }
 
-/// Probe A: a new facet value arriving via INSERT INTO must produce a new
-/// facet cell on the next session evaluation.
+/// A new facet value arriving via INSERT INTO must produce a new facet
+/// cell on the next session evaluation.
 ///
-/// KNOWN-STALE until dissolution Phase 2: the session-lifetime
-/// PartitionSlotCache keys on plan-Debug + params (no data identity), so
-/// the second session evaluation serves the pre-insert slot list.
+/// Reproduced stale before dissolution Phase 2: the session-lifetime
+/// PartitionSlotCache keyed on plan-Debug + params (no data identity), so
+/// the second session evaluation served the pre-insert slot list. The
+/// slot memo is now per-evaluation.
 #[tokio::test]
-#[ignore = "known stale-slot bug: session PartitionSlotCache misses INSERTed facet values; enabled by dissolution Phase 2"]
 async fn probe_a_insert_into_adds_facet_cell_in_session() {
     let (ctx, _cache) = cached_session_context(EvaluationCacheConfig::default());
     ctx.register_batch(
@@ -116,13 +115,14 @@ async fn probe_a_insert_into_adds_facet_cell_in_session() {
     );
 }
 
-/// Probe C: the same INSERT shifts the y-domain extent; a session
-/// evaluation must reflect it.
+/// The same INSERT shifts the y-domain extent; a session evaluation must
+/// reflect it.
 ///
-/// Verifies the ScaleDomainCache `data_ptr` identity contract for
-/// provider-interior mutation (pointer identity CANNOT see INSERT INTO).
+/// Reproduced stale before dissolution Phase 3: the session-lifetime
+/// ScaleDomainCache keyed on `data_ptr` pointer identity, which cannot
+/// see provider-interior mutation (INSERT INTO). The domain memo is now
+/// per-evaluation.
 #[tokio::test]
-#[ignore = "probe: run explicitly; expected stale until Phase 3 settles the data_ptr contract"]
 async fn probe_c_insert_into_shifts_domain_in_session() {
     let (ctx, _cache) = cached_session_context(EvaluationCacheConfig::default());
     ctx.register_batch("events", events_batch(&["EU", "EU"], &[1.0, 2.0]))
@@ -164,15 +164,13 @@ async fn probe_c_insert_into_shifts_domain_in_session() {
     );
 }
 
-/// Probe B: same-name table RE-REGISTRATION. Compiled plots re-resolve
-/// table references against the live context at evaluation time (they are
+/// Same-name table RE-REGISTRATION. Compiled plots re-resolve table
+/// references against the live context at evaluation time (they are
 /// serializable, so they cannot hold provider `Arc`s) — a FRESH evaluation
-/// sees the new data. The session, however, serves the pre-swap scene:
-/// a second live staleness vector for the session memos.
+/// sees the new data, and with per-evaluation memos so does the session.
 ///
-/// KNOWN-STALE until dissolution Phase 2/3.
+/// Reproduced stale before dissolution Phases 2-3.
 #[tokio::test]
-#[ignore = "known stale-session bug: re-registered tables invisible to session memos; enabled by dissolution Phases 2-3"]
 async fn probe_b_reregistration_reaches_session_evaluations() {
     let (ctx, _cache) = cached_session_context(EvaluationCacheConfig::default());
     ctx.register_batch("events", events_batch(&["EU", "NA"], &[1.0, 2.0]))
@@ -205,182 +203,6 @@ async fn probe_b_reregistration_reaches_session_evaluations() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Phase 1: measurement — what is each session memo worth with the physical
-// cache installed? (run explicitly: `-- --ignored measure_memo`)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-#[ignore = "measurement: run explicitly and record numbers in the plan's progress log"]
-async fn measure_memo_value_matrix() {
-    use avenger_chart::plot::PlotSessionOptions;
-    use std::time::Instant;
-
-    // A moderately expensive faceted chart: 6 cells over 3k rows with an
-    // aggregate chain, plus a style param ($size) that does NOT touch data
-    // — re-evaluating with a new $size exercises the same key behavior as
-    // the pinned responsive-width scenario (dependency-pruned cache keys).
-    fn big_events() -> RecordBatch {
-        let n = 3000;
-        let regions: Vec<String> = (0..n).map(|i| format!("r{}", i % 6)).collect();
-        let values: Vec<f64> = (0..n).map(|i| ((i * 37) % 501) as f64 * 0.1).collect();
-        RecordBatch::try_new(
-            Arc::new(Schema::new(vec![
-                Field::new("region", DataType::Utf8, false),
-                Field::new("value", DataType::Float64, false),
-            ])),
-            vec![
-                Arc::new(StringArray::from(regions)) as ArrayRef,
-                Arc::new(Float64Array::from(values)) as ArrayRef,
-            ],
-        )
-        .expect("events batch")
-    }
-
-    async fn wrap_chart(ctx: &SessionContext) -> CompiledPlot {
-        let width = Param::new("width", ScalarValue::Float64(Some(720.0)));
-        let data = ctx.sql("SELECT * FROM events").await.expect("query");
-        let leaf = Plot::<Cartesian>::new().mark(
-            MarkGroup::new().transform(
-                Aggregate::new()
-                    .sum("total", col("value"))
-                    .mean("avg", col("value")),
-                |group, aggregate| {
-                    group.mark(
-                        Symbol::new()
-                            .x(aggregate.output("total"))
-                            .y(aggregate.output("avg"))
-                            .size(40.0),
-                    )
-                },
-            ),
-        );
-        Plot::<FacetWrap>::new()
-            .add_param(width.clone())
-            .canvas_constraint(CanvasConstraint::width(width.expr()))
-            .plot_constraint(PlotConstraint::height(140.0))
-            .data(data)
-            .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(3)))
-            .compile(ctx)
-            .await
-            .expect("compile wrap chart")
-    }
-
-    let (ctx, physical_cache) = cached_session_context(EvaluationCacheConfig::default());
-    ctx.register_batch("events", big_events())
-        .expect("register");
-    let ctx = Arc::new(ctx);
-    let compiled = Arc::new(wrap_chart(ctx.as_ref()).await);
-
-    // Process warm-up (fs caches, allocator, lazy statics): one throwaway
-    // session evaluated twice, then the physical cache cleared.
-    {
-        let mut warmup = Arc::clone(&compiled).instantiate(Arc::clone(&ctx));
-        warmup
-            .evaluate(EvaluationRequest::new().exact())
-            .await
-            .expect("warmup");
-        warmup
-            .evaluate(EvaluationRequest::new().exact())
-            .await
-            .expect("warmup");
-    }
-
-    let configs = [
-        ("both memos ON ", false, false),
-        ("slot OFF      ", true, false),
-        ("domain OFF    ", false, true),
-        ("both OFF      ", true, true),
-    ];
-
-    println!(
-        "\n{:<15} {:>9} {:>9} {:>9} {:>10} {:>10} {:>9} {:>9}",
-        "config", "cold ms", "warm ms", "param ms", "prev ms", "plan/eval", "slot m/h", "dom m/h"
-    );
-    for (label, slot_off, domain_off) in configs {
-        physical_cache.clear();
-        let mut session = Arc::clone(&compiled)
-            .instantiate(Arc::clone(&ctx))
-            .with_options(PlotSessionOptions {
-                disable_facet_semantic_cache: slot_off,
-                disable_scale_domain_cache: domain_off,
-            });
-
-        let time_eval = |label: &'static str| label; // readability no-op
-        let _ = time_eval;
-
-        // Cold.
-        let start = Instant::now();
-        let (_e, cold_metrics) = session
-            .evaluate_with_metrics(EvaluationRequest::new().exact())
-            .await
-            .expect("cold");
-        let cold_ms = start.elapsed().as_secs_f64() * 1e3;
-
-        // Warm (same request) — median of 5.
-        let mut warm = Vec::new();
-        for _ in 0..5 {
-            let start = Instant::now();
-            session
-                .evaluate(EvaluationRequest::new().exact())
-                .await
-                .expect("warm");
-            warm.push(start.elapsed().as_secs_f64() * 1e3);
-        }
-        warm.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let warm_median = warm[2];
-
-        // Width-only change (dependency-pruned from cache keys): the
-        // pinned responsive-resize scenario.
-        let mut param_times = Vec::new();
-        let mut last_metrics = None;
-        for (i, size) in [780.0f64, 660.0, 900.0, 840.0, 700.0].iter().enumerate() {
-            let mut patch = IndexMap::new();
-            patch.insert("width".to_string(), ScalarValue::Float64(Some(*size)));
-            let start = Instant::now();
-            let (_e, m) = session
-                .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
-                .await
-                .expect("param eval");
-            param_times.push(start.elapsed().as_secs_f64() * 1e3);
-            if i == 4 {
-                last_metrics = Some(m);
-            }
-        }
-        param_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let param_median = param_times[2];
-        let pm = last_metrics.expect("metrics");
-
-        // Preview (observe-only) after warm.
-        let mut prev_times = Vec::new();
-        for _ in 0..3 {
-            let start = Instant::now();
-            session
-                .evaluate(EvaluationRequest::new().preview())
-                .await
-                .expect("preview");
-            prev_times.push(start.elapsed().as_secs_f64() * 1e3);
-        }
-        prev_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        let plannings = pm
-            .physical_cache
-            .as_ref()
-            .map(|d| d.hits + d.misses)
-            .unwrap_or_default();
-        println!(
-            "{:<15} {:>9.1} {:>9.1} {:>9.1} {:>10.1} {:>10} {:>6}/{:<3} {:>6}/{:<3}",
-            label,
-            cold_ms,
-            warm_median,
-            param_median,
-            prev_times[1],
-            plannings,
-            pm.pipeline.facet_semantic_cache_misses,
-            pm.pipeline.facet_semantic_cache_hits,
-            pm.pipeline.scale_domain_cache_misses,
-            pm.pipeline.scale_domain_cache_hits,
-        );
-        let _ = cold_metrics;
-    }
-}
+// The Phase 1 measurement matrix that priced each memo (per-config knobs on
+// PlotSessionOptions) was retired with the knobs once the decision landed;
+// its methodology and numbers live in the plan's Phase 1 progress-log entry.

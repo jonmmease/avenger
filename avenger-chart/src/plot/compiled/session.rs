@@ -77,16 +77,12 @@ pub(crate) type SelectionRevisionFingerprint = Vec<(String, u64)>;
 pub(crate) type StoreRevisionFingerprint = Vec<(String, Vec<String>, u64)>;
 
 pub(crate) fn new_plot_session_cache_handles() -> (
-    ScaleDomainCacheHandle,
-    FacetSemanticCacheHandle,
     FacetScaleBuilderPrecomputeCacheHandle,
     GuideOverflowCacheHandle,
     LegendMeasurementCacheHandle,
     TextMeasurementCacheHandle,
 ) {
     (
-        Arc::new(Mutex::new(ScaleDomainCache::default())),
-        Arc::new(Mutex::new(PartitionSlotCache::new())),
         Arc::new(Mutex::new(
             FacetScaleBuilderPrecomputeSessionCache::default(),
         )),
@@ -1320,18 +1316,7 @@ pub struct EvaluationRequest {
 
 /// Runtime options owned by a reusable `PlotSession`.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct PlotSessionOptions {
-    /// MEASUREMENT knob (cache-dissolution campaign): give every
-    /// evaluation a fresh, throwaway facet-semantic (partition slot)
-    /// cache instead of the session-lived one.
-    #[doc(hidden)]
-    pub disable_facet_semantic_cache: bool,
-    /// MEASUREMENT knob (cache-dissolution campaign): give every
-    /// evaluation a fresh, throwaway scale-domain cache instead of the
-    /// session-lived one.
-    #[doc(hidden)]
-    pub disable_scale_domain_cache: bool,
-}
+pub struct PlotSessionOptions {}
 
 impl Default for EvaluationRequest {
     fn default() -> Self {
@@ -1532,8 +1517,6 @@ pub struct PlotSession {
     layout_profile: Option<LayoutProfileSnapshot>,
     last_metrics: Option<EvaluationMetrics>,
     options: PlotSessionOptions,
-    scale_domain_cache: ScaleDomainCacheHandle,
-    facet_semantic_cache: FacetSemanticCacheHandle,
     facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
     guide_overflow_cache: GuideOverflowCacheHandle,
     legend_measurement_cache: LegendMeasurementCacheHandle,
@@ -1554,8 +1537,6 @@ impl PlotSession {
         let scoped_selections = ScopedSelectionStore::new(program.selection_specs().clone());
         let scoped_stores = ScopedStoreState::new(program.store_specs().clone());
         let (
-            scale_domain_cache,
-            facet_semantic_cache,
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
@@ -1575,8 +1556,6 @@ impl PlotSession {
             layout_profile: None,
             last_metrics: None,
             options: PlotSessionOptions::default(),
-            scale_domain_cache,
-            facet_semantic_cache,
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
@@ -1895,24 +1874,32 @@ impl PlotSession {
             .then(|| Arc::new(self.scoped_selections.clone()))
     }
 
-    /// The facet-semantic cache handle for one evaluation (a throwaway
-    /// when disabled by the measurement knob).
+    /// Fresh per-evaluation facet-semantic (partition slot) memo.
+    ///
+    /// Session-lifetime slot reuse was dissolved (cache-dissolution
+    /// campaign): the plan-Debug key carried no source versions, so a
+    /// session-lived memo served stale slot sets after host-side data
+    /// mutation, and measurement showed it was also a net latency LOSS on
+    /// width-change re-evaluation (the memo-served reuse path triggers
+    /// extra reflow work). The memo now lives for one `evaluate` call —
+    /// shared between a preview attempt and its structural fallback, and
+    /// across within-evaluation re-asks — never across evaluations.
     fn facet_semantic_cache_for_evaluation(&self) -> FacetSemanticCacheHandle {
-        if self.options.disable_facet_semantic_cache {
-            Arc::new(Mutex::new(PartitionSlotCache::new()))
-        } else {
-            self.facet_semantic_cache.clone()
-        }
+        Arc::new(Mutex::new(PartitionSlotCache::new()))
     }
 
-    /// The scale-domain cache handle for one evaluation (a throwaway when
-    /// disabled by the measurement knob).
+    /// Fresh per-evaluation scale-domain memo.
+    ///
+    /// Session-lifetime domain reuse was dissolved (cache-dissolution
+    /// campaign): the pointer-based key (`data_ptr`) cannot observe
+    /// provider-interior mutation (e.g. host `INSERT INTO` a registered
+    /// MemTable) or table re-registration, so a session-lived memo served
+    /// stale domains. Within one evaluation the memo still serves repeated
+    /// builder asks (measured 7 hits/evaluation on a 6-cell wrap); the
+    /// underlying domain queries are served by the physical result cache,
+    /// which content-hashes data and stays correct across mutations.
     fn scale_domain_cache_for_evaluation(&self) -> ScaleDomainCacheHandle {
-        if self.options.disable_scale_domain_cache {
-            Arc::new(Mutex::new(ScaleDomainCache::default()))
-        } else {
-            self.scale_domain_cache.clone()
-        }
+        Arc::new(Mutex::new(ScaleDomainCache::default()))
     }
 
     fn scoped_store_state_handle(&self) -> Option<Arc<ScopedStoreState>> {
@@ -1970,6 +1957,10 @@ impl PlotSession {
         let scoped_store = self.scoped_param_store_handle();
         let selection_store = self.scoped_selection_store_handle();
         let store_state = self.scoped_store_state_handle();
+        // One instance per evaluate call: a preview attempt and its
+        // structural fallback share these; evaluations never do.
+        let scale_domain_cache = self.scale_domain_cache_for_evaluation();
+        let facet_semantic_cache = self.facet_semantic_cache_for_evaluation();
 
         if mode == EvaluationMode::Preview {
             let mut preview_fallback_reasons = Vec::new();
@@ -1983,8 +1974,8 @@ impl PlotSession {
                         Some(next_params.clone()),
                         options.clone(),
                         layout_profile,
-                        self.scale_domain_cache_for_evaluation(),
-                        self.facet_semantic_cache_for_evaluation(),
+                        scale_domain_cache.clone(),
+                        facet_semantic_cache.clone(),
                         self.facet_scale_builder_precompute_cache.clone(),
                         use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                         use_measurement_profile_caches
@@ -2023,8 +2014,8 @@ impl PlotSession {
                     self.ctx.as_ref(),
                     Some(next_params.clone()),
                     options,
-                    self.scale_domain_cache_for_evaluation(),
-                    self.facet_semantic_cache_for_evaluation(),
+                    scale_domain_cache.clone(),
+                    facet_semantic_cache.clone(),
                     self.facet_scale_builder_precompute_cache.clone(),
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
@@ -2067,8 +2058,8 @@ impl PlotSession {
                 self.ctx.as_ref(),
                 Some(next_params.clone()),
                 options,
-                self.scale_domain_cache_for_evaluation(),
-                self.facet_semantic_cache_for_evaluation(),
+                scale_domain_cache,
+                facet_semantic_cache,
                 self.facet_scale_builder_precompute_cache.clone(),
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
@@ -4986,8 +4977,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scale_domain_cache_reuses_domains_for_width_only_param_change()
+    async fn scale_domain_cache_rederives_domains_for_width_only_param_change()
     -> Result<(), AvengerChartError> {
+        // The scale-domain memo is per-evaluation (cache-dissolution
+        // campaign): a second evaluation re-derives domains even for a
+        // width-only param change. Cross-evaluation reuse of the domain
+        // QUERIES is the physical result cache's job.
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
         let mut session = compiled.clone().instantiate(ctx.clone());
@@ -5008,10 +5003,13 @@ mod tests {
         let (_evaluated, second) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
-        assert_eq!(second.pipeline.scale_domain_cache_hits, 1);
-        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
-        assert_eq!(second.pipeline.scale_builder_builds, 0);
-        assert_eq!(second.pipeline.scale_domain_collects, 0);
+        assert_eq!(second.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 1);
+        assert_eq!(second.pipeline.scale_builder_builds, 1);
+        assert!(
+            second.pipeline.scale_domain_collects > 0,
+            "per-evaluation memo: every evaluation re-infers scale domains"
+        );
 
         Ok(())
     }
@@ -6603,16 +6601,16 @@ mod tests {
             "unit-aspect raw-domain Preview should rebuild scales from the cached builder"
         );
         assert_eq!(
-            preview.pipeline.scale_domain_cache_hits, 1,
-            "unit-aspect raw-domain Preview should reuse cached scale-domain metadata"
+            preview.pipeline.scale_domain_cache_hits, 0,
+            "scale-domain memo is per-evaluation: a preview starts cold"
         );
         assert_eq!(
-            preview.pipeline.scale_domain_cache_misses, 0,
-            "raw-domain-only changes should not invalidate scale-domain metadata"
+            preview.pipeline.scale_domain_cache_misses, 1,
+            "unit-aspect raw-domain Preview re-derives scale-domain metadata"
         );
         assert_eq!(
-            preview.pipeline.scale_builder_builds, 0,
-            "raw-domain-only changes should not rebuild the scale-domain builder"
+            preview.pipeline.scale_builder_builds, 1,
+            "per-evaluation memo: the preview rebuilds the scale-domain builder"
         );
         assert!(
             count_symbol_scale_adjustments(&evaluated.scene_graph) > 0,
@@ -8154,13 +8152,15 @@ mod tests {
             "initial evaluation should infer scale domains"
         );
 
+        // Per-evaluation memo: even an identical repeat evaluation
+        // re-derives (cross-evaluation query reuse belongs to the
+        // physical result cache).
         let (_evaluated, second) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
-        assert_eq!(second.pipeline.scale_domain_cache_hits, 1);
-        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
-        assert_eq!(second.pipeline.scale_builder_builds, 0);
-        assert_eq!(second.pipeline.scale_domain_collects, 0);
+        assert_eq!(second.pipeline.scale_domain_cache_hits, 0);
+        assert_eq!(second.pipeline.scale_domain_cache_misses, 1);
+        assert_eq!(second.pipeline.scale_builder_builds, 1);
 
         let mut patch = IndexMap::new();
         patch.insert("scale_factor".to_string(), ScalarValue::Float64(Some(2.0)));
@@ -8179,7 +8179,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scale_domain_cache_reuses_facet_scoped_builders_for_width_only_param_change()
+    async fn scale_domain_cache_rederives_facet_scoped_builders_for_width_only_param_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_facet_width_param_scale_cache_plot(&ctx).await?);
@@ -8203,18 +8203,19 @@ mod tests {
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
         assert!(
-            second.pipeline.scale_domain_cache_hits > 1,
-            "width-only reevaluation should hit top-level and facet-scope scale-domain caches"
+            second.pipeline.scale_domain_cache_misses > 1,
+            "per-evaluation memo: reevaluation repopulates top-level and facet-scope entries"
         );
-        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
-        assert_eq!(second.pipeline.scale_builder_builds, 0);
-        assert_eq!(second.pipeline.scale_domain_collects, 0);
+        assert!(
+            second.pipeline.scale_domain_collects > 0,
+            "per-evaluation memo: reevaluation re-infers scale domains"
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn scale_domain_cache_reuses_child_frame_builders_for_width_only_param_change()
+    async fn scale_domain_cache_rederives_child_frame_builders_for_width_only_param_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_positioned_child_width_param_scale_cache_plot(&ctx).await?);
@@ -8238,18 +8239,19 @@ mod tests {
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
         assert!(
-            second.pipeline.scale_domain_cache_hits > 1,
-            "width-only reevaluation should hit top-level and child-frame scale-domain caches"
+            second.pipeline.scale_domain_cache_misses > 1,
+            "per-evaluation memo: reevaluation repopulates top-level and child-frame entries"
         );
-        assert_eq!(second.pipeline.scale_domain_cache_misses, 0);
-        assert_eq!(second.pipeline.scale_builder_builds, 0);
-        assert_eq!(second.pipeline.scale_domain_collects, 0);
+        assert!(
+            second.pipeline.scale_domain_collects > 0,
+            "per-evaluation memo: reevaluation re-infers scale domains"
+        );
 
         Ok(())
     }
 
     #[tokio::test]
-    async fn facet_semantic_cache_reuses_slots_for_responsive_wrap_width_change()
+    async fn facet_semantic_cache_rederives_slots_for_responsive_wrap_width_change()
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(compile_responsive_wrap_width_param_cache_plot(&ctx).await?);
@@ -8269,11 +8271,14 @@ mod tests {
         let (_evaluated, second) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
             .await?;
-        assert!(
-            second.pipeline.facet_semantic_cache_hits > 0,
-            "width-only responsive wrap reevaluation should reuse semantic partition slots"
+        assert_eq!(
+            second.pipeline.facet_semantic_cache_hits, 0,
+            "slot memo is per-evaluation: no cross-evaluation slot reuse"
         );
-        assert_eq!(second.pipeline.facet_semantic_cache_misses, 0);
+        assert!(
+            second.pipeline.facet_semantic_cache_misses > 0,
+            "per-evaluation memo: reevaluation re-derives partition slots"
+        );
 
         Ok(())
     }

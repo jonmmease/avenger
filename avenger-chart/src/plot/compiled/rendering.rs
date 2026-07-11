@@ -107,10 +107,10 @@ use super::{
     schedule_view_materializations_for_mark,
     session::{
         FacetScaleBuilderPrecomputeCacheHandle, FacetSemanticCacheHandle, GuideOverflowCacheHandle,
-        LegendMeasurementCacheHandle, ScaleDomainCacheHandle, ScaleDomainCacheScope,
-        ScopedParamStore, ScopedSelectionStore, ScopedStoreState, SelectionRevisionFingerprint,
-        StoreRevisionFingerprint, TextMeasurementCacheHandle, changed_param_names,
-        layout_size_dependency_params, new_plot_session_cache_handles,
+        LegendMeasurementCacheHandle, ScaleDomainCache, ScaleDomainCacheHandle,
+        ScaleDomainCacheScope, ScopedParamStore, ScopedSelectionStore, ScopedStoreState,
+        SelectionRevisionFingerprint, StoreRevisionFingerprint, TextMeasurementCacheHandle,
+        changed_param_names, layout_size_dependency_params, new_plot_session_cache_handles,
         scale_domain_cache_key_for_parts_with_scope,
     },
 };
@@ -6276,13 +6276,14 @@ impl CompiledPlot {
         options: EvaluationOptions,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         let (
-            scale_domain_cache,
-            facet_semantic_cache,
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
         ) = new_plot_session_cache_handles();
+        let scale_domain_cache = Arc::new(Mutex::new(ScaleDomainCache::default()));
+        let facet_semantic_cache =
+            Arc::new(Mutex::new(crate::partition::PartitionSlotCache::new()));
         let (evaluated, metrics, _) = Box::pin(
             self.evaluate_with_options_and_metrics_with_scale_domain_cache(
                 ctx,
