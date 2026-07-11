@@ -36,11 +36,22 @@ console it is just `cache_metrics()`:
    clearInterval(t);
    ```
 
-   In the mid-drag entries, expect `hits` climbing while
-   `admitted_writes` stays FLAT (preview evaluations are observe-only).
-3. In the entries just after release, expect `admitted_writes` to jump
-   (the settled exact evaluation admits again), and later pans over
-   visited regions to hit more.
+   Expected timeline for THIS chart (validated 2026-07-10):
+   - idle after startup: `hits > 0` with a small committed entry count —
+     the initialization evaluations reuse each other;
+   - mid-drag: `misses` climb steeply while `hits` and `admitted_writes`
+     stay FLAT — every pan frame embeds a fresh view domain (unique
+     fingerprints by design), and preview evaluations are observe-only,
+     so no admission churn;
+   - after release: all counters freeze — the settle evaluation is served
+     entirely by avenger's session artifacts and issues no queries;
+   - throughout: `entries`/`bytes` bounded, and
+     `fingerprint_nanos_total / misses` in the tens of microseconds.
+3. The pass criteria are therefore: no panics anywhere (the web-time
+   clock), startup `hits > 0`, admissions flat during the gesture, and
+   bounded entries/bytes. Do NOT expect mid-gesture hit growth on this
+   tiny fully-view-dependent chart — that payoff belongs to param-driven
+   and heavier charts (pinned by the native integration suite).
 4. Note the first evaluation's feel vs later ones; first-touch content
    hashing of the (tiny) table is unmeasurable here — large-table
    first-hash cost is a documented watch item, not part of this
