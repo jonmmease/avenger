@@ -64,6 +64,16 @@ fingerprint has been seen repeatedly within a recency window, subject to
 per-entry and total byte budgets. `set_observe_only(true)` is a gesture hint
 for interactive hosts: hits keep being served, no new writes are admitted.
 
+## Using from avenger-chart
+
+Chart hosts should not wire this crate by hand:
+`avenger_chart::physical_cache` provides `cached_session_context()` /
+`install_physical_cache()` (rule + `SessionConfig`-extension discovery),
+the `AVENGER_PHYSICAL_CACHE=0` kill switch, preview-mode observe-only
+policy, and per-evaluation metric deltas on `EvaluationMetrics`. The
+visual regression suite can run entirely through the cache with
+`AVENGER_PHYSICAL_CACHE_CENSUS=1` (see `avenger-chart/docs/DEBUGGING.md`).
+
 ## Design
 
 The full design document lives at

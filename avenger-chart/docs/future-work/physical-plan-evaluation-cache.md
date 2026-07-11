@@ -8,8 +8,21 @@ proto-bytes fingerprints, `CacheReadExec`/`CacheWriteExec` with single-flight
 pending entries, LRU byte budget, observe-then-admit policy — with a
 cache-on/off equivalence census and a measured fingerprint overhead of ~10%
 of plan+optimize time (~100 µs on chart-scale plans). Implementation plan of
-record: `scratch/datafusion-cache-crate-plan.md`. Phases 2-5 (Avenger
-integration onward) remain future work. This note focuses on a
+record: `scratch/datafusion-cache-crate-plan.md`. Phase 2 (Avenger
+integration) BUILT 2026-07-10 per
+`scratch/physical-cache-avenger-integration-plan.md`: blessed session
+wiring (`avenger_chart::physical_cache`, `AVENGER_PHYSICAL_CACHE=0` kill
+switch, `SessionConfig`-extension discovery), scene-byte equivalence suite,
+store versioning resolved by revision-in-data (no provider needed),
+preview-mode observe-only policy + per-evaluation metrics deltas, and the
+full visual suite byte-identical WITH the cache enabled
+(`AVENGER_PHYSICAL_CACHE_CENSUS=1`, 729/729) — the census caught and fixed
+one real false-hit class (DF54 `ScalarSubqueryExpr` serializes as a bare
+results index; now a third deep-guard exclusion). Compile-time
+cache-boundary hints: measured and declined for now (see the dated NO-GO
+memo in the integration plan; per-mark chain specialization is real but
+worth single-digit milliseconds at chart scale). Phases 3-5 below
+(cost-aware admission, spill, generalization) remain future work. This note focuses on a
 physical-plan-only cache for
 DataFusion execution results. The design is useful for Avenger chart sessions,
 but it must not depend on Avenger-specific types: the implementation target is
