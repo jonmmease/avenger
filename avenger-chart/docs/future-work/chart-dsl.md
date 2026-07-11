@@ -280,7 +280,10 @@ object** (axes, legends, facet strip headers, widgets — all already
 units rather than merely invalid (it lives on `Chart`, not `Plot`);
 **nested plot units take `label:`** — a cell caption is a smaller,
 cell-local idea, not a document title. Widget *items* use `label:` as a
-channel — the same word split one level down.
+channel — the same word split one level down. In Rust lowering, a DSL cell
+`label:` maps to `Subplot::caption(...)` (or the equivalent repeat-cell
+furnishing). Rust `Subplot::label(...)` retains its older band/facet metadata
+role and is deliberately not the caption path.
 
 The wrapper lattice (the same pattern at every position — `Plot` itself
 carries **no position-dependent fields**): `Chart<C>` = plot + document

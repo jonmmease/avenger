@@ -24,14 +24,16 @@ which keeps its generic surface).
 ```rust
 /// Document wrapper: a root plot plus document furnishings.
 pub struct Chart<C> {
-    title: Option<TitleConfig>,
-    subtitle: Option<TitleConfig>,     // exists ONLY here
-    theme: Theme,
-    layout: ChartLayout,               // canvas size, plot box, margins, resize policy
-    locales: FormatConfig,             // time/format
-    params: Vec<Param>,                // document state declarations
+    layout_spec: LayoutSpec,
+    title: Option<TitleSpec>,
+    subtitle: Option<TitleSpec>,       // exists ONLY here
+    theme: Option<Arc<Theme>>,         // None preserves inheritance provenance
+    time_context: TimeContext,
+    formatting_context: FormattingContext,
+    param_specs: Vec<CompiledParamSpec>,
     selections: Vec<Selection>,
     stores: Vec<Store>,
+    cursor_params: Vec<String>,
     plot: Plot<C>,
 }
 
@@ -39,17 +41,19 @@ impl<C> Chart<C> {
     pub fn new() -> Self;                          // wraps Plot::<C>::new()
     pub fn from_plot(plot: Plot<C>) -> Self;       // build-plot-first / reuse seam
     // document furnishings
-    pub fn title(...) / subtitle(...) / theme_css(...) / canvas_size(...)
+    pub fn title(...) / subtitle(...) / theme(...) / canvas_size(...)
            / param(...) / selection(...) / store(...);
-    // forwarded Plot daily verbs (~a dozen, hand-written): data, mark,
-    // tool, widget, event_binding, configure_guide, configure_coord —
+    pub fn theme_if_unset(self, theme: Arc<Theme>) -> Self;
+    // forwarded Plot daily verbs (hand-written): data, mark, tool,
+    // event_binding, legend, scale, scale_with, configure_guide,
+    // configure_coord —
     // each returns Chart<C> so single-plot charts stay one chain.
     pub fn configure_plot(self, f: impl FnOnce(Plot<C>) -> Plot<C>) -> Self;
                                                    // escape hatch: forwarding is
                                                    // sugar, never a gate
     pub fn plot(&self) -> &Plot<C>;                // introspection/tests
     pub async fn compile(self, ctx: &SessionContext)
-        -> Result<CompiledChart, AvengerChartError>;   // ONLY compile entry
+        -> Result<CompiledPlot, AvengerChartError>;    // ONLY public compile entry
 }
 ```
 
@@ -160,9 +164,10 @@ Subplot::new(plot)
     .name("nested")          // renamed from .key() — the `as` binder;
                              // `key` is reserved for mark subplot's
                              // data-driven grouping expression
-    .label("Click a month")  // cell caption (was .title on the inner plot)
+    .label("March")          // existing band/facet metadata label
+    .caption("Click a month")// cell caption (was .title on the inner plot)
     .size(410.0, 270.0)      // cell sizing (was .plot_size on the inner plot)
-    .at(0, 1).span(2)        // grid-concat placement
+    .at(0, 1).span(2, 1)     // grid-concat placement
 ```
 
 Dashboard `Panel` (from `dashboard-layer.md`) wraps a **`Chart`**, not a
@@ -187,8 +192,8 @@ let cell = Plot::<Cartesian>::new().data(df).mark(m);
 let chart = Chart::<HConcat>::new()
     .configure_coord(|c| c.widths([fr(2.0), fr(1.0)]))   // coord options: C's builder, one door
     .canvas_size(920.0, 460.0).selection(picked)
-    .mark(Subplot::new(cell).name("detail").label("Detail").size(310.0, 270.0));
-let compiled: CompiledChart = chart.compile(&ctx).await?;
+    .mark(Subplot::new(cell).name("detail").caption("Detail").size(310.0, 270.0));
+let compiled: CompiledPlot = chart.compile(&ctx).await?;
 ```
 
 Single-plot charts are a name swap at the outermost constructor
@@ -267,10 +272,9 @@ generics, the plot-access trio (`from_plot` / `configure_plot` /
 `plot()` — the level-2 counterparts of campaign 1's `configure_coord`),
 the document furnishings, the field moves (title/subtitle,
 canvas/margins/constraints, locales, state declarations, `compile`
-going `pub(crate)` on `Plot`), `Subplot::name`/`label`/`size`/`at`, and
-the staged artifact renames. Sweep mechanics below. Its timing relative
-to widget phase 1 is the open question at the end; campaign 1 has no
-such dependency and can land immediately.
+going `pub(crate)` on `Plot`), and
+`Subplot::name`/`label`/`caption`/`size`/`at`/`span`. Artifact renames
+remain deferred; this campaign continues to return `CompiledPlot`.
 
 ## Migration
 
@@ -278,33 +282,39 @@ Campaign 2's sweep (campaign 1's migration is item 3 above):
 
 - **Pure name swap** for every site using no root-only methods:
   `Plot::<C>::new()` → `Chart::<C>::new()` at the outermost constructor.
-- **Semantic edits only** where concat cells carried `.title`/`.plot_size`
-  — move to `Subplot::label`/`::size`; `.key(...)` → `.name(...)`.
-- `Plot::compile` survives as a deprecated shim (wraps a default `Chart`)
-  for the test-suite sweep, then deletes.
-- Artifact/session renames staged: `CompiledChart` and `ChartSession` are
-  the targets; `CompiledPlot`/`PlotSession` acceptable transitionally
-  (the wrapper's furnishings compile into the artifact either way).
+- **Semantic edits only** where concat/repeat cells carried
+  `.title`/`.plot_size` — move to rich `Subplot::caption`/`::size` or the
+  equivalent `RepeatCell` furnishings; `.key(...)` → `.name(...)`.
+  `Subplot::label` retains its current band/facet metadata semantics.
+- `Plot::compile` remains during the migration and then becomes
+  `pub(crate)`; there is no deprecated public compatibility shim.
+- `CompiledPlot`/`PlotSession` remain the artifact/runtime names in this
+  campaign; their possible rename is a separate project.
   `chart_avenger_app` / `ChartApp` keep their names and finally match.
 - Dashboard docs already conform: component functions return `Chart`,
   `Panel::chart(...)` hosts them.
 - The widget chrome layer stays `Plot<PixelFrame>` — a plot deliberately
   not a chart; no `Chart` wrapper is ever constructed for it.
 
-## Open Questions
+## Settled Campaign 2 Contract
 
-- Forwarding implementation: hand-written delegation vs a local
-  `macro_rules!` vs the `delegate` crate (leaning: hand-written; with the
-  coordinate rework the surface is ~a dozen methods — small enough to
-  audit without a macro).
-- Does `Chart::from_plot` + `into_chart()` sugar earn its place, or is
-  `Chart::new()` forwarding enough for every real construction pattern?
-- Do facet/repeat charts (`Plot<Facet>`-family roots today) carry any
-  root-only fields beyond the common set, and does `Chart<C>`'s generic
-  need bounds per family?
-- Where does `plot_size` on a *root* plot land — `Chart::plot_size`
-  (sugar for `layout.plot`) or only through the layout config object?
-- Campaign 2 timing: before widget phase 1 (cleanest — widget examples
-  then use the final spelling) or as an independent parallel campaign
-  (touches disjoint files except examples)? Campaign 1 is decided-first
-  and unblocked.
+- `Chart` is a hand-written facade with `new`, `with_coord`, `from_plot`,
+  `configure_plot`, and `plot`; it owns the ten document-furnishing field
+  families and exposes the sole state vocabulary
+  `param/params/param_with_sharing/selection/store/stores/cursor_param`.
+- `Chart::theme_if_unset` fills only a genuinely absent optional theme.
+  The optional value is threaded before compilation into all descendants;
+  no light-theme fallback is baked into an unthemed artifact.
+- Neutral serialized `TitleSpec`, expression-backed `ChildPlotSizeSpec`,
+  and `ChildPlotFurnishings` live below `avenger-chart`. `PlotTitle` remains
+  a compatibility re-export of the core title type.
+- `Subplot` stores furnishings separately from `label`. `RepeatCell<C>`
+  carries the same furnishings, accepts bare `Plot<C>` through `From`, and
+  resolves repeat placeholders in caption and independent size axes.
+- Root compile context originates at `Chart::compile`; repeat lowering
+  forwards it unchanged, while ordinary and repeat child adapters overlay
+  only child furnishings at child altitude. `Chart` never implements
+  `SubplotChildPlotSpec`.
+- First-party placement vocabulary is `.at(row, column)` and
+  `.span(row_span, column_span)`. The old `.key`, `.grid_cell`, and
+  `.grid_span` authoring methods are removed in the same migration sweep.
