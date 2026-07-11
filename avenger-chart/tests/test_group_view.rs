@@ -43,7 +43,7 @@ async fn xy_dataframe(ctx: &SessionContext, rows: usize) -> datafusion::datafram
 async fn group_view_lowers_onto_children() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 5).await;
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         MarkGroup::<Cartesian>::new().data(df).view(
             View::cartesian()
                 .id("pts")
@@ -67,7 +67,7 @@ async fn group_view_lowers_onto_children() {
 async fn group_view_serialization_round_trip() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 4).await;
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         MarkGroup::<Cartesian>::new().data(df).view(
             View::cartesian()
                 .id("pts")
@@ -126,7 +126,7 @@ async fn group_view_shared_chain_feeds_both_children() {
     let ctx = SessionContext::new();
     let cutoff = Param::new("cutoff", ScalarValue::Float64(Some(10.0)));
     let df = xy_dataframe(&ctx, 5).await;
-    let plot = Plot::<Cartesian>::new().add_param(cutoff.clone()).mark(
+    let plot = Chart::<Cartesian>::new().param(cutoff.clone()).mark(
         MarkGroup::<Cartesian>::new().data(df).view(
             View::cartesian()
                 .id("pts")
@@ -207,7 +207,7 @@ fn list_domain(min: f64, max: f64) -> ScalarValue {
 async fn group_view_shared_count_tracks_pan_scroll_zoom_domain() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 5).await;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .tool(PanScrollZoom::cartesian())
         .mark(
             MarkGroup::<Cartesian>::new().data(df).view(
@@ -277,7 +277,7 @@ async fn group_view_shared_chain_is_per_facet_cell() {
         )
         .await
         .unwrap();
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .plot_constraint(PlotConstraint::height(120.0))
         .data(df)
         .mark(
@@ -318,7 +318,7 @@ async fn group_view_shared_chain_is_per_facet_cell() {
 async fn mark_view_inside_group_view_errors() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 3).await;
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         MarkGroup::<Cartesian>::new().data(df).view(
             View::cartesian()
                 .id("outer")
@@ -354,7 +354,7 @@ async fn mark_view_inside_group_view_errors() {
 async fn nested_group_views_error() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 3).await;
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         MarkGroup::<Cartesian>::new().data(df).view(
             View::cartesian()
                 .id("outer")
@@ -399,7 +399,7 @@ async fn duplicate_view_ids_error() {
             |group, _v| group.mark(Symbol::new().x(col("x")).y(col("y"))),
         )
     };
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .mark(group(df.clone()))
         .mark(group(df));
     let err = plot

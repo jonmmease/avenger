@@ -127,7 +127,7 @@ async fn wrapped_facet_via_ranked_rows_and_free_columns() {
                 .free_slots()
                 .guide(|g| g.title("Facet"))
         }));
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(data)
         .canvas_size(1120, 680)
         .mark(Subplot::new(column_facets).row_with(col("wrap_row"), |c| {

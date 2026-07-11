@@ -57,7 +57,7 @@ async fn right_axis_no_legend_symbol_mark() {
     let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |l| l.visible(false))
         .mark(
@@ -87,7 +87,7 @@ async fn right_axis_with_symbol_legend() {
     let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |l| {
             l.title("Category").position(LegendPosition::Right)
@@ -119,7 +119,7 @@ async fn right_axis_with_line_legend() {
     let ctx = SessionContext::new();
     let df = make_df_for_line();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("stroke", |l| {
             l.title("Series").position(LegendPosition::Right)
@@ -151,7 +151,7 @@ async fn right_axis_with_colorbar_legend() {
     let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |l| l.title("Temp").position(LegendPosition::Right))
         .mark(
@@ -181,7 +181,7 @@ async fn top_x_axis_with_right_y_no_legend() {
     let ctx = SessionContext::new();
     let df = make_df_for_symbol();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |l| l.visible(false))
         .mark(

@@ -29,7 +29,7 @@ async fn test_discrete_color_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -65,7 +65,7 @@ async fn test_legend_visibility() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 10.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 12.0))))
@@ -114,7 +114,7 @@ async fn test_continuous_color_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 10.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 12.0))))
@@ -192,7 +192,7 @@ async fn test_shape_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 7.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0))))
@@ -232,7 +232,7 @@ async fn test_combined_fill_and_shape_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))

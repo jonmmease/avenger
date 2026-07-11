@@ -56,11 +56,11 @@ async fn test_conditional_axis_grid() {
     let show_grid_param = Param::new("show_grid", ScalarValue::Boolean(Some(true)));
 
     // Create plot with conditional grid (note: can pass Param directly, no need for .expr())
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Conditional Axis Grid")
         .data(df)
-        .add_param(show_grid_param.clone())
+        .param(show_grid_param.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
@@ -111,11 +111,11 @@ async fn test_conditional_axis_position() {
         .unwrap();
 
     // Create plot with conditional axis position
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Conditional Axis Position")
         .data(df)
-        .add_param(axis_pos_param)
+        .param(axis_pos_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
@@ -167,11 +167,11 @@ async fn test_conditional_axis_visibility() {
     let show_axis_param = Param::new("show_x_axis", ScalarValue::Boolean(Some(true)));
 
     // Create plot with conditional axis visibility (note: can pass Param directly)
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Conditional Axis Visibility")
         .data(df)
-        .add_param(show_axis_param.clone())
+        .param(show_axis_param.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
@@ -214,11 +214,11 @@ async fn test_axis_tick_spacing_start_step() {
     let df = create_test_data(&ctx);
     let y_tick_spacing = tick_spacing_param();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(520.0, 360.0)
         .title("Axis Tick Spacing")
         .data(df)
-        .add_param(y_tick_spacing.clone())
+        .param(y_tick_spacing.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {

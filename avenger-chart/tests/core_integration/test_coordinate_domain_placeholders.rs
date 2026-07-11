@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap};
 
-use avenger_chart::prelude::Plot;
+use avenger_chart::prelude::Chart;
 use avenger_chart_core::{
     AvengerChartError, CoordinateDomainBinding, CoordinateDomainCellRequest,
     CoordinateDomainCellResolution, CoordinateDomainDescriptor, CoordinateDomainGroupRequest,
@@ -17,7 +17,7 @@ use datafusion::{common::ScalarValue, prelude::SessionContext};
 async fn coordinate_domain_provider_can_materialize_owned_absent_scales() {
     let ctx = SessionContext::new();
     let df = ctx.sql("SELECT 1 AS value").await.expect("dataframe");
-    let compiled = Plot::with_coord(MaterializingCoord)
+    let compiled = Chart::with_coord(MaterializingCoord)
         .compile(&ctx)
         .await
         .expect("compile plot");

@@ -166,7 +166,7 @@ async fn scatter_param_filter(ctx: &SessionContext) -> CompiledPlot {
         )
         .await
         .expect("sales query");
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .data(data)
         .mark(Symbol::new().x(col("total")).y(col("total")).size(64.0))
         .compile(ctx)
@@ -177,7 +177,7 @@ async fn scatter_param_filter(ctx: &SessionContext) -> CompiledPlot {
 /// Scatter with a discrete fill scale and legend (legend/domain queries).
 async fn colored_scatter_legend(ctx: &SessionContext) -> CompiledPlot {
     let data = ctx.read_batch(sales_batch()).expect("dataframe");
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .data(data)
         .mark(
             Symbol::new()
@@ -194,7 +194,7 @@ async fn colored_scatter_legend(ctx: &SessionContext) -> CompiledPlot {
 /// Grouped bar on a NESTED band scale (the `named_struct` component-expr
 /// shape from the DF54 `push_down_leaf_projections` fix, b35412b99).
 async fn nested_band_bar(ctx: &SessionContext) -> CompiledPlot {
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .data(grouped_bar_df(ctx))
         .legend("fill", |legend| legend.title("Team"))
         .mark(
@@ -243,7 +243,7 @@ async fn facet_wrap_aggregate(ctx: &SessionContext) -> CompiledPlot {
             )
         },
     ));
-    Plot::<FacetWrap>::new()
+    Chart::<FacetWrap>::new()
         .canvas_size(520.0, 260.0)
         .data(data)
         .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
@@ -278,7 +278,7 @@ async fn join_aggregate_faceted(ctx: &SessionContext) -> CompiledPlot {
             },
         ),
     );
-    Plot::<FacetColumn>::new()
+    Chart::<FacetColumn>::new()
         .canvas_size(700.0, 360.0)
         .data(revenue_mix_df(ctx))
         .mark(Subplot::new(leaf).column(col("department")))
@@ -289,7 +289,7 @@ async fn join_aggregate_faceted(ctx: &SessionContext) -> CompiledPlot {
 
 /// Temporal x axis (timestamp scale + datetime tick machinery).
 async fn temporal_scatter(ctx: &SessionContext) -> CompiledPlot {
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .data(temporal_df(ctx))
         .mark(Symbol::new().x(col("ts")).y(col("value")).size(36.0))
         .compile(ctx)
@@ -713,9 +713,9 @@ async fn store_change_invalidates_without_false_hits() {
             )
             .await
             .expect("sales query");
-        Plot::<Cartesian>::new()
+        Chart::<Cartesian>::new()
             .data(data)
-            .add_store(
+            .store(
                 Store::from_record_batch("threshold_band", threshold_store_batch())
                     .primary_key(["id"])
                     .sharing(CoordinationScope::Shared),
@@ -995,7 +995,7 @@ async fn boundary_hint_measurement_shared_chain_across_marks() {
             .sql("SELECT k, value FROM big WHERE value > $min")
             .await
             .expect("big query");
-        Plot::<Cartesian>::new()
+        Chart::<Cartesian>::new()
             .data(data)
             .mark(
                 MarkGroup::new().transform(

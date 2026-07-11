@@ -12,7 +12,7 @@ async fn facet_column_iris_scatter() {
         .expect("load iris dataset");
 
     // Build outer facet column plot
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -39,7 +39,7 @@ async fn facet_column_shared_y_scale() {
         .expect("load iris dataset");
 
     // Test shared y-scale across columns (y should have unified axis)
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -70,7 +70,7 @@ async fn facet_column_free_domains() {
         .expect("load iris dataset");
 
     // Test free scales (each column gets independent x and y scales)
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -101,7 +101,7 @@ async fn facet_column_with_title() {
         .expect("load iris dataset");
 
     // Test facet title configuration
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -128,7 +128,7 @@ async fn facet_column_with_line_mark() {
         .expect("load iris dataset");
 
     // Test with line marks instead of symbols
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Line::new()
@@ -155,7 +155,7 @@ async fn facet_column_hybrid_sharing() {
         .expect("load iris dataset");
 
     // Test hybrid scale sharing: y shared, x free
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -186,7 +186,7 @@ async fn facet_column_x_axis_top() {
         .expect("load iris dataset");
 
     // Test with x-axis on top - facet labels should be below plot
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -213,7 +213,7 @@ async fn facet_column_bottom_x_bottom() {
         .expect("load iris dataset");
 
     // Test with facet labels at bottom and x-axis at bottom (default position)
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -240,7 +240,7 @@ async fn facet_column_bottom_x_top() {
         .expect("load iris dataset");
 
     // Test with facet labels at bottom and x-axis at top
-    let outer = Plot::<FacetColumn>::new().data(df).mark(
+    let outer = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()

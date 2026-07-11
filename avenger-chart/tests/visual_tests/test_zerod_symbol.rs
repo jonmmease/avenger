@@ -39,7 +39,7 @@ async fn test_zerod_symbol_basic() {
     let df = create_zerod_data();
 
     // Create a ZeroD plot - all symbols render at center
-    let plot = Plot::<ZeroDCoord>::new()
+    let plot = Chart::<ZeroDCoord>::new()
         .title("Zero-Dimensional Symbol Plot")
         .subtitle("All points collapse to a single location")
         .data(df)
@@ -62,7 +62,7 @@ async fn test_zerod_symbol_with_color_encoding() {
     let df = create_zerod_data();
 
     // ZeroD with color encoding - shows how data can still be encoded visually
-    let plot = Plot::<ZeroDCoord>::new()
+    let plot = Chart::<ZeroDCoord>::new()
         .title("ZeroD with Color Encoding")
         .subtitle("Multiple data points at the same position")
         .data(df)
@@ -99,7 +99,7 @@ async fn test_zerod_symbol_single_point() {
         .expect("Failed to read batch into DataFrame");
 
     // Single point in ZeroD space
-    let plot = Plot::<ZeroDCoord>::new()
+    let plot = Chart::<ZeroDCoord>::new()
         .title("Single Point in Zero Dimensions")
         .subtitle("Perfect for KPI or aggregate value display")
         .data(df)
@@ -141,7 +141,7 @@ async fn test_zerod_symbol_shapes() {
         .expect("Failed to read batch into DataFrame");
 
     // Different shapes all at center - useful for showing shape legend
-    let plot = Plot::<ZeroDCoord>::new()
+    let plot = Chart::<ZeroDCoord>::new()
         .title("Shape Gallery in Zero-D")
         .subtitle("All shapes rendered at the same position")
         .data(df)
@@ -164,7 +164,7 @@ async fn test_zerod_symbol_varied_sizes() {
     let df = create_zerod_data();
 
     // ZeroD with varied sizes
-    let plot = Plot::<ZeroDCoord>::new()
+    let plot = Chart::<ZeroDCoord>::new()
         .title("ZeroD with Size Encoding")
         .subtitle("Different sizes at the same position")
         .data(df)

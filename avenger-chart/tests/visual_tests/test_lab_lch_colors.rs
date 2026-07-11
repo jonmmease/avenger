@@ -50,7 +50,7 @@ async fn test_oklch_perceptual_lightness_scale() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .fill(col("category"))
             .x_with(col("category"), |c| {
@@ -114,7 +114,7 @@ async fn test_oklch_hue_wheel() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .fill(col("category"))
             .x_with(col("category"), |c| {
@@ -168,7 +168,7 @@ async fn test_all_lab_color_spaces() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .fill(col("category"))
             .x_with(col("category"), |c| {

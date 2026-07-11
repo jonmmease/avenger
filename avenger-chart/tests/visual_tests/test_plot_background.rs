@@ -30,7 +30,7 @@ async fn test_cartesian_plot_background() {
     let df = create_test_data();
 
     // Create a plot with light blue background
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .configure_guide(CartesianGuide::new().plot_background_color("#e6f2ff")) // Light blue
         .mark(
@@ -58,7 +58,7 @@ async fn test_cartesian_background_with_grid() {
     let df = create_test_data();
 
     // Create a scatter plot with dark background to show grid lines clearly
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .configure_guide(CartesianGuide::new().plot_background_color("#33334d")) // Dark blue-gray
         .mark(
@@ -111,7 +111,7 @@ async fn test_polar_plot_background() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a polar plot with light green background
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .configure_guide(PolarGuide::new().plot_background_color("#e6ffe6")) // Light green
         .mark(
@@ -158,7 +158,7 @@ async fn test_polar_background_with_grid() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a polar plot with dark background to show grid lines
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .configure_guide(PolarGuide::new().plot_background_color("#262633")) // Dark background
         .mark(

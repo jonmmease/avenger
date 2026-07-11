@@ -23,7 +23,7 @@ async fn test_hsl_primary_colors() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale(|s| s).axis(|a| a.title("Category").grid(false))
@@ -72,7 +72,7 @@ async fn test_hsl_color_wheel() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .fill(col("category"))
             .x_with(col("category"), |c| {
@@ -104,7 +104,7 @@ async fn test_hsla_with_alpha() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale(|s| s).axis(|a| a.title("Category").grid(false))
@@ -136,7 +136,7 @@ async fn test_hsl_grayscale() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale(|s| s).axis(|a| a.title("Category").grid(false))

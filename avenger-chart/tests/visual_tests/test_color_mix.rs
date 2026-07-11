@@ -54,7 +54,7 @@ async fn test_color_mix_combinations() {
 
     let theme = Theme::from_css(css_theme).expect("Failed to create theme from CSS");
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(theme).mark(
+    let plot = Chart::<Cartesian>::new().data(df).theme(theme).mark(
         Rect::new()
             .fill(col("category"))
             .x_with(col("category"), |c| {

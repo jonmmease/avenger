@@ -10,7 +10,7 @@ async fn test_simple_bar_chart() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Rect::new()
@@ -61,7 +61,7 @@ async fn test_bar_chart_with_custom_colors() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -99,7 +99,7 @@ async fn test_bar_chart_with_narrow_bars() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -137,7 +137,7 @@ async fn test_bar_chart_inferred_domains() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.axis(|a| a.title("Category").grid(false))
@@ -161,7 +161,7 @@ async fn test_bar_chart_color_case_expression() {
 
     // Create a bar chart where each bar's color depends on its value
     // This demonstrates data-driven color encoding using conditional expressions
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {

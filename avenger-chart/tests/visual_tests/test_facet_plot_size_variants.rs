@@ -30,7 +30,7 @@ async fn facet_plot_size_nested_col_col_col_legend_level2_right() {
     let ctx = SessionContext::new();
     let df = legend_sharing_hierarchy_df(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -67,7 +67,7 @@ async fn facet_plot_size_nested_row_col_row_mixed_sharing() {
     let ctx = SessionContext::new();
     let df = legend_sharing_hierarchy_df(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(110.0, 80.0)
         .mark(
@@ -115,7 +115,7 @@ async fn facet_plot_size_nested_col_row_col_empty_subplot_policy() {
     let ctx = SessionContext::new();
     let df = sparse_hierarchy_df(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(110.0, 80.0)
         .mark(
@@ -165,7 +165,7 @@ async fn facet_plot_size_nested_col_col_row_numeric_domain_order() {
     let ctx = SessionContext::new();
     let df = numeric_hierarchy_df(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(110.0, 80.0)
         .mark(
@@ -211,7 +211,7 @@ async fn facet_plot_size_nested_row_row_row_sparse_hierarchy() {
     let ctx = SessionContext::new();
     let df = sparse_hierarchy_df(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(110.0, 80.0)
         .mark(
@@ -259,7 +259,7 @@ async fn facet_plot_size_nested_col_row_col_continuous_legend() {
     let ctx = SessionContext::new();
     let df = legend_sharing_hierarchy_df(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(110.0, 80.0)
         .mark(

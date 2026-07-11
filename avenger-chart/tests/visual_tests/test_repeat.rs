@@ -289,7 +289,7 @@ fn wrap_cell_preview_flow() -> Plot<Cartesian> {
     )
 }
 
-fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Plot<FacetColumn> {
+fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Chart<FacetColumn> {
     let width = Param::new("width", ScalarValue::Float64(Some(780.0)));
     let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
         c.items(repeat_variables_four())
@@ -297,8 +297,8 @@ fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Plot<FacetC
             .cell(wrap_cell_preview_flow())
             .item_domains()
     });
-    Plot::<FacetColumn>::new()
-        .add_param(width.clone())
+    Chart::<FacetColumn>::new()
+        .param(width.clone())
         .data(df)
         .canvas_constraint(CanvasConstraint::width(width.expr()))
         .plot_constraint(PlotConstraint::height(125.0))
@@ -342,7 +342,7 @@ async fn assert_evaluated_plots_match(
 #[tokio::test]
 async fn repeat_columns_three_scatter() {
     let ctx = SessionContext::new();
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(150.0, 140.0)
         .configure_coord(|c| c.columns(repeat_variables()).cell(column_cell()));
@@ -360,7 +360,7 @@ async fn repeat_columns_three_scatter() {
 #[tokio::test]
 async fn repeat_rows_three_scatter() {
     let ctx = SessionContext::new();
-    let plot = Plot::<RepeatRows>::new()
+    let plot = Chart::<RepeatRows>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(170.0, 115.0)
         .configure_coord(|c| c.rows(repeat_variables()).cell(row_cell()));
@@ -372,7 +372,7 @@ async fn repeat_rows_three_scatter() {
 async fn repeat_grid_scatter_matrix_independent() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
         .configure_coord(|c| {
@@ -395,7 +395,7 @@ async fn repeat_grid_scatter_matrix_independent() {
 async fn repeat_grid_scatter_matrix_domains() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
         .configure_coord(|c| {
@@ -422,7 +422,7 @@ async fn repeat_grid_scatter_matrix_domains() {
 async fn repeat_grid_matrix_axes_scatter() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
         .configure_coord(|c| {
@@ -450,7 +450,7 @@ async fn repeat_grid_matrix_axes_scatter() {
 async fn repeat_grid_scatter_with_diagonal_histograms() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
         .configure_coord(|c| {
@@ -481,7 +481,7 @@ async fn repeat_grid_scatter_with_diagonal_histograms() {
 async fn repeat_grid_matrix_axes_diagonal_histograms() {
     let ctx = SessionContext::new();
     let variables = repeat_variables();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
         .configure_coord(|c| {
@@ -514,7 +514,7 @@ async fn repeat_grid_matrix_axes_diagonal_histograms() {
 async fn repeat_grid_matrix_axes_diagonal_histograms_large_short_titles() {
     let ctx = SessionContext::new();
     let variables = repeat_variables_short();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(270.0, 232.5)
         .configure_coord(|c| {
@@ -554,7 +554,7 @@ async fn repeat_grid_inside_facet_matrix_domains() {
             .matrix_domains()
             .matrix_axes()
     });
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(1320.0, 380.0)
         .mark(Subplot::new(repeat).column(col("group_name")));
@@ -584,7 +584,7 @@ async fn repeat_grid_inside_facet_row_matrix_domains() {
             .matrix_domains()
             .matrix_axes()
     });
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(760.0, 820.0)
         .mark(Subplot::new(repeat).row(col("group_name")));
@@ -614,7 +614,7 @@ async fn repeat_grid_inside_facet_wrap_aligned() {
             .matrix_domains()
             .matrix_axes()
     });
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .data(repeat_three_group_data(&ctx).await)
         .canvas_size(1320.0, 760.0)
         .mark(
@@ -645,7 +645,7 @@ async fn repeat_wrap_inside_facet_wrap_aligned() {
             .cell(wrap_cell())
             .item_domains()
     });
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .data(repeat_three_group_data(&ctx).await)
         .canvas_size(1320.0, 920.0)
         .mark(
@@ -671,7 +671,7 @@ async fn repeat_wrap_inside_facet_wrap_aligned() {
 async fn facet_column_inside_repeat_grid_aligned() {
     let ctx = SessionContext::new();
     let variables = repeat_variables()[0..2].to_vec();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(1320.0, 520.0)
         .configure_coord(|c| {
@@ -700,7 +700,7 @@ async fn facet_column_inside_repeat_grid_aligned() {
 async fn facet_wrap_inside_repeat_grid_aligned() {
     let ctx = SessionContext::new();
     let variables = repeat_variables()[0..2].to_vec();
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .data(repeat_three_group_data(&ctx).await)
         .canvas_size(1320.0, 780.0)
         .configure_coord(|c| {
@@ -728,7 +728,7 @@ async fn facet_wrap_inside_repeat_grid_aligned() {
 #[tokio::test]
 async fn repeat_wrap_fixed_columns() {
     let ctx = SessionContext::new();
-    let plot = Plot::<RepeatWrap>::new()
+    let plot = Chart::<RepeatWrap>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(170.0, 130.0)
         .configure_coord(|c| c.items(repeat_variables()).columns(2).cell(wrap_cell()));
@@ -739,7 +739,7 @@ async fn repeat_wrap_fixed_columns() {
 #[tokio::test]
 async fn repeat_wrap_responsive_columns() {
     let ctx = SessionContext::new();
-    let plot = Plot::<RepeatWrap>::new()
+    let plot = Chart::<RepeatWrap>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(500.0, 300.0)
         .configure_coord(|c| {
@@ -766,7 +766,7 @@ async fn repeat_wrap_inside_facet_column_fixed_columns() {
     let ctx = SessionContext::new();
     let repeat = Plot::<RepeatWrap>::new()
         .configure_coord(|c| c.items(repeat_variables()).columns(2).cell(wrap_cell()));
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(1320.0, 380.0)
         .mark(Subplot::new(repeat).column(col("group_name")));

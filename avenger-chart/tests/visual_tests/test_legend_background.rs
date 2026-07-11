@@ -57,7 +57,7 @@ async fn symbol_legend_with_background() {
         &["A", "B", "C", "A", "B", "C"],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 8.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 8.0))))
@@ -106,7 +106,7 @@ async fn line_legend_with_background() {
         )
         .unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 5.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 6.0))))
@@ -136,7 +136,7 @@ async fn symbol_legend_without_visible_background() {
         &["A", "B", "C", "A", "B", "C"],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 8.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 8.0))))
@@ -169,7 +169,7 @@ async fn colorbar_legend_with_background() {
         &[0.1, 0.3, 0.5, 0.7, 0.9, 0.2],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))

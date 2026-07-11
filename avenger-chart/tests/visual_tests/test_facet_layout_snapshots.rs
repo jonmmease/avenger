@@ -23,27 +23,30 @@ async fn compile_facet_debug_snapshot_plot(
 
     let df = ctx.sql(sql).await.expect("create data");
 
-    let plot = Plot::<FacetRow>::new().data(df).canvas_size(600, 400).mark(
-        Subplot::new(
-            Plot::<Cartesian>::new().mark(
-                Rect::new()
-                    .y_with(col("y_label"), |c| {
-                        c.scale_with::<Band>(|s| s)
-                            .axis(|a| a.title("Y Axis").grid(false))
-                    })
-                    .y2_with(col(":y"), |c| c.band(1.0))
-                    .x_with(lit(0.0), |c| {
-                        c.scale(|s| s.domain((0.0, 40.0)))
-                            .axis(|a| a.title("Value").grid(true))
-                    })
-                    .x2(col("bar_val"))
-                    .fill("#4682b4")
-                    .stroke("#2c5282")
-                    .stroke_width(1.0),
-            ),
-        )
-        .row_with(col("row_category"), |c| c.guide(|g| g.title("Category"))),
-    );
+    let plot = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 400)
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .y_with(col("y_label"), |c| {
+                            c.scale_with::<Band>(|s| s)
+                                .axis(|a| a.title("Y Axis").grid(false))
+                        })
+                        .y2_with(col(":y"), |c| c.band(1.0))
+                        .x_with(lit(0.0), |c| {
+                            c.scale(|s| s.domain((0.0, 40.0)))
+                                .axis(|a| a.title("Value").grid(true))
+                        })
+                        .x2(col("bar_val"))
+                        .fill("#4682b4")
+                        .stroke("#2c5282")
+                        .stroke_width(1.0),
+                ),
+            )
+            .row_with(col("row_category"), |c| c.guide(|g| g.title("Category"))),
+        );
 
     plot.compile(ctx).await
 }
@@ -53,7 +56,7 @@ async fn compile_nested_mixed_facet_debug_snapshot_plot(
 ) -> Result<CompiledPlot, AvengerChartError> {
     let df = legend_sharing_hierarchy_df(ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(960.0, 760.0)
         .mark(
@@ -100,7 +103,7 @@ async fn compile_nested_column_facet_debug_snapshot_plot(
 ) -> Result<CompiledPlot, AvengerChartError> {
     let df = legend_sharing_hierarchy_df(ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1120.0, 380.0)
         .mark(
@@ -151,7 +154,7 @@ async fn compile_plot_size_numeric_facet_debug_snapshot_plot(
 ) -> Result<CompiledPlot, AvengerChartError> {
     let df = numeric_hierarchy_df(ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(110.0, 80.0)
         .mark(

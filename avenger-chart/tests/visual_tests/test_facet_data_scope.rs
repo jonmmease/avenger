@@ -76,12 +76,12 @@ fn scoped_facet_plot(
     background_scope: FacetDataScope,
     aggregate_scope: Option<FacetDataScope>,
     title: &str,
-) -> Plot<FacetRow> {
+) -> Chart<FacetRow> {
     let leaf = scoped_leaf(background_scope, aggregate_scope);
     let col_plot = Plot::<FacetColumn>::new()
         .mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c.guide(|g| g.title("Column"))));
 
-    Plot::<FacetRow>::new()
+    Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(980, 680)
         .title(title)
@@ -90,7 +90,7 @@ fn scoped_facet_plot(
 
 async fn assert_facet_data_scope_baseline(
     name: &'static str,
-    make_plot: impl FnOnce(DataFrame) -> Plot<FacetRow> + Send + 'static,
+    make_plot: impl FnOnce(DataFrame) -> Chart<FacetRow> + Send + 'static,
 ) {
     let ctx = SessionContext::new();
     let plot = make_plot(facet_scope_data(&ctx).await);

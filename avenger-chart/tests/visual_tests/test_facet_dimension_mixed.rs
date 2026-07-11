@@ -42,7 +42,7 @@ async fn mixed_width_canvas_height_plot_row_iris_scatter() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .canvas_constraint(CanvasConstraint::width(520.0))
         .plot_constraint(PlotConstraint::height(82.0))
@@ -75,7 +75,7 @@ async fn mixed_width_canvas_height_plot_nested_col_row_shared() {
     let ctx = SessionContext::new();
     let df = mixed_nested_data(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_constraint(CanvasConstraint::width(760.0))
         .plot_constraint(PlotConstraint::height(74.0))
@@ -117,7 +117,7 @@ async fn mixed_height_canvas_width_plot_col_iris_scatter() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_constraint(CanvasConstraint::height(360.0))
         .plot_constraint(PlotConstraint::width(96.0))

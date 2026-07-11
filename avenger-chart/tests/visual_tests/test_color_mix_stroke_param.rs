@@ -42,10 +42,10 @@ async fn test_color_mix_stroke_with_param() {
         )
         .expect("append css");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Parameter-Driven CSS Theme")
-        .add_param(accent)
+        .param(accent)
         .theme(theme)
         .mark(Symbol::new().x(col("x")).y(col("y")).size(200.0));
 
@@ -95,10 +95,10 @@ async fn test_color_mix_stroke_with_param_override() {
         )
         .expect("append css");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Parameter-Driven CSS Theme (Red)")
-        .add_param(accent)
+        .param(accent)
         .theme(theme)
         .mark(Symbol::new().x(col("x")).y(col("y")).size(200.0));
 

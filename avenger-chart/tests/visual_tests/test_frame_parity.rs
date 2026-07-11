@@ -57,7 +57,7 @@ async fn render_image(
     canvas.render().await.expect("render")
 }
 
-async fn assert_parity(standalone: Plot<Cartesian>, wrapped: Plot<HConcat>, label: &str) {
+async fn assert_parity(standalone: Chart<Cartesian>, wrapped: Chart<HConcat>, label: &str) {
     let ctx = SessionContext::new();
     let standalone = standalone
         .compile(&ctx)
@@ -89,8 +89,8 @@ async fn standalone_chart_matches_single_child_hconcat_fixed_canvas() {
     let data = parity_data(&ctx).await;
 
     assert_parity(
-        parity_child().data(data.clone()).canvas_size(400.0, 300.0),
-        Plot::<HConcat>::new()
+        Chart::from_plot(parity_child().data(data.clone())).canvas_size(400.0, 300.0),
+        Chart::<HConcat>::new()
             .canvas_size(400.0, 300.0)
             .mark(Subplot::new(parity_child().data(data.clone()))),
         "fixed canvas",
@@ -104,8 +104,8 @@ async fn standalone_chart_matches_single_child_hconcat_auto_sizing() {
     let data = parity_data(&ctx).await;
 
     assert_parity(
-        parity_child().data(data.clone()),
-        Plot::<HConcat>::new().mark(Subplot::new(parity_child().data(data.clone()))),
+        Chart::from_plot(parity_child().data(data.clone())),
+        Chart::<HConcat>::new().mark(Subplot::new(parity_child().data(data.clone()))),
         "auto sizing",
     )
     .await;

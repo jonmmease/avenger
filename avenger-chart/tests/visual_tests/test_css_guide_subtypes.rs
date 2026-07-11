@@ -100,7 +100,7 @@ async fn test_css_guide_subtypes() {
     let df = ctx.read_batch(batch).expect("Failed to read batch");
 
     // Create a cartesian plot (should get light blue background)
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Cartesian Guide")
         .subtitle("Should have light blue background from guide[type=\"cartesian\"]")
         .data(df)
@@ -181,7 +181,7 @@ async fn test_css_guide_subtypes_polar() {
     let df = ctx.read_batch(batch).expect("Failed to read batch");
 
     // Create a polar plot (should get light orange background)
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .title("Polar Guide")
         .subtitle("Should have light orange background from guide[type=\"polar\"]")
         .data(df)

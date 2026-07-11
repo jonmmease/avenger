@@ -8,8 +8,8 @@ fn nested_col_row_plot(
     df: DataFrame,
     x_sharing: CoordinationScope,
     y_sharing: CoordinationScope,
-) -> Plot<FacetColumn> {
-    Plot::<FacetColumn>::new()
+) -> Chart<FacetColumn> {
+    Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(120.0, 90.0)
         .mark(
@@ -39,8 +39,8 @@ fn nested_row_col_plot(
     df: DataFrame,
     x_sharing: CoordinationScope,
     y_sharing: CoordinationScope,
-) -> Plot<FacetRow> {
-    Plot::<FacetRow>::new()
+) -> Chart<FacetRow> {
+    Chart::<FacetRow>::new()
         .data(df)
         .plot_size(120.0, 90.0)
         .mark(
@@ -70,8 +70,8 @@ fn two_level_col_legend_plot(
     df: DataFrame,
     sharing: CoordinationScope,
     position: LegendPosition,
-) -> Plot<FacetColumn> {
-    Plot::<FacetColumn>::new()
+) -> Chart<FacetColumn> {
+    Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(120.0, 90.0)
         .mark(

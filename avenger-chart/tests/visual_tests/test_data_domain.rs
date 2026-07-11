@@ -23,7 +23,7 @@ async fn test_bar_chart_inferred_domain() {
         .unwrap();
 
     // Create a bar chart without explicit domains
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale(|s| s).axis(|a| a.title("Category").grid(false))
@@ -69,7 +69,7 @@ async fn test_scatter_plot_inferred_domain() {
         .unwrap();
 
     // Create a scatter plot without explicit domains
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("x").sub(lit(2.0)), |c| {
                 c.scale(|s| s).axis(|a| a.title("X Value"))

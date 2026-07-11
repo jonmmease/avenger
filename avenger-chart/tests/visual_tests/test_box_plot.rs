@@ -647,7 +647,7 @@ fn box_plot_auto_group_mark(id: &str, domain_max: f64) -> BoxPlot {
 #[tokio::test]
 async fn box_plot_compound_matches_mark_group_baseline() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot from MarkGroup branches")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -677,7 +677,7 @@ async fn box_plot_compound_matches_mark_group_baseline() {
 #[tokio::test]
 async fn box_plot_compound_event_targets_resolve_standard_parts() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(box_plot_data(&ctx))
         .mark(box_plot_test_mark())
         .event_binding(ChartEventBinding::on_between_end(
@@ -732,7 +732,7 @@ async fn box_plot_compound_event_targets_resolve_standard_parts() {
 #[tokio::test]
 async fn box_plot_compound_unrooted_part_target_errors() {
     let ctx = SessionContext::new();
-    let err = match Plot::<Cartesian>::new()
+    let err = match Chart::<Cartesian>::new()
         .data(box_plot_data(&ctx))
         .mark(box_plot_test_mark())
         .event_binding(ChartEventBinding::on_between_end(
@@ -754,7 +754,7 @@ async fn box_plot_compound_unrooted_part_target_errors() {
 #[tokio::test]
 async fn box_plot_compound_part_event_datums_reflect_branch_rows() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(box_plot_data(&ctx))
         .mark(box_plot_test_mark())
         .event_binding(
@@ -855,10 +855,10 @@ async fn box_plot_compound_part_event_datums_reflect_branch_rows() {
 #[tokio::test]
 async fn box_plot_compound_scene_query_targets_resolve_part_path() {
     let ctx = SessionContext::new();
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(box_plot_data(&ctx))
         .mark(box_plot_test_mark())
-        .add_selection(Selection::new("picked"))
+        .selection(Selection::new("picked"))
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click).set_selection(
                 "picked",
@@ -888,7 +888,7 @@ async fn box_plot_compound_scene_query_targets_resolve_part_path() {
 #[tokio::test]
 async fn box_plot_compound_part_ids_are_scoped_by_root() {
     let ctx = SessionContext::new();
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(box_plot_data(&ctx))
         .mark(box_plot_test_mark().id("first_box_plot"))
         .mark(box_plot_test_mark().id("second_box_plot"))
@@ -912,7 +912,7 @@ async fn box_plot_compound_part_ids_are_scoped_by_root() {
 #[tokio::test]
 async fn box_plot_compound_with_pre_filter_transform_matches_baseline() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot from MarkGroup branches")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -942,7 +942,7 @@ async fn box_plot_compound_with_pre_filter_transform_matches_baseline() {
 #[tokio::test]
 async fn box_plot_compound_horizontal() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Horizontal box plot")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -965,7 +965,7 @@ async fn box_plot_compound_horizontal() {
 #[tokio::test]
 async fn box_plot_grouped_nested_band_fill_by_segment() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Grouped box plot")
         .canvas_size(780.0, 460.0)
         .data(grouped_box_plot_data(&ctx))
@@ -1000,7 +1000,7 @@ async fn box_plot_grouped_nested_band_fill_by_segment() {
 #[tokio::test]
 async fn box_plot_grouped_inner_axis_hidden() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Grouped box plot")
         .canvas_size(780.0, 420.0)
         .data(grouped_box_plot_data(&ctx))
@@ -1028,7 +1028,7 @@ async fn box_plot_grouped_inner_axis_hidden() {
 #[tokio::test]
 async fn box_plot_grouped_nested_band_sparse_segments() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Sparse grouped box plot")
         .canvas_size(780.0, 460.0)
         .data(sparse_grouped_box_plot_data(&ctx))
@@ -1056,7 +1056,7 @@ async fn box_plot_grouped_nested_band_sparse_segments() {
 #[tokio::test]
 async fn box_plot_grouped_nested_band_fill_by_category() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Grouped box plot by category")
         .canvas_size(780.0, 460.0)
         .data(grouped_box_plot_data(&ctx))
@@ -1084,7 +1084,7 @@ async fn box_plot_grouped_nested_band_fill_by_category() {
 #[tokio::test]
 async fn box_plot_grouped_nested_band_ordered_segments() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Ordered grouped box plot")
         .canvas_size(780.0, 460.0)
         .data(grouped_box_plot_data(&ctx))
@@ -1107,7 +1107,7 @@ async fn box_plot_grouped_nested_band_ordered_segments() {
 #[tokio::test]
 async fn box_plot_invalid_fill_column_errors() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_box_plot_data(&ctx))
         .mark(
             BoxPlot::new()
@@ -1134,7 +1134,7 @@ async fn box_plot_invalid_fill_column_errors() {
 #[tokio::test]
 async fn box_plot_outlier_symbol_styling() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Styled box plot outliers")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -1175,7 +1175,7 @@ async fn box_plot_outlier_symbol_styling() {
 #[tokio::test]
 async fn box_plot_part_styling() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Styled box plot parts")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -1211,12 +1211,12 @@ async fn box_plot_scalar_param_style() {
     let ctx = SessionContext::new();
     let box_fill = Param::new("box_fill", ScalarValue::Utf8(Some("#e0f2fe".to_string())));
     let median_width = Param::new("median_width", ScalarValue::Float32(Some(3.5)));
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Param-styled box plot")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
-        .add_param(box_fill.clone())
-        .add_param(median_width.clone())
+        .param(box_fill.clone())
+        .param(median_width.clone())
         .mark(
             BoxPlot::new()
                 .id("param_styled_box_plot")
@@ -1256,7 +1256,7 @@ async fn box_plot_scalar_param_style() {
 #[tokio::test]
 async fn box_plot_compound_vertical() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Vertical box plot")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -1285,7 +1285,7 @@ async fn box_plot_compound_vertical() {
 #[tokio::test]
 async fn box_plot_no_outliers() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot with no outliers")
         .canvas_size(720.0, 390.0)
         .data(box_plot_no_outliers_data(&ctx))
@@ -1301,7 +1301,7 @@ async fn box_plot_no_outliers() {
 #[tokio::test]
 async fn box_plot_single_observation_group() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot with a single-observation group")
         .canvas_size(720.0, 390.0)
         .data(box_plot_single_observation_data(&ctx))
@@ -1327,7 +1327,7 @@ async fn box_plot_single_observation_group() {
 #[tokio::test]
 async fn box_plot_all_outliers_in_one_group() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot with separated outliers")
         .canvas_size(720.0, 390.0)
         .data(box_plot_all_outliers_data(&ctx))
@@ -1350,7 +1350,7 @@ async fn box_plot_all_outliers_in_one_group() {
 #[tokio::test]
 async fn box_plot_null_values_ignored() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot with null values")
         .canvas_size(720.0, 390.0)
         .data(box_plot_null_values_data(&ctx))
@@ -1399,7 +1399,7 @@ async fn box_plot_facet_nested_band_shared_segments() {
                 fill.legend(|legend| legend.title("Segment"))
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Faceted grouped box plot")
         .canvas_size(980.0, 500.0)
         .data(faceted_grouped_box_plot_data(&ctx))
@@ -1434,7 +1434,7 @@ async fn box_plot_facet_free_value_domains() {
                     .axis(|axis| axis.title("Group").grid(false))
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Faceted box plot with free value domains")
         .canvas_size(920.0, 450.0)
         .data(facet_free_value_box_plot_data(&ctx))
@@ -1486,7 +1486,7 @@ async fn box_plot_facet_sparse_nested_segments() {
                 fill.legend(|legend| legend.title("Segment"))
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Sparse faceted grouped box plot")
         .canvas_size(980.0, 500.0)
         .data(sparse_faceted_grouped_box_plot_data(&ctx))
@@ -1540,7 +1540,7 @@ async fn box_plot_repeat_nested_band() {
                 fill.legend(|legend| legend.title("Segment"))
             }),
     );
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .title("Repeated grouped box plots")
         .canvas_size(980.0, 480.0)
         .data(repeat_box_plot_data(&ctx))

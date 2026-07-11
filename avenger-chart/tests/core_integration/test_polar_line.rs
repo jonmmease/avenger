@@ -113,7 +113,7 @@ fn event_ids(rows: &EvaluatedEventDatumRows) -> Vec<String> {
 #[tokio::test]
 async fn polar_line_defaults_to_coordinate_space_densification() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(theta_data())
         .mark(Line::<Polar>::new().r(50.0).theta(col("theta")));
     let compiled = plot.compile(&ctx).await.expect("compile polar line plot");
@@ -127,7 +127,7 @@ async fn polar_line_defaults_to_coordinate_space_densification() {
 #[tokio::test]
 async fn polar_line_display_space_keeps_source_vertices() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new().data(theta_data()).mark(
+    let plot = Chart::<Polar>::new().data(theta_data()).mark(
         Line::<Polar>::new()
             .r(50.0)
             .theta(col("theta"))
@@ -141,7 +141,7 @@ async fn polar_line_display_space_keeps_source_vertices() {
 #[tokio::test]
 async fn polar_line_display_geometry_space_survives_bincode_round_trip() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new().data(theta_data()).mark(
+    let plot = Chart::<Polar>::new().data(theta_data()).mark(
         Line::<Polar>::new()
             .r(50.0)
             .theta(col("theta"))
@@ -159,7 +159,7 @@ async fn polar_line_display_geometry_space_survives_bincode_round_trip() {
 #[tokio::test]
 async fn polar_line_event_datums_keep_source_rows_for_densified_mark_level_line() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(id_theta_data())
         .mark(Line::<Polar>::new().r(50.0).theta(col("theta")))
         .event_binding(
@@ -205,7 +205,7 @@ async fn polar_line_event_datums_keep_source_rows_for_densified_mark_level_line(
 #[tokio::test]
 async fn polar_line_order_channel_controls_vertex_order() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(ordered_theta_data())
         .mark(

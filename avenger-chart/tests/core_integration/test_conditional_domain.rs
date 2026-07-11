@@ -51,7 +51,7 @@ async fn test_conditional_numeric_domain_excludes_extreme_values() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a color scale from value
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -112,7 +112,7 @@ async fn test_conditional_type_inference_numeric_with_string_literal() {
 
     // Create a plot with conditional color: string literal for highlight, numeric scale otherwise
     // Type inference should see this as numeric, not string
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))

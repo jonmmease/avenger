@@ -39,7 +39,7 @@ async fn test_conditional_color_when_value() {
 
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -101,7 +101,7 @@ async fn test_conditional_size_when_scaled() {
 
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -167,7 +167,7 @@ async fn test_conditional_multiple_conditions() {
 
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -220,7 +220,7 @@ async fn test_conditional_with_legend() {
 
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s.domain((0.0, 10.0))).axis(|a| a.title("Time"))

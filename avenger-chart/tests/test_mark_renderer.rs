@@ -8,7 +8,7 @@ mod tests {
     #[tokio::test]
     async fn test_cartesian_symbol_mark_renderer() {
         // Create a simple plot with a CartesianSymbol mark
-        let plot = Plot::<Cartesian>::new().mark(Symbol::new().x("x").y("y"));
+        let plot = Chart::<Cartesian>::new().mark(Symbol::new().x("x").y("y"));
 
         // Compile the plot to get mark renderers
         let ctx = SessionContext::new();

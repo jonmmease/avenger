@@ -15,7 +15,7 @@ macro_rules! compile_and_check {
 #[tokio::test]
 async fn test_channel_scale_config() {
     // Test that we can configure scales directly on channel values
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -43,7 +43,7 @@ async fn test_channel_scale_config() {
 #[tokio::test]
 async fn test_channel_legend_config() {
     // Test that we can configure legends directly on channel values
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -68,7 +68,7 @@ async fn test_channel_legend_config() {
 #[tokio::test]
 async fn test_channel_scale_with_typed() {
     // Test that we can use typed scales on channel values
-    let plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).fill_with(
+    let plot = Chart::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).fill_with(
         col("category"),
         |c| {
             c.scale_with::<Ordinal>(|s| {
@@ -90,7 +90,7 @@ async fn test_channel_scale_with_typed() {
 #[tokio::test]
 async fn test_channel_config() {
     // Test that channel-level configs work properly
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 100.0)))) // Channel-level config
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 50.0)))) // Channel-level config
@@ -118,7 +118,7 @@ async fn test_channel_config() {
 
 #[tokio::test]
 async fn test_nested_position_level_config_does_not_create_legend() {
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Rect::new()
             .x_with(nested(["group", "series"]), |x| {
                 x.level(1, |level| {
@@ -145,7 +145,7 @@ async fn test_nested_position_level_config_does_not_create_legend() {
 #[tokio::test]
 async fn test_no_legend_helper() {
     // Test the no_legend helper method
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -162,7 +162,7 @@ async fn test_no_legend_helper() {
 #[tokio::test]
 async fn test_direct_expr_scale_config() {
     // Test that we can call scale() directly on expressions
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 100.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 50.0))))
@@ -188,7 +188,7 @@ async fn test_direct_expr_scale_config() {
 #[tokio::test]
 async fn test_direct_expr_legend_config() {
     // Test that we can call legend() directly on expressions
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -212,7 +212,7 @@ async fn test_direct_expr_legend_config() {
 #[tokio::test]
 async fn test_direct_expr_combined_config() {
     // Test combining scale and legend config on expressions
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(col("x"))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 100.0))))
@@ -241,7 +241,7 @@ async fn test_direct_expr_combined_config() {
 #[tokio::test]
 async fn test_band_with_scale_config() {
     // Test that band() and scale() can be chained on expressions
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x_with(col("category"), |c| {
                 c.band(0.5)
@@ -259,7 +259,7 @@ async fn test_band_with_scale_config() {
 
 #[tokio::test]
 async fn test_path_and_transform_with_no_scale_and_scaled_config() {
-    let raw_path_plot = Plot::<Cartesian>::new().mark(
+    let raw_path_plot = Chart::<Cartesian>::new().mark(
         PathMark::new()
             .x(col("x"))
             .y(col("y"))
@@ -272,7 +272,7 @@ async fn test_path_and_transform_with_no_scale_and_scaled_config() {
     assert!(!raw_compiled.scale_specs().contains_key("path_transform"));
 
     let scaled_path_plot =
-        Plot::<Cartesian>::new().mark(PathMark::new().x(col("x")).y(col("y")).path_with(
+        Chart::<Cartesian>::new().mark(PathMark::new().x(col("x")).y(col("y")).path_with(
             col("path_kind"),
             |c| {
                 c.scale_with::<Ordinal>(|s| {
@@ -288,7 +288,7 @@ async fn test_path_and_transform_with_no_scale_and_scaled_config() {
     let scaled_compiled = compile_and_check!(scaled_path_plot);
     assert!(scaled_compiled.scale_specs().contains_key("path"));
 
-    let scaled_transform_plot = Plot::<Cartesian>::new().mark(
+    let scaled_transform_plot = Chart::<Cartesian>::new().mark(
         PathMark::new()
             .x(col("x"))
             .y(col("y"))
@@ -313,7 +313,7 @@ async fn test_path_and_transform_with_no_scale_and_scaled_config() {
 async fn test_identity_unscaled() {
     // Test that identity() creates unscaled values
     // Note: we need to add scale config to make it show up in scale_specs
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s)) // Scaled by default, with config
             .y(lit(50.0)) // Explicitly unscaled

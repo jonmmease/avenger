@@ -88,7 +88,7 @@ async fn adaptive_dataframe(ctx: &SessionContext) -> DataFrame {
 
 async fn compile_adaptive_plot(ctx: &SessionContext) -> CompiledPlot {
     let df = adaptive_dataframe(ctx).await;
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .plot_size(320.0, 250.0)
         .tool(PanScrollZoom::cartesian())
         .mark(

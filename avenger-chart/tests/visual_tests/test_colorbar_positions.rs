@@ -43,7 +43,7 @@ async fn test_colorbar_right_position() {
     let batch = create_colorbar_data();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -75,7 +75,7 @@ async fn test_colorbar_left_position() {
     let batch = create_colorbar_data();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -107,7 +107,7 @@ async fn test_colorbar_top_position() {
     let batch = create_colorbar_data();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -139,7 +139,7 @@ async fn test_colorbar_bottom_position() {
     let batch = create_colorbar_data();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -172,7 +172,7 @@ async fn test_colorbar_with_background() {
     let batch = create_colorbar_data();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))

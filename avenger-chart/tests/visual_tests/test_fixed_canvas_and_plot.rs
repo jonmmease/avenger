@@ -33,7 +33,7 @@ async fn test_fixed_canvas_500x400_fixed_plot_200x150() {
     // - Fixed plot: 200x150
     // - Uniform margins: 10px
     // This tests whether margins expand or plot area position adjusts
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(500.0, 400.0)
         .plot_size(200.0, 150.0)
         .margins(Margins::uniform(10.0))
@@ -67,7 +67,7 @@ async fn test_canvas_width_400_plot_width_250() {
     // - Plot width: 250
     // - Uniform margins: 10px
     // Tests horizontal space distribution with fixed canvas and plot widths
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_constraint(CanvasConstraint::width(400.0))
         .plot_constraint(PlotConstraint::width(250.0))
         .margins(Margins::uniform(10.0))
@@ -101,7 +101,7 @@ async fn test_canvas_height_350_plot_height_200() {
     // - Plot height: 200
     // - Uniform margins: 15px
     // Tests vertical space distribution with fixed canvas and plot heights
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_constraint(CanvasConstraint::height(350.0))
         .plot_constraint(PlotConstraint::height(200.0))
         .margins(Margins::uniform(15.0))

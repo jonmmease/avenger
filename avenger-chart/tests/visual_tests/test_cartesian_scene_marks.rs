@@ -506,7 +506,7 @@ fn path_transform_data() -> DataFrame {
 #[tokio::test]
 async fn test_cartesian_rule_reference_grid() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Rule reference grid")
         .data(rule_reference_data())
         .mark(
@@ -550,7 +550,7 @@ async fn test_cartesian_rule_reference_grid() {
 #[tokio::test]
 async fn test_cartesian_text_label_styles() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Text label styles")
         .data(text_style_data())
         .mark(
@@ -596,7 +596,7 @@ async fn test_cartesian_text_label_styles() {
 #[tokio::test]
 async fn test_cartesian_text_leader_geometry_and_offsets() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Text leader geometry")
         .data(text_leader_geometry_data())
         .mark(
@@ -653,7 +653,7 @@ async fn test_cartesian_text_leader_geometry_and_offsets() {
 #[tokio::test]
 async fn test_cartesian_text_leader_arrowheads() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Text leader arrowheads")
         .data(text_leader_arrowhead_data())
         .mark(
@@ -709,7 +709,7 @@ async fn test_cartesian_text_leader_arrowheads() {
 #[tokio::test]
 async fn test_cartesian_text_leader_stroke_styles() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Text leader stroke styles")
         .data(text_leader_stroke_style_data())
         .mark(
@@ -765,7 +765,7 @@ async fn test_cartesian_text_leader_stroke_styles() {
 #[tokio::test]
 async fn test_cartesian_area_vertical_horizontal_styles() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Area orientation and styles")
         .data(area_orientation_data())
         .mark(
@@ -824,7 +824,7 @@ async fn test_cartesian_area_vertical_horizontal_styles() {
 #[tokio::test]
 async fn test_cartesian_trail_size_and_opacity() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Trail size and opacity")
         .data(trail_style_data())
         .mark(
@@ -866,7 +866,7 @@ async fn test_cartesian_trail_size_and_opacity() {
 #[tokio::test]
 async fn test_cartesian_image_alignment_grid() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Image alignment grid")
         .data(image_alignment_data())
         .mark(
@@ -909,7 +909,7 @@ async fn test_cartesian_image_alignment_grid() {
 #[tokio::test]
 async fn test_cartesian_path_svg_transform_styles() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Path SVG transforms")
         .data(path_transform_data())
         .mark(

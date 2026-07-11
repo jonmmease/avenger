@@ -2,7 +2,7 @@ use avenger_chart::prelude::*;
 
 #[test]
 fn test_symbol_with_typed_legend() {
-    let _plot = Plot::<Cartesian>::new().mark(
+    let _plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .fill_with(col("temperature"), |c| {
                 c.legend(|l| {

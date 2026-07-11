@@ -1,6 +1,6 @@
 use avenger_chart::cartesian::{Cartesian, CartesianLinePositionChannels};
 use avenger_chart::channel::LegendableChannel;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart::prelude::Line;
 use avenger_chart::scales::ScaleChannelConfig;
 use datafusion::arrow::array::{Float32Array, StringArray};
@@ -32,7 +32,7 @@ async fn test_stroke_dash_with_scale_inference() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a line chart with stroke_dash_with channel
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x(col("x"))
             .y(col("y"))

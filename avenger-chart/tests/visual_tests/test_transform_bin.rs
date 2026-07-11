@@ -53,7 +53,7 @@ fn faceted_histogram_plot(
     df: DataFrame,
     transform_scope: CoordinationScope,
     title: &str,
-) -> Plot<FacetColumn> {
+) -> Chart<FacetColumn> {
     let leaf = Plot::<Cartesian>::new().mark(Rect::new().transform_with_scope(
         transform_scope,
         Bin::new(col("value")).maxbins(4),
@@ -68,7 +68,7 @@ fn faceted_histogram_plot(
         },
     ));
 
-    Plot::<FacetColumn>::new()
+    Chart::<FacetColumn>::new()
         .data(df)
         .title(title)
         .canvas_size(820.0, 360.0)
@@ -78,7 +78,7 @@ fn faceted_histogram_plot(
 #[tokio::test]
 async fn histogram_exact_maxbins_messy_edges() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Exact maxbins histogram")
         .subtitle("Bin edges are raw min/max divided into seven bins")
         .canvas_size(640.0, 420.0)
@@ -109,7 +109,7 @@ async fn histogram_exact_maxbins_messy_edges() {
 #[tokio::test]
 async fn histogram_nice_maxbins_friendly_edges() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Nice maxbins histogram")
         .subtitle("Bin edges expand to friendly boundaries")
         .canvas_size(640.0, 420.0)
@@ -140,7 +140,7 @@ async fn histogram_nice_maxbins_friendly_edges() {
 #[tokio::test]
 async fn histogram_maxbins_nice_false() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Histogram with nice=false")
         .subtitle("Raw min/max are divided into seven exact bins")
         .canvas_size(640.0, 420.0)

@@ -41,7 +41,7 @@ async fn test_multiple_legends_with_backgrounds() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend
@@ -136,7 +136,7 @@ async fn test_colorbar_with_symbols_backgrounds() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend
@@ -230,7 +230,7 @@ async fn test_legends_different_positions_backgrounds() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend

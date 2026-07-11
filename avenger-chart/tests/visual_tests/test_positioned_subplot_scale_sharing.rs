@@ -196,8 +196,8 @@ fn row_col_positioned_subplot_plot(
     df: DataFrame,
     subplot_x_sharing_level: u8,
     subplot_y_sharing_level: u8,
-) -> Plot<FacetRow> {
-    Plot::<FacetRow>::new()
+) -> Chart<FacetRow> {
+    Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(1600.0, 1050.0)
         .title(format!(
@@ -217,8 +217,8 @@ fn row_col_positioned_subplot_plot(
         )
 }
 
-fn row_col_positioned_subplot_fill_plot(df: DataFrame, fill_sharing_level: u8) -> Plot<FacetRow> {
-    Plot::<FacetRow>::new()
+fn row_col_positioned_subplot_fill_plot(df: DataFrame, fill_sharing_level: u8) -> Chart<FacetRow> {
+    Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(1600.0, 1050.0)
         .title(format!(

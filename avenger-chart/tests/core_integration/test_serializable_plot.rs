@@ -2,7 +2,7 @@
 
 use avenger_chart::cartesian::{CartesianRectPositionChannels, CartesianSymbolPositionChannels};
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::{CompiledPlot, Plot};
+use avenger_chart::plot::{Chart, CompiledPlot, Plot};
 use avenger_chart::prelude::{
     Cartesian, CoordinationScope, Linear, NestScope, Parallel, ParallelAxisOverlay, ParallelLine,
     ParallelSymbol, Rect, ScaleChannelConfig,
@@ -15,7 +15,7 @@ async fn test_compiled_plot() {
     let ctx = SessionContext::new();
 
     // Create a simple plot
-    let plot = Plot::new()
+    let plot = Chart::new()
         .canvas_size(400.0, 300.0)
         .mark(Symbol::new().x(col("x")).y(col("y")));
 
@@ -36,7 +36,7 @@ async fn test_compiled_plot() {
 #[tokio::test]
 async fn test_compiled_plot_with_nested_position_metadata() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Rect::new()
             .x_with(avenger_chart::prelude::nested(["quarter", "team"]), |x| {
                 x.level(0, |l| l.domain_scope(CoordinationScope::Shared))
@@ -70,7 +70,7 @@ async fn test_compiled_parallel_plot() {
         .sql("SELECT * FROM (VALUES (21.0, 'usa'), (28.0, 'japan')) AS t(mpg, origin)")
         .await
         .unwrap();
-    let plot = Plot::with_coord(Parallel::new().dimension_with("origin", |dimension| {
+    let plot = Chart::with_coord(Parallel::new().dimension_with("origin", |dimension| {
         dimension.axis(|axis| axis.title("Origin"))
     }))
     .data(df)

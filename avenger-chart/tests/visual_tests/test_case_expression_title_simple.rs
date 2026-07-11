@@ -54,12 +54,12 @@ async fn test_case_expression_title_no_media_query() {
     .otherwise(lit("Testing CASE expression without media queries (Large)"))
     .unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0) // Fixed size
         .title(title_expr)
         .subtitle(subtitle_expr)
         .data(df)
-        .add_param(width_param)
+        .param(width_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))

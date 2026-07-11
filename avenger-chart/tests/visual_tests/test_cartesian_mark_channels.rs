@@ -101,7 +101,7 @@ fn line_style_data() -> DataFrame {
 #[tokio::test]
 async fn test_existing_mark_opacity_and_rect_radius() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Existing mark channel cleanup")
         .data(rounded_bar_data())
         .mark(
@@ -146,7 +146,7 @@ async fn test_existing_mark_opacity_and_rect_radius() {
 #[tokio::test]
 async fn test_line_opacity_width_partitioning() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Line style partitioning")
         .data(line_style_data())
         .mark(

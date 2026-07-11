@@ -12,7 +12,7 @@ async fn facet_row_iris_scatter() {
         .expect("load iris dataset");
 
     // Build outer facet row plot
-    let outer = Plot::<FacetRow>::new().data(df).mark(
+    let outer = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()

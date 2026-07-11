@@ -76,7 +76,7 @@ async fn compiled_sales_plot(ctx: &SessionContext) -> CompiledPlot {
         .await
         .expect("sales query");
 
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .data(data)
         .mark(Symbol::new().x(col("total")).y(col("total")).size(64.0))
         .compile(ctx)
@@ -108,7 +108,7 @@ async fn segmented_sales_dataframe(ctx: &SessionContext) -> datafusion::datafram
 
 async fn compiled_faceted_aggregate_plot(ctx: &SessionContext) -> CompiledPlot {
     let data = segmented_sales_dataframe(ctx).await;
-    Plot::<FacetColumn>::new()
+    Chart::<FacetColumn>::new()
         .canvas_size(520.0, 260.0)
         .data(data)
         .mark(Subplot::new(aggregate_leaf_plot()).column(col("region")))
@@ -121,7 +121,7 @@ async fn compiled_nested_faceted_aggregate_plot(ctx: &SessionContext) -> Compile
     let data = segmented_sales_dataframe(ctx).await;
     let inner =
         Plot::<FacetColumn>::new().mark(Subplot::new(aggregate_leaf_plot()).column(col("segment")));
-    Plot::<FacetRow>::new()
+    Chart::<FacetRow>::new()
         .canvas_size(560.0, 360.0)
         .data(data)
         .mark(Subplot::new(inner).row(col("region")))
@@ -335,7 +335,7 @@ async fn parquet_backed_chart_bakes_self_contained() -> Result<(), Box<dyn std::
              FROM sales GROUP BY region) q WHERE total > $min ORDER BY region",
         )
         .await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(data)
         .mark(Symbol::new().x(col("total")).y(col("total")).size(64.0))
         .compile(&server_ctx)
@@ -370,7 +370,7 @@ async fn unfaceted_inherited_chain_bakes_to_chain_output() -> Result<(), Box<dyn
         .register_batch("sales", sales_batch())
         .expect("register sales");
     let data = server_ctx.table("sales").await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .canvas_size(320.0, 240.0)
         .data(data)
         .mark(
@@ -447,7 +447,7 @@ async fn faceted_explicit_group_bakes_base_and_keeps_chain_live()
             },
         ),
     );
-    let compiled = Plot::<FacetColumn>::new()
+    let compiled = Chart::<FacetColumn>::new()
         .canvas_size(520.0, 260.0)
         .data(facet_data)
         .mark(Subplot::new(leaf).column(col("region")))
@@ -504,7 +504,7 @@ async fn live_sql_side_table_flips_self_containment() -> Result<(), Box<dyn std:
         ),
         |group, _| group.mark(Symbol::new().x(col("value")).y(col("threshold")).size(48.0)),
     ));
-    let compiled = Plot::<FacetColumn>::new()
+    let compiled = Chart::<FacetColumn>::new()
         .canvas_size(520.0, 260.0)
         .data(data)
         .mark(Subplot::new(leaf).column(col("region")))
@@ -565,9 +565,9 @@ async fn store_backed_context_is_excluded_from_bake() -> Result<(), Box<dyn std:
         .await
         .expect("sales query");
 
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(data)
-        .add_store(
+        .store(
             Store::from_record_batch("threshold_band", threshold_store_batch())
                 .primary_key(["id"])
                 .sharing(CoordinationScope::Shared),
@@ -693,7 +693,7 @@ async fn non_self_contained_bake_is_flagged_not_errored() -> Result<(), Box<dyn 
         .table("small_sales")
         .await
         .expect("small sales table");
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .mark(MarkGroup::new().data(data).transform(
             Sql::new(
                 "SELECT input.region, input.value \

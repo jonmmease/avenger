@@ -26,7 +26,7 @@ async fn test_scalar_aggregate_mean_rule_over_scatter() {
     let ctx = SessionContext::new();
     let df = create_scatter_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Mean rule from ScalarAggregate")
         .data(df)
         .mark(

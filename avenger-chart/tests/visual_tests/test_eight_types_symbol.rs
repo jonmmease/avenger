@@ -63,7 +63,7 @@ async fn test_eight_types_fill_shape() {
 
     // Create scatter plot with both fill and shape encoded by the same column
     // This will use default Okabe-Ito colors and default shapes
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Eight Category Scatter Plot")
         .subtitle("Okabe-Ito colors with distinct shapes")
@@ -142,7 +142,7 @@ async fn test_eight_types_fill_shape_dark() {
 
     // Create scatter plot with both fill and shape encoded by the same column
     // This will use the dark theme's colors and default shapes
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .theme(Theme::dark())
         .title("Eight Category Scatter Plot - Dark Mode")

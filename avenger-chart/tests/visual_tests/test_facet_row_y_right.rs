@@ -12,7 +12,7 @@ async fn facet_row_iris_y_axis_right() {
         .await
         .expect("load iris dataset");
 
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

@@ -148,7 +148,7 @@ async fn test_css_theme_basic() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("CSS Theme Example")
         .subtitle("Using custom colors and typography")
@@ -240,7 +240,7 @@ async fn test_css_theme_scale_ranges() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Okabe-Ito Color Palette via CSS")
         .mark(
@@ -397,7 +397,7 @@ async fn test_css_theme_dark_mode() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Dark Mode CSS Theme")
         .subtitle("Line chart with custom dark styling")
@@ -505,7 +505,7 @@ async fn test_css_theme_discrete_continuous_properties() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("CSS Discrete/Continuous Properties")
         .mark(
@@ -574,7 +574,7 @@ async fn test_runtime_color_params() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Runtime Color Override")
         .subtitle("Chocolate brown background with cyan text")
@@ -585,11 +585,11 @@ async fn test_runtime_color_params() {
                 .fill(col("category")),
         )
         .theme(theme)
-        .add_param(Param::new(
+        .param(Param::new(
             "--bg-color",
             ScalarValue::Utf8(Some("#3E2723".to_string())), // Dark chocolate brown
         ))
-        .add_param(Param::new(
+        .param(Param::new(
             "--text-color",
             ScalarValue::Utf8(Some("#00D9FF".to_string())), // Bright cyan
         ));

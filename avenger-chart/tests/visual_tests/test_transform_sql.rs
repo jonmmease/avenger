@@ -86,7 +86,7 @@ fn sql_stacked_rect_mark() -> Rect<Cartesian> {
 #[tokio::test]
 async fn sql_stacked_rect() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("SQL Stacked Sales")
         .data(stacked_sales_data(&ctx))
         .mark(sql_stacked_rect_mark());

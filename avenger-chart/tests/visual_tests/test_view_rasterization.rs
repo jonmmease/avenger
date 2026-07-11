@@ -216,7 +216,7 @@ async fn taxi_dataframe(ctx: &SessionContext) -> DataFrame {
 
 async fn compile_taxi_view_raster_plot(ctx: &SessionContext) -> CompiledPlot {
     let df = taxi_dataframe(ctx).await;
-    Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(320.0, 250.0)
         .data(df)
         .mark(
@@ -283,7 +283,7 @@ async fn view_rect_current_domain() {
         .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 8.0)) AS t(x, y)")
         .await
         .expect("build view domain fixture");
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(260.0, 180.0)
         .data(df)
         .mark(

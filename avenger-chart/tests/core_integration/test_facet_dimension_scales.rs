@@ -24,7 +24,7 @@ async fn facet_dimensions_do_not_build_row_column_or_wrap_scales()
     let ctx = SessionContext::new();
     let df = facet_data(&ctx).await?;
 
-    let column_plot = Plot::<FacetColumn>::new()
+    let column_plot = Chart::<FacetColumn>::new()
         .data(df.clone())
         .mark(Subplot::new(leaf_plot()).column(col("region")));
     let column_compiled = column_plot.compile(&ctx).await?;
@@ -33,7 +33,7 @@ async fn facet_dimensions_do_not_build_row_column_or_wrap_scales()
         .await?;
     assert!(!column_scales.contains_key("column"));
 
-    let row_plot = Plot::<FacetRow>::new()
+    let row_plot = Chart::<FacetRow>::new()
         .data(df.clone())
         .mark(Subplot::new(leaf_plot()).row(col("species")));
     let row_compiled = row_plot.compile(&ctx).await?;
@@ -42,7 +42,7 @@ async fn facet_dimensions_do_not_build_row_column_or_wrap_scales()
         .await?;
     assert!(!row_scales.contains_key("row"));
 
-    let wrap_plot = Plot::<FacetWrap>::new()
+    let wrap_plot = Chart::<FacetWrap>::new()
         .data(df.clone())
         .mark(Subplot::new(leaf_plot()).wrap(col("region")));
     let wrap_compiled = wrap_plot.compile(&ctx).await?;
@@ -61,7 +61,7 @@ async fn facet_dimension_scale_config_is_rejected() {
     let scaled_column =
         ChannelValue::from(col("region")).scale_with::<Band>(|scale| scale.padding_inner(0.2));
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(Subplot::new(leaf_plot()).column(scaled_column));
 
@@ -84,7 +84,7 @@ async fn facet_wrap_dimension_scale_config_is_rejected() {
     let scaled_wrap =
         ChannelValue::from(col("region")).scale_with::<Band>(|scale| scale.padding_inner(0.2));
 
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .data(df)
         .mark(Subplot::new(leaf_plot()).wrap(scaled_wrap));
 
@@ -106,7 +106,7 @@ async fn facet_dimension_legend_config_is_rejected() {
     let df = facet_data(&ctx).await.expect("facet data");
     let legend_column = ChannelValue::from(col("region")).legend(Legend::new().title("Region"));
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(Subplot::new(leaf_plot()).column(legend_column));
 

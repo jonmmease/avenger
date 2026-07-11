@@ -45,7 +45,7 @@ fn expression_transform_data(ctx: &SessionContext) -> DataFrame {
 #[tokio::test]
 async fn calculate_residual_scatter() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Calculate: residual")
         .canvas_size(560.0, 380.0)
         .data(expression_transform_data(&ctx))
@@ -79,7 +79,7 @@ async fn calculate_residual_scatter() {
 #[tokio::test]
 async fn filter_threshold_scatter() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Filter: source_a >= 0")
         .canvas_size(560.0, 380.0)
         .data(expression_transform_data(&ctx))
@@ -122,7 +122,7 @@ async fn filter_threshold_scatter() {
 #[tokio::test]
 async fn select_projected_scatter() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Select: projected columns")
         .canvas_size(560.0, 380.0)
         .data(expression_transform_data(&ctx))

@@ -417,7 +417,7 @@ async fn hconcat_shared_x_domains() {
         )
         .await
         .expect("create right shared-domain concat data");
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat x domain")
         .mark(Subplot::new(shared_x_child(left, "Local low x")).name("low"))
@@ -447,7 +447,7 @@ async fn hconcat_shared_y_axis() {
         )
         .await
         .expect("create right shared-y concat data");
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat y axis")
         .mark(Subplot::new(shared_y_child(left, "Local low y")).name("low"))
@@ -477,7 +477,7 @@ async fn vconcat_shared_x_axis() {
         )
         .await
         .expect("create bottom shared-x concat data");
-    let plot = Plot::<VConcat>::new()
+    let plot = Chart::<VConcat>::new()
         .canvas_size(560.0, 620.0)
         .title("Shared concat x axis")
         .mark(Subplot::new(shared_x_child_no_title(top)).name("low"))
@@ -507,7 +507,7 @@ async fn hconcat_shared_color_legend_right() {
         )
         .await
         .expect("create right shared legend concat data");
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat legend")
         .mark(Subplot::new(shared_color_child(left, "Left", LegendPosition::Right)).name("left"))
@@ -532,7 +532,7 @@ async fn hconcat_shared_color_legend_right() {
 #[tokio::test]
 async fn grid_concat_local_right_legends_coordinated_chrome() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(940.0, 300.0)
         .data(concat_facet_alignment_data(&ctx).await)
         .title("Local right legends")
@@ -583,7 +583,7 @@ async fn vconcat_shared_color_legend_bottom() {
         )
         .await
         .expect("create bottom shared legend concat data");
-    let plot = Plot::<VConcat>::new()
+    let plot = Chart::<VConcat>::new()
         .canvas_size(560.0, 620.0)
         .title("Shared concat legend")
         .mark(Subplot::new(shared_color_child(top, "Top", LegendPosition::Bottom)).name("top"))
@@ -642,7 +642,7 @@ async fn nested_concat_level1_shared_axis() {
     let right_column = Plot::<VConcat>::new()
         .mark(Subplot::new(level1_shared_x_child(datasets[2].clone())).name("rt"))
         .mark(Subplot::new(level1_shared_x_child(datasets[3].clone())).name("rb"));
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(820.0, 560.0)
         .title("Nested Level(1) concat sharing")
         .mark(Subplot::new(left_column).name("left").label("Left"))
@@ -666,7 +666,7 @@ async fn nested_concat_level1_shared_axis() {
 async fn grid_concat_shared_axes_complete() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(820.0, 620.0)
         .data(df)
         .title("Grid concat shared axes")
@@ -730,7 +730,7 @@ async fn grid_concat_shared_axes_complete() {
 async fn grid_concat_holey_shared_axes() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(900.0, 560.0)
         .data(df)
         .title("Holey grid concat")
@@ -785,7 +785,7 @@ async fn grid_concat_splom_named_domains() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let variables = ["sepal_length", "sepal_width", "petal_length"];
-    let mut plot = Plot::<GridConcat>::new()
+    let mut plot = Chart::<GridConcat>::new()
         .canvas_size(820.0, 760.0)
         .data(df)
         .title("Manual GridConcat SPLOM")
@@ -818,7 +818,7 @@ async fn grid_concat_splom_named_domains() {
 #[tokio::test]
 async fn grid_concat_span_basic() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(900.0, 680.0)
         .data(concat_numeric_data(&ctx).await)
         .title("Grid concat span basic")
@@ -859,7 +859,7 @@ async fn grid_concat_span_basic() {
 #[tokio::test]
 async fn grid_concat_span_chrome() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(940.0, 680.0)
         .data(concat_numeric_data(&ctx).await)
         .title("Grid concat span chrome")
@@ -914,7 +914,7 @@ async fn grid_concat_span_chrome() {
 #[tokio::test]
 async fn grid_concat_span_holes() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(900.0, 680.0)
         .data(concat_numeric_data(&ctx).await)
         .title("Grid concat spans with holes")
@@ -951,7 +951,7 @@ async fn grid_concat_span_holes() {
 async fn grid_concat_span_domain_groups() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .canvas_size(940.0, 680.0)
         .data(df)
         .title("Grid concat span domain groups")
@@ -999,7 +999,7 @@ async fn grid_concat_span_domain_groups() {
 #[tokio::test]
 async fn grid_concat_span_inside_facet_aligned() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1560.0, 580.0)
         .mark(Subplot::new(alignment_spanned_grid_concat()).column(col("group_name")));
@@ -1021,7 +1021,7 @@ async fn grid_concat_span_inside_facet_aligned() {
 #[tokio::test]
 async fn grid_concat_inside_facet_column_aligned() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 420.0)
         .mark(Subplot::new(alignment_grid_concat()).column(col("group_name")));
@@ -1043,7 +1043,7 @@ async fn grid_concat_inside_facet_column_aligned() {
 #[tokio::test]
 async fn grid_concat_inside_facet_wrap_aligned() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 760.0)
         .mark(
@@ -1068,7 +1068,7 @@ async fn grid_concat_inside_facet_wrap_aligned() {
 #[tokio::test]
 async fn wrap_concat_inside_facet_column_aligned() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 380.0)
         .mark(Subplot::new(alignment_wrap_concat()).column(col("group_name")));
@@ -1090,7 +1090,7 @@ async fn wrap_concat_inside_facet_column_aligned() {
 #[tokio::test]
 async fn facet_column_inside_grid_concat_smoke() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 520.0)
         .configure_coord(|c| {
@@ -1136,7 +1136,7 @@ async fn facet_column_inside_grid_concat_smoke() {
 #[tokio::test]
 async fn facet_column_inside_holey_grid_concat_aligned() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 820.0)
         .configure_coord(|c| {
@@ -1178,7 +1178,7 @@ async fn facet_column_inside_holey_grid_concat_aligned() {
 async fn wrap_concat_fixed_columns_shared_axes() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<WrapConcat>::new()
+    let plot = Chart::<WrapConcat>::new()
         .plot_size(720.0, 420.0)
         .data(df)
         .title("Wrapped concat fixed columns")
@@ -1281,8 +1281,8 @@ async fn wrap_concat_responsive_columns_wide() {
     .await;
 }
 
-fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<WrapConcat> {
-    Plot::<WrapConcat>::new()
+fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Chart<WrapConcat> {
+    Chart::<WrapConcat>::new()
         .plot_size(width, height)
         .data(df)
         .title("Wrapped concat responsive columns")
@@ -1338,7 +1338,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
 async fn hconcat_two_cartesian() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(820.0, 360.0)
         .data(df)
         .title("Horizontal concat")
@@ -1353,7 +1353,7 @@ async fn hconcat_two_cartesian() {
 async fn vconcat_two_cartesian() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<VConcat>::new()
+    let plot = Chart::<VConcat>::new()
         .canvas_size(560.0, 720.0)
         .data(df)
         .title("Vertical concat")
@@ -1368,7 +1368,7 @@ async fn vconcat_two_cartesian() {
 async fn hconcat_plot_size_two_cartesian() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .plot_size(620.0, 240.0)
         .data(df)
         .title("Plot-size concat")
@@ -1393,7 +1393,7 @@ async fn hconcat_plot_size_two_cartesian() {
 async fn hconcat_no_key_no_label() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(820.0, 360.0)
         .data(df)
         .title("Bare subplot concat")
@@ -1411,7 +1411,7 @@ async fn hconcat_no_key_no_label() {
 async fn hconcat_cartesian_polar() {
     let ctx = SessionContext::new();
     let df = concat_numeric_data(&ctx).await;
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(820.0, 380.0)
         .data(df)
         .title("Mixed coordinate concat")
@@ -1440,7 +1440,7 @@ async fn nested_concat_grid() {
     let top_row = Plot::<HConcat>::new()
         .mark(Subplot::new(sepal_child()).name("sepal"))
         .mark(Subplot::new(petal_child()).name("petal"));
-    let plot = Plot::<VConcat>::new()
+    let plot = Chart::<VConcat>::new()
         .canvas_size(820.0, 640.0)
         .data(df)
         .title("Nested concat")
@@ -1473,7 +1473,7 @@ async fn facet_row_hconcat_shared_data() {
     let subplot = Plot::<HConcat>::new()
         .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
         .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .canvas_size(860.0, 760.0)
         .data(df)
         .mark(Subplot::new(subplot).row(col("species")));
@@ -1496,7 +1496,7 @@ async fn facet_row_hconcat_shared_data() {
 async fn hconcat_components_debug() {
     let ctx = SessionContext::new();
     let df = concat_numeric_data(&ctx).await;
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(820.0, 380.0)
         .data(df)
         .title("Debug concat")
@@ -1535,7 +1535,7 @@ async fn hconcat_widths_flex_split() {
     // Three children: a fixed 140px plot-area column and a 2:1 flex split
     // of the remainder.
     let ctx = SessionContext::new();
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .data(concat_numeric_data(&ctx).await)
         .canvas_size(900.0, 300.0)
         .configure_coord(|c| {
@@ -1561,7 +1561,7 @@ async fn hconcat_widths_flex_split() {
 async fn vconcat_heights_px_rows() {
     // Pixel-pinned top row, flexible bottom row.
     let ctx = SessionContext::new();
-    let plot = Plot::<VConcat>::new()
+    let plot = Chart::<VConcat>::new()
         .data(concat_numeric_data(&ctx).await)
         .canvas_size(420.0, 560.0)
         .configure_coord(|c| c.heights([TrackSizing::Px(120.0), TrackSizing::Flex(1.0)]))
@@ -1581,7 +1581,7 @@ async fn grid_concat_fixed_sidebar_column() {
     // A rigid 150px sidebar column beside flexible content columns; row
     // heights split 1:2.
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(900.0, 520.0)
         .configure_coord(|c| {

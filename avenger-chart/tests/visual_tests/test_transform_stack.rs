@@ -66,7 +66,7 @@ fn stacked_rect_mark(offset: StackOffset) -> Rect<Cartesian> {
 #[tokio::test]
 async fn stacked_bar_zero_offset_transform() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Stacked Sales")
         .data(stacked_sales_data(&ctx))
         .mark(stacked_rect_mark(StackOffset::Zero));
@@ -85,7 +85,7 @@ async fn stacked_bar_zero_offset_transform() {
 #[tokio::test]
 async fn stacked_bar_normalized_transform() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Normalized Stacked Sales")
         .data(stacked_sales_data(&ctx))
         .mark(stacked_rect_mark(StackOffset::Normalize));
@@ -107,7 +107,7 @@ async fn stacked_bar_normalized_transform() {
 #[tokio::test]
 async fn stacked_bar_center_offset_transform() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Centered Stacked Sales")
         .data(stacked_sales_data(&ctx))
         .mark(stacked_rect_mark(StackOffset::Center));

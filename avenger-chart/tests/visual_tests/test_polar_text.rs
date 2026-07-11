@@ -123,8 +123,8 @@ fn categorical_theta_without_axis(c: PolarPositionConfig) -> PolarPositionConfig
         .axis(|a| a.visible(false))
 }
 
-fn reference_plot() -> Plot<Polar> {
-    Plot::<Polar>::new()
+fn reference_plot() -> Chart<Polar> {
+    Chart::<Polar>::new()
         .plot_size(260.0, 260.0)
         .mark(
             Line::<Polar>::new()
@@ -337,7 +337,7 @@ async fn keep_upright_adjustment_tangential() {
 #[tokio::test]
 async fn leader_text_coordinate_angle() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(260.0, 260.0)
         .title("Coordinate Text With Leaders")
         .mark(
@@ -392,7 +392,7 @@ async fn leader_text_coordinate_angle() {
 #[tokio::test]
 async fn categorical_theta_coordinate_angles() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(260.0, 260.0)
         .data(categorical_label_data())
         .title("Categorical Coordinate Text")
@@ -442,7 +442,7 @@ async fn categorical_theta_coordinate_angles() {
 async fn scaled_theta_coordinate_angles() {
     let ctx = SessionContext::new();
     let df = label_data(74.0, &["0", "25", "50", "75"], &[0.0, 25.0, 50.0, 75.0]);
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(260.0, 260.0)
         .title("Scaled Theta Coordinate Text")
         .mark(

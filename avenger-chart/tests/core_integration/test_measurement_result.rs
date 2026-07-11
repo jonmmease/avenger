@@ -20,7 +20,7 @@ async fn test_evaluate_still_works_after_refactor() {
         .expect("load iris dataset");
 
     // Create a simple scatter plot
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x(col("sepal_length"))
             .y(col("sepal_width"))

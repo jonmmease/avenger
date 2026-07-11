@@ -12,7 +12,7 @@ async fn facet_row_iris_hybrid_shared_x_free_y() {
         .expect("load iris dataset");
 
     // Shared X, free Y
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

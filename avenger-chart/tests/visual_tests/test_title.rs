@@ -53,13 +53,16 @@ fn make_df_numeric() -> DataFrame {
 async fn title_basic_symbol() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new().title("Basic Title").data(df).mark(
-        Symbol::new()
-            .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
-            .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
-            .size(100.0)
-            .fill_with("#2ca25f", |c| c.no_legend()),
-    );
+    let plot = Chart::<Cartesian>::new()
+        .title("Basic Title")
+        .data(df)
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
+                .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
+                .size(100.0)
+                .fill_with("#2ca25f", |c| c.no_legend()),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "layout", "title_basic_symbol").await;
@@ -69,7 +72,7 @@ async fn title_basic_symbol() {
 async fn title_with_symbol_legend() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Title With Legend")
         .data(df)
         .mark(
@@ -90,7 +93,7 @@ async fn title_with_symbol_legend() {
 async fn title_top_x_right_y() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Top X & Right Y")
         .data(df)
         .mark(
@@ -115,7 +118,7 @@ async fn title_top_x_right_y() {
 async fn title_with_colorbar_legend() {
     let ctx = SessionContext::new();
     let df = make_df_numeric();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Title With Colorbar")
         .data(df)
         .mark(
@@ -144,7 +147,7 @@ async fn title_with_colorbar_legend() {
 async fn subtitle_basic_symbol() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Main Title")
         .subtitle("This is a subtitle")
         .data(df)
@@ -164,7 +167,7 @@ async fn subtitle_basic_symbol() {
 async fn subtitle_with_legend() {
     let ctx = SessionContext::new();
     let df = make_df_numeric();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Main Title")
         .subtitle("This is a subtitle with a legend")
         .data(df)
@@ -190,7 +193,7 @@ async fn subtitle_with_legend() {
 async fn title_with_axes_positions() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Title With Different Axes Positions")
         .subtitle("Demonstrating layout")
         .data(df)
@@ -216,7 +219,7 @@ async fn title_with_axes_positions() {
 async fn subtitle_with_symbol_legend() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Main Title")
         .subtitle("Subtitle with legend")
         .data(df)
@@ -245,7 +248,7 @@ async fn subtitle_with_symbol_legend() {
 async fn subtitle_with_colorbar() {
     let ctx = SessionContext::new();
     let df = make_df_numeric();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Temperature Distribution")
         .subtitle("Measured across different locations")
         .data(df)
@@ -268,7 +271,7 @@ async fn subtitle_with_colorbar() {
 async fn subtitle_only() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .subtitle("Only a subtitle, no title")
         .data(df)
         .mark(
@@ -287,7 +290,7 @@ async fn subtitle_only() {
 async fn title_plot_area_only() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Plot Area Only Title", |t| t.span(TitleSpan::PlotArea))
         .configure_subtitle("Plot Area Only Subtitle", |s| s.span(TitleSpan::PlotArea))
         .data(df)
@@ -307,7 +310,7 @@ async fn title_plot_area_only() {
 async fn title_plot_area_only_with_legend() {
     let ctx = SessionContext::new();
     let df = make_df_categories();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Plot Area Title", |t| t.span(TitleSpan::PlotArea))
         .configure_subtitle("With Right Legend", |s| s.span(TitleSpan::PlotArea))
         .data(df)

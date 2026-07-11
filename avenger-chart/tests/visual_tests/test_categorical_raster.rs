@@ -76,7 +76,7 @@ async fn categorical_raster_overlay_two_categories() {
             (3.5, 2.5, "b", 4),
         ],
     );
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(260.0, 180.0)
         .data(df)
         .mark(
@@ -121,7 +121,7 @@ async fn categorical_raster_overlay_six_categories() {
         rows.push((3.5, 1.5, cat, 2));
     }
     let df = points_dataframe(&ctx, &rows);
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(280.0, 180.0)
         .data(df)
         .mark(
@@ -164,7 +164,7 @@ async fn categorical_raster_overlay_opacity_sqrt() {
         rows.push((step as f64 + 0.5, 1.5, "b", count));
     }
     let df = points_dataframe(&ctx, &rows);
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(280.0, 140.0)
         .data(df)
         .mark(
@@ -218,7 +218,7 @@ async fn categorical_raster_overlay_domain_stability() {
             (0.5, 1.5, "walk", 3),
         ],
     );
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
         .mark(
@@ -262,7 +262,7 @@ async fn categorical_raster_external_3d() {
     let ctx = SessionContext::new();
     let batch = external_3d_raster_batch();
     let df = ctx.read_batch(batch).expect("raster dataframe");
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
         .mark(

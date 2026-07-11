@@ -52,7 +52,7 @@ async fn test_symbol_automatic_shape_scale() {
     // Create plot using col("category") for automatic shape mapping
     // This demonstrates that an ordinal scale is automatically created
     // with shape strings as the range values
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("sales"), |c| c.axis(|a| a.title("Sales ($k)")))
             .y_with(col("profit"), |c| c.axis(|a| a.title("Profit ($k)")))
@@ -106,7 +106,7 @@ async fn test_symbol_custom_enumeration() {
         .expect("Failed to read batch into DataFrame");
 
     // Create plot demonstrating automatic ordinal scale for custom enumeration
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("task_id"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("Task ID"))

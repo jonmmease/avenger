@@ -33,7 +33,7 @@ async fn test_simple_line_chart() {
     let ctx = SessionContext::new();
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -54,17 +54,20 @@ async fn test_simple_line_chart_dark() {
     let ctx = SessionContext::new();
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(Theme::dark()).mark(
-        Line::new()
-            .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
-            })
-            .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
-            })
-            .stroke("#70E99D") // Mint green from dark theme
-            .stroke_width(2.5),
-    );
+    let plot = Chart::<Cartesian>::new()
+        .data(df)
+        .theme(Theme::dark())
+        .mark(
+            Line::new()
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
+                })
+                .stroke("#70E99D") // Mint green from dark theme
+                .stroke_width(2.5),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "line", "simple_line_chart_dark").await;
@@ -75,7 +78,7 @@ async fn test_line_with_dashed_stroke() {
     let ctx = SessionContext::new();
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -123,7 +126,7 @@ async fn test_line_with_gaps() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -176,7 +179,7 @@ async fn test_multiple_lines() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df.clone())
         .mark(
             Line::new()
@@ -227,7 +230,7 @@ async fn test_line_dash_patterns() {
     let ctx = SessionContext::new();
     let df = create_line_data();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df.clone())
         // Solid line
         .mark(
@@ -298,7 +301,7 @@ async fn test_line_vertical_padding_no_nice() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false))

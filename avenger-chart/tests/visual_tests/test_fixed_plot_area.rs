@@ -38,7 +38,7 @@ async fn test_fixed_plot_area_400x300_with_legend() {
 
     // Create a plot with fixed PLOT AREA of 400x300
     // The canvas will expand to fit this plus axes, legend, and margins
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(400.0, 300.0)
         .margins(
             Margins::uniform(0.0)
@@ -79,7 +79,7 @@ async fn test_fixed_plot_area_300x200_no_legend() {
     let df = create_test_data();
 
     // Create a plot with fixed plot area but no legend
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(300.0, 200.0)
         .margins(avenger_chart::layout::Margins::uniform(15.0))
         .data(df)
@@ -108,7 +108,7 @@ async fn test_comparison_canvas_vs_plot_area() {
     let df = create_test_data();
 
     // Traditional fixed canvas size
-    let plot_canvas = Plot::<Cartesian>::new()
+    let plot_canvas = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0) // Fixed canvas
         .data(df.clone())
         .mark(
@@ -120,7 +120,7 @@ async fn test_comparison_canvas_vs_plot_area() {
         );
 
     // Fixed plot area - canvas expands (build plot again)
-    let plot_area = Plot::<Cartesian>::new()
+    let plot_area = Chart::<Cartesian>::new()
         .plot_size(400.0, 300.0)
         .data(df.clone())
         .mark(
@@ -169,7 +169,7 @@ async fn test_plot_width_with_canvas_height() {
     // - Fixed plot area width of 350px
     // - Fixed canvas height of 400px
     // Plot area height and canvas width will be computed
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_constraint(PlotConstraint::width(350.0)) // Fixed plot area width
         .canvas_constraint(CanvasConstraint::height(400.0)) // Fixed canvas height
         .margins(Margins::uniform(20.0))
@@ -206,7 +206,7 @@ async fn test_fixed_plot_area_with_fixed_canvas() {
     // - Fixed plot area of 300x200
     // - Fixed canvas of 500x400
     // Margins will expand to center the plot
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(500.0, 400.0)
         .plot_size(300.0, 200.0)
         .margins(

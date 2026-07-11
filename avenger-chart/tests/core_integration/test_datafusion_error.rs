@@ -27,7 +27,7 @@ async fn test_datafusion_context_mismatch() {
         .expect("Failed to read batch into DataFrame");
 
     // Create a plot with the DataFrame
-    let plot = Plot::<Cartesian>::new().data(df.clone()).mark(
+    let plot = Chart::<Cartesian>::new().data(df.clone()).mark(
         Line::new()
             .x(col("x"))
             .y(col("y"))
@@ -39,7 +39,7 @@ async fn test_datafusion_context_mismatch() {
     let ctx2 = SessionContext::new();
 
     // Clone plot for first test
-    let plot_clone = Plot::<Cartesian>::new().data(df).mark(
+    let plot_clone = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x(col("x"))
             .y(col("y"))

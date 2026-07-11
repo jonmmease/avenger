@@ -58,7 +58,7 @@ async fn axis_y_currency_fixed() {
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
@@ -85,7 +85,7 @@ async fn axis_y_percent() {
     let ctx = SessionContext::new();
     let df = make_df_xy(&[1.0, 2.0, 3.0, 4.0, 5.0], &[0.1, 0.25, 0.5, 0.75, 0.95]);
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
@@ -108,7 +108,7 @@ async fn axis_y_si_prefix() {
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| {
@@ -131,8 +131,8 @@ async fn axis_y_numfmt_typst_math_ticks_and_title() {
         &[1.2e3, 2.4e4, 3.6e5, 7.2e5, 1.2e6],
     );
 
-    let plot = Plot::<Cartesian>::new()
-        .add_params([Param::new("peak_force", ScalarValue::Float64(Some(1.2e6)))])
+    let plot = Chart::<Cartesian>::new()
+        .params([Param::new("peak_force", ScalarValue::Float64(Some(1.2e6)))])
         .configure_title("Peak force #numfmt(peak_force, \".2e\") N", |t| t.typst())
         .data(df)
         .mark(
@@ -186,13 +186,13 @@ async fn axis_x_datefmt_ldml_ticks_and_title() {
         ..Default::default()
     };
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .formatting_context(
             FormattingContext::new()
                 .datetime_locale("visual-datetime")
                 .datetime_locale_spec("visual-datetime", datetime_locale_spec),
         )
-        .add_params([Param::new("report_date", ScalarValue::Date32(Some(19727)))])
+        .params([Param::new("report_date", ScalarValue::Date32(Some(19727)))])
         .configure_title("Report #datefmt(report_date, \"{date:long}\")", |t| {
             t.typst()
         })
@@ -244,7 +244,7 @@ async fn axis_x_datetime_format_ldml_ticks() {
         &[14.0, 18.0, 15.0, 21.0, 19.0],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.axis(|a| {
@@ -284,7 +284,7 @@ async fn colorbar_percent() {
         &[0.05, 0.12, 0.38, 0.67, 0.91],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
@@ -308,7 +308,7 @@ async fn colorbar_currency_fixed() {
         &[1200.0, 3400.0, 5600.0, 12345.0, 98765.0],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))
@@ -339,7 +339,7 @@ async fn colorbar_si_prefix() {
         &[1.2e3, 4.5e4, 7.8e5, 2.3e6, 9.9e7],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 12.0))))

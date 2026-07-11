@@ -39,7 +39,7 @@ fn monthly_event_data(ctx: &SessionContext) -> DataFrame {
 #[tokio::test]
 async fn monthly_rects() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("TimeUnit: monthly counts")
         .canvas_size(640.0, 380.0)
         .data(monthly_event_data(&ctx))

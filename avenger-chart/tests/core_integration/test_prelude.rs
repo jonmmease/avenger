@@ -31,7 +31,7 @@ fn test_prelude_imports() {
     );
 
     // Plot
-    let _plot = Plot::<Cartesian>::new();
+    let _plot = Chart::<Cartesian>::new();
     #[cfg(feature = "pdf")]
     let _pdf_renderer = PdfRenderer::new();
     #[cfg(feature = "svg")]

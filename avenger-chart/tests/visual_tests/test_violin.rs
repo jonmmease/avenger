@@ -140,7 +140,7 @@ fn nested_violin_mark() -> Violin {
 #[tokio::test]
 async fn violin_compound_vertical_grouped() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Violin compound mark")
         .subtitle("KDE density is normalized by one max across groups")
         .canvas_size(720.0, 440.0)
@@ -161,7 +161,7 @@ async fn violin_compound_vertical_grouped() {
 #[tokio::test]
 async fn violin_compound_horizontal_grouped() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Horizontal violin compound mark")
         .canvas_size(720.0, 440.0)
         .data(grouped_violin_data(&ctx))
@@ -202,7 +202,7 @@ async fn violin_compound_horizontal_grouped() {
 #[tokio::test]
 async fn violin_compound_nested_band_coarse_fill() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Nested violin compound mark")
         .subtitle("Fill is coarser than the detail fields that split each body")
         .canvas_size(800.0, 460.0)
@@ -251,7 +251,7 @@ async fn violin_compound_nested_faceted_shared_widths() {
                     .legend(|legend| legend.title("Division"))
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Faceted nested violin compound mark")
         .subtitle("KDE and max-density normalization run at shared facet scope")
         .canvas_size(920.0, 440.0)
@@ -275,7 +275,7 @@ async fn violin_compound_nested_faceted_shared_widths() {
 #[tokio::test]
 async fn violin_compound_per_violin_width_normalization() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Per-violin width normalization")
         .subtitle("Each group reaches the configured maximum band width")
         .canvas_size(720.0, 440.0)
@@ -301,7 +301,7 @@ async fn violin_compound_per_violin_width_normalization() {
 #[tokio::test]
 async fn violin_compound_event_targets_resolve_body_part() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_violin_data(&ctx))
         .mark(vertical_grouped_violin().id("my_violin"))
         .event_binding(ChartEventBinding::on_between_end(
@@ -337,10 +337,10 @@ async fn violin_compound_event_targets_resolve_body_part() {
 #[tokio::test]
 async fn violin_compound_scene_query_targets_resolve_body_part() {
     let ctx = SessionContext::new();
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(grouped_violin_data(&ctx))
         .mark(vertical_grouped_violin().id("my_violin"))
-        .add_selection(Selection::new("picked"))
+        .selection(Selection::new("picked"))
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click).set_selection(
                 "picked",

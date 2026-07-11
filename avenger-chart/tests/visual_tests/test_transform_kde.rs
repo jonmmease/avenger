@@ -133,7 +133,7 @@ fn nested_violin_data(ctx: &SessionContext) -> DataFrame {
 #[tokio::test]
 async fn kde_density_area() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("KDE density")
         .subtitle("Bimodal area density from an eager transform")
         .canvas_size(680.0, 420.0)
@@ -165,7 +165,7 @@ async fn kde_density_area() {
 #[tokio::test]
 async fn kde_grouped_density_lines() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Grouped KDE density")
         .subtitle("Shared sample grid with a categorical color legend")
         .canvas_size(720.0, 440.0)
@@ -203,7 +203,7 @@ async fn kde_grouped_density_lines() {
 #[tokio::test]
 async fn kde_low_level_grouped_violin_dynamic_band() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Low-level violin from KDE + area")
         .subtitle("Common max-density normalization drives row-wise band width")
         .canvas_size(720.0, 440.0)
@@ -269,7 +269,7 @@ async fn kde_low_level_grouped_violin_dynamic_band() {
 #[tokio::test]
 async fn kde_low_level_nested_violin_counts_shared_max() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Nested violin from KDE + area")
         .subtitle("Smoothed counts are normalized by one max across all nested groups")
         .canvas_size(800.0, 460.0)
@@ -414,7 +414,7 @@ async fn kde_low_level_nested_violin_facet_counts_shared_max() {
         ),
     );
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Faceted nested violin from KDE + area")
         .subtitle("KDE and max-density normalization run at shared facet scope")
         .canvas_size(920.0, 440.0)
@@ -438,7 +438,7 @@ async fn kde_low_level_nested_violin_facet_counts_shared_max() {
 #[tokio::test]
 async fn kde_low_level_nested_violin_details_partition_coarse_fill() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Nested violin detail partitioning")
         .subtitle("Fill is coarser than the detail fields that split each violin")
         .canvas_size(800.0, 460.0)

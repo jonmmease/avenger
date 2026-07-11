@@ -166,7 +166,7 @@ fn diagonal_mark() -> Line<Cartesian> {
 #[tokio::test]
 async fn cartesian_unit_aspect_diagonal_default_distorted() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(600.0, 300.0)
         .data(diagonal_data(&ctx))
         .mark(diagonal_mark());
@@ -185,7 +185,7 @@ async fn cartesian_unit_aspect_diagonal_default_distorted() {
 #[tokio::test]
 async fn cartesian_unit_aspect_diagonal_equal_units() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(600.0, 300.0)
         .data(diagonal_data(&ctx))
         .mark(diagonal_mark());
@@ -200,7 +200,7 @@ async fn cartesian_unit_aspect_diagonal_equal_units() {
 #[tokio::test]
 async fn cartesian_unit_aspect_circle_equal_units() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(600.0, 300.0)
         .data(circle_data(&ctx))
         .mark(
@@ -219,7 +219,7 @@ async fn cartesian_unit_aspect_circle_equal_units() {
 #[tokio::test]
 async fn cartesian_unit_aspect_guide_expanded_domain() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(600.0, 300.0)
         .data(guide_data(&ctx))
         .mark(
@@ -255,7 +255,7 @@ async fn cartesian_unit_aspect_guide_expanded_domain() {
 #[tokio::test]
 async fn cartesian_unit_aspect_canvas_refined_equal_units() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .canvas_size(620.0, 360.0)
         .data(circle_data(&ctx))
         .mark(
@@ -285,7 +285,7 @@ async fn cartesian_unit_aspect_canvas_refined_equal_units() {
 #[tokio::test]
 async fn cartesian_unit_aspect_box_zoom_viewport_drag() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .canvas_size(620.0, 360.0)
         .data(circle_data(&ctx))
         .tool(BoxZoom::cartesian().unit_aspect())
@@ -370,7 +370,7 @@ async fn cartesian_unit_aspect_facet_shared_equal_units() {
             .stroke("#7c3aed")
             .stroke_width(3.0),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(620.0, 240.0)
         .data(facet_circle_data(&ctx))
         .mark(Subplot::new(child).column(col("panel")));
@@ -399,7 +399,7 @@ async fn cartesian_unit_aspect_radius_aware_symbols_shared() {
             .stroke_width(1.5)
             .size(2500.0),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(620.0, 220.0)
         .data(radius_symbol_data(&ctx))
         .mark(Subplot::new(child).column(col("panel")));

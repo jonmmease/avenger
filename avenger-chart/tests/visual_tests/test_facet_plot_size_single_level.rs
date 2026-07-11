@@ -14,7 +14,7 @@ async fn facet_plot_size_row_iris_scatter() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -46,7 +46,7 @@ async fn facet_plot_size_col_iris_scatter() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -78,7 +78,7 @@ async fn facet_plot_size_row_shared_scales() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -114,7 +114,7 @@ async fn facet_plot_size_col_free_domains() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -150,7 +150,7 @@ async fn facet_plot_size_row_hybrid_shared_x_free_y() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -186,7 +186,7 @@ async fn facet_plot_size_col_with_title() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -218,7 +218,7 @@ async fn facet_plot_size_col_line_mark() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -250,7 +250,7 @@ async fn facet_plot_size_col_x_axis_top() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -282,7 +282,7 @@ async fn facet_plot_size_row_y_axis_right() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(
@@ -314,7 +314,7 @@ async fn facet_plot_size_row_polar() {
     let ctx = SessionContext::new();
     let df = load_iris(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .plot_size(140.0, 100.0)
         .mark(

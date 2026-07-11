@@ -127,10 +127,10 @@ async fn base_plot(
         highlight_mark.opacity_with(lit(1.0), |c| c.no_scale().no_legend())
     };
 
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .canvas_size(760.0, 460.0)
         .data(df)
-        .add_store(interval_store(28.0, 48.0))
+        .store(interval_store(28.0, 48.0))
         .mark(
             Symbol::new()
                 .x(col("x"))

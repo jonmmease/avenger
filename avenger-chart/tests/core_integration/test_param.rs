@@ -1,7 +1,7 @@
 //! Test parameter functionality
 
 use avenger_chart::param::Param;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
 
@@ -43,10 +43,10 @@ async fn test_plot_with_params() {
     let param2 = Param::new("offset", ScalarValue::Int32(Some(5)));
 
     // Create plot with parameters
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
-        .add_param(param1.clone())
-        .add_param(param2.clone())
+        .param(param1.clone())
+        .param(param2.clone())
         .mark(
             Rect::new()
                 .x(col("x"))
@@ -108,7 +108,7 @@ async fn test_add_params_multiple() {
         Param::new("p3", ScalarValue::Float32(Some(3.0))),
     ];
 
-    let plot = Plot::<Cartesian>::new().add_params(params);
+    let plot = Chart::<Cartesian>::new().params(params);
 
     let compiled = plot.compile(&ctx).await.unwrap();
 

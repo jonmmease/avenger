@@ -45,7 +45,7 @@ async fn faceted_chart(ctx: &SessionContext) -> CompiledPlot {
     let data = ctx.sql("SELECT * FROM events").await.expect("events query");
     let leaf =
         Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value")).size(48.0));
-    Plot::<FacetColumn>::new()
+    Chart::<FacetColumn>::new()
         .canvas_size(640.0, 240.0)
         .data(data)
         .mark(Subplot::new(leaf).column(col("region")))
@@ -131,7 +131,7 @@ async fn probe_c_insert_into_shifts_domain_in_session() {
     // Unfaceted: isolate the domain cache from the slot cache.
     let data = ctx.sql("SELECT * FROM events").await.expect("events query");
     let compiled = Arc::new(
-        Plot::<Cartesian>::new()
+        Chart::<Cartesian>::new()
             .data(data)
             .mark(Symbol::new().x(col("value")).y(col("value")).size(48.0))
             .compile(ctx.as_ref())

@@ -46,7 +46,7 @@ async fn test_nested_free_row_free_domains() {
 
     // Outer: FacetColumn by petal_width_bin (3 columns)
     // Inner: FacetRow by species (3 rows per column)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -93,7 +93,7 @@ async fn test_nested_free_row_with_line_mark() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -140,7 +140,7 @@ async fn test_nested_free_row_shared_both() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -187,7 +187,7 @@ async fn test_nested_free_row_shared_x() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -231,7 +231,7 @@ async fn test_nested_free_row_shared_y() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -294,7 +294,7 @@ async fn test_nested_free_row_basic() {
         )
         .unwrap();
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -334,7 +334,7 @@ async fn test_nested_free_row_with_titles() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -379,7 +379,7 @@ async fn test_nested_free_row_with_unified_titles() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -434,7 +434,7 @@ async fn test_nested_free_row_x_axis_top() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -477,7 +477,7 @@ async fn test_nested_free_row_y_axis_right() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -520,7 +520,7 @@ async fn test_nested_free_row_hybrid_sharing() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -585,27 +585,30 @@ async fn test_nested_free_row_shared_in_row_both() {
     // Outer: FacetRow by species (3 rows)
     // Inner: FacetColumn by petal_width_bin (3 columns per row)
     // Level(1): each row shares scales across columns
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("petal_width_bin")),
-            ),
-        )
-        .row(col("species")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("petal_width_bin")),
+                ),
+            )
+            .row(col("species")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -630,27 +633,30 @@ async fn test_nested_free_row_shared_in_row_x() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Free)
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("petal_width_bin")),
-            ),
-        )
-        .row(col("species")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("petal_width_bin")),
+                ),
+            )
+            .row(col("species")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -675,27 +681,30 @@ async fn test_nested_free_row_shared_in_row_y() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Free)
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("petal_width_bin")),
-            ),
-        )
-        .row(col("species")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Free)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("petal_width_bin")),
+                ),
+            )
+            .row(col("species")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -720,27 +729,30 @@ async fn test_nested_free_row_mixed_shared_and_shared_in_row() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Shared)
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("petal_width_bin")),
-            ),
-        )
-        .row(col("species")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("petal_width_bin")),
+                ),
+            )
+            .row(col("species")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -780,7 +792,7 @@ async fn test_nested_free_row_shared_in_column_both() {
     // Outer: FacetColumn by petal_width_bin (3 columns)
     // Inner: FacetRow by species (3 rows per column)
     // Level(1): each column shares scales across rows (same as SharedInColumn)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -827,7 +839,7 @@ async fn test_nested_free_row_shared_in_column_x() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -874,7 +886,7 @@ async fn test_nested_free_row_shared_in_column_y() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -924,7 +936,7 @@ async fn test_nested_free_row_mixed_shared_in_column_and_shared_in_row() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1006,7 +1018,7 @@ async fn test_nested_shared_row_basic() {
 
     // Outer: FacetColumn by length_bin (3 columns)
     // Inner: FacetRow by species with SHARED domain (grid-like)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1048,7 +1060,7 @@ async fn test_nested_shared_row_with_titles() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1093,7 +1105,7 @@ async fn test_nested_shared_row_shared_both() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1138,7 +1150,7 @@ async fn test_nested_shared_row_shared_both_empty_subplot() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1186,7 +1198,7 @@ async fn test_nested_shared_row_free_domains() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1231,7 +1243,7 @@ async fn test_nested_shared_row_shared_x() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1276,7 +1288,7 @@ async fn test_nested_shared_row_shared_y() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1321,7 +1333,7 @@ async fn test_nested_shared_row_with_unified_titles() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1372,7 +1384,7 @@ async fn test_nested_shared_row_x_axis_top() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1413,7 +1425,7 @@ async fn test_nested_shared_row_x_axis_top_empty_subplot() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1457,7 +1469,7 @@ async fn test_nested_shared_row_y_axis_right() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1498,7 +1510,7 @@ async fn test_nested_shared_row_y_axis_right_empty_subplot() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1542,7 +1554,7 @@ async fn test_nested_shared_row_with_line_mark() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1583,7 +1595,7 @@ async fn test_nested_shared_row_hybrid_sharing() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1628,7 +1640,7 @@ async fn test_nested_shared_row_hybrid_sharing_empty_subplot() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1693,28 +1705,31 @@ async fn test_nested_shared_col_shared_both() {
 
     // Outer: FacetRow by species (3 rows)
     // Inner: FacetColumn by petal_width_bin with SHARED domain (grid-like)
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Shared)
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Shared)
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                // KEY: share_slots() causes domain to be computed from full dataset
-                .col_with(col("petal_width_bin"), |c| c.share_slots()),
-            ),
-        )
-        .row(col("species")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Shared)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    // KEY: share_slots() causes domain to be computed from full dataset
+                    .col_with(col("petal_width_bin"), |c| c.share_slots()),
+                ),
+            )
+            .row(col("species")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -1736,30 +1751,33 @@ async fn test_nested_shared_col_shared_both_empty_subplot() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Shared)
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Shared)
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .col_with(col("petal_width_bin"), |c| {
-                    c.share_slots()
-                        .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
-                }),
-            ),
-        )
-        .row(col("species")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Shared)
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Shared)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .col_with(col("petal_width_bin"), |c| {
+                        c.share_slots()
+                            .empty_cell_policy(FacetEmptyCellPolicy::EmptySubplot)
+                    }),
+                ),
+            )
+            .row(col("species")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -1789,7 +1807,7 @@ async fn test_nested_level1_y_col_row() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1839,27 +1857,30 @@ async fn test_nested_level1_x_row_col() {
     let df = iris_with_binned_petal_width().await;
 
     // Note: FacetRow > FacetColumn layout (opposite of most other tests)
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Free)
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("species")),
-            ),
-        )
-        .row(col("petal_width_bin")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("species")),
+                ),
+            )
+            .row(col("petal_width_bin")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -1883,7 +1904,7 @@ async fn test_nested_level1_both_col_row() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1934,7 +1955,7 @@ async fn test_nested_level1_y_left_axis() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -1982,7 +2003,7 @@ async fn test_nested_level1_y_right_axis() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -2031,28 +2052,31 @@ async fn test_nested_level1_x_bottom_axis() {
     let df = iris_with_binned_petal_width().await;
 
     // Note: FacetRow > FacetColumn layout
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.axis(|a| a.position("bottom"))
-                                    .with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Free)
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("species")),
-            ),
-        )
-        .row(col("petal_width_bin")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.axis(|a| a.position("bottom"))
+                                        .with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("species")),
+                ),
+            )
+            .row(col("petal_width_bin")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -2077,28 +2101,31 @@ async fn test_nested_level1_x_top_axis() {
     let df = iris_with_binned_petal_width().await;
 
     // Note: FacetRow > FacetColumn layout
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-        Subplot::new(
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(
-                    Plot::<Cartesian>::new().mark(
-                        Symbol::new()
-                            .x_with(col("sepal_length"), |c| {
-                                c.axis(|a| a.position("top"))
-                                    .with_domain_scope(CoordinationScope::Level(1))
-                            })
-                            .y_with(col("sepal_width"), |c| {
-                                c.with_domain_scope(CoordinationScope::Free)
-                            })
-                            .size(25.0)
-                            .fill("#4682b4"),
-                    ),
-                )
-                .column(col("species")),
-            ),
-        )
-        .row(col("petal_width_bin")),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(600, 600)
+        .mark(
+            Subplot::new(
+                Plot::<FacetColumn>::new().mark(
+                    Subplot::new(
+                        Plot::<Cartesian>::new().mark(
+                            Symbol::new()
+                                .x_with(col("sepal_length"), |c| {
+                                    c.axis(|a| a.position("top"))
+                                        .with_domain_scope(CoordinationScope::Level(1))
+                                })
+                                .y_with(col("sepal_width"), |c| {
+                                    c.with_domain_scope(CoordinationScope::Free)
+                                })
+                                .size(25.0)
+                                .fill("#4682b4"),
+                        ),
+                    )
+                    .column(col("species")),
+                ),
+            )
+            .row(col("petal_width_bin")),
+        );
 
     let compiled = outer
         .compile(&ctx)
@@ -2122,7 +2149,7 @@ async fn test_nested_level1_mixed_x_free_y_level1() {
     let ctx = SessionContext::new();
     let df = iris_with_binned_petal_width().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -2176,7 +2203,7 @@ async fn test_three_level_level2_y_right_axis() {
 
     // 3-level nesting with Level(2) on Y, axis on RIGHT
     // Y axis should only appear on rightmost column (South)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2229,7 +2256,7 @@ async fn test_three_level_level2_x_top_axis() {
 
     // 3-level nesting with Level(2) on X, axis on TOP
     // X axis should only appear on top row (Canada, Brazil)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2290,7 +2317,7 @@ async fn test_three_level_nesting_level1_y() {
 
     // 3-level nesting: FacetColumn(outer) > FacetRow(middle) > Cartesian(inner)
     // Level(1) on Y should share domain within each FacetRow (middle level)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2341,7 +2368,7 @@ async fn test_three_level_nesting_shared_y() {
     let df = iris_with_binned_petal_width().await;
 
     // 3-level nesting with Shared (global) Y scale
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2465,7 +2492,7 @@ async fn test_three_level_level2_y() {
 
     // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
     // Level(2) on Y should share domain with grandparent (global across regions)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2510,7 +2537,7 @@ async fn test_three_level_level1_y() {
 
     // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
     // Level(1) on Y should share domain with parent (per-region sharing)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2558,7 +2585,7 @@ async fn test_three_level_level2_x() {
 
     // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
     // Level(2) on X should share domain with grandparent (global across regions)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2604,7 +2631,7 @@ async fn test_three_level_level1_x() {
 
     // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
     // Level(1) on X should share domain with parent (per-region sharing)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2650,7 +2677,7 @@ async fn test_three_level_mixed_x_shared_y_level2() {
 
     // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
     // X=Shared, Y=Level(2) - both should produce global domains
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2703,7 +2730,7 @@ async fn test_three_level_mixed_x_level2_y_shared() {
 
     // 3-level nesting: FacetColumn(region) > FacetRow(country) > Cartesian
     // X=Level(2), Y=Shared - both should produce global domains
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -2976,7 +3003,7 @@ async fn test_four_level_level2_y() {
     let df = hierarchical_4level_data().await;
 
     // 4-level nesting: Division > Department > Team > Cartesian
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1000, 800)
         .mark(
@@ -3024,7 +3051,7 @@ async fn test_four_level_level3_y() {
     let df = hierarchical_4level_data().await;
 
     // 4-level nesting with Level(3) - shares with great-grandparent (global)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1000, 800)
         .mark(
@@ -3131,7 +3158,7 @@ async fn test_level0_equivalent_to_free() {
     let df = iris_with_binned_petal_width().await;
 
     // Configuration 1: Level(0) on both channels
-    let level0_plot = Plot::<FacetColumn>::new()
+    let level0_plot = Chart::<FacetColumn>::new()
         .data(df.clone())
         .canvas_size(600, 600)
         .mark(
@@ -3157,7 +3184,7 @@ async fn test_level0_equivalent_to_free() {
         );
 
     // Configuration 2: Free on both channels (should be identical)
-    let free_plot = Plot::<FacetColumn>::new()
+    let free_plot = Chart::<FacetColumn>::new()
         .data(df.clone())
         .canvas_size(600, 600)
         .mark(
@@ -3217,7 +3244,7 @@ async fn test_explicit_domain_with_level1() {
 
     // FacetColumn > FacetRow with Level(1) on Y plus explicit domain
     // The explicit domain (1.5, 5.0) should be applied within each column
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -3270,7 +3297,7 @@ async fn test_explicit_domain_with_level2() {
     // 3-level nesting: FacetColumn > FacetRow > Cartesian
     // Level(2) on Y should share globally, but explicit domain (0.0, 100.0)
     // should override the computed domain (10-130)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(800, 600)
         .mark(
@@ -3321,7 +3348,7 @@ async fn test_level_exceeds_nesting_depth() {
 
     // 2-level nesting: FacetColumn > Cartesian (no FacetRow)
     // Level(3) on Y exceeds nesting depth, should clamp to global
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 400)
         .mark(
@@ -3382,7 +3409,7 @@ async fn test_level_non_nested_context() {
     let df = ctx.read_batch(batch).expect("create dataframe");
 
     // Non-faceted plot with Level(1) - should degrade to Free
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .canvas_size(400, 300)
         .mark(
@@ -3418,7 +3445,7 @@ async fn test_color_channel_with_level1() {
 
     // FacetColumn > FacetRow with Level(1) on fill color
     // The color scale domain should be shared within each column
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 600)
         .mark(
@@ -3468,7 +3495,7 @@ async fn test_level255_equivalent_to_shared() {
     let df = iris_with_binned_petal_width().await;
 
     // Configuration 1: Level(255) on both channels
-    let level255_plot = Plot::<FacetColumn>::new()
+    let level255_plot = Chart::<FacetColumn>::new()
         .data(df.clone())
         .canvas_size(600, 600)
         .mark(
@@ -3494,7 +3521,7 @@ async fn test_level255_equivalent_to_shared() {
         );
 
     // Configuration 2: Shared on both channels (should be identical)
-    let shared_plot = Plot::<FacetColumn>::new()
+    let shared_plot = Chart::<FacetColumn>::new()
         .data(df.clone())
         .canvas_size(600, 600)
         .mark(
@@ -3555,7 +3582,7 @@ async fn test_four_level_row_col_row_col() {
     let ctx = SessionContext::new();
     let df = hierarchical_4level_data().await;
 
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(1000, 800)
         .mark(
@@ -3608,7 +3635,7 @@ async fn test_four_level_col_col_row_row() {
     let ctx = SessionContext::new();
     let df = hierarchical_4level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1000, 800)
         .mark(
@@ -3661,7 +3688,7 @@ async fn test_four_level_row_row_col_col() {
     let ctx = SessionContext::new();
     let df = hierarchical_4level_data().await;
 
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(1000, 800)
         .mark(
@@ -3712,7 +3739,7 @@ async fn test_four_level_row_row_row_row() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(1000, 1400)
         .mark(
@@ -3768,7 +3795,7 @@ async fn test_four_level_col_col_col_col() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -3825,7 +3852,7 @@ async fn test_four_level_col_col_col_col_dept_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -3883,7 +3910,7 @@ async fn test_four_level_col_col_col_col_y_level2() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -3939,7 +3966,7 @@ async fn test_two_level_col_col() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -3975,7 +4002,7 @@ async fn test_four_level_col_col_col_col_y_level2_right() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4033,7 +4060,7 @@ async fn test_four_level_col_col_col_col_y_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4090,7 +4117,7 @@ async fn test_four_level_col_col_col_col_y_level1() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4147,7 +4174,7 @@ async fn test_four_level_col_col_col_col_y_level2_dept_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4206,7 +4233,7 @@ async fn test_four_level_col_col_col_col_y_level2_right_dept_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4267,7 +4294,7 @@ async fn test_four_level_col_col_col_col_y_free_dept_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4326,7 +4353,7 @@ async fn test_four_level_col_col_col_col_y_level1_dept_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4384,7 +4411,7 @@ async fn test_four_level_col_col_row_row_dept_free() {
     let ctx = SessionContext::new();
     let df = hierarchical_4level_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1000, 800)
         .mark(
@@ -4442,7 +4469,7 @@ async fn test_four_level_col_col_col_col_team_free_asymmetric() {
     let ctx = SessionContext::new();
     let df = hierarchical_5level_asymmetric_data().await;
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1800, 500)
         .mark(
@@ -4503,7 +4530,7 @@ async fn test_four_level_col_col_col_col_dept_free_team_level2() {
     let df = hierarchical_5level_asymmetric_data().await;
 
     // Level(2) on Team is global: all 8 teams shown in every dept
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(4000, 500)
         .mark(
@@ -4570,7 +4597,7 @@ async fn test_four_level_col_col_col_col_dept_free_team_level1() {
     let df = hierarchical_5level_asymmetric_data().await;
 
     // Level(1) on Team enumerates 4 teams per Division (Division-level sharing)
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(3600, 500)
         .mark(

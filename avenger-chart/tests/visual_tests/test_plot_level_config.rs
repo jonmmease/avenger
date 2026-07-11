@@ -26,7 +26,7 @@ async fn test_channel_level_scale_config() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Using channel-level scale configuration
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0))))
@@ -68,7 +68,7 @@ async fn test_channel_level_legend_config() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Using channel-level legend configuration
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c)
             .y_with(col("y"), |c| c)
@@ -119,7 +119,7 @@ async fn test_channel_level_mixed_config() {
     let df = ctx.read_batch(batch).unwrap();
 
     // All configuration is now at channel-level
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 7.0)))) // Channel-level
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 8.0)))) // Channel-level

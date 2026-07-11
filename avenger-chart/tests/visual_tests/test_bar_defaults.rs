@@ -10,7 +10,7 @@ async fn test_bar_chart_y_scale_auto_zero() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale(|s| s).axis(|a| a.title("Category").grid(false))
@@ -36,7 +36,7 @@ async fn test_bar_chart_y_scale_no_nice() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale(|s| s).axis(|a| a.title("Category").grid(false))

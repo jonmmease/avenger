@@ -61,7 +61,7 @@ async fn test_scatter_multiple_legends() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend
@@ -145,7 +145,7 @@ async fn test_mixed_legend_types() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("stroke", |legend| {
             legend
@@ -241,7 +241,7 @@ async fn test_legends_different_positions() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend.title("Category").position(LegendPosition::Right)
@@ -317,7 +317,7 @@ async fn test_colorbar_with_symbols() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend
@@ -389,7 +389,7 @@ async fn test_colorbar_with_symbols_bottom() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| {
             legend
@@ -474,7 +474,7 @@ async fn test_legend_ordering() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         // Test explicit ordering - should appear in order 3, 1, 2
         .legend("shape", |legend| {

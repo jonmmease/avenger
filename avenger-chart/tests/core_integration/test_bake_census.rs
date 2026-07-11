@@ -115,7 +115,7 @@ async fn census_unfaceted_param_filter() -> Result<(), Box<dyn std::error::Error
              FROM sales GROUP BY region) q WHERE total > $min ORDER BY region",
         )
         .await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(data)
         .mark(Symbol::new().x(col("total")).y(col("total")).size(64.0))
         .compile(&server_ctx)
@@ -159,7 +159,7 @@ async fn census_faceted_aggregate() -> Result<(), Box<dyn std::error::Error>> {
             )
         },
     ));
-    let compiled = Plot::<FacetColumn>::new()
+    let compiled = Chart::<FacetColumn>::new()
         .canvas_size(520.0, 260.0)
         .data(data)
         .mark(Subplot::new(leaf).column(col("region")))
@@ -218,7 +218,7 @@ async fn census_facet_wrap() -> Result<(), Box<dyn std::error::Error>> {
             )
         },
     ));
-    let compiled = Plot::<FacetWrap>::new()
+    let compiled = Chart::<FacetWrap>::new()
         .canvas_size(520.0, 260.0)
         .data(data)
         .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
@@ -280,9 +280,9 @@ async fn census_store_bearing() -> Result<(), Box<dyn std::error::Error>> {
              FROM sales GROUP BY region) q WHERE total > $min ORDER BY region",
         )
         .await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(data)
-        .add_store(
+        .store(
             Store::from_record_batch("threshold_band", threshold_store_batch())
                 .primary_key(["id"])
                 .sharing(CoordinationScope::Shared),
@@ -341,7 +341,7 @@ async fn census_fixed_params() -> Result<(), Box<dyn std::error::Error>> {
              WHERE total > $min AND total < $max ORDER BY region",
         )
         .await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(data)
         .mark(Symbol::new().x(col("total")).y(col("total")).size(64.0))
         .compile(&server_ctx)
@@ -387,7 +387,7 @@ async fn census_multi_mark_shared_chain() -> Result<(), Box<dyn std::error::Erro
                FROM sales GROUP BY region) q WHERE total > $min ORDER BY region";
     let left = server_ctx.sql(sql).await?;
     let right = server_ctx.sql(sql).await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .mark(
             MarkGroup::new()
                 .data(left)
@@ -436,7 +436,7 @@ async fn census_sql_authored() -> Result<(), Box<dyn std::error::Error>> {
     let server_ctx = SessionContext::new();
     server_ctx.register_batch("sales", sales_batch())?;
     let data = server_ctx.table("sales").await?;
-    let compiled = Plot::<Cartesian>::new()
+    let compiled = Chart::<Cartesian>::new()
         .data(data)
         .mark(MarkGroup::new().transform(
             Sql::new(

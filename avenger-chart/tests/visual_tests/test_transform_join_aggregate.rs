@@ -70,7 +70,7 @@ async fn percent_of_group_bar() {
             },
         ),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("JoinAggregate: percent of department")
         .canvas_size(760.0, 420.0)
         .data(revenue_mix_data(&ctx))

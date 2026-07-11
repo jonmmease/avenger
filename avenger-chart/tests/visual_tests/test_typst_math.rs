@@ -335,7 +335,7 @@ async fn param_driven_typst_markup() {
         vec![(0.15, 0.66, "Note #note_word: $#slope x + #intercept$")],
     );
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Param title #title_word: $R^2 = #r_sq$", |t| t.typst())
         .configure_subtitle(
             "Subtitle #underline(stroke: subtitle_color)[#subtitle_word]",
@@ -390,7 +390,7 @@ async fn mixed_text_math_font_weights() {
     let ctx = SessionContext::new();
     let df = math_font_weight_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Mixed Lato + Lete Sans Math weights")
         .subtitle("Math selects the nearest bundled Lete Sans Math face")
         .canvas_size(760.0, 300.0)
@@ -426,7 +426,7 @@ async fn static_text_markup_showcase() {
     let ctx = SessionContext::new();
     let df = static_text_markup_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Typst text #underline[markup]", |t| t.typst())
         .configure_subtitle(
             "Decorations: #strike[removed], #overline[mean], H#sub[2]O",
@@ -476,7 +476,7 @@ async fn emoji_text_showcase() {
     let ctx = SessionContext::new();
     let df = emoji_text_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Emoji text #emoji.face + literal 🚀", |t| t.typst())
         .configure_subtitle("Aliases and system color emoji #emoji.chart.up", |s| {
             s.typst()
@@ -522,7 +522,7 @@ async fn bessel_family_legend() {
     let ctx = SessionContext::new();
     let df = bessel_family_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Bessel functions $J_n(x)$", |t| t.typst())
         .data(df)
         .mark(
@@ -552,7 +552,7 @@ async fn damped_oscillator_labels() {
     let ctx = SessionContext::new();
     let df = damped_oscillator_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Damped oscillator $x(t) = A r^t$", |t| t.typst())
         .data(df)
         .mark(
@@ -582,7 +582,7 @@ async fn root_fraction_title() {
     let ctx = SessionContext::new();
     let df = root_fraction_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Root fraction $y = sqrt(x) / (1 + x^2)$", |t| t.typst())
         .data(df)
         .mark(
@@ -620,7 +620,7 @@ async fn bessel_equation_annotation() {
         )],
     );
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Annotated Bessel-like curve $J_n(x)$", |t| t.typst())
         .data(line_df)
         .mark(
@@ -662,7 +662,7 @@ async fn escaped_dollar_plain_text() {
     let ctx = SessionContext::new();
     let df = label_dataframe(&ctx, vec![(0.52, 0.52, "Price \\$7, score $R^2 = 0.94$")]);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Cost is \\$5, score is $R^2$", |t| t.typst())
         .mark(
             Text::new()
@@ -696,7 +696,7 @@ async fn mark_occlusion_math_label() {
     let label_df = label_dataframe(&ctx, vec![(0.50, 0.52, "peak $x_i^2$")]);
     let rect_df = occlusion_rect_dataframe(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .configure_title("Math z-order $x_i^2$", |t| t.typst())
         .mark(
             Text::new()

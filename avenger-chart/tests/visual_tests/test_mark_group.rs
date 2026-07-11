@@ -504,7 +504,7 @@ fn grouped_box_plot_group() -> MarkGroup<Cartesian> {
 #[tokio::test]
 async fn box_plot_from_mark_group_branches() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Box plot from MarkGroup branches")
         .canvas_size(720.0, 420.0)
         .data(box_plot_data(&ctx))
@@ -534,7 +534,7 @@ async fn box_plot_from_mark_group_branches() {
 #[tokio::test]
 async fn box_plot_from_mark_group_nested_band() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Grouped box plot from MarkGroup branches")
         .canvas_size(780.0, 460.0)
         .data(grouped_box_plot_data(&ctx))
@@ -569,7 +569,7 @@ async fn box_plot_from_mark_group_nested_band() {
 async fn box_plot_from_mark_group_faceted() {
     let ctx = SessionContext::new();
     let cell = Plot::<Cartesian>::new().mark(grouped_box_plot_group());
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Faceted box plot from MarkGroup branches")
         .canvas_size(980.0, 500.0)
         .data(faceted_grouped_box_plot_data(&ctx))

@@ -194,13 +194,13 @@ fn render_evaluated_plot_errors_when_resource_loading_times_out() {
     );
 }
 
-async fn rect_plot(ctx: &SessionContext) -> Plot<Cartesian> {
+async fn rect_plot(ctx: &SessionContext) -> Chart<Cartesian> {
     let df = ctx
         .sql("SELECT 10.0 AS x, 90.0 AS x2, 12.0 AS y, 52.0 AS y2")
         .await
         .unwrap();
 
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .canvas_size(120.0, 80.0)
         .data(df)
         .mark(
@@ -213,13 +213,13 @@ async fn rect_plot(ctx: &SessionContext) -> Plot<Cartesian> {
         )
 }
 
-async fn text_plot(ctx: &SessionContext, font: &str) -> Plot<Cartesian> {
+async fn text_plot(ctx: &SessionContext, font: &str) -> Chart<Cartesian> {
     let df = ctx
         .sql("SELECT 18.0 AS x, 36.0 AS y, 'SVG text' AS label")
         .await
         .unwrap();
 
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .canvas_size(140.0, 80.0)
         .data(df)
         .mark(
@@ -232,13 +232,13 @@ async fn text_plot(ctx: &SessionContext, font: &str) -> Plot<Cartesian> {
         )
 }
 
-async fn limited_text_plot(ctx: &SessionContext) -> Plot<Cartesian> {
+async fn limited_text_plot(ctx: &SessionContext) -> Chart<Cartesian> {
     let df = ctx
         .sql("SELECT 18.0 AS x, 36.0 AS y, 'Long label text' AS label")
         .await
         .unwrap();
 
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .canvas_size(140.0, 80.0)
         .data(df)
         .mark(

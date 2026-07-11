@@ -549,7 +549,7 @@ async fn uniform_raster_2d_scaled_inferred_domain() {
             (0..12).map(|value| Some(value as f64)).collect(),
         )]))
         .unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
         .mark(
@@ -586,7 +586,7 @@ async fn uniform_raster_2d_scaled_explicit_domain() {
             (0..12).map(|value| Some(value as f64)).collect(),
         )]))
         .unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
         .mark(
@@ -630,7 +630,7 @@ async fn uniform_raster_2d_axis_scale_fill_legend_config() {
             (0..12).map(|value| Some(value as f64)).collect(),
         )]))
         .unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(270.0, 190.0)
         .data(df)
         .mark(
@@ -674,7 +674,7 @@ async fn uniform_raster_2d_axis_scale_fill_legend_config() {
 async fn uniform_raster_2d_unscaled_direct_colors() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(direct_color_batch()).unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(220.0, 150.0)
         .data(df)
         .mark(UniformRaster2D::new().raster_with(col("raster"), |r| {
@@ -697,7 +697,7 @@ async fn uniform_raster_2d_unscaled_direct_colors() {
 async fn uniform_raster_2d_multiple_rows_single_plot() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(multiple_rows_batch()).unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 180.0)
         .data(df)
         .mark(
@@ -738,7 +738,7 @@ async fn uniform_raster_2d_values_dims_storage_order() {
         ],
     }];
     let df = ctx.read_batch(raster_batch(rows)).unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 160.0)
         .data(df)
         .mark(
@@ -767,7 +767,7 @@ async fn uniform_raster_2d_values_dims_storage_order() {
 async fn uniform_raster_2d_categorical_dimension() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(categorical_dimension_batch()).unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(250.0, 170.0)
         .data(df)
         .mark(
@@ -799,7 +799,7 @@ async fn uniform_raster_2d_categorical_dimension() {
 async fn uniform_raster_2d_discrete_fill_rect_legend_config() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(discrete_fill_batch()).unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(260.0, 180.0)
         .data(df)
         .mark(
@@ -852,7 +852,7 @@ async fn uniform_raster_2d_dataset_cars_density_by_origin() {
             })
             .smooth(false),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(180.0, 140.0)
         .mark(Subplot::new(leaf).column(col("origin")));
@@ -877,7 +877,7 @@ async fn uniform_raster_2d_rasterize_taxi_dropoff_count_inferred_extent() {
         .x(|x| x.bins(96))
         .y(|y| y.bins(96))
         .agg("count");
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(320.0, 250.0)
         .data(df)
         .mark(
@@ -921,7 +921,7 @@ async fn uniform_raster_2d_rasterize_taxi_pickup_count_explicit_domain() {
         .x(|x| x.extent(TAXI_X_MIN, TAXI_X_MAX).bins(96))
         .y(|y| y.extent(TAXI_Y_MIN, TAXI_Y_MAX).bins(96))
         .agg("count");
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .plot_size(320.0, 250.0)
         .data(df)
         .mark(
@@ -990,7 +990,7 @@ async fn uniform_raster_2d_rasterize_taxi_pickup_count_facet_payment_type() {
             })
             .smooth(false),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(175.0, 145.0)
         .data(df)
         .mark(Subplot::new(leaf).column(col("payment_type")));
@@ -1037,7 +1037,7 @@ async fn uniform_raster_2d_rasterize_taxi_pickup_count_facet_payment_type_free_f
             })
             .smooth(false),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(175.0, 145.0)
         .data(df)
         .mark(Subplot::new(leaf).column(col("payment_type")));

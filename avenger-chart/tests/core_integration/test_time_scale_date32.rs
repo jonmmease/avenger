@@ -37,7 +37,7 @@ async fn test_time_scale_with_date32_simple() -> Result<(), Box<dyn std::error::
     let df = ctx.read_batch(batch)?;
 
     // Try to create a plot with Time scale
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("date"), |c| {
                 c.scale_with::<Time>(|s| s).axis(|axis| axis.title("Date"))
@@ -71,7 +71,7 @@ async fn test_time_scale_with_date32_datetime_format() -> Result<(), Box<dyn std
     ])?;
 
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("date"), |c| {
                 c.scale_with::<Time>(|s| s)
@@ -115,9 +115,9 @@ async fn test_time_scale_with_date32_and_expression() -> Result<(), Box<dyn std:
     let status = when(col("price").gt(threshold.expr()), lit("above")).otherwise(lit("within"))?;
 
     // Try to create a plot with Time scale and expression encoding
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
-        .add_param(threshold.clone())
+        .param(threshold.clone())
         .mark(
             Symbol::new()
                 .x_with(col("date"), |c| {
@@ -157,9 +157,9 @@ async fn test_time_scale_with_stocks_parquet() -> Result<(), Box<dyn std::error:
     let status = when(col("price").gt(threshold.expr()), lit("above")).otherwise(lit("within"))?;
 
     // Create plot with Time scale
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(aapl.clone())
-        .add_param(threshold.clone())
+        .param(threshold.clone())
         .mark(
             Symbol::new()
                 .x_with(col("date"), |c| {

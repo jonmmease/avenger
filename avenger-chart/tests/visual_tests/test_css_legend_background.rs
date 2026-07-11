@@ -26,7 +26,7 @@ async fn test_line_legend_background_from_css() {
 
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
-    let plot = Plot::<Cartesian>::new().theme(theme).data(df).mark(
+    let plot = Chart::<Cartesian>::new().theme(theme).data(df).mark(
         Line::new()
             .x(col("x"))
             .y(col("y"))
@@ -63,7 +63,7 @@ async fn test_symbol_legend_background_from_css() {
 
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
-    let plot = Plot::<Cartesian>::new().theme(theme).data(df).mark(
+    let plot = Chart::<Cartesian>::new().theme(theme).data(df).mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -100,7 +100,7 @@ async fn test_rect_legend_background_from_css() {
 
     let theme = Theme::from_css(css).expect("Failed to parse CSS");
 
-    let plot = Plot::<Cartesian>::new().theme(theme).data(df).mark(
+    let plot = Chart::<Cartesian>::new().theme(theme).data(df).mark(
         Rect::new()
             .x(col("category"))
             .x2_with(col(":x"), |c| c.band(1.0))

@@ -97,7 +97,7 @@ async fn scalar_gate_filters_downstream_rows() {
     for (threshold, expected) in [(10_i64, 5_usize), (3_i64, 0_usize)] {
         let ctx = SessionContext::new();
         let df = xy_dataframe(&ctx, 5).await;
-        let plot = Plot::<Cartesian>::new().data(df).mark(
+        let plot = Chart::<Cartesian>::new().data(df).mark(
             Symbol::new()
                 .transform(ScalarAggregate::new().count("n"), |mark, stats| {
                     mark.transform(
@@ -130,7 +130,7 @@ async fn lazy_scalar_stage_reference_resolves_inline() {
     for (threshold, expected) in [(10_i64, 5_usize), (3_i64, 0_usize)] {
         let ctx = SessionContext::new();
         let df = xy_dataframe(&ctx, 5).await;
-        let plot = Plot::<Cartesian>::new().data(df).mark(
+        let plot = Chart::<Cartesian>::new().data(df).mark(
             Symbol::new()
                 .transform(ScalarAggregate::new().count("n").lazy(), |mark, stats| {
                     mark.transform(
@@ -157,7 +157,7 @@ async fn lazy_scalar_stage_reference_resolves_inline() {
 async fn scalar_in_later_calculate_expression() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 4).await; // y in 2,4,6,8; max 8
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .transform(ScalarAggregate::new().max("hi", col("y")), |mark, stats| {
                 mark.transform(
@@ -182,7 +182,7 @@ async fn scalar_in_later_calculate_expression() {
 async fn scalar_reference_before_production_errors() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 3).await;
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             // References "n" before any stage produces it.
             .transform(
@@ -214,14 +214,15 @@ async fn mark_group_scalar_seeds_child_stage() {
     for (threshold, visible, hidden) in [(10_i64, 5_usize, 0_usize), (3_i64, 0_usize, 5_usize)] {
         let ctx = SessionContext::new();
         let df = xy_dataframe(&ctx, 5).await;
-        let plot = Plot::<Cartesian>::new().mark(MarkGroup::<Cartesian>::new().data(df).transform(
-            ScalarAggregate::new().count("n"),
-            |group, stats| {
-                group
-                    .mark(gated_symbol(stats.scalar("n").lt(lit(threshold))))
-                    .mark(gated_symbol(stats.scalar("n").gt_eq(lit(threshold))))
-            },
-        ));
+        let plot =
+            Chart::<Cartesian>::new().mark(MarkGroup::<Cartesian>::new().data(df).transform(
+                ScalarAggregate::new().count("n"),
+                |group, stats| {
+                    group
+                        .mark(gated_symbol(stats.scalar("n").lt(lit(threshold))))
+                        .mark(gated_symbol(stats.scalar("n").gt_eq(lit(threshold))))
+                },
+            ));
         let compiled = plot.compile(&ctx).await.unwrap();
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         assert_eq!(
@@ -238,7 +239,7 @@ async fn pre_view_scalar_seeds_view_local_stage() {
     for (threshold, expected) in [(10_i64, 5_usize), (3_i64, 0_usize)] {
         let ctx = SessionContext::new();
         let df = xy_dataframe(&ctx, 5).await;
-        let plot = Plot::<Cartesian>::new()
+        let plot = Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new().transform(ScalarAggregate::new().count("n"), |mark, stats| {
@@ -274,8 +275,8 @@ async fn param_change_updates_scalar_gate() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 5).await;
     let cutoff = Param::new("cutoff", ScalarValue::Float64(Some(5.0)));
-    let plot = Plot::<Cartesian>::new()
-        .add_param(cutoff.clone())
+    let plot = Chart::<Cartesian>::new()
+        .param(cutoff.clone())
         .data(df)
         .mark(
             Symbol::new()
@@ -306,8 +307,8 @@ async fn param_change_updates_scalar_gate() {
 fn scalar_sized_plot(
     df: datafusion::dataframe::DataFrame,
     stats: ScalarAggregate,
-) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().data(df).mark(
+) -> Chart<Cartesian> {
+    Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .transform(stats, |mark, stats| {
                 mark.size_with(col("y") / stats.scalar("hi") * lit(100.0), |c| c.no_scale())
@@ -356,7 +357,7 @@ async fn lazy_scalar_channel_reference_resolves_inline() {
 async fn scalar_positions_summary_rule() {
     let ctx = SessionContext::new();
     let scatter = |df| {
-        Plot::<Cartesian>::new().data(df).mark(
+        Chart::<Cartesian>::new().data(df).mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 10.0))))
                 .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 20.0))))
@@ -410,7 +411,7 @@ async fn facet_scalars_are_per_cell() {
         )
         .await
         .unwrap();
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .plot_constraint(PlotConstraint::height(120.0))
         .data(df)
         .mark(

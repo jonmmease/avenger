@@ -4,7 +4,7 @@ use crate::visual_tests::datasets::simple_categories;
 use crate::visual_tests::helpers::assert_visual_match_default;
 use avenger_chart::cartesian::CartesianSymbolPositionChannels;
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use datafusion::prelude::col;
 
 #[tokio::test]
@@ -14,7 +14,7 @@ async fn test_serialization_rendering_path() {
 
     // Create a function to build the plot so we can create it twice
     let build_plot = || {
-        Plot::new()
+        Chart::new()
             .canvas_size(400.0, 300.0)
             .data(simple_categories())
             .mark(Symbol::new().x(col("category")).y(col("value")))

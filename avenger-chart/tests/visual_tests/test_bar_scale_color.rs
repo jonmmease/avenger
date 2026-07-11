@@ -10,7 +10,7 @@ async fn test_bar_chart_linear_color_interpolation() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -66,7 +66,7 @@ async fn test_bar_chart_log_color_interpolation() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.axis(|a| a.title("Category").grid(false))
@@ -106,7 +106,7 @@ async fn test_bar_chart_pow_color_interpolation() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -162,7 +162,7 @@ async fn test_bar_chart_sqrt_color_interpolation() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -215,7 +215,7 @@ async fn test_bar_chart_threshold_scale_colors() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -272,7 +272,7 @@ async fn test_bar_chart_linear_color_default_colors() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.axis(|a| a.title("Category").grid(false))
@@ -301,7 +301,7 @@ async fn test_bar_chart_ordinal_scale_colors() {
     let ctx = SessionContext::new();
     let df = datasets::simple_categories();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| s)

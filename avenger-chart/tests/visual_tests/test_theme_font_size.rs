@@ -57,7 +57,7 @@ async fn test_large_base_font_size() {
     // The base font size is now immediately updated to 18px
 
     // Create plot with title, subtitle, axes, and legend
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Chart with 18px Base Font")
         .subtitle("All text sizes scale with rem units")
@@ -99,7 +99,7 @@ async fn test_default_base_font_size() {
     // Use default light theme (12px base)
     let theme = Theme::light();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Chart with 12px Base Font")
         .subtitle("Default base font size")
@@ -145,12 +145,12 @@ async fn test_base_font_size_with_param() {
     // NOTE: Must use string "14px" not float 14.0, so it gets parsed as Length
     let base_font_param = Param::new("--base-font-size", "14px");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Chart with 14px Base Font")
         .subtitle("Font size controlled via parameter")
         .theme(theme)
-        .add_param(base_font_param)
+        .param(base_font_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
@@ -203,12 +203,12 @@ async fn test_base_font_size_with_param() {
 
     let theme = Theme::light();
 
-    let plot_larger = Plot::<Cartesian>::new()
+    let plot_larger = Chart::<Cartesian>::new()
         .data(df)
         .title("Chart with 18px Base Font")
         .subtitle("Larger font size via parameter")
         .theme(theme)
-        .add_param(larger_font_param)
+        .param(larger_font_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {
@@ -279,12 +279,12 @@ async fn test_mark_default_with_param() {
     // Override the symbol fill color via parameter
     let fill_param = Param::new("--symbol-fill", "orange");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Mark Default Override via Param")
         .subtitle("Symbol fill controlled by --symbol-fill param")
         .theme(theme)
-        .add_param(fill_param)
+        .param(fill_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 4.0))))

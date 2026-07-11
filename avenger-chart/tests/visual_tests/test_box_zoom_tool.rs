@@ -25,7 +25,7 @@ fn scatter_data() -> DataFrame {
 #[tokio::test]
 async fn test_box_zoom_active_overlay() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(460.0, 340.0)
         .data(scatter_data())
         .tool(BoxZoom::cartesian())

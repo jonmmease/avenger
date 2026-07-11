@@ -35,7 +35,7 @@ async fn test_col_with_nested_row() {
     // Outer facet: Column by species (3 columns)
     // Inner facet: Row by petal_width_bin (variable rows per column)
     // Innermost: Scatter plot of sepal dimensions
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df.clone())
         .canvas_size(800, 600)
         .mark(

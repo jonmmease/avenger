@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use avenger_chart::prelude::Plot;
+use avenger_chart::prelude::Chart;
 use avenger_chart_core::{
     AvengerChartError, CompiledGuide, CompiledMarkCore, CoordMeasurement, CoordinateGuide,
     CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 #[tokio::test]
 async fn coordinate_guide_can_request_image_resources() {
     let ctx = SessionContext::new();
-    let compiled = Plot::with_coord(ResourceGuideCoord)
+    let compiled = Chart::with_coord(ResourceGuideCoord)
         .compile(&ctx)
         .await
         .expect("compile plot");

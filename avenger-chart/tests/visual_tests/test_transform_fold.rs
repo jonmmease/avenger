@@ -62,7 +62,7 @@ async fn medal_counts_faceted_bar() {
         ),
     );
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .title("Folded medal counts")
         .canvas_size(760.0, 380.0)
         .data(medal_counts_data(&ctx))

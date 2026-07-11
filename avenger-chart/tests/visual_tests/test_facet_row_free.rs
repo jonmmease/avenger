@@ -12,7 +12,7 @@ async fn facet_row_iris_free_scatter() {
         .expect("load iris dataset");
 
     // Outer facet row with free scales (per-channel)
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

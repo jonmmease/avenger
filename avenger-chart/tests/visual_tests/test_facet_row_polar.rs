@@ -12,7 +12,7 @@ async fn facet_row_iris_polar_scatter() {
         .expect("load iris dataset");
 
     // Outer facet row with shared scales to align polar axes across facets
-    let outer = Plot::<FacetRow>::new()
+    let outer = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

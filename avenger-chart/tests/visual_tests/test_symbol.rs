@@ -34,7 +34,7 @@ async fn test_simple_scatter_plot() {
     let ctx = SessionContext::new();
     let df = create_scatter_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -57,17 +57,20 @@ async fn test_simple_scatter_plot_dark() {
     let ctx = SessionContext::new();
     let df = create_scatter_data();
 
-    let plot = Plot::<Cartesian>::new().data(df).theme(Theme::dark()).mark(
-        Symbol::new()
-            .x_with(col("x"), |c| {
-                c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
-            })
-            .y_with(col("y"), |c| {
-                c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
-            })
-            .size(100.0)
-            .fill("#4C9ED9"), // Use a color from the dark theme palette
-    );
+    let plot = Chart::<Cartesian>::new()
+        .data(df)
+        .theme(Theme::dark())
+        .mark(
+            Symbol::new()
+                .x_with(col("x"), |c| {
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
+                })
+                .y_with(col("y"), |c| {
+                    c.scale_with::<Linear>(|s| s).axis(|a| a.title("Y Value"))
+                })
+                .size(100.0)
+                .fill("#4C9ED9"), // Use a color from the dark theme palette
+        );
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match_default(&compiled, &ctx, None, "symbol", "simple_scatter_plot_dark").await;
@@ -126,7 +129,7 @@ async fn test_scatter_with_shapes() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s).axis(|a| a.title("X Value"))
@@ -174,7 +177,7 @@ async fn test_scatter_with_size_encoding() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(600.0, 450.0)
         .data(df)
         .mark(
@@ -226,7 +229,7 @@ async fn test_scatter_with_size_encoding_legend() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(600.0, 450.0)
         .data(df)
         .legend("fill", |legend| legend)
@@ -280,7 +283,7 @@ async fn test_scatter_with_angle() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.axis(|a| a.title("X Position")))
             .y_with(col("y"), |c| c.axis(|a| a.title("Y Position")))
@@ -325,7 +328,7 @@ async fn test_scatter_with_angle_scale() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s))
             .y_with(col("y"), |c| c.scale(|s| s))
@@ -374,7 +377,7 @@ async fn test_scatter_with_default_shape_scale() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.axis(|a| a.title("X Value")))
             .y_with(col("y"), |c| c.axis(|a| a.title("Y Value")))
@@ -430,7 +433,7 @@ async fn test_scatter_with_threshold_shape() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("shape", |legend| legend.title("Magnitude"))
         .mark(

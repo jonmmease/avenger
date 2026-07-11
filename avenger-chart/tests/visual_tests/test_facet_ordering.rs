@@ -84,7 +84,7 @@ async fn facet_row_order_by_max_desc() {
     let ctx = SessionContext::new();
     let df = single_facet_ordering_data(&ctx);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(520.0, 620.0)
         .mark(Subplot::new(leaf_plot()).row_with(col("category"), |c| {
@@ -109,7 +109,7 @@ async fn facet_col_order_by_max_asc() {
     let ctx = SessionContext::new();
     let df = single_facet_ordering_data(&ctx);
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(760.0, 300.0)
         .mark(Subplot::new(leaf_plot()).col_with(col("category"), |c| {
@@ -133,7 +133,7 @@ async fn run_nested_ordering_baseline(name: &str, sharing: Option<CoordinationSc
     let ctx = SessionContext::new();
     let df = nested_facet_ordering_data(&ctx);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(920.0, 500.0)
         .mark(

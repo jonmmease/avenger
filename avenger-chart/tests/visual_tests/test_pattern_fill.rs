@@ -1,7 +1,7 @@
 use super::helpers::assert_scene_graph_visual_match_default;
 use super::helpers::assert_visual_match_default;
 use avenger_chart::prelude::{
-    Band, BandScaleExt, Cartesian, CartesianRectPositionChannels, LegendPosition, Plot, Rect,
+    Band, BandScaleExt, Cartesian, CartesianRectPositionChannels, Chart, LegendPosition, Rect,
     ScaleChannelConfig, Theme, col, lit,
 };
 use avenger_color::ColorOrGradient;
@@ -809,7 +809,7 @@ async fn pattern_theme_scale_legend() {
     )
     .expect("pattern theme CSS");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .canvas_size(500.0, 280.0)
         .theme(theme)

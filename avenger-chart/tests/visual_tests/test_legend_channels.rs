@@ -31,7 +31,7 @@ async fn test_symbol_legend_with_scalar_expressions() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create plot with scalar expressions for various channels
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("shape", |legend| legend.title("Category"))
         .mark(
@@ -80,7 +80,7 @@ async fn test_symbol_legend_with_column_dependencies() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create plot where size depends on a column (not the legend channel)
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| legend.title("Category"))
         .mark(
@@ -126,7 +126,7 @@ async fn test_ordinal_size_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create plot with ordinal size scale
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("size", |legend| legend.title("Size Category"))
         .mark(
@@ -178,7 +178,7 @@ async fn test_combined_size_color_shape_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| legend.title("Type"))
         .mark(
@@ -246,7 +246,7 @@ async fn test_combined_size_color_shape_legend_dark() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create plot without custom colors - let the dark theme provide them
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .theme(Theme::dark())
         .legend("fill", |legend| legend.title("Type"))

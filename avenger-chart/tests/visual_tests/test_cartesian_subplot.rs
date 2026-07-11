@@ -216,7 +216,7 @@ async fn polar_child(ctx: &SessionContext) -> Plot<Polar> {
 #[tokio::test]
 async fn cartesian_partitioned_subplot_scatter() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(620.0, 400.0)
         .data(partitioned_subplot_data(&ctx).await)
         .title("Cartesian partitioned subplots")
@@ -253,7 +253,7 @@ async fn cartesian_partitioned_subplot_scatter() {
 #[tokio::test]
 async fn cartesian_partitioned_subplot_polar_children() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(620.0, 400.0)
         .data(partitioned_subplot_data(&ctx).await)
         .title("Cartesian partitioned polar children")
@@ -290,7 +290,7 @@ async fn cartesian_partitioned_subplot_polar_children() {
 #[tokio::test]
 async fn polar_partitioned_subplot_cartesian_children() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(520.0, 440.0)
         .data(partitioned_subplot_data(&ctx).await)
         .title("Polar partitioned Cartesian children")
@@ -331,7 +331,7 @@ async fn polar_partitioned_subplot_cartesian_children() {
 #[tokio::test]
 async fn polar_partitioned_subplot_polar_children() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(520.0, 440.0)
         .data(partitioned_subplot_data(&ctx).await)
         .title("Polar partitioned polar children")
@@ -372,7 +372,7 @@ async fn polar_partitioned_subplot_polar_children() {
 #[tokio::test]
 async fn cartesian_positioned_cartesian_subplots() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(430.0, 300.0)
         .data(positioned_data(&ctx).await)
         .title("Cartesian-positioned subplots")
@@ -404,7 +404,7 @@ async fn cartesian_positioned_cartesian_subplots() {
 #[tokio::test]
 async fn cartesian_positioned_mixed_subplots() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(430.0, 300.0)
         .data(positioned_data(&ctx).await)
         .title("Mixed positioned subplots")
@@ -442,7 +442,7 @@ async fn cartesian_positioned_mixed_subplots() {
 #[tokio::test]
 async fn cartesian_positioned_components_debug() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(430.0, 300.0)
         .data(positioned_data(&ctx).await)
         .title("Positioned subplot debug")

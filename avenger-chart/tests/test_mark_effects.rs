@@ -631,7 +631,7 @@ fn assert_color_close(actual: &ColorOrGradient, expected: [f32; 4]) {
 }
 
 async fn symbol_xy_values(
-    plot: Plot<Cartesian>,
+    plot: Chart<Cartesian>,
     ctx: &SessionContext,
 ) -> Result<(Vec<f32>, Vec<f32>), AvengerChartError> {
     let evaluated = plot.compile(ctx).await?.evaluate(ctx, None).await?;
@@ -651,7 +651,7 @@ async fn symbol_xy_values(
 #[tokio::test]
 async fn symbol_expression_adjustment_uses_post_scale_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new().unit_data().x(20.0).y(30.0).adjust(|point| {
             point
                 .x(point.channel("x") + lit(7.0))
@@ -681,7 +681,7 @@ async fn symbol_expression_adjustment_uses_post_scale_channels() -> Result<(), A
 #[tokio::test]
 async fn symbol_expression_adjustment_can_read_size_channel() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(5.0)
@@ -711,7 +711,7 @@ async fn symbol_expression_adjustment_can_read_size_channel() -> Result<(), Aven
 #[tokio::test]
 async fn symbol_expression_adjustment_updates_style_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(5.0)
@@ -771,7 +771,7 @@ async fn symbol_expression_adjustment_rejects_varying_stroke_width() -> Result<(
             Arc::new(Float32Array::from(vec![1.0, 3.0])),
         ],
     )?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(ctx.read_batch(batch)?)
             .x(col("x"))
@@ -807,7 +807,7 @@ async fn symbol_expression_adjustment_can_read_source_data() -> Result<(), Aveng
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(
             Symbol::new()
@@ -854,7 +854,7 @@ async fn symbol_expression_adjustment_can_read_source_data() -> Result<(), Aveng
 #[tokio::test]
 async fn symbol_expression_adjustment_can_read_bbox_fields() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(10.0)
@@ -888,7 +888,7 @@ async fn symbol_expression_adjustment_can_read_bbox_fields() -> Result<(), Aveng
 #[tokio::test]
 async fn symbol_transform_nudge_uses_output_handles() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(20.0)
@@ -921,7 +921,7 @@ async fn symbol_transform_nudge_uses_output_handles() -> Result<(), AvengerChart
 async fn symbol_transform_accepts_custom_noop_with_default_requirements()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(20.0)
@@ -951,7 +951,7 @@ async fn symbol_transform_accepts_custom_noop_with_default_requirements()
 #[tokio::test]
 async fn symbol_transform_receives_plot_area_info() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(120.0, 90.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(120.0, 90.0).mark(
         Symbol::new()
             .x(20.0)
             .y(30.0)
@@ -984,7 +984,7 @@ async fn symbol_transform_receives_plot_area_info() -> Result<(), AvengerChartEr
 async fn base_symbol_transform_receives_no_source_or_services_by_default()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(120.0, 90.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(120.0, 90.0).mark(
         Symbol::new().x(20.0).y(30.0).adjust_transform(
             ContextAvailabilityProbe::new(
                 AdjustmentTransformRequirements::default(),
@@ -1016,7 +1016,7 @@ async fn symbol_transform_receives_facet_plot_area_info() -> Result<(), AvengerC
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -1074,7 +1074,7 @@ async fn facet_cells_export_plot_pattern_reference_frames() -> Result<(), Avenge
             .y2(col("value"))
             .fill_pattern(pattern),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(220.0, 140.0)
         .mark(Subplot::new(child).column(col("facet")));
@@ -1115,9 +1115,9 @@ async fn symbol_transform_jitter_is_seed_stable() -> Result<(), AvengerChartErro
         vec![Arc::new(Float32Array::from(vec![0.0, 1.0, 2.0, 3.0]))],
     )?;
 
-    let build_plot = |seed| -> Result<Plot<Cartesian>, AvengerChartError> {
+    let build_plot = |seed| -> Result<Chart<Cartesian>, AvengerChartError> {
         let df = ctx.read_batch(batch.clone())?;
-        Ok(Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+        Ok(Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
             Symbol::new()
                 .data(df)
                 .x_with(col("row"), |x| {
@@ -1129,7 +1129,7 @@ async fn symbol_transform_jitter_is_seed_stable() -> Result<(), AvengerChartErro
                 }),
         ))
     };
-    let base = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let base = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(ctx.read_batch(batch.clone())?)
             .x_with(col("row"), |x| {
@@ -1167,7 +1167,7 @@ async fn symbol_transform_dodge_groups_by_anchor() -> Result<(), AvengerChartErr
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(df)
             .x(col("x"))
@@ -1199,7 +1199,7 @@ async fn symbol_adjustment_chaining_reads_current_frame() -> Result<(), AvengerC
         ],
     )?;
 
-    let dodge_only = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let dodge_only = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(ctx.read_batch(batch.clone())?)
             .x(col("x"))
@@ -1208,7 +1208,7 @@ async fn symbol_adjustment_chaining_reads_current_frame() -> Result<(), AvengerC
                 mark.x(dodge.x())
             }),
     );
-    let chained = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let chained = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(ctx.read_batch(batch)?)
             .x(col("x"))
@@ -1236,7 +1236,7 @@ async fn symbol_adjustment_chaining_reads_current_frame() -> Result<(), AvengerC
 #[tokio::test]
 async fn symbol_derive_symbol_uses_source_item_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(20.0)
@@ -1304,7 +1304,7 @@ async fn symbol_derive_symbol_inherits_source_data_and_event_datums()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(Symbol::new().data(df).x(col("x")).y(20.0).derive(|point| {
             Symbol::new()
@@ -1357,7 +1357,7 @@ async fn rule_expression_adjustment_uses_post_scale_endpoints_source_data_and_bb
         vec![Arc::new(Float32Array::from(vec![5.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rule::new()
             .data(df)
             .x(10.0)
@@ -1391,7 +1391,7 @@ async fn rule_expression_adjustment_uses_post_scale_endpoints_source_data_and_bb
 #[tokio::test]
 async fn rule_transform_adjustment_updates_endpoint_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rule::new()
             .unit_data()
             .x(10.0)
@@ -1429,7 +1429,7 @@ async fn rule_transform_adjustment_updates_endpoint_channels() -> Result<(), Ave
 #[tokio::test]
 async fn rule_expression_adjustment_updates_stroke_width() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rule::new()
             .unit_data()
             .x(10.0)
@@ -1457,7 +1457,7 @@ async fn rule_expression_adjustment_updates_stroke_width() -> Result<(), Avenger
 #[tokio::test]
 async fn rule_expression_adjustment_updates_style_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rule::new()
             .unit_data()
             .x(10.0)
@@ -1509,7 +1509,7 @@ async fn rule_expression_adjustment_updates_style_channels() -> Result<(), Aveng
 #[tokio::test]
 async fn symbol_derive_rule_consumes_adjusted_source_position() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(20.0)
@@ -1570,7 +1570,7 @@ async fn symbol_derive_text_uses_post_scale_channels_and_source_data()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(
             Symbol::new()
@@ -1653,7 +1653,7 @@ async fn symbol_derived_text_fixed_label_placement_hides_point_overlap()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 80.0)
         .mark(
             Symbol::new()
@@ -1734,7 +1734,7 @@ async fn fixed_label_placement_reuses_text_measurement_cache() -> Result<(), Ave
         vec![Arc::new(Float32Array::from(vec![20.0, 60.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 80.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 80.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -1772,7 +1772,7 @@ async fn fixed_label_placement_reuses_text_measurement_cache() -> Result<(), Ave
 #[tokio::test]
 async fn derived_text_transform_receives_only_requested_context() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 80.0)
         .mark(
             Symbol::new()
@@ -1822,7 +1822,7 @@ async fn derived_text_transform_receives_only_requested_context() -> Result<(), 
 #[tokio::test]
 async fn derived_text_transform_receives_requested_source_frame() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 80.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 80.0).mark(
         Symbol::new().unit_data().x(20.0).y(40.0).derive(|point| {
             Text::new()
                 .x(point.channel("x"))
@@ -1886,7 +1886,7 @@ async fn symbol_derived_text_fixed_label_placement_uses_facet_local_base_scene()
                     })
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(220.0, 150.0)
         .mark(Subplot::new(child).column(col("facet")));
@@ -1921,13 +1921,13 @@ async fn derived_marks_do_not_affect_source_scale_domain() -> Result<(), Avenger
         ],
     )?;
 
-    let base_plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let base_plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(ctx.read_batch(batch.clone())?)
             .x(col("x"))
             .y(col("y")),
     );
-    let derived_plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let derived_plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .data(ctx.read_batch(batch)?)
             .x(col("x"))
@@ -1969,13 +1969,13 @@ async fn compound_box_plot_outlier_halo_inherits_identity_and_excludes_scale_dom
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
     let batch = compound_box_plot_outlier_batch();
-    let base_plot = Plot::<Cartesian>::new().plot_size(240.0, 160.0).mark(
+    let base_plot = Chart::<Cartesian>::new().plot_size(240.0, 160.0).mark(
         BoxPlot::new()
             .data(ctx.read_batch(batch.clone())?)
             .x(col("value"))
             .y(col("group")),
     );
-    let halo_plot = Plot::<Cartesian>::new()
+    let halo_plot = Chart::<Cartesian>::new()
         .plot_size(240.0, 160.0)
         .mark(
             BoxPlot::new()
@@ -2065,7 +2065,7 @@ async fn compound_box_plot_generated_children_keep_public_target_paths()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
     let batch = compound_box_plot_outlier_batch();
-    let plot = Plot::<Cartesian>::new().plot_size(240.0, 160.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(240.0, 160.0).mark(
         BoxPlot::new()
             .id("box_plot")
             .data(ctx.read_batch(batch)?)
@@ -2135,7 +2135,7 @@ fn derived_mark_rejects_mark_local_data() {
 #[tokio::test]
 async fn adjustment_unknown_item_channel_errors_clearly() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(10.0)
@@ -2166,7 +2166,7 @@ async fn adjustment_unknown_item_channel_errors_clearly() -> Result<(), AvengerC
 #[tokio::test]
 async fn derived_unknown_item_channel_errors_clearly() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new().unit_data().x(10.0).y(20.0).derive(|point| {
             Symbol::new()
                 .x(point.channel("missing"))
@@ -2249,7 +2249,7 @@ async fn rect_expression_adjustment_uses_post_scale_corners_source_data_and_bbox
         vec![Arc::new(Float32Array::from(vec![5.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .data(df)
             .x(10.0)
@@ -2289,7 +2289,7 @@ async fn rect_expression_adjustment_uses_post_scale_corners_source_data_and_bbox
 #[tokio::test]
 async fn rect_transform_adjustment_updates_corner_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .unit_data()
             .x(10.0)
@@ -2330,7 +2330,7 @@ async fn rect_transform_adjustment_updates_corner_channels() -> Result<(), Aveng
 #[tokio::test]
 async fn rect_derive_consumes_adjusted_source_geometry() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .unit_data()
             .x(10.0)
@@ -2391,7 +2391,7 @@ async fn rect_derive_scaled_fill_pattern_passes_runtime_pattern_index()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .data(df)
             .x(col("x"))
@@ -2447,7 +2447,7 @@ async fn rect_scaled_fill_pattern_respects_custom_scale_name() -> Result<(), Ave
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .data(df)
             .x(col("x"))
@@ -2477,7 +2477,7 @@ async fn rect_scaled_fill_pattern_respects_custom_scale_name() -> Result<(), Ave
 async fn rect_expression_adjustment_rejects_fill_pattern_assignment()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .unit_data()
             .x(10.0)
@@ -2506,7 +2506,7 @@ async fn rect_expression_adjustment_rejects_fill_pattern_assignment()
 #[tokio::test]
 async fn rect_expression_adjustment_updates_corner_radius() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .unit_data()
             .x(10.0)
@@ -2537,7 +2537,7 @@ async fn rect_expression_adjustment_updates_corner_radius() -> Result<(), Avenge
 #[tokio::test]
 async fn rect_expression_adjustment_updates_style_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .unit_data()
             .x(10.0)
@@ -2577,7 +2577,7 @@ async fn rect_expression_adjustment_updates_style_channels() -> Result<(), Aveng
 #[tokio::test]
 async fn rect_derive_rect_outline_uses_bbox_fields() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Rect::new()
             .unit_data()
             .x(10.0)
@@ -2668,7 +2668,7 @@ async fn text_expression_adjustment_updates_position_defined_text_and_source_dat
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Text::new()
             .data(df)
             .x(10.0)
@@ -2759,7 +2759,7 @@ async fn text_expression_adjustment_updates_position_defined_text_and_source_dat
 #[tokio::test]
 async fn text_expression_adjustment_preserves_typst_syntax_mode() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Text::new()
             .unit_data()
             .x(10.0)
@@ -2785,7 +2785,7 @@ async fn text_expression_adjustment_preserves_typst_syntax_mode() -> Result<(), 
 async fn text_expression_adjustment_updates_color_opacity_leader_and_bbox_channels()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Text::new()
             .unit_data()
             .x(10.0)
@@ -2924,7 +2924,7 @@ async fn image_expression_adjustment_uses_post_scale_anchor_size_source_data_and
         vec![Arc::new(Float32Array::from(vec![3.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Image::new()
             .data(df)
             .x(20.0)
@@ -2963,7 +2963,7 @@ async fn image_expression_adjustment_uses_post_scale_anchor_size_source_data_and
 async fn image_transform_adjustment_updates_anchor_and_size_channels()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Image::new()
             .unit_data()
             .x(20.0)
@@ -2999,7 +2999,7 @@ async fn image_transform_adjustment_updates_anchor_and_size_channels()
 #[tokio::test]
 async fn image_expression_adjustment_updates_align_and_baseline() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Image::new()
             .unit_data()
             .x(20.0)
@@ -3050,7 +3050,7 @@ async fn image_expression_adjustment_updates_image_aspect_and_smooth_channels()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Image::new()
             .data(df)
             .x(20.0)
@@ -3107,7 +3107,7 @@ async fn path_expression_adjustment_uses_post_scale_anchor_source_data_and_bbox(
         vec![Arc::new(Float32Array::from(vec![3.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         PathMark::new().data(df).x(10.0).y(20.0).adjust(|path| {
             path.x(path.channel("x") + path.data("dx"))
                 .y(path.bbox().top() + lit(4.0))
@@ -3133,7 +3133,7 @@ async fn path_expression_adjustment_uses_post_scale_anchor_source_data_and_bbox(
 #[tokio::test]
 async fn path_transform_adjustment_updates_anchor_channels() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         PathMark::new()
             .unit_data()
             .x(10.0)
@@ -3162,7 +3162,7 @@ async fn path_transform_adjustment_updates_anchor_channels() -> Result<(), Aveng
 #[tokio::test]
 async fn path_expression_adjustment_updates_path_transform() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         PathMark::new()
             .unit_data()
             .x(10.0)
@@ -3207,7 +3207,7 @@ async fn path_expression_adjustment_updates_path_and_style_channels()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         PathMark::new()
             .data(df)
             .x(10.0)
@@ -3280,7 +3280,7 @@ async fn path_scaled_fill_pattern_preserves_indexed_pattern_values() -> Result<(
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         PathMark::new()
             .data(df)
             .x(col("x"))
@@ -3320,7 +3320,7 @@ async fn line_expression_adjustment_uses_post_scale_vertices_source_data_and_bbo
         vec![Arc::new(Float32Array::from(vec![1.0, 2.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Line::new().data(df).x(10.0).y(20.0).adjust(|line| {
             line.x(line.channel("x") + line.data("dx"))
                 .y(line.bbox().top() + lit(4.0))
@@ -3354,7 +3354,7 @@ async fn line_transform_adjustment_updates_vertex_channels() -> Result<(), Aveng
         vec![Arc::new(StringArray::from(vec!["a", "a"]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Line::new()
             .data(df)
             .x(10.0)
@@ -3391,7 +3391,7 @@ async fn line_transform_adjustment_updates_stroke_width() -> Result<(), AvengerC
         vec![Arc::new(StringArray::from(vec!["a", "a"]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Line::new()
             .data(df)
             .x(10.0)
@@ -3438,7 +3438,7 @@ async fn line_adjustment_preserves_partitioned_event_datum_lineage() -> Result<(
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(
             Line::new()
@@ -3495,7 +3495,7 @@ async fn line_expression_adjustment_updates_stroke_width() -> Result<(), Avenger
         vec![Arc::new(Float32Array::from(vec![1.0, 2.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Line::new()
             .data(df)
             .x(10.0)
@@ -3539,7 +3539,7 @@ async fn line_expression_adjustment_updates_style_and_defined_channels()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Line::new()
             .data(df)
             .x(10.0)
@@ -3602,7 +3602,7 @@ async fn trail_expression_adjustment_uses_post_scale_vertices_source_data_and_bb
         vec![Arc::new(Float32Array::from(vec![1.0, 2.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Trail::new().data(df).x(10.0).y(20.0).adjust(|trail| {
             trail
                 .x(trail.channel("x") + trail.data("dx"))
@@ -3637,7 +3637,7 @@ async fn trail_transform_adjustment_updates_vertex_channels() -> Result<(), Aven
         vec![Arc::new(StringArray::from(vec!["a", "a"]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Trail::new()
             .data(df)
             .x(10.0)
@@ -3685,7 +3685,7 @@ async fn trail_adjustment_preserves_partitioned_event_datum_lineage()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(
             Trail::new()
@@ -3743,7 +3743,7 @@ async fn trail_expression_adjustment_updates_size() -> Result<(), AvengerChartEr
         vec![Arc::new(Float32Array::from(vec![1.0, 2.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Trail::new()
             .data(df)
             .x(10.0)
@@ -3781,7 +3781,7 @@ async fn trail_expression_adjustment_updates_style_and_defined_channels()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Trail::new()
             .data(df)
             .x(10.0)
@@ -3832,7 +3832,7 @@ async fn area_expression_adjustment_uses_post_scale_vertices_source_data_and_bbo
         vec![Arc::new(Float32Array::from(vec![1.0, 2.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Area::new()
             .data(df)
             .x(10.0)
@@ -3876,7 +3876,7 @@ async fn area_transform_adjustment_updates_vertex_channels() -> Result<(), Aveng
         vec![Arc::new(StringArray::from(vec!["a", "a"]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Area::new()
             .data(df)
             .x(10.0)
@@ -3930,7 +3930,7 @@ async fn area_scaled_fill_pattern_partitions_geometry_by_pattern_index()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Area::new()
             .data(df)
             .x(col("x"))
@@ -3984,7 +3984,7 @@ async fn area_adjustment_preserves_partitioned_event_datum_lineage() -> Result<(
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(
             Area::new()
@@ -4046,7 +4046,7 @@ async fn area_expression_adjustment_updates_stroke_width() -> Result<(), Avenger
         vec![Arc::new(Float32Array::from(vec![1.0, 2.0]))],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Area::new()
             .data(df)
             .x(10.0)
@@ -4098,7 +4098,7 @@ async fn area_expression_adjustment_updates_style_and_defined_channels()
         ],
     )?;
     let df = ctx.read_batch(batch)?;
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Area::new()
             .data(df)
             .x(10.0)
@@ -4159,7 +4159,7 @@ async fn area_expression_adjustment_updates_style_and_defined_channels()
 #[tokio::test]
 async fn polar_symbol_adjustment_errors_until_supported() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new().mark(
+    let plot = Chart::<Polar>::new().mark(
         Symbol::<Polar>::new()
             .unit_data()
             .adjust(|point| point.x(point.channel("x") + lit(1.0))),
@@ -4178,7 +4178,7 @@ async fn polar_symbol_adjustment_errors_until_supported() {
 #[tokio::test]
 async fn polar_line_adjustment_errors_until_supported() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new().mark(
+    let plot = Chart::<Polar>::new().mark(
         Line::<Polar>::new()
             .unit_data()
             .adjust(|point| point.x(point.channel("x") + lit(1.0))),
@@ -4198,7 +4198,7 @@ async fn polar_line_adjustment_errors_until_supported() {
 async fn item_frame_expression_in_regular_channel_errors() {
     let ctx = SessionContext::new();
     let item = AdjustItem::<Symbol<Cartesian>, PointGeometryItem>::default();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(100.0, 100.0)
         .mark(Symbol::new().unit_data().x(item.channel("x")).y(10.0));
 
@@ -4219,7 +4219,7 @@ async fn item_frame_expression_in_scale_domain_config_errors() {
     let ctx = SessionContext::new();
     let item = AdjustItem::<Symbol<Cartesian>, PointGeometryItem>::default();
     let bad_item_x = item.channel("x");
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x_with(lit(5.0), |x| {
@@ -4246,7 +4246,7 @@ async fn item_frame_expression_in_axis_config_errors() {
     let ctx = SessionContext::new();
     let item = AdjustItem::<Symbol<Cartesian>, PointGeometryItem>::default();
     let bad_item_x = item.channel("x");
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x_with(lit(5.0), |x| x.axis(|axis| axis.title(bad_item_x.clone())))
@@ -4271,7 +4271,7 @@ async fn item_frame_expression_in_legend_config_errors() {
     let ctx = SessionContext::new();
     let item = AdjustItem::<Symbol<Cartesian>, PointGeometryItem>::default();
     let bad_item_x = item.channel("x");
-    let plot = Plot::<Cartesian>::new().plot_size(100.0, 100.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(100.0, 100.0).mark(
         Symbol::new()
             .unit_data()
             .x(lit(5.0))

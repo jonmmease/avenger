@@ -81,8 +81,8 @@ fn axis_policy_named_domain_cell_plot(
         )
 }
 
-fn facet_row_axis_policy_plot(df: DataFrame, policy: AxisGuideVisibilityPolicy) -> Plot<FacetRow> {
-    Plot::<FacetRow>::new().data(df).mark(
+fn facet_row_axis_policy_plot(df: DataFrame, policy: AxisGuideVisibilityPolicy) -> Chart<FacetRow> {
+    Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Symbol::new()
@@ -134,7 +134,7 @@ async fn facet_axis_visibility_outer_edges() {
 #[tokio::test]
 async fn grid_concat_axis_visibility_outer_edges() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .configure_coord(|c| {
             c.rows(2)
                 .columns(2)
@@ -158,7 +158,7 @@ async fn grid_concat_axis_visibility_outer_edges() {
 #[tokio::test]
 async fn grid_concat_axis_visibility_equivalent_domain_groups() {
     let ctx = SessionContext::new();
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .configure_coord(|c| {
             c.rows(2)
                 .columns(2)
@@ -205,7 +205,7 @@ async fn grid_concat_axis_visibility_equivalent_domain_groups() {
 #[tokio::test]
 async fn wrap_concat_axis_visibility_outer_edges() {
     let ctx = SessionContext::new();
-    let plot = Plot::<WrapConcat>::new()
+    let plot = Chart::<WrapConcat>::new()
         .configure_coord(|c| {
             c.columns(3.0)
                 .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)

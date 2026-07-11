@@ -34,7 +34,7 @@ async fn test_rect_discrete_fill_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with fill legend
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| legend.title("Category"))
         .mark(
@@ -82,7 +82,7 @@ async fn test_rect_continuous_fill_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with continuous color legend
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| legend.title("Temperature (°C)"))
         .mark(
@@ -139,7 +139,7 @@ async fn test_rect_stroke_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with stroke legend
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("stroke", |legend| legend.title("Quality Tier"))
         .mark(

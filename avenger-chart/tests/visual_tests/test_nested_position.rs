@@ -231,7 +231,7 @@ fn nested_heatmap_df(
 async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_bar_df(&ctx))
         .legend("fill", |legend| legend.title("Team"))
         .mark(
@@ -271,7 +271,7 @@ async fn test_nested_position_grouped_bar_shared_slots_hidden_leaf_axis() {
 async fn test_nested_position_grouped_bar_shared_slots() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_bar_df(&ctx))
         .legend("fill", |legend| legend.title("Team"))
         .mark(
@@ -307,7 +307,7 @@ async fn test_nested_position_grouped_bar_shared_slots() {
 async fn test_nested_position_grouped_stacked_bar() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_stacked_bar_df(&ctx))
         .legend("fill", |legend| legend.title("Segment"))
         .mark(
@@ -353,7 +353,7 @@ async fn test_nested_position_grouped_stacked_bar() {
 async fn test_nested_position_temporal_nested_manual_complete_month_spine() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(temporal_month_spine_df(&ctx))
         .mark(
             Rect::new()
@@ -405,7 +405,7 @@ async fn test_nested_position_temporal_nested_manual_complete_month_spine() {
 async fn test_nested_position_temporal_nested_manual_numeric_keys_display_labels() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(temporal_numeric_label_df(&ctx))
         .mark(
             Rect::new()
@@ -466,7 +466,7 @@ async fn test_nested_position_temporal_nested_months_timefill_default_extent() {
         ],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new().transform(
             TimeLevels::new(col("timestamp"))
                 .year()
@@ -538,7 +538,7 @@ async fn test_nested_position_temporal_nested_months_timefill_explicit_extent() 
         ],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new().transform(
             TimeLevels::new(col("timestamp"))
                 .year()
@@ -622,7 +622,7 @@ async fn test_nested_position_temporal_nested_grouped_stacked_months() {
         ],
     );
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| legend.title("Segment"))
         .mark(
@@ -713,7 +713,7 @@ async fn test_nested_position_temporal_nested_quarters_across_years() {
         ],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new().transform(
             TimeLevels::new(col("timestamp"))
                 .year()
@@ -783,7 +783,7 @@ async fn test_nested_position_temporal_nested_faceted_shared_months() {
         ],
     );
 
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Rect::new().transform(
@@ -875,7 +875,7 @@ async fn test_nested_position_temporal_nested_heatmap_month_day() {
         ],
     );
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new().transform(
             TimeLevels::new(col("timestamp"))
                 .year()
@@ -972,7 +972,7 @@ async fn test_nested_position_source_column_grouped_bar() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .legend("fill", |legend| legend.title("Team"))
         .mark(
@@ -1012,7 +1012,7 @@ async fn test_nested_position_source_column_grouped_bar() {
 async fn test_nested_position_explicit_level_ordering() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_bar_df(&ctx))
         .legend("fill", |legend| legend.title("Team"))
         .mark(
@@ -1060,7 +1060,7 @@ async fn test_nested_position_explicit_level_ordering() {
 async fn test_nested_position_symbol_centers() {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(grouped_bar_df(&ctx))
         .legend("fill", |legend| legend.title("Team"))
         .mark(
@@ -1113,7 +1113,7 @@ async fn test_nested_position_bokeh_style_variable_parent_width_axis() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(nested_x("cylinders", "manufacturer"), |x| {
                 x.axis(|a| {
@@ -1172,7 +1172,7 @@ async fn test_nested_position_three_level_category_bars() {
     let df = ctx.read_batch(batch).expect("dataframe");
     let nested = nested(["region", "category", "item"]);
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(nested, |x| {
                 x.axis(|a| a.title("Item grouped by category and region").grid(false))
@@ -1228,7 +1228,7 @@ async fn test_nested_position_category_axis_three_level() {
     let df = ctx.read_batch(batch).expect("dataframe");
     let nested = nested(["region", "category", "item"]);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(680.0, 420.0)
         .data(df)
         .mark(
@@ -1293,7 +1293,7 @@ async fn test_nested_position_parent_span_overlay() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Rect::new()
@@ -1385,7 +1385,7 @@ async fn test_nested_position_heatmap_zero_padding_both_axes() {
 
     let x_expr = nested_x("x_group", "x_member");
     let y_expr = nested_x("y_group", "y_member");
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(x_expr, |x| {
                 x.axis(|a| a.title("Nested X").grid(false))
@@ -1433,7 +1433,7 @@ async fn test_nested_position_heatmap_shared_leaf_slots() {
     ];
     let df = nested_heatmap_df(&ctx, &rows);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(560.0, 460.0)
         .data(df)
         .mark(
@@ -1494,7 +1494,7 @@ async fn test_nested_position_heatmap_no_leaf_axes() {
     ];
     let df = nested_heatmap_df(&ctx, &rows);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(520.0, 420.0)
         .data(df)
         .mark(
@@ -1559,7 +1559,7 @@ async fn test_nested_position_heatmap_parent_gaps() {
     ];
     let df = nested_heatmap_df(&ctx, &rows);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(560.0, 460.0)
         .data(df)
         .mark(
@@ -1635,7 +1635,7 @@ async fn test_nested_position_y_lollipop() {
     let df = ctx.read_batch(batch).expect("dataframe");
     let nested_y = nested_x("department", "role");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Rule::new()
@@ -1691,7 +1691,7 @@ async fn test_nested_position_y_axis_two_level() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(560.0, 430.0)
         .data(df)
         .mark(
@@ -1762,7 +1762,7 @@ async fn test_nested_position_axis_long_labels_measurement() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(760.0, 460.0)
         .data(df)
         .mark(
@@ -1829,7 +1829,7 @@ async fn test_nested_position_facet_shared_whole_path_slots() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new()
                 .legend("fill", |legend| legend.title("Team"))
@@ -1874,37 +1874,39 @@ async fn test_nested_position_facet_shared_whole_path_slots() {
 #[tokio::test]
 async fn test_nested_position_facet_shared_parent_free_leaf() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new().data(facet_nested_df(&ctx)).mark(
-        Subplot::new(
-            Plot::<Cartesian>::new().mark(
-                Rect::new()
-                    .x_with(nested_x("cyl", "make"), |x| {
-                        x.axis(|a| a.title("Make grouped by cylinders").grid(false))
-                            .level(0, |l| {
-                                l.domain_scope(CoordinationScope::Shared)
-                                    .padding_inner(0.38)
-                                    .padding_outer(0.14)
-                            })
-                            .level(1, |l| {
-                                l.domain_scope(CoordinationScope::Shared)
-                                    .nest_scope(NestScope::Free)
-                                    .padding_inner(0.08)
-                            })
-                    })
-                    .x2_with(col(":x"), |x| x.band(1.0))
-                    .y_with(lit(0.0), |y| {
-                        y.with_domain_scope(CoordinationScope::Shared)
-                            .scale(|s| s.domain((0.0, 40.0)))
-                            .axis(|a| a.title("Value").grid(true))
-                    })
-                    .y2(col("value"))
-                    .fill_with(col("make"), |fill| fill)
-                    .stroke("#ffffff")
-                    .stroke_width(1.0),
-            ),
-        )
-        .column(col("market")),
-    );
+    let plot = Chart::<FacetColumn>::new()
+        .data(facet_nested_df(&ctx))
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .x_with(nested_x("cyl", "make"), |x| {
+                            x.axis(|a| a.title("Make grouped by cylinders").grid(false))
+                                .level(0, |l| {
+                                    l.domain_scope(CoordinationScope::Shared)
+                                        .padding_inner(0.38)
+                                        .padding_outer(0.14)
+                                })
+                                .level(1, |l| {
+                                    l.domain_scope(CoordinationScope::Shared)
+                                        .nest_scope(NestScope::Free)
+                                        .padding_inner(0.08)
+                                })
+                        })
+                        .x2_with(col(":x"), |x| x.band(1.0))
+                        .y_with(lit(0.0), |y| {
+                            y.with_domain_scope(CoordinationScope::Shared)
+                                .scale(|s| s.domain((0.0, 40.0)))
+                                .axis(|a| a.title("Value").grid(true))
+                        })
+                        .y2(col("value"))
+                        .fill_with(col("make"), |fill| fill)
+                        .stroke("#ffffff")
+                        .stroke_width(1.0),
+                ),
+            )
+            .column(col("market")),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
@@ -1920,37 +1922,39 @@ async fn test_nested_position_facet_shared_parent_free_leaf() {
 #[tokio::test]
 async fn test_nested_position_facet_shared_leaf_slots() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new().data(facet_nested_df(&ctx)).mark(
-        Subplot::new(
-            Plot::<Cartesian>::new().mark(
-                Rect::new()
-                    .x_with(nested_x("cyl", "make"), |x| {
-                        x.axis(|a| a.title("Make grouped by cylinders").grid(false))
-                            .level(0, |l| {
-                                l.domain_scope(CoordinationScope::Shared)
-                                    .padding_inner(0.38)
-                                    .padding_outer(0.14)
-                            })
-                            .level(1, |l| {
-                                l.domain_scope(CoordinationScope::Shared)
-                                    .nest_scope(NestScope::Shared)
-                                    .padding_inner(0.08)
-                            })
-                    })
-                    .x2_with(col(":x"), |x| x.band(1.0))
-                    .y_with(lit(0.0), |y| {
-                        y.with_domain_scope(CoordinationScope::Shared)
-                            .scale(|s| s.domain((0.0, 40.0)))
-                            .axis(|a| a.title("Value").grid(true))
-                    })
-                    .y2(col("value"))
-                    .fill_with(col("make"), |fill| fill)
-                    .stroke("#ffffff")
-                    .stroke_width(1.0),
-            ),
-        )
-        .column(col("market")),
-    );
+    let plot = Chart::<FacetColumn>::new()
+        .data(facet_nested_df(&ctx))
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .x_with(nested_x("cyl", "make"), |x| {
+                            x.axis(|a| a.title("Make grouped by cylinders").grid(false))
+                                .level(0, |l| {
+                                    l.domain_scope(CoordinationScope::Shared)
+                                        .padding_inner(0.38)
+                                        .padding_outer(0.14)
+                                })
+                                .level(1, |l| {
+                                    l.domain_scope(CoordinationScope::Shared)
+                                        .nest_scope(NestScope::Shared)
+                                        .padding_inner(0.08)
+                                })
+                        })
+                        .x2_with(col(":x"), |x| x.band(1.0))
+                        .y_with(lit(0.0), |y| {
+                            y.with_domain_scope(CoordinationScope::Shared)
+                                .scale(|s| s.domain((0.0, 40.0)))
+                                .axis(|a| a.title("Value").grid(true))
+                        })
+                        .y2(col("value"))
+                        .fill_with(col("make"), |fill| fill)
+                        .stroke("#ffffff")
+                        .stroke_width(1.0),
+                ),
+            )
+            .column(col("market")),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
@@ -1966,37 +1970,39 @@ async fn test_nested_position_facet_shared_leaf_slots() {
 #[tokio::test]
 async fn test_nested_position_facet_free_domains() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new().data(facet_nested_df(&ctx)).mark(
-        Subplot::new(
-            Plot::<Cartesian>::new().mark(
-                Rect::new()
-                    .x_with(nested_x("cyl", "make"), |x| {
-                        x.axis(|a| a.title("Local make groups").grid(false))
-                            .level(0, |l| {
-                                l.domain_scope(CoordinationScope::Free)
-                                    .padding_inner(0.38)
-                                    .padding_outer(0.14)
-                            })
-                            .level(1, |l| {
-                                l.domain_scope(CoordinationScope::Free)
-                                    .nest_scope(NestScope::Free)
-                                    .padding_inner(0.08)
-                            })
-                    })
-                    .x2_with(col(":x"), |x| x.band(1.0))
-                    .y_with(lit(0.0), |y| {
-                        y.with_domain_scope(CoordinationScope::Shared)
-                            .scale(|s| s.domain((0.0, 40.0)))
-                            .axis(|a| a.title("Value").grid(true))
-                    })
-                    .y2(col("value"))
-                    .fill_with(col("make"), |fill| fill)
-                    .stroke("#ffffff")
-                    .stroke_width(1.0),
-            ),
-        )
-        .column(col("market")),
-    );
+    let plot = Chart::<FacetColumn>::new()
+        .data(facet_nested_df(&ctx))
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .x_with(nested_x("cyl", "make"), |x| {
+                            x.axis(|a| a.title("Local make groups").grid(false))
+                                .level(0, |l| {
+                                    l.domain_scope(CoordinationScope::Free)
+                                        .padding_inner(0.38)
+                                        .padding_outer(0.14)
+                                })
+                                .level(1, |l| {
+                                    l.domain_scope(CoordinationScope::Free)
+                                        .nest_scope(NestScope::Free)
+                                        .padding_inner(0.08)
+                                })
+                        })
+                        .x2_with(col(":x"), |x| x.band(1.0))
+                        .y_with(lit(0.0), |y| {
+                            y.with_domain_scope(CoordinationScope::Shared)
+                                .scale(|s| s.domain((0.0, 40.0)))
+                                .axis(|a| a.title("Value").grid(true))
+                        })
+                        .y2(col("value"))
+                        .fill_with(col("make"), |fill| fill)
+                        .stroke("#ffffff")
+                        .stroke_width(1.0),
+                ),
+            )
+            .column(col("market")),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     assert_visual_match_default(
@@ -2044,7 +2050,7 @@ async fn test_nested_position_facet_heatmap_shared_x_free_y() {
     );
     let df = ctx.read_batch(batch).expect("dataframe");
 
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Rect::new()
@@ -2141,7 +2147,7 @@ async fn test_nested_position_repeat_axis_titles() {
             .stroke("#ffffff")
             .stroke_width(1.0),
     );
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .data(df)
         .plot_size(260.0, 165.0)
         .configure_coord(|c| {

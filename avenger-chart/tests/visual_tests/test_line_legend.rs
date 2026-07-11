@@ -55,7 +55,7 @@ async fn test_line_discrete_stroke_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a multi-series line chart with stroke legend
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 35.0))))
@@ -124,7 +124,7 @@ async fn test_line_stroke_width_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a line chart with stroke width legend
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 15.0))))
@@ -209,7 +209,7 @@ async fn test_line_stroke_dash_legend() {
 
     // Create a line chart with both stroke color and dash pattern varying by line_type
     // This showcases the default Okabe-Ito color palette along with dash patterns
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Multi-Series Time Series Analysis")
         .subtitle("Eight distinct patterns with colorblind-safe palette")
@@ -279,7 +279,7 @@ async fn test_line_combined_stroke_width_legend() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a line chart where priority encodes both stroke color and width
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| c.scale(|scale| scale.domain((0.0, 6.0))))
             .y_with(col("y"), |c| c.scale(|scale| scale.domain((0.0, 25.0))))

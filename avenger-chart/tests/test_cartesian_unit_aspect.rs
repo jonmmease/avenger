@@ -15,7 +15,7 @@ async fn xy_data(ctx: &SessionContext) -> DataFrame {
 }
 
 async fn compile_error(
-    plot: Plot<Cartesian>,
+    plot: Chart<Cartesian>,
     ctx: &SessionContext,
     label: &str,
 ) -> AvengerChartError {
@@ -25,9 +25,9 @@ async fn compile_error(
     }
 }
 
-async fn explicit_domain_plot(ctx: &SessionContext, ratio: f64) -> (Plot<Cartesian>, DataFrame) {
+async fn explicit_domain_plot(ctx: &SessionContext, ratio: f64) -> (Chart<Cartesian>, DataFrame) {
     let df = xy_data(ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(ratio))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(ratio))
         .data(df.clone())
         .mark(
             Symbol::new()
@@ -185,7 +185,7 @@ fn coordinate_scope_unit_aspect_ratios(evaluated: &EvaluatedPlot) -> Vec<f32> {
 async fn cartesian_unit_aspect_compiles_and_serializes() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .data(df)
         .mark(Symbol::new().x(col("x")).y(col("y")));
 
@@ -200,7 +200,7 @@ async fn cartesian_unit_aspect_compiles_and_serializes() {
 async fn cartesian_unit_aspect_resolves_named_position_scales() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().equal_units())
+    let plot = Chart::with_coord(Cartesian::new().equal_units())
         .data(df)
         .mark(
             Symbol::new()
@@ -217,7 +217,7 @@ async fn cartesian_unit_aspect_resolves_named_position_scales() {
 async fn cartesian_unit_aspect_rejects_invalid_ratio_at_compile() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(0.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(0.0))
         .data(df)
         .mark(Symbol::new().x(col("x")).y(col("y")));
 
@@ -229,7 +229,7 @@ async fn cartesian_unit_aspect_rejects_invalid_ratio_at_compile() {
 async fn cartesian_unit_aspect_rejects_multiple_x_scales() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .data(df)
         .mark(Symbol::new().x(col("x")).y(col("y")))
         .mark(
@@ -246,7 +246,7 @@ async fn cartesian_unit_aspect_rejects_multiple_x_scales() {
 async fn cartesian_unit_aspect_rejects_same_scale_for_x_and_y() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .data(df)
         .mark(
             Symbol::new()
@@ -272,7 +272,7 @@ async fn authored_concat_rejects_unit_aspect_shared_child_domain() {
                     .y_with(col("y"), |y| y.with_domain_scope(CoordinationScope::Shared)),
             )
     };
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .plot_size(300.0, 120.0)
         .mark(Subplot::new(child()).name("left"))
         .mark(Subplot::new(child()).name("right"));
@@ -302,7 +302,7 @@ async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
         .unwrap();
     let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
         .mark(Line::new().x(repeat::column()).y(col("y")));
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .plot_size(400.0, 100.0)
         .data(df)
         .configure_coord(|c| {
@@ -341,7 +341,7 @@ async fn facet_column_allows_unit_aspect_shared_child_domain() {
             .x_with(col("x"), |x| x.with_domain_scope(CoordinationScope::Shared))
             .y_with(col("y"), |y| y.with_domain_scope(CoordinationScope::Shared)),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(400.0, 100.0)
         .data(df)
         .mark(Subplot::new(child).column(col("panel")));
@@ -366,7 +366,7 @@ async fn generated_repeat_unit_aspect_shared_domain_handles_symbol_radius_paddin
         .unwrap();
     let cell = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
         .mark(Symbol::new().x(repeat::column()).y(col("y")).size(2500.0));
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .plot_size(500.0, 120.0)
         .data(df)
         .configure_coord(|c| {
@@ -406,7 +406,7 @@ async fn facet_column_unit_aspect_shared_domain_handles_symbol_radius_padding() 
             .y_with(col("y"), |y| y.with_domain_scope(CoordinationScope::Shared))
             .size(2500.0),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(500.0, 120.0)
         .data(df)
         .mark(Subplot::new(child).column(col("panel")));
@@ -472,7 +472,7 @@ async fn cartesian_unit_aspect_final_scales_satisfy_fixed_plot_ratio() {
 async fn cartesian_unit_aspect_canvas_refinement_final_scales_satisfy_realized_plot_ratio() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .canvas_size(560.0, 340.0)
         .data(df)
         .mark(
@@ -518,8 +518,8 @@ async fn cartesian_unit_aspect_canvas_refinement_does_not_ratchet_domains() {
     let ctx = SessionContext::new();
     let width = Param::new("canvas_width", ScalarValue::Float64(Some(560.0)));
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
-        .add_param(width.clone())
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
+        .param(width.clone())
         .canvas_size(width.expr(), 340.0)
         .data(df)
         .mark(
@@ -606,7 +606,7 @@ async fn facet_column_unit_aspect_canvas_refinement_reruns_shared_domain_solve()
                     .axis(|axis| axis.title("shared canvas y").grid(true))
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .canvas_size(660.0, 360.0)
         .data(df)
         .mark(Subplot::new(child).column(col("panel")));
@@ -660,7 +660,7 @@ async fn generated_repeat_unit_aspect_canvas_refinement_reruns_shared_domain_sol
                     .axis(|axis| axis.title("repeat canvas y").grid(true))
             }),
     );
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .canvas_size(660.0, 320.0)
         .data(df)
         .configure_coord(|c| {
@@ -707,7 +707,7 @@ async fn generated_repeat_unit_aspect_canvas_refinement_reruns_shared_domain_sol
 async fn cartesian_unit_aspect_rejects_non_linear_scale_at_scale_build() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .data(df.clone())
         .mark(
             Symbol::new()
@@ -738,7 +738,7 @@ async fn cartesian_unit_aspect_rejects_non_linear_scale_at_scale_build() {
 async fn cartesian_unit_aspect_rejects_shared_domain_in_local_scale_build() {
     let ctx = SessionContext::new();
     let df = xy_data(&ctx).await;
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .data(df.clone())
         .mark(
             Symbol::new()

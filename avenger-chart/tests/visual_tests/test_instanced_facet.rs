@@ -64,7 +64,7 @@ async fn facet_wrap_instanced_symbols_interleaved_with_chrome() {
             .size(28.0),
     );
 
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .canvas_size(980.0, 640.0)
         .data(instanced_facet_data(&ctx))
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| {

@@ -92,7 +92,7 @@ async fn adjust_symbol_expression_nudge() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -139,7 +139,7 @@ async fn adjust_symbol_transform_nudge() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -184,7 +184,7 @@ async fn adjust_symbol_jitter_seeded() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -219,7 +219,7 @@ async fn adjust_symbol_dodge_grouped() {
     let batch = grouped_dodge_batch();
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x(col("category"))
@@ -252,7 +252,7 @@ async fn adjust_symbol_chained() {
     let batch = grouped_dodge_batch();
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x(col("category"))
@@ -298,7 +298,7 @@ async fn derive_symbol_halo() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -343,7 +343,7 @@ async fn derive_rule_from_adjusted_symbol() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -401,7 +401,7 @@ async fn derive_rect_outline() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Rect::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -453,7 +453,7 @@ async fn derive_text_fixed_label_overlap() {
     .expect("mark effect visual data");
     let df = ctx.read_batch(batch).expect("mark effect visual dataframe");
 
-    let plot = Plot::<Cartesian>::new().plot_size(260.0, 180.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(260.0, 180.0).mark(
         Symbol::new()
             .data(df)
             .x_with(col("x"), |x| {
@@ -538,7 +538,7 @@ async fn derive_text_fixed_label_faceted() {
                     })
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .plot_size(220.0, 150.0)
         .mark(Subplot::new(child).column(col("facet")));
@@ -558,7 +558,7 @@ async fn derive_text_fixed_label_faceted() {
 async fn compound_box_plot_outlier_adjust_nudge() {
     let ctx = SessionContext::new();
     let df = compound_box_plot_data(&ctx);
-    let plot = Plot::<Cartesian>::new().plot_size(340.0, 220.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(340.0, 220.0).mark(
         BoxPlot::new()
             .data(df)
             .x_with(col("value"), |x| {
@@ -588,7 +588,7 @@ async fn compound_box_plot_outlier_adjust_nudge() {
 async fn compound_box_plot_outlier_halo() {
     let ctx = SessionContext::new();
     let df = compound_box_plot_data(&ctx);
-    let plot = Plot::<Cartesian>::new().plot_size(340.0, 220.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(340.0, 220.0).mark(
         BoxPlot::new()
             .data(df)
             .x_with(col("value"), |x| {
@@ -625,7 +625,7 @@ async fn compound_box_plot_outlier_halo() {
 async fn compound_box_plot_outlier_fixed_label() {
     let ctx = SessionContext::new();
     let df = compound_box_plot_data(&ctx);
-    let plot = Plot::<Cartesian>::new().plot_size(340.0, 220.0).mark(
+    let plot = Chart::<Cartesian>::new().plot_size(340.0, 220.0).mark(
         BoxPlot::new()
             .data(df)
             .x_with(col("value"), |x| {
@@ -686,7 +686,7 @@ async fn compound_box_plot_outlier_fixed_label_faceted() {
                 })
             }),
     );
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(560.0, 260.0)
         .mark(Subplot::new(child).column(col("facet")));

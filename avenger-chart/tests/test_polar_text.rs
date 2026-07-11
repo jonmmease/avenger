@@ -116,7 +116,7 @@ fn event_datum_rows_with_id(rows: &[EvaluatedEventDatumRows]) -> Vec<&EvaluatedE
 #[tokio::test]
 async fn polar_text_typst_mode_reaches_scene_mark() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![FRAC_PI_2]))
         .mark(
@@ -136,7 +136,7 @@ async fn polar_text_typst_mode_reaches_scene_mark() -> Result<(), AvengerChartEr
 #[tokio::test]
 async fn polar_text_display_space_preserves_cartesian_angle() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![FRAC_PI_2]))
         .mark(
@@ -160,7 +160,7 @@ async fn polar_text_display_space_preserves_cartesian_angle() -> Result<(), Aven
 #[tokio::test]
 async fn polar_text_coordinate_space_radial_angles() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![0.0, FRAC_PI_2, PI]))
         .mark(
@@ -183,7 +183,7 @@ async fn polar_text_coordinate_space_radial_angles() -> Result<(), AvengerChartE
 #[tokio::test]
 async fn polar_text_coordinate_space_tangential_angles() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![0.0, FRAC_PI_2]))
         .mark(
@@ -207,7 +207,7 @@ async fn polar_text_coordinate_space_tangential_angles() -> Result<(), AvengerCh
 #[tokio::test]
 async fn polar_text_coordinate_space_uses_scaled_theta() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![0.0, 25.0, 50.0]))
         .mark(
@@ -233,7 +233,7 @@ async fn polar_text_coordinate_space_uses_scaled_theta() -> Result<(), AvengerCh
 async fn polar_text_coordinate_space_uses_categorical_theta_scale() -> Result<(), AvengerChartError>
 {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(categorical_theta_data(vec!["N", "E", "S", "W"]))
         .mark(
@@ -292,7 +292,7 @@ async fn polar_text_coordinate_space_uses_categorical_theta_scale() -> Result<()
 #[tokio::test]
 async fn polar_text_mixed_scalar_array_positions_and_angles() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(r_angle_data(vec![20.0, 40.0], vec![0.0, 90.0]))
         .mark(
@@ -321,7 +321,7 @@ async fn polar_text_mixed_scalar_array_positions_and_angles() -> Result<(), Aven
 async fn polar_text_display_geometry_space_survives_bincode_round_trip()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![FRAC_PI_2]))
         .mark(
@@ -344,7 +344,7 @@ async fn polar_text_display_geometry_space_survives_bincode_round_trip()
 async fn polar_text_default_coordinate_space_survives_bincode_round_trip()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![FRAC_PI_2]))
         .mark(
@@ -365,7 +365,7 @@ async fn polar_text_default_coordinate_space_survives_bincode_round_trip()
 #[tokio::test]
 async fn polar_text_adjustments_see_computed_display_angle() -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![FRAC_PI_2]))
         .mark(
@@ -408,7 +408,7 @@ async fn polar_text_expression_adjustment_updates_position_text_defined_and_sour
             Arc::new(Float64Array::from(vec![0.0, 0.0])) as ArrayRef,
         ],
     );
-    let plot = Plot::<Polar>::new().plot_size(200.0, 200.0).data(df).mark(
+    let plot = Chart::<Polar>::new().plot_size(200.0, 200.0).data(df).mark(
         Text::<Polar>::new()
             .r(50.0)
             .theta_with(col("theta"), |c| c.no_scale())
@@ -446,7 +446,7 @@ async fn polar_text_expression_adjustment_updates_position_text_defined_and_sour
 async fn polar_text_keep_upright_adjustment_flips_left_half_radial() -> Result<(), AvengerChartError>
 {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![0.0, FRAC_PI_2, PI, 3.0 * FRAC_PI_2]))
         .mark(
@@ -473,7 +473,7 @@ async fn polar_text_keep_upright_adjustment_flips_left_half_radial() -> Result<(
 async fn polar_text_keep_upright_adjustment_flips_tangential_labels()
 -> Result<(), AvengerChartError> {
     let ctx = SessionContext::new();
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(theta_data(vec![0.0, FRAC_PI_2, PI]))
         .mark(
@@ -509,7 +509,7 @@ async fn polar_text_event_datums_keep_source_rows() -> Result<(), AvengerChartEr
             Arc::new(Float64Array::from(vec![0.0, FRAC_PI_2])) as ArrayRef,
         ],
     );
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .plot_size(200.0, 200.0)
         .data(df)
         .mark(

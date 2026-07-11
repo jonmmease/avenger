@@ -187,7 +187,7 @@ async fn test_css_axis_and_legend_subtype_selectors() {
         .expect("Failed to read line batch");
 
     // Create plot with both symbol and line marks
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("CSS Subtype Selector Demo")
         .subtitle("axis[type=x/y] and legend[type=symbol/line]")
         .mark(

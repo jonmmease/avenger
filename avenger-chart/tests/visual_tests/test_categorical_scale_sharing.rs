@@ -16,7 +16,7 @@ async fn test_nested_facet_shared_categorical_x() {
     let ctx = SessionContext::new();
     let df = datasets::categorical_sharing_test_data();
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 300)
         .mark(
@@ -62,26 +62,29 @@ async fn test_nested_facet_shared_categorical_y() {
     let ctx = SessionContext::new();
     let df = datasets::categorical_sharing_test_data();
 
-    let outer = Plot::<FacetRow>::new().data(df).canvas_size(400, 400).mark(
-        Subplot::new(
-            Plot::<Cartesian>::new().mark(
-                Rect::new()
-                    .y_with(col("category"), |c| {
-                        c.scale_with::<Band>(|s| s)
-                            .with_domain_scope(CoordinationScope::Shared)
-                            .axis(|a| a.title("Category"))
-                    })
-                    .y2_with(col(":y"), |c| c.band(1.0))
-                    .x(0.0)
-                    .x2_with(col("value"), |c| {
-                        c.with_domain_scope(CoordinationScope::Shared)
-                            .axis(|a| a.title("Value"))
-                    })
-                    .fill("#4682b4"),
-            ),
-        )
-        .row_with(col("group"), |c| c.guide(|g| g.title("Group"))),
-    );
+    let outer = Chart::<FacetRow>::new()
+        .data(df)
+        .canvas_size(400, 400)
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().mark(
+                    Rect::new()
+                        .y_with(col("category"), |c| {
+                            c.scale_with::<Band>(|s| s)
+                                .with_domain_scope(CoordinationScope::Shared)
+                                .axis(|a| a.title("Category"))
+                        })
+                        .y2_with(col(":y"), |c| c.band(1.0))
+                        .x(0.0)
+                        .x2_with(col("value"), |c| {
+                            c.with_domain_scope(CoordinationScope::Shared)
+                                .axis(|a| a.title("Value"))
+                        })
+                        .fill("#4682b4"),
+                ),
+            )
+            .row_with(col("group"), |c| c.guide(|g| g.title("Group"))),
+        );
 
     let compiled = outer.compile(&ctx).await.expect("compile nested facets");
     assert_visual_match_default(
@@ -157,7 +160,7 @@ async fn test_deeply_nested_categorical_scale_sharing() {
     // Outer: FacetColumn by outer_group
     // Inner: FacetRow by sub_group (nested facet triggers evaluate_shared_scale_nested_facet)
     // Innermost: Bar chart with categorical x-axis
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(700, 500)
         .mark(
@@ -250,7 +253,7 @@ async fn test_numeric_coded_categorical_sharing() {
 
     let df = ctx.read_batch(batch).expect("read batch");
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 300)
         .mark(
@@ -297,7 +300,7 @@ async fn test_nested_facet_level1_categorical() {
     let ctx = SessionContext::new();
     let df = datasets::categorical_sharing_test_data();
 
-    let outer = Plot::<FacetColumn>::new()
+    let outer = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(600, 300)
         .mark(

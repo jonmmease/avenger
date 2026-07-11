@@ -30,7 +30,7 @@ async fn test_symbol_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
@@ -70,7 +70,7 @@ async fn test_line_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.5, 4.5))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 5.0))))
@@ -113,7 +113,7 @@ async fn test_rect_stroke_legend_with_title() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create a bar chart with stroke legend
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Rect::new()
             .x_with(col("product"), |c| {
                 c.scale_with::<Band>(|scale| scale.padding_inner(0.1))
@@ -170,7 +170,7 @@ async fn test_shape_legend_with_title() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
@@ -210,7 +210,7 @@ async fn test_legend_with_title_and_background() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale(|s| s.domain((0.0, 7.0))))
             .y_with(col("y"), |c| c.scale(|s| s.domain((0.0, 7.0))))
@@ -248,7 +248,7 @@ async fn test_legend_titles_doc_example() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Custom Legend Titles")
         .mark(

@@ -62,8 +62,8 @@ fn make_two_level_col_plot(
     df: DataFrame,
     sharing: CoordinationScope,
     position: LegendPosition,
-) -> Plot<FacetColumn> {
-    Plot::<FacetColumn>::new()
+) -> Chart<FacetColumn> {
+    Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(960.0, 420.0)
         .mark(
@@ -83,8 +83,8 @@ fn make_three_level_col_plot(
     df: DataFrame,
     sharing: CoordinationScope,
     position: LegendPosition,
-) -> Plot<FacetColumn> {
-    Plot::<FacetColumn>::new()
+) -> Chart<FacetColumn> {
+    Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1500.0, 380.0)
         .mark(
@@ -106,8 +106,8 @@ fn make_three_level_col_plot(
         )
 }
 
-fn make_two_level_col_plot_merged_group(df: DataFrame) -> Plot<FacetColumn> {
-    Plot::<FacetColumn>::new()
+fn make_two_level_col_plot_merged_group(df: DataFrame) -> Chart<FacetColumn> {
+    Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(960.0, 420.0)
         .mark(

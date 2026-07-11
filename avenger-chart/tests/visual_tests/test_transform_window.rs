@@ -43,7 +43,7 @@ fn running_sum_window_expr() -> Expr {
 #[tokio::test]
 async fn running_total_line() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Window: running total")
         .canvas_size(620.0, 380.0)
         .data(running_total_data(&ctx))

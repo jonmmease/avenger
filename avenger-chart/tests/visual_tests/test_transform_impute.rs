@@ -36,7 +36,7 @@ async fn line_missing_months() {
         .key(col("month"))
         .group_by([col("series")])
         .value(lit(0.0));
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Impute: missing months to zero")
         .canvas_size(640.0, 380.0)
         .data(missing_months_data(&ctx))

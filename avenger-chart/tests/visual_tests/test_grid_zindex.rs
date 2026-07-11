@@ -13,7 +13,7 @@ async fn test_grid_lines_behind_data() {
     let ctx = SessionContext::new();
     let df = ctx.read_empty().expect("Failed to create empty DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         // Add a semi-transparent rectangle that covers part of the grid
         .mark(

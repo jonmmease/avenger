@@ -160,7 +160,7 @@ async fn axis_config_resolves_transform_derived_scalar_tick_spacing()
     )?;
     let df = ctx.read_batch(batch)?;
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(420.0, 320.0)
         .data(df)
         .mark(
@@ -209,7 +209,7 @@ async fn axis_config_resolves_bin_derived_tick_spacing() -> Result<(), Box<dyn s
     )?;
     let df = ctx.read_batch(batch)?;
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(420.0, 320.0)
         .data(df)
         .mark(

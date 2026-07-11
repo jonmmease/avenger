@@ -23,7 +23,7 @@ async fn compile_regular_debug_snapshot_plot(
         )
         .await?;
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(540.0, 360.0)
         .title("Regular Chart")
         .subtitle("Allocation/demand debug overlay")

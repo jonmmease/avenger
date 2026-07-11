@@ -47,11 +47,11 @@ async fn test_axis_title_with_parameter_expression() {
         .unwrap();
 
     // Create plot with expression-based axis title
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Axis Titles with Expressions")
         .data(df)
-        .add_param(unit_param.clone())
+        .param(unit_param.clone())
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title(x_axis_title)))
@@ -115,7 +115,7 @@ async fn test_axis_title_string_literal() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(400.0, 300.0)
         .title("Axis with String Literal Title")
         .data(df)

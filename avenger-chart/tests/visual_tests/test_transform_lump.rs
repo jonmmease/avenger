@@ -91,8 +91,8 @@ fn lumped_bar_mark(lump: Lump, fill: &str) -> Rect<Cartesian> {
     })
 }
 
-fn lumped_bar_plot(df: DataFrame, title: &str, lump: Lump, fill: &str) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new()
+fn lumped_bar_plot(df: DataFrame, title: &str, lump: Lump, fill: &str) -> Chart<Cartesian> {
+    Chart::<Cartesian>::new()
         .title(title)
         .canvas_size(680.0, 420.0)
         .data(df)
@@ -155,7 +155,7 @@ async fn lump_bar_top_n_other() {
 #[tokio::test]
 async fn lump_color_top_n_other() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Top Categories In Fill Legend")
         .canvas_size(700.0, 420.0)
         .data(lump_category_data(&ctx))
@@ -219,7 +219,7 @@ async fn lump_bar_drop_other() {
 #[tokio::test]
 async fn lump_color_drop_other() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Dropped Other Categories")
         .canvas_size(700.0, 420.0)
         .data(lump_category_data(&ctx))
@@ -320,7 +320,7 @@ async fn lump_ntile() {
 async fn lump_faceted_free_vs_shared() {
     let ctx = SessionContext::new();
     let df = lump_facet_data(&ctx);
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(980.0, 380.0)
         .title("Free vs Shared Lump Scope")
         .mark(

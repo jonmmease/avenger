@@ -13,9 +13,9 @@ async fn test_param_fill_color() {
     // Create a parameter for fill color with blue as default
     let fill_color_param = Param::new("fill_color", ScalarValue::Utf8(Some("#4682b4".to_string())));
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
-        .add_param(fill_color_param.clone())
+        .param(fill_color_param.clone())
         .mark(
             Rect::new()
                 .x_with(col("category"), |c| {

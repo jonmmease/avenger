@@ -447,7 +447,7 @@ fn default_params() -> IndexMap<String, ScalarValue> {
 async fn raster_evaluate_error(batch: RecordBatch) -> AvengerChartError {
     let ctx = SessionContext::new();
     let df = dataframe(&ctx, batch);
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(UniformRaster2D::new().raster_with(col("raster"), |r| r.x(dim("x")).y(dim("y"))));
     match plot
@@ -478,7 +478,7 @@ async fn scaled_uniform_raster_infers_list_fill_and_geometry_domains() {
         None,
     );
     let df = dataframe(&ctx, batch);
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(200.0, 120.0)
         .data(df.clone())
         .mark(
@@ -524,7 +524,7 @@ async fn explicit_fill_domain_overrides_flattened_list_inference() {
         None,
     );
     let df = dataframe(&ctx, batch);
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df.clone())
         .mark(UniformRaster2D::new().raster_with(col("raster"), |r| {
             r.x(dim("x")).y(dim("y")).fill(|fill| {
@@ -549,7 +549,7 @@ async fn explicit_fill_domain_overrides_flattened_list_inference() {
 async fn categorical_dimension_infers_band_domain_when_scale_is_categorical() {
     let ctx = SessionContext::new();
     let df = dataframe(&ctx, categorical_raster_batch());
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df.clone())
         .mark(UniformRaster2D::new().raster_with(col("raster"), |r| {
             r.x(dim("x"))
@@ -571,7 +571,7 @@ async fn categorical_dimension_infers_band_domain_when_scale_is_categorical() {
 async fn string_value_plane_infers_discrete_fill_domain_and_legend() {
     let ctx = SessionContext::new();
     let df = dataframe(&ctx, string_value_raster_batch());
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df.clone())
         .mark(UniformRaster2D::new().raster_with(col("raster"), |r| {
             r.x(dim("x")).y(dim("y")).fill(|fill| {
@@ -601,7 +601,7 @@ async fn string_value_plane_infers_discrete_fill_domain_and_legend() {
 async fn direct_color_uniform_raster_does_not_build_fill_scale() {
     let ctx = SessionContext::new();
     let df = dataframe(&ctx, direct_color_raster_batch());
-    let plot = Plot::<Cartesian>::new().data(df.clone()).mark(
+    let plot = Chart::<Cartesian>::new().data(df.clone()).mark(
         UniformRaster2D::new().raster_with(col("raster"), |r| {
             r.x(dim("x")).y(dim("y")).fill(|fill| fill.no_scale())
         }),
@@ -635,7 +635,7 @@ async fn direct_color_uniform_raster_does_not_build_fill_scale() {
 async fn integer_value_plane_renders_through_scaled_fill_path() {
     let ctx = SessionContext::new();
     let df = dataframe(&ctx, u32_raster_batch());
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df.clone())
         .mark(UniformRaster2D::new().raster_with(col("raster"), |r| r.x(dim("x")).y(dim("y"))));
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -684,7 +684,7 @@ async fn multiple_raster_rows_union_domains_and_render_multiple_images() {
         Some(vec![1.0, 0.5]),
     );
     let df = dataframe(&ctx, batch);
-    let plot = Plot::<Cartesian>::new().data(df.clone()).mark(
+    let plot = Chart::<Cartesian>::new().data(df.clone()).mark(
         UniformRaster2D::new()
             .raster_with(col("raster"), |r| r.x(dim("x")).y(dim("y")))
             .opacity_with(col("alpha"), |opacity| opacity.no_scale()),

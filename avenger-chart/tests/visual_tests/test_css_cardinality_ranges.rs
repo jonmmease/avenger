@@ -85,7 +85,7 @@ async fn test_cardinality_3_categories() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Cardinality-Based Palette: 3 Categories")
         .mark(
@@ -185,7 +185,7 @@ async fn test_cardinality_5_categories() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Cardinality-Based Palette: 5 Categories")
         .mark(
@@ -281,7 +281,7 @@ async fn test_cardinality_fallback() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Cardinality Fallback: 4 Categories → 5-color Palette")
         .mark(
@@ -388,7 +388,7 @@ async fn test_cardinality_multiple_channels() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Cardinality-Based Palettes: Multiple Channels")
         .mark(
@@ -579,7 +579,7 @@ async fn test_ggplot2_hsl_cardinality_theme() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("ggplot2-Style HSL Palette: 6 Categories")
         .mark(

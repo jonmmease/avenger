@@ -6,7 +6,7 @@ use palette::rgb::Srgba;
 fn test_typed_scale_with_linear() {
     // Test that we can specify Linear type and get Linear-specific methods
     let _plot =
-        Plot::<Cartesian>::new().mark(Rect::new().x(col("category")).y(col("value")).fill_with(
+        Chart::<Cartesian>::new().mark(Rect::new().x(col("category")).y(col("value")).fill_with(
             col("value"),
             |c| {
                 c.scale_with::<Linear>(|s| {
@@ -25,7 +25,7 @@ fn test_typed_scale_with_linear() {
 #[test]
 fn test_typed_scale_with_band() {
     // Test that we can specify Band type and get Band-specific methods
-    let _plot = Plot::<Cartesian>::new().mark(
+    let _plot = Chart::<Cartesian>::new().mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| {
@@ -41,7 +41,7 @@ fn test_typed_scale_with_band() {
 
 #[test]
 fn test_band_scale_ordering_api() {
-    let _plot = Plot::<Cartesian>::new().mark(
+    let _plot = Chart::<Cartesian>::new().mark(
         Rect::new()
             .x_with(col("category"), |c| {
                 c.scale_with::<Band>(|s| s.order_by(col("category")).order_desc())
@@ -54,7 +54,7 @@ fn test_band_scale_ordering_api() {
 fn test_auto_scale_preserves_type() {
     // Test that Auto scale preserves the inferred type
     let _plot =
-        Plot::<Cartesian>::new().mark(Rect::new().x(col("category")).y(col("value")).fill_with(
+        Chart::<Cartesian>::new().mark(Rect::new().x(col("category")).y(col("value")).fill_with(
             col("value"),
             |c| {
                 c.scale(|s| {
@@ -73,7 +73,7 @@ fn test_auto_scale_preserves_type() {
 fn test_scale_preserves_domain_from_data() {
     // Test that the typed scale preserves domain configuration from data
     let _plot =
-        Plot::<Cartesian>::new().mark(Rect::new().x(col("category")).y_with(col("value"), |c| {
+        Chart::<Cartesian>::new().mark(Rect::new().x(col("category")).y_with(col("value"), |c| {
             c.scale_with::<Linear>(|s| {
                 // The scale should already have domain expressions from the mark's y channel
                 // We're just adding configuration on top
@@ -84,7 +84,7 @@ fn test_scale_preserves_domain_from_data() {
 
 #[test]
 fn test_nested_band_position_api() {
-    let _plot = Plot::<Cartesian>::new().mark(
+    let _plot = Chart::<Cartesian>::new().mark(
         Rect::new()
             .x_with(nested(["cyl", "make"]), |x| {
                 x.axis(|a| a.title("Make grouped by cylinders").grid(false))

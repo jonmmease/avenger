@@ -304,7 +304,7 @@ async fn parallel_points_overlay() {
     let ctx = SessionContext::new();
     let coord = numeric_parallel_coord();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -332,7 +332,7 @@ async fn parallel_missing_values() {
     let ctx = SessionContext::new();
     let coord = numeric_parallel_coord();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(missing_parallel_data(&ctx))
@@ -363,7 +363,7 @@ async fn parallel_numeric_basic() {
     let ctx = SessionContext::new();
     let coord = Parallel::new();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -386,7 +386,7 @@ async fn parallel_color_by_category() {
     let ctx = SessionContext::new();
     let coord = numeric_parallel_coord();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(720.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -426,7 +426,7 @@ async fn parallel_numeric_axes() {
         })
         .dimension_with("cost", |d| d.axis(|a| a.title("Cost").tick_count(6.0)));
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -457,7 +457,7 @@ async fn parallel_mixed_numeric_categorical() {
     let ctx = SessionContext::new();
     let coord = mixed_parallel_coord();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(560.0, 340.0)
         .plot_size(430.0, 205.0)
         .data(mixed_parallel_data(&ctx))
@@ -497,7 +497,7 @@ async fn parallel_long_axis_labels() {
         })
         .dimension_with("cost", |d| d.axis(|a| a.title("Estimated lifecycle cost")));
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(1120.0, 380.0)
         .plot_size(880.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -533,7 +533,7 @@ async fn parallel_axis_grid_enabled() {
         .dimension_with("stability", |d| d.axis(|a| a.title("Stability")))
         .dimension_with("cost", |d| d.axis(|a| a.title("Cost")));
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -571,7 +571,7 @@ async fn parallel_points_categorical_axis() {
     let ctx = SessionContext::new();
     let coord = mixed_parallel_coord();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(560.0, 340.0)
         .plot_size(430.0, 205.0)
         .data(mixed_parallel_data(&ctx))
@@ -606,7 +606,7 @@ async fn parallel_points_categorical_axis() {
 #[tokio::test]
 async fn parallel_facet_shared_domains() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(260.0, 180.0)
         .data(facet_parallel_data(&ctx))
         .mark(Subplot::new(facet_parallel_child(false)).column(col("panel")));
@@ -628,7 +628,7 @@ async fn parallel_facet_shared_domains() {
 #[tokio::test]
 async fn parallel_facet_free_domains() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(260.0, 180.0)
         .data(facet_parallel_data(&ctx))
         .mark(Subplot::new(facet_parallel_child(true)).column(col("panel")));
@@ -650,7 +650,7 @@ async fn parallel_facet_free_domains() {
 #[tokio::test]
 async fn parallel_repeat_small_multiples() {
     let ctx = SessionContext::new();
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .canvas_size(680.0, 330.0)
         .plot_size(215.0, 180.0)
         .data(numeric_parallel_data(&ctx))
@@ -681,7 +681,7 @@ async fn parallel_static_reordered_axes() {
     let ctx = SessionContext::new();
     let coord = numeric_parallel_coord().order(["cost", "speed", "stability", "efficiency"]);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -720,11 +720,11 @@ async fn parallel_displaced_axis_preview() {
     let coord =
         numeric_parallel_coord().active_axis_display_params("drag_dimension", "drag_display_x");
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
-        .add_param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
-        .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
+        .param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(
             numeric_parallel_line()
@@ -777,11 +777,11 @@ async fn parallel_axis_overlay_displaced_axis() {
     .width_px(38.0)
     .zindex(10);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
-        .add_param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
-        .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
+        .param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(stability_overlay)
         .mark(
@@ -818,7 +818,7 @@ async fn parallel_selected_line_highlight() {
     let ctx = SessionContext::new();
     let coord = numeric_parallel_coord();
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -863,7 +863,7 @@ async fn parallel_selected_axis_header() {
         })
         .dimension_with("cost", |d| d.axis(|a| a.title("Cost")));
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -908,11 +908,11 @@ async fn parallel_reorder_drag_preview_state() {
         .dimension_with("cost", |d| d.axis(|a| a.title("Cost")))
         .active_axis_display_params("drag_dimension", "drag_display_x");
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
-        .add_param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
-        .add_param(Param::new("drag_display_x", ScalarValue::Float64(None)))
+        .param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(
             numeric_parallel_line()
@@ -989,7 +989,7 @@ async fn parallel_axis_brush_intersection_selected_lines() {
         .and(col("stability").gt_eq(lit(77.0)))
         .and(col("stability").lt_eq(lit(81.0)));
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1045,7 +1045,7 @@ async fn parallel_axis_overlay_rect_basic() {
     )
     .width_px(44.0);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1087,7 +1087,7 @@ async fn parallel_axis_overlay_rect_with_lines() {
     .width_px(42.0)
     .zindex(-2);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1143,7 +1143,7 @@ async fn parallel_axis_overlay_symbols() {
     .width_px(46.0)
     .zindex(8);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1190,7 +1190,7 @@ async fn parallel_axis_overlay_reversed_scale() {
     .width_px(42.0)
     .zindex(-2);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1261,7 +1261,7 @@ async fn parallel_axis_overlay_boxplot() {
     .width_px(58.0)
     .zindex(5);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1311,7 +1311,7 @@ async fn parallel_axis_overlay_violin() {
     .width_px(64.0)
     .zindex(4);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1368,7 +1368,7 @@ async fn parallel_axis_overlay_violins_all_axes() {
         .zindex(4)
     };
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))
@@ -1456,7 +1456,7 @@ async fn parallel_axis_overlay_grouped_boxplots() {
     .width_px(78.0)
     .zindex(5);
 
-    let plot = Plot::with_coord(coord)
+    let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
         .data(numeric_parallel_data(&ctx))

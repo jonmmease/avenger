@@ -91,7 +91,7 @@ fn color_ordered_rect_mark(sharing: Option<CoordinationScope>) -> Rect<Cartesian
 #[tokio::test]
 async fn categorical_band_order_by_max_desc() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(ordered_bar_data(&ctx))
         .canvas_size(620, 360)
         .mark(ordered_rect_mark(None));
@@ -110,7 +110,7 @@ async fn categorical_band_order_by_max_desc() {
 #[tokio::test]
 async fn categorical_ordinal_fill_order_by_max_desc() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(ordered_bar_data(&ctx))
         .canvas_size(760, 360)
         .mark(color_ordered_rect_mark(None));
@@ -132,7 +132,7 @@ async fn categorical_ordinal_fill_order_by_max_desc() {
 #[tokio::test]
 async fn facet_free_categorical_band_order_by_max_desc() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(ordered_facet_data(&ctx))
         .canvas_size(820, 360)
         .mark(
@@ -159,7 +159,7 @@ async fn facet_free_categorical_band_order_by_max_desc() {
 #[tokio::test]
 async fn facet_free_categorical_ordinal_fill_order_by_max_desc() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(ordered_facet_data(&ctx))
         .canvas_size(1080, 390)
         .mark(
@@ -187,7 +187,7 @@ async fn facet_free_categorical_ordinal_fill_order_by_max_desc() {
 #[tokio::test]
 async fn facet_shared_categorical_band_order_by_max_desc() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(ordered_facet_data(&ctx))
         .canvas_size(820, 360)
         .mark(
@@ -214,7 +214,7 @@ async fn facet_shared_categorical_band_order_by_max_desc() {
 #[tokio::test]
 async fn facet_shared_categorical_ordinal_fill_order_by_max_desc() {
     let ctx = SessionContext::new();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(ordered_facet_data(&ctx))
         .canvas_size(1080, 390)
         .mark(

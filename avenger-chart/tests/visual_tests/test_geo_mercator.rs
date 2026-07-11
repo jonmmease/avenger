@@ -89,7 +89,7 @@ fn osm_tile_layer() -> avenger_chart_geo::RasterTileLayer {
         .zindex(-100)
 }
 
-fn osm_tile_reference_plot(title: &'static str) -> Plot<Geo> {
+fn osm_tile_reference_plot(title: &'static str) -> Chart<Geo> {
     let geo = Geo::mercator()
         .center_lon_lat(0.0, 30.0)
         .zoom(1.0)
@@ -99,7 +99,7 @@ fn osm_tile_reference_plot(title: &'static str) -> Plot<Geo> {
         .size(140.0)
         .fill("#dc2626")
         .stroke("#111827");
-    Plot::with_coord(geo)
+    Chart::with_coord(geo)
         .plot_size(512.0, 256.0)
         .canvas_size(560.0, 340.0)
         .title(title)
@@ -111,7 +111,7 @@ async fn symbol_lon_lat_fit() {
     let ctx = SessionContext::new();
     let geo = Geo::mercator();
     let symbols = landmark_symbols(&geo);
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .canvas_size(420.0, 340.0)
         .title("WebMercator fit")
         .data(landmarks(&ctx).await)
@@ -126,7 +126,7 @@ async fn symbol_authored_center_zoom() {
     let ctx = SessionContext::new();
     let geo = Geo::mercator().center_lon_lat(-73.9857, 40.7484).zoom(12.0);
     let symbols = landmark_symbols(&geo);
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .canvas_size(420.0, 340.0)
         .title("Authored center/zoom")
         .data(landmarks(&ctx).await)
@@ -151,7 +151,7 @@ async fn symbol_fixed_center_fit_zoom() {
     let ctx = SessionContext::new();
     let geo = Geo::mercator().center_lon_lat(-73.9857, 40.7484);
     let symbols = landmark_symbols(&geo);
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .canvas_size(420.0, 340.0)
         .title("Fixed center, inferred zoom")
         .data(landmarks(&ctx).await)
@@ -175,7 +175,7 @@ async fn symbol_fixed_center_fit_zoom() {
 async fn symbol_wide_vs_tall_same_zoom() {
     let ctx = SessionContext::new();
     let coord = Geo::mercator().center_lon_lat(-73.9857, 40.7484).zoom(12.0);
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(640.0, 360.0)
         .configure_coord(|c| c.widths([TrackSizing::Px(360.0), TrackSizing::Px(150.0)]))
         .title("Same center/zoom, different plot shapes")
@@ -224,7 +224,7 @@ async fn facet_shared_viewport() {
     let geo = Geo::mercator();
     let child =
         Plot::with_coord(geo.clone()).mark(faceted_symbols(&geo, CoordinationScope::Shared));
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(250.0, 190.0)
         .title("Shared WebMercator viewport")
         .data(facet_points(&ctx).await)
@@ -242,7 +242,7 @@ async fn facet_free_viewports() {
     let ctx = SessionContext::new();
     let geo = Geo::mercator();
     let child = Plot::with_coord(geo.clone()).mark(faceted_symbols(&geo, CoordinationScope::Free));
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .plot_size(250.0, 190.0)
         .title("Free WebMercator viewports")
         .data(facet_points(&ctx).await)
@@ -267,7 +267,7 @@ async fn repeat_shared_fit() {
             .stroke("#111827")
             .stroke_width(1.2),
     );
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .canvas_size(560.0, 420.0)
         .title("Repeat WebMercator shared fit")
         .data(repeat_points(&ctx).await)
@@ -392,7 +392,7 @@ async fn tiles_smooth_zoom_ready_fallback_pending_target() {
         .size(140.0)
         .fill("#dc2626")
         .stroke("#111827");
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .plot_size(256.0, 256.0)
         .canvas_size(320.0, 330.0)
         .title("Smooth tile fallback")
@@ -441,7 +441,7 @@ async fn tiles_tall_square_pixels() {
         .size(140.0)
         .fill("#dc2626")
         .stroke("#111827");
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .plot_size(256.0, 512.0)
         .canvas_size(340.0, 590.0)
         .title("OSM tall viewport")
@@ -463,7 +463,7 @@ async fn tiles_partial_panned() {
         .size(140.0)
         .fill("#dc2626")
         .stroke("#111827");
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .plot_size(360.0, 260.0)
         .canvas_size(430.0, 350.0)
         .title("OSM partial pan")
@@ -488,7 +488,7 @@ async fn tiles_overzoom_max_zoom() {
         .size(140.0)
         .fill("#dc2626")
         .stroke("#111827");
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .plot_size(360.0, 260.0)
         .canvas_size(430.0, 350.0)
         .title("OSM overzoomed from z=1")
@@ -513,7 +513,7 @@ async fn tiles_required_attribution() {
         .size(140.0)
         .fill("#dc2626")
         .stroke("#111827");
-    let plot = Plot::with_coord(geo)
+    let plot = Chart::with_coord(geo)
         .plot_size(512.0, 512.0)
         .canvas_size(580.0, 600.0)
         .title("OSM attribution")

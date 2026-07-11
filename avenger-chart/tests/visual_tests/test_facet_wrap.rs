@@ -165,8 +165,8 @@ fn facet_wrap_plot(
     x_sharing: u8,
     y_sharing: u8,
     fill_sharing: u8,
-) -> Plot<FacetWrap> {
-    Plot::<FacetWrap>::new()
+) -> Chart<FacetWrap> {
+    Chart::<FacetWrap>::new()
         .data(df)
         .canvas_size(980.0, 760.0)
         .mark(
@@ -189,8 +189,8 @@ fn facet_wrap_plot(
         )
 }
 
-fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Plot<FacetWrap> {
-    Plot::<FacetWrap>::new()
+fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Chart<FacetWrap> {
+    Chart::<FacetWrap>::new()
         .data(df)
         .canvas_constraint(CanvasConstraint::width(canvas_width))
         .plot_constraint(PlotConstraint::height(135.0))
@@ -201,10 +201,10 @@ fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Plot<FacetWra
         )
 }
 
-fn responsive_facet_wrap_session_plot(df: DataFrame) -> Plot<FacetWrap> {
+fn responsive_facet_wrap_session_plot(df: DataFrame) -> Chart<FacetWrap> {
     let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
-    Plot::<FacetWrap>::new()
-        .add_param(width.clone())
+    Chart::<FacetWrap>::new()
+        .param(width.clone())
         .data(df)
         .canvas_constraint(CanvasConstraint::width(width.expr()))
         .plot_constraint(PlotConstraint::height(135.0))
@@ -245,7 +245,7 @@ async fn assert_facet_wrap_baseline(
     assert_visual_match_default(&compiled, &ctx, None, BASELINE_CATEGORY, name).await;
 }
 
-fn nested_row_wrap_plot(df: DataFrame) -> Plot<FacetRow> {
+fn nested_row_wrap_plot(df: DataFrame) -> Chart<FacetRow> {
     let wrap = Plot::<FacetWrap>::new().mark(Subplot::new(wrap_leaf_plot(1, 1, 1)).wrap_with(
         col("facet"),
         |c| {
@@ -256,13 +256,13 @@ fn nested_row_wrap_plot(df: DataFrame) -> Plot<FacetRow> {
         },
     ));
 
-    Plot::<FacetRow>::new()
+    Chart::<FacetRow>::new()
         .data(df)
         .canvas_size(1120.0, 920.0)
         .mark(Subplot::new(wrap).row_with(col("region"), |c| c.guide(|g| g.title("Region"))))
 }
 
-fn nested_column_wrap_plot(df: DataFrame) -> Plot<FacetColumn> {
+fn nested_column_wrap_plot(df: DataFrame) -> Chart<FacetColumn> {
     let wrap = Plot::<FacetWrap>::new().mark(Subplot::new(wrap_leaf_plot(1, 1, 2)).wrap_with(
         col("facet"),
         |c| {
@@ -273,7 +273,7 @@ fn nested_column_wrap_plot(df: DataFrame) -> Plot<FacetColumn> {
         },
     ));
 
-    Plot::<FacetColumn>::new()
+    Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(1420.0, 760.0)
         .mark(Subplot::new(wrap).column_with(col("region"), |c| c.guide(|g| g.title("Region"))))

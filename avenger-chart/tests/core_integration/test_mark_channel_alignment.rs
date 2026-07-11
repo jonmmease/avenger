@@ -118,7 +118,7 @@ fn collect_paths<'a>(mark: &'a SceneMark, paths: &mut Vec<&'a ScenePathMark>) {
 async fn cartesian_mark_channel_descriptors_align_with_existing_renderers() {
     let ctx = SessionContext::new();
 
-    let symbol_plot = Plot::<Cartesian>::new().mark(
+    let symbol_plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(col("x"))
             .y(col("y"))
@@ -131,7 +131,7 @@ async fn cartesian_mark_channel_descriptors_align_with_existing_renderers() {
     assert!(channel(&symbol_channels, "opacity").allow_column_ref);
 
     let line_plot =
-        Plot::<Cartesian>::new().mark(Line::new().x(col("x")).y(col("y")).opacity(col("opacity")));
+        Chart::<Cartesian>::new().mark(Line::new().x(col("x")).y(col("y")).opacity(col("opacity")));
     let line = line_plot.compile(&ctx).await.unwrap().marks()[0].clone();
     let line_channels = line.supported_channels();
     assert!(channel(&line_channels, "opacity").allow_column_ref);
@@ -141,7 +141,7 @@ async fn cartesian_mark_channel_descriptors_align_with_existing_renderers() {
             .all(|channel| channel.name != "stroke_opacity")
     );
 
-    let rect_plot = Plot::<Cartesian>::new().mark(
+    let rect_plot = Chart::<Cartesian>::new().mark(
         Rect::new()
             .x(col("x"))
             .x2(col("x2"))
@@ -193,7 +193,7 @@ fn cartesian_scene_mark_coverage_is_explicit() {
 async fn rule_and_text_channel_descriptors_expose_scene_mark_channels() {
     let ctx = SessionContext::new();
 
-    let rule_plot = Plot::<Cartesian>::new().mark(
+    let rule_plot = Chart::<Cartesian>::new().mark(
         Rule::new()
             .x(col("x"))
             .y(col("y"))
@@ -207,7 +207,7 @@ async fn rule_and_text_channel_descriptors_expose_scene_mark_channels() {
     assert!(channel(&rule_channels, "stroke_cap").allow_column_ref);
     assert!(channel(&rule_channels, "opacity").allow_column_ref);
 
-    let text_plot = Plot::<Cartesian>::new().mark(
+    let text_plot = Chart::<Cartesian>::new().mark(
         Text::new()
             .x(col("x"))
             .y(col("y"))
@@ -245,7 +245,7 @@ async fn rule_and_text_channel_descriptors_expose_scene_mark_channels() {
 async fn area_and_trail_channel_descriptors_expose_scene_mark_channels() {
     let ctx = SessionContext::new();
 
-    let area_plot = Plot::<Cartesian>::new().mark(
+    let area_plot = Chart::<Cartesian>::new().mark(
         Area::new()
             .x(col("x"))
             .y(col("y"))
@@ -262,7 +262,7 @@ async fn area_and_trail_channel_descriptors_expose_scene_mark_channels() {
     assert!(channel(&area_channels, "opacity").allow_column_ref);
     assert!(!channel(&area_channels, "orientation").allow_column_ref);
 
-    let trail_plot = Plot::<Cartesian>::new().mark(
+    let trail_plot = Chart::<Cartesian>::new().mark(
         Trail::new()
             .x(col("x"))
             .y(col("y"))
@@ -281,7 +281,7 @@ async fn area_and_trail_channel_descriptors_expose_scene_mark_channels() {
 async fn image_and_path_channel_descriptors_expose_scene_mark_channels() {
     let ctx = SessionContext::new();
 
-    let image_plot = Plot::<Cartesian>::new().mark(
+    let image_plot = Chart::<Cartesian>::new().mark(
         Image::new()
             .x(col("x"))
             .y(col("y"))
@@ -300,7 +300,7 @@ async fn image_and_path_channel_descriptors_expose_scene_mark_channels() {
     assert!(!channel(&image_channels, "aspect").allow_column_ref);
     assert!(!channel(&image_channels, "smooth").allow_column_ref);
 
-    let path_plot = Plot::<Cartesian>::new().mark(
+    let path_plot = Chart::<Cartesian>::new().mark(
         PathMark::new()
             .x(col("x"))
             .y(col("y"))
@@ -321,7 +321,7 @@ async fn image_and_path_channel_descriptors_expose_scene_mark_channels() {
 #[tokio::test]
 async fn symbol_opacity_is_folded_into_fill_and_stroke_alpha() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Symbol::new()
             .x(0.0)
             .y(0.0)
@@ -359,7 +359,7 @@ async fn symbol_opacity_is_folded_into_fill_and_stroke_alpha() {
 #[tokio::test]
 async fn rule_opacity_is_folded_into_stroke_alpha() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Rule::new()
             .x(0.0)
             .y(0.0)
@@ -390,7 +390,7 @@ async fn rule_opacity_is_folded_into_stroke_alpha() {
 async fn area_opacity_is_folded_into_fill_and_stroke_alpha() {
     let ctx = SessionContext::new();
     let data = xy_data(&ctx);
-    let plot = Plot::<Cartesian>::new().data(data).mark(
+    let plot = Chart::<Cartesian>::new().data(data).mark(
         Area::new()
             .x(col("x"))
             .y(col("y"))
@@ -423,7 +423,7 @@ async fn area_opacity_is_folded_into_fill_and_stroke_alpha() {
 async fn trail_opacity_is_folded_into_stroke_alpha() {
     let ctx = SessionContext::new();
     let data = xy_data(&ctx);
-    let plot = Plot::<Cartesian>::new().data(data).mark(
+    let plot = Chart::<Cartesian>::new().data(data).mark(
         Trail::new()
             .x(col("x"))
             .y(col("y"))
@@ -453,7 +453,7 @@ async fn trail_opacity_is_folded_into_stroke_alpha() {
 async fn varying_area_and_trail_scalar_styles_partition_scene_marks() {
     let ctx = SessionContext::new();
 
-    let area_plot = Plot::<Cartesian>::new().data(styled_xy_data(&ctx)).mark(
+    let area_plot = Chart::<Cartesian>::new().data(styled_xy_data(&ctx)).mark(
         Area::new()
             .x(col("x"))
             .y(col("y"))
@@ -479,7 +479,7 @@ async fn varying_area_and_trail_scalar_styles_partition_scene_marks() {
         "area should partition when fill or opacity varies"
     );
 
-    let trail_plot = Plot::<Cartesian>::new().data(styled_xy_data(&ctx)).mark(
+    let trail_plot = Chart::<Cartesian>::new().data(styled_xy_data(&ctx)).mark(
         Trail::new()
             .x(col("x"))
             .y(col("y"))
@@ -509,7 +509,7 @@ async fn varying_area_and_trail_scalar_styles_partition_scene_marks() {
 #[tokio::test]
 async fn image_data_uri_renders_without_network_resources() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Image::new()
             .x(0.5)
             .y(0.5)
@@ -546,7 +546,7 @@ async fn image_data_uri_renders_without_network_resources() {
 #[tokio::test]
 async fn path_opacity_is_folded_into_fill_and_stroke_alpha() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         PathMark::new()
             .x(0.5)
             .y(0.5)
@@ -592,7 +592,7 @@ async fn text_column_values_render_as_strings_without_scale() {
     )
     .unwrap();
     let df = ctx.read_batch(batch).unwrap();
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(Text::new().x(col("x")).y(col("y")).text(col("label")));
 
@@ -619,7 +619,7 @@ async fn text_column_values_render_as_strings_without_scale() {
 #[tokio::test]
 async fn text_leader_channels_compile_to_scene_mark_fields() {
     let ctx = SessionContext::new();
-    let plot = Plot::<Cartesian>::new().mark(
+    let plot = Chart::<Cartesian>::new().mark(
         Text::new()
             .x(0.0)
             .y(0.0)
@@ -708,7 +708,7 @@ async fn text_defined_channel_compiles_to_scene_mark_field() {
     )
     .unwrap();
     let df = ctx.read_batch(batch).unwrap();
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Text::new()
             .x(col("x"))
             .y(col("y"))
@@ -750,7 +750,7 @@ async fn text_numeric_font_weight_column_compiles_to_scene_mark_field() {
     )
     .unwrap();
     let df = ctx.read_batch(batch).unwrap();
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Text::new()
             .x(col("x"))
             .y(col("y"))

@@ -32,7 +32,7 @@ async fn polar_line_arc_vs_chord() {
         vec![Arc::new(Float64Array::from(vec![0.0, PI])) as ArrayRef],
     );
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Coordinate Arc vs Display Chord")
         .mark(
@@ -79,7 +79,7 @@ async fn polar_line_radial_and_spiral() {
         ],
     );
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Radial and Spiral Polar Lines")
         .legend("stroke", |legend| legend.title("Series"))
@@ -121,7 +121,7 @@ async fn polar_line_dashed_gaps() {
         ],
     );
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Dashed Line With Gaps")
         .mark(
@@ -172,7 +172,7 @@ async fn polar_line_multi_series_details() {
         ],
     );
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Multi-Series Polar Lines")
         .legend("stroke", |legend| legend.title("Series"))
@@ -209,7 +209,7 @@ async fn polar_line_categorical_theta() {
         ],
     );
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Categorical Theta")
         .mark(
@@ -241,7 +241,7 @@ async fn polar_line_clipping() {
         ],
     );
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Clipped Polar Line")
         .mark(

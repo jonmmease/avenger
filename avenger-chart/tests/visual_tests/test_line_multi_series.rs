@@ -152,7 +152,7 @@ async fn test_multi_series_line_with_color() {
     let df = create_multi_series_data();
 
     // Create a plot with lines colored by series
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
@@ -174,7 +174,7 @@ async fn test_multi_series_line_with_width() {
     let df = create_multi_series_with_widths();
 
     // Create a plot with lines having different widths per series
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
@@ -196,7 +196,7 @@ async fn test_multi_series_with_color_and_width() {
     let df = create_multi_series_with_widths();
 
     // Create a plot where color and width vary by series
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
@@ -218,7 +218,7 @@ async fn test_line_with_order_channel() {
     let df = create_mixed_order_data();
 
     // Create a plot using order channel to sort points
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
@@ -263,7 +263,7 @@ async fn test_multi_series_line_with_dash() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
@@ -324,7 +324,7 @@ async fn test_multi_series_line_with_color_and_dash() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))
@@ -386,7 +386,7 @@ async fn test_multi_series_line_all_encodings() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(batch).unwrap();
 
-    let plot = Plot::<Cartesian>::new().data(df).mark(
+    let plot = Chart::<Cartesian>::new().data(df).mark(
         Line::new()
             .x_with(col("x"), |c| {
                 c.scale(|s| s).axis(|axis| axis.title("X").grid(true))

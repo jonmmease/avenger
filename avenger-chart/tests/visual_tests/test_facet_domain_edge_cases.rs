@@ -127,7 +127,7 @@ async fn facet_row_numeric_ordering() {
 
     // Numeric facet values should be sorted in correct numeric order
     // -100, -1, 0, 1, 100 (not string order: -1, -100, 0, 1, 100)
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -154,7 +154,7 @@ async fn facet_row_integer_ordering() {
 
     // Integer facet values should be sorted in correct numeric order
     // -5, 1, 2, 3, 10
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -184,7 +184,7 @@ async fn facet_row_string_special_chars() {
     let df = dataset_with_string_facet_special_chars(&ctx);
 
     // String facet values with special chars should sort lexicographically
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -221,7 +221,7 @@ async fn facet_row_large_range() {
     let df = dataset_with_large_range(&ctx);
 
     // Very large and very small but finite values should work with Free scaling
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

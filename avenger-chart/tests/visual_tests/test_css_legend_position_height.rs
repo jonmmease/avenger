@@ -178,13 +178,13 @@ async fn test_media_query_legend_position_height() {
     .unwrap();
 
     // Create a SINGLE plot with responsive legend positioning based on height
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .subtitle(subtitle_expr)
         .data(df)
-        .add_param(width_param)
-        .add_param(height_param)
+        .param(width_param)
+        .param(height_param)
         .mark(
             Line::new()
                 .x_with(col("date"), |c| {
@@ -392,12 +392,12 @@ async fn test_media_query_legend_position_combined() {
     .unwrap();
 
     // Create a SINGLE plot with combined responsive legend positioning
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .data(df)
-        .add_param(width_param)
-        .add_param(height_param)
+        .param(width_param)
+        .param(height_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| {

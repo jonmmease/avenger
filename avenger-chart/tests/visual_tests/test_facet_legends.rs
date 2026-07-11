@@ -20,7 +20,7 @@ async fn test_facet_row_free_domains_with_free_color_legend() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -76,7 +76,7 @@ async fn test_facet_row_free_domains_with_left_color_legend() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -132,7 +132,7 @@ async fn test_facet_row_shared_scales_with_shared_color_legend() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -187,7 +187,7 @@ async fn test_facet_row_mixed_sharing_free_color_shared_axes() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -260,7 +260,7 @@ async fn test_facet_col_shared_color_legend() {
         .await
         .expect("add categorical column");
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -309,7 +309,7 @@ async fn test_facet_col_legend_left() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -362,7 +362,7 @@ async fn test_facet_col_legend_right() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -415,7 +415,7 @@ async fn test_facet_col_legend_top() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -468,7 +468,7 @@ async fn test_facet_col_legend_bottom() {
         .await
         .expect("load iris dataset");
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -533,7 +533,7 @@ async fn test_facet_row_two_rows_free_legend() {
 
     let df = ctx.table("test_data").await.expect("load test data");
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

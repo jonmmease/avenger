@@ -99,7 +99,7 @@ async fn custom_data_transform_can_live_outside_builtin_transform_crate()
     )?;
     let df = ctx.read_batch(batch)?;
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Symbol::new().transform(AddConstant::new("shifted_value", 10.0), |mark, shifted| {
@@ -136,7 +136,7 @@ async fn transform_output_scale_cannot_be_shared_broader_than_transform_scope()
     )?;
     let df = ctx.read_batch(batch)?;
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(Symbol::new().transform_free(
             Bin::new(col("source_value")).maxbins(3),
@@ -174,7 +174,7 @@ async fn transform_output_scale_can_be_shared_narrower_than_transform_scope()
     )?;
     let df = ctx.read_batch(batch)?;
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(Symbol::new().transform_shared(
             Bin::new(col("source_value")).maxbins(3),

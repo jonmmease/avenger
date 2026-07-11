@@ -143,13 +143,13 @@ async fn test_media_query_guide_background_responsive() {
     .unwrap();
 
     // Create a SINGLE plot with responsive title/subtitle based on width parameter
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .subtitle(subtitle_expr)
         .data(df)
-        .add_param(width_param)
-        .add_param(height_param)
+        .param(width_param)
+        .param(height_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
@@ -305,13 +305,13 @@ async fn test_media_query_multi_range_syntax() {
     .unwrap();
 
     // Create a SINGLE plot with responsive title/subtitle based on width parameter
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .subtitle(subtitle_expr)
         .data(df)
-        .add_param(width_param)
-        .add_param(height_param)
+        .param(width_param)
+        .param(height_param)
         .mark(
             Symbol::new()
                 .x_with(col("x"), |c| c.axis(|a| a.grid(true).title("X Axis")))
@@ -458,12 +458,12 @@ async fn test_media_query_legend_position() {
     .unwrap();
 
     // Create a SINGLE plot with responsive legend positioning
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(width_param.expr(), height_param.expr())
         .title(title_expr)
         .data(df)
-        .add_param(width_param)
-        .add_param(height_param)
+        .param(width_param)
+        .param(height_param)
         .legend("fill", |legend| legend.title("Temperature °C"))
         .mark(
             Symbol::new()

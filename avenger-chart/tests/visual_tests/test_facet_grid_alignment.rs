@@ -64,7 +64,7 @@ async fn concat_grid_facet_track_alignment() {
     let ctx = SessionContext::new();
     let df = alignment_data(&ctx).await;
 
-    let plot = Plot::<GridConcat>::new()
+    let plot = Chart::<GridConcat>::new()
         .data(df)
         .configure_coord(|c| c.rows(1).columns(2))
         .mark(

@@ -55,7 +55,7 @@ async fn test_aggregate_sum_by_category() {
 
     // Bar chart with aggregation: sum of sales by category
     // This should automatically group by category and sum sales
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Total Sales by Category")
         .subtitle("Automatically aggregated using sum()")
         .data(df)
@@ -78,7 +78,7 @@ async fn test_aggregate_mean_by_category() {
     let df = create_sales_data();
 
     // Bar chart with avg aggregation
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Average Profit by Category")
         .subtitle("Automatically aggregated using avg()")
         .data(df)
@@ -102,7 +102,7 @@ async fn test_aggregate_multiple_aggregates() {
 
     // Bar chart with multiple aggregated encodings
     // Both y and fill use aggregates, x is the grouping dimension
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Sales with Profit-based Color")
         .subtitle("Multiple aggregate encodings (sum + avg)")
         .data(df)
@@ -128,7 +128,7 @@ async fn test_aggregate_count() {
     let df = create_sales_data();
 
     // Bar chart counting rows per category
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Count of Records by Category")
         .subtitle("Using count() aggregation")
         .data(df)
@@ -155,7 +155,7 @@ async fn test_aggregate_no_grouping() {
     // Add a constant column for the x position
     let df = df.with_column("label", lit("Total")).unwrap();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Total Sales (All Categories)")
         .subtitle("Full table aggregation with no GROUP BY")
         .data(df)
@@ -181,7 +181,7 @@ async fn test_aggregate_movies_by_mpaa_rating() {
 
     // Bar chart: Average worldwide gross by MPAA rating, colored by average IMDB rating
     // This tests aggregation with a real-world dataset
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Average Worldwide Gross by MPAA Rating")
         .subtitle("Colored by Average IMDB Rating")
         .data(df)
@@ -223,7 +223,7 @@ async fn test_aggregate_movies_symbol_plot() {
 
     // Symbol plot: MPAA Rating vs Creative Type
     // Size by count, color by avg Rotten Tomatoes Rating
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Movie Count by MPAA Rating and Creative Type")
         .subtitle("Size: Count, Color: Avg Rotten Tomatoes Rating")
         .canvas_size(600.0, 300.0) // 50% wider than default (400x300)

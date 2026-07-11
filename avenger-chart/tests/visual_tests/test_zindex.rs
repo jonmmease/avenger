@@ -26,7 +26,7 @@ async fn test_zindex_ordering() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         // First: Light blue line (with high zindex=10, should be drawn last/on top)
         .mark(
@@ -87,7 +87,7 @@ async fn test_zindex_default_order() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         // SAME marks, SAME order, but NO zindex - should render in declaration order
         // First: Light blue line (no zindex, should be drawn first/bottom)

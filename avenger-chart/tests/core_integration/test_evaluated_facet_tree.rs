@@ -48,7 +48,7 @@ async fn test_from_compiled_plot_no_facets() {
     let df = create_test_data(&ctx).await;
 
     // Simple plot without faceting
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(Symbol::new().x(col("value")).y(col("value")));
 
@@ -67,7 +67,7 @@ async fn test_from_compiled_plot_single_row_facet() {
     let df = create_test_data(&ctx).await;
 
     // Single-level FacetRow by species
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .row(col("species")),
     );
@@ -98,7 +98,7 @@ async fn test_from_compiled_plot_single_col_facet() {
     let df = create_test_data(&ctx).await;
 
     // Single-level FacetColumn by region
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .column(col("region")),
     );
@@ -126,7 +126,7 @@ async fn test_from_compiled_plot_nested_col_row() {
     let df = create_test_data(&ctx).await;
 
     // Nested: FacetColumn (region) > FacetRow (species)
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -175,7 +175,7 @@ async fn test_from_compiled_plot_nested_row_row() {
     let df = create_test_data(&ctx).await;
 
     // Nested: FacetRow (region) > FacetRow (species)
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -256,7 +256,7 @@ async fn test_facet_wrap_default_columns_and_predicate_skip_structural_row() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetWrap>::new().data(df.clone()).mark(
+    let plot = Chart::<FacetWrap>::new().data(df.clone()).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .wrap(col("species")),
     );
@@ -302,7 +302,7 @@ async fn test_facet_wrap_columns_and_order_by_aggregate() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetWrap>::new().data(df).mark(
+    let plot = Chart::<FacetWrap>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .wrap_with(col("species"), |c| {
                 c.columns(1).order_by(max(col("value"))).order_desc()
@@ -335,9 +335,9 @@ async fn test_facet_wrap_columns_accepts_param() {
     let df = create_test_data(&ctx).await;
     let columns = Param::new("wrap_columns", ScalarValue::Int64(Some(2)));
 
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .data(df)
-        .add_param(columns.clone())
+        .param(columns.clone())
         .mark(
             Subplot::new(
                 Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))),
@@ -366,7 +366,7 @@ async fn test_facet_wrap_columns_accepts_aggregate() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetWrap>::new().data(df).mark(
+    let plot = Chart::<FacetWrap>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .wrap_with(col("species"), |c| c.columns(max(col("value")))),
     );
@@ -388,7 +388,7 @@ async fn test_facet_wrap_columns_rejects_non_aggregate_column_expr() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetWrap>::new().data(df).mark(
+    let plot = Chart::<FacetWrap>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .wrap_with(col("species"), |c| c.columns(col("value"))),
     );
@@ -412,7 +412,7 @@ async fn test_free_sharing_nested_row_row() {
     let df = create_varying_domain_data(&ctx).await;
 
     // Nested Row > Row with Free sharing (default)
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -459,7 +459,7 @@ async fn test_shared_sharing_nested_row_row() {
     let df = create_varying_domain_data(&ctx).await;
 
     // Nested Row > Row with Shared sharing on inner facet
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -507,7 +507,7 @@ async fn test_sharing_level_stored_in_node() {
     let df = create_varying_domain_data(&ctx).await;
 
     // Outer: Free (default), Inner: Level(2)
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -541,7 +541,7 @@ async fn test_row_facet_order_by_aggregate_descending() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .row_with(col("species"), |c| {
                 c.order_by(max(col("value"))).order_desc()
@@ -566,7 +566,7 @@ async fn test_facet_order_by_rejects_non_aggregate_non_partition_column() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .row_with(col("species"), |c| c.order_by(col("region"))),
     );
@@ -588,7 +588,7 @@ async fn test_free_nested_facet_ordering_is_parent_scoped() {
     let ctx = SessionContext::new();
     let df = create_varying_domain_data(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -626,7 +626,7 @@ async fn test_shared_nested_facet_ordering_uses_global_scope() {
     let ctx = SessionContext::new();
     let df = create_varying_domain_data(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -694,7 +694,7 @@ async fn test_level1_nested_facet_ordering_uses_ancestor_scope() {
     let ctx = SessionContext::new();
     let df = create_three_level_ordering_data(&ctx).await;
 
-    let plot = Plot::<FacetColumn>::new().data(df).mark(
+    let plot = Chart::<FacetColumn>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetColumn>::new().mark(
                 Subplot::new(
@@ -757,7 +757,7 @@ async fn test_enumerate_values_for_facet_shared_returns_union() {
     let ctx = SessionContext::new();
     let df = create_varying_domain_data(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(
@@ -796,7 +796,7 @@ async fn test_node_at_path_root_values() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
 
-    let plot = Plot::<FacetRow>::new().data(df).mark(
+    let plot = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .row(col("species")),
     );
@@ -820,7 +820,7 @@ async fn test_facet_presence_via_root_and_depth() {
     let df = create_test_data(&ctx).await;
 
     // No facets
-    let plot_no_facets = Plot::<Cartesian>::new()
+    let plot_no_facets = Chart::<Cartesian>::new()
         .data(df.clone())
         .mark(Symbol::new().x(col("value")).y(col("value")));
 
@@ -832,7 +832,7 @@ async fn test_facet_presence_via_root_and_depth() {
     assert_eq!(spec.depth(), 0);
 
     // Single facet
-    let plot_single = Plot::<FacetRow>::new().data(df.clone()).mark(
+    let plot_single = Chart::<FacetRow>::new().data(df.clone()).mark(
         Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("value")).y(col("value"))))
             .row(col("species")),
     );
@@ -845,7 +845,7 @@ async fn test_facet_presence_via_root_and_depth() {
     assert_eq!(spec.depth(), 1);
 
     // Nested facets
-    let plot_nested = Plot::<FacetRow>::new().data(df).mark(
+    let plot_nested = Chart::<FacetRow>::new().data(df).mark(
         Subplot::new(
             Plot::<FacetRow>::new().mark(
                 Subplot::new(

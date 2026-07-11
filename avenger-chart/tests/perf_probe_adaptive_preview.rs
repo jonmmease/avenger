@@ -78,8 +78,8 @@ async fn taxi_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFram
     ctx.table("taxi_pickups").await.unwrap()
 }
 
-fn adaptive_plot(df: datafusion::dataframe::DataFrame) -> Plot<Cartesian> {
-    Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+fn adaptive_plot(df: datafusion::dataframe::DataFrame) -> Chart<Cartesian> {
+    Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .title("probe")
         .canvas_size(960.0, 720.0)
         .mark(

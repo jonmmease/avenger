@@ -55,7 +55,7 @@ async fn test_polar_scatter_plot() {
     let ctx = SessionContext::new();
     let df = create_polar_data();
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Polar Scatter Plot")
         .subtitle("Demonstrating categorical colors and legends")
@@ -126,7 +126,7 @@ async fn test_polar_scatter_with_clipping() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .title("Polar Plot with Clipping")
         .subtitle("Points beyond r=80 are clipped at the boundary")
@@ -199,7 +199,7 @@ async fn test_polar_scatter_with_size_color() {
         .read_batch(batch)
         .expect("Failed to read batch into DataFrame");
 
-    let plot = Plot::<Polar>::new()
+    let plot = Chart::<Polar>::new()
         .data(df)
         .legend("size", |legend| legend.title("Size"))
         .legend("fill", |legend| legend.title("Color Value"))

@@ -146,7 +146,7 @@ async fn facet_row_single_cell() {
     let ctx = SessionContext::new();
     let df = single_category_dataset(&ctx);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -171,7 +171,7 @@ async fn facet_column_single_cell() {
     let ctx = SessionContext::new();
     let df = single_category_dataset(&ctx);
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -200,7 +200,7 @@ async fn facet_row_two_cells() {
     let ctx = SessionContext::new();
     let df = two_category_dataset(&ctx);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -225,7 +225,7 @@ async fn facet_column_two_cells() {
     let ctx = SessionContext::new();
     let df = two_category_dataset(&ctx);
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -254,7 +254,7 @@ async fn facet_row_many_cells() {
     let ctx = SessionContext::new();
     let df = many_category_dataset(&ctx, 8);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -279,7 +279,7 @@ async fn facet_column_many_cells() {
     let ctx = SessionContext::new();
     let df = many_category_dataset(&ctx, 6);
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -308,7 +308,7 @@ async fn facet_row_integer_values() {
     let ctx = SessionContext::new();
     let df = integer_facet_dataset(&ctx);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -338,7 +338,7 @@ async fn facet_row_extreme_values_free() {
     let df = extreme_values_dataset(&ctx);
 
     // Free scaling should handle extreme value ranges per-cell
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(
@@ -380,7 +380,7 @@ async fn facet_row_single_cell_free() {
     let ctx = SessionContext::new();
     let df = single_category_dataset(&ctx);
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .data(df)
         .mark(
             Subplot::new(

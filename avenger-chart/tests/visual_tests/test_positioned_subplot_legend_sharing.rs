@@ -60,8 +60,8 @@ fn shared_legend_child() -> Plot<Cartesian> {
         )
 }
 
-fn cartesian_parent_plot(df: DataFrame) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new()
+fn cartesian_parent_plot(df: DataFrame) -> Chart<Cartesian> {
+    Chart::<Cartesian>::new()
         .data(df)
         .plot_size(620.0, 360.0)
         .title("Cartesian positioned shared legend")
@@ -85,8 +85,8 @@ fn cartesian_parent_plot(df: DataFrame) -> Plot<Cartesian> {
         )
 }
 
-fn polar_parent_plot(df: DataFrame) -> Plot<Polar> {
-    Plot::<Polar>::new()
+fn polar_parent_plot(df: DataFrame) -> Chart<Polar> {
+    Chart::<Polar>::new()
         .data(df)
         .plot_size(520.0, 420.0)
         .title("Polar positioned shared legend")
@@ -112,7 +112,7 @@ fn polar_parent_plot(df: DataFrame) -> Plot<Polar> {
 
 async fn assert_positioned_subplot_legend_baseline<C>(
     name: &'static str,
-    make_plot: impl FnOnce(DataFrame) -> Plot<C> + Send + 'static,
+    make_plot: impl FnOnce(DataFrame) -> Chart<C> + Send + 'static,
 ) where
     C: CoordinateSystem + 'static,
 {

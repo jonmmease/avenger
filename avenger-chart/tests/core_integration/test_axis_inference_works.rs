@@ -4,7 +4,7 @@ use avenger_chart::prelude::*;
 fn test_cartesian_axis_inference_works() {
     // This test verifies that type inference works without explicit type annotations
     // on the axis closure parameter for Cartesian coordinates
-    let _plot = Plot::<Cartesian>::new().mark(
+    let _plot = Chart::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x_with("x", |c| {
                 c.axis(|a| {
