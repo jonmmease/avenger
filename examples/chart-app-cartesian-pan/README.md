@@ -27,11 +27,20 @@ console it is just `cache_metrics()`:
 
 1. After first render, call `cache_metrics()` — expect committed
    entries > 0 and no panics (the web-time clock working).
-2. Pan the chart, calling `cache_metrics()` during the gesture — expect
-   `hits` to grow while `admitted_writes` stays FLAT (preview evaluations
-   are observe-only).
-3. Release and let the view settle — expect `admitted_writes` to grow
-   (settled exact evaluations admit again), then further pans to hit.
+2. Start a hands-free logger BEFORE grabbing the chart, then pan for a
+   few seconds, release, wait a beat, and stop it:
+
+   ```js
+   const t = setInterval(() => console.log(Date.now() % 100000, cache_metrics()), 400);
+   // pan around ... release ... wait ~2s
+   clearInterval(t);
+   ```
+
+   In the mid-drag entries, expect `hits` climbing while
+   `admitted_writes` stays FLAT (preview evaluations are observe-only).
+3. In the entries just after release, expect `admitted_writes` to jump
+   (the settled exact evaluation admits again), and later pans over
+   visited regions to hit more.
 4. Note the first evaluation's feel vs later ones; first-touch content
    hashing of the (tiny) table is unmeasurable here — large-table
    first-hash cost is a documented watch item, not part of this
