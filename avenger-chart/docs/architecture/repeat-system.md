@@ -85,14 +85,16 @@ This is how scatterplot matrices use scatter marks off diagonal and a
 histogram or density plot on diagonal:
 
 ```rust
-Plot::<RepeatGrid>::new()
-    .rows(vars.clone())
-    .columns(vars)
-    .cell(scatter_cell)
-    .cell_when(
-        repeat::row_index().eq(repeat::column_index()),
-        histogram_cell,
-    );
+Plot::with_coord(
+    RepeatGrid::new()
+        .rows(vars.clone())
+        .columns(vars)
+        .cell(scatter_cell)
+        .cell_when(
+            repeat::row_index().eq(repeat::column_index()),
+            histogram_cell,
+        ),
+);
 ```
 
 The selected branch does not change the generated cell identity. Stable

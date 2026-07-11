@@ -177,7 +177,7 @@ async fn symbol_wide_vs_tall_same_zoom() {
     let coord = Geo::mercator().center_lon_lat(-73.9857, 40.7484).zoom(12.0);
     let plot = Plot::<HConcat>::new()
         .canvas_size(640.0, 360.0)
-        .widths([TrackSizing::Px(360.0), TrackSizing::Px(150.0)])
+        .configure_coord(|c| c.widths([TrackSizing::Px(360.0), TrackSizing::Px(150.0)]))
         .title("Same center/zoom, different plot shapes")
         .data(landmarks(&ctx).await)
         .mark(
@@ -271,16 +271,18 @@ async fn repeat_shared_fit() {
         .canvas_size(560.0, 420.0)
         .title("Repeat WebMercator shared fit")
         .data(repeat_points(&ctx).await)
-        .rows([
-            RepeatVariable::new("south_lat", col("south_lat")).title("South"),
-            RepeatVariable::new("north_lat", col("north_lat")).title("North"),
-        ])
-        .columns([
-            RepeatVariable::new("near_lon", col("near_lon")).title("Near"),
-            RepeatVariable::new("far_lon", col("far_lon")).title("Far"),
-        ])
-        .matrix_domains()
-        .cell(cell);
+        .configure_coord(|c| {
+            c.rows([
+                RepeatVariable::new("south_lat", col("south_lat")).title("South"),
+                RepeatVariable::new("north_lat", col("north_lat")).title("North"),
+            ])
+            .columns([
+                RepeatVariable::new("near_lon", col("near_lon")).title("Near"),
+                RepeatVariable::new("far_lon", col("far_lon")).title("Far"),
+            ])
+            .matrix_domains()
+            .cell(cell)
+        });
 
     let compiled = plot
         .compile(&ctx)

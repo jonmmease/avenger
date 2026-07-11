@@ -4699,7 +4699,7 @@ mod tests {
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
-            .responsive_columns(180.0)
+            .configure_coord(|c| c.responsive_columns(180.0))
             .mark(Subplot::new(child()).key("a"))
             .mark(Subplot::new(child()).key("b"))
             .mark(Subplot::new(child()).key("c"))
@@ -4728,19 +4728,20 @@ mod tests {
         let items = ["a", "b", "c"]
             .into_iter()
             .map(|name| RepeatVariable::new(name, col(name)).title(format!("Title {name}")));
-        let repeat = Plot::<RepeatWrap>::new()
-            .items(items)
-            .responsive_columns(180.0)
-            .cell(
-                Plot::<Cartesian>::new().mark(
-                    Symbol::new()
-                        .x(lit(1.0))
-                        .y(repeat::item())
-                        .size(20.0)
-                        .fill("#4682b4"),
-                ),
-            )
-            .item_domains();
+        let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
+            c.items(items)
+                .responsive_columns(180.0)
+                .cell(
+                    Plot::<Cartesian>::new().mark(
+                        Symbol::new()
+                            .x(lit(1.0))
+                            .y(repeat::item())
+                            .size(20.0)
+                            .fill("#4682b4"),
+                    ),
+                )
+                .item_domains()
+        });
         Plot::<FacetWrap>::new()
             .add_param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -8608,8 +8609,7 @@ mod tests {
             Plot::<GridConcat>::new()
                 .canvas_size(720.0, 420.0)
                 .data(df)
-                .rows(2)
-                .columns(3)
+                .configure_coord(|c| c.rows(2).columns(3))
                 .mark(
                     Subplot::new(simple_interaction_scope_child())
                         .grid_cell(0, 2)
@@ -8671,8 +8671,7 @@ mod tests {
             Plot::<GridConcat>::new()
                 .canvas_size(720.0, 420.0)
                 .data(df)
-                .rows(3)
-                .columns(3)
+                .configure_coord(|c| c.rows(3).columns(3))
                 .mark(
                     Subplot::new(simple_interaction_scope_child())
                         .grid_cell(0, 0)
@@ -8733,7 +8732,7 @@ mod tests {
             Plot::<WrapConcat>::new()
                 .canvas_size(720.0, 420.0)
                 .data(df)
-                .columns(2)
+                .configure_coord(|c| c.columns(2))
                 .mark(Subplot::new(simple_interaction_scope_child()).key("a"))
                 .mark(Subplot::new(simple_interaction_scope_child()).key("b"))
                 .mark(Subplot::new(simple_interaction_scope_child()).key("c"))

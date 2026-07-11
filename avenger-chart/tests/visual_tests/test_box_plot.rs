@@ -1544,11 +1544,13 @@ async fn box_plot_repeat_nested_band() {
         .title("Repeated grouped box plots")
         .canvas_size(980.0, 480.0)
         .data(repeat_box_plot_data(&ctx))
-        .columns(vec![
-            RepeatVariable::field("throughput").title("Throughput"),
-            RepeatVariable::field("latency").title("Latency"),
-        ])
-        .cell(cell);
+        .configure_coord(|c| {
+            c.columns(vec![
+                RepeatVariable::field("throughput").title("Throughput"),
+                RepeatVariable::field("latency").title("Latency"),
+            ])
+            .cell(cell)
+        });
 
     let compiled = plot
         .compile(&ctx)

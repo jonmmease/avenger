@@ -66,8 +66,7 @@ async fn concat_grid_facet_track_alignment() {
 
     let plot = Plot::<GridConcat>::new()
         .data(df)
-        .rows(1)
-        .columns(2)
+        .configure_coord(|c| c.rows(1).columns(2))
         .mark(
             Subplot::new(facet_child("y_small"))
                 .grid_cell(0, 0)

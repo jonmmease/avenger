@@ -9,8 +9,8 @@ Coordinate systems define how data values map to visual positions. Avenger Chart
 | **[Cartesian](./cartesian.md)** | `x`, `y` | `Plot::<Cartesian>::new()` | Scatter plots, bar charts, line charts, heatmaps |
 | **[Polar](./polar.md)** | `r`, `theta` | `Plot::<Polar>::new()` | Radial plots, circular distributions, wind roses |
 | **[Zero-Dimensional](./zero-dimensional.md)** | (none) | `Plot::<ZeroDCoord>::new()` | KPI tiles, dashboard callouts, legend galleries |
-| **[Concat Containers](./concat.md)** | child subplots | `Plot::<GridConcat>::new()` | Dashboards, manual grids, wrapped galleries |
-| **[Repeat Containers](./repeat.md)** | repeated child subplots | `Plot::<RepeatGrid>::new()` | Scatterplot matrices, wrapped variable galleries |
+| **[Concat Containers](./concat.md)** | child subplots | `Plot::with_coord(GridConcat::new())` | Dashboards, manual grids, wrapped galleries |
+| **[Repeat Containers](./repeat.md)** | repeated child subplots | `Plot::with_coord(RepeatGrid::new())` | Scatterplot matrices, wrapped variable galleries |
 
 Each coordinate system has a dedicated page with detailed documentation and examples.
 

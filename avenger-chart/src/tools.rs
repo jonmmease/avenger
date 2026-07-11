@@ -1122,9 +1122,11 @@ mod tests {
             .tool(brush);
         let compiled = Plot::<RepeatGrid>::new()
             .data(df)
-            .rows([RepeatVariable::new("x", col("x"))])
-            .columns([RepeatVariable::new("y", col("y"))])
-            .cell(cell)
+            .configure_coord(|c| {
+                c.rows([RepeatVariable::new("x", col("x"))])
+                    .columns([RepeatVariable::new("y", col("y"))])
+                    .cell(cell)
+            })
             .compile(&ctx)
             .await
             .expect("compile");

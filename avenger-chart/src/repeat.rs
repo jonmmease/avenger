@@ -90,20 +90,30 @@ impl RepeatColumns {
         Self::default()
     }
 
-    pub(crate) fn set_columns(&mut self, columns: Vec<CoreRepeatVariable>) {
-        self.columns = columns;
+    pub fn columns(mut self, columns: impl IntoIterator<Item = RepeatVariable>) -> Self {
+        self.columns = columns.into_iter().collect();
+        self
     }
 
-    pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cells.set_default(cell);
+    pub fn cell<P>(mut self, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.set_default(Box::new(cell));
+        self
     }
 
-    pub(crate) fn add_cell_when(
-        &mut self,
-        predicate: impl IntoExpr,
-        cell: Box<dyn SubplotChildPlotSpec>,
-    ) {
-        self.cells.add_branch(predicate, cell);
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.add_branch(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.domain_coordination = mode;
+        self
     }
 
     pub(crate) fn columns_config(&self) -> &[CoreRepeatVariable] {
@@ -112,10 +122,6 @@ impl RepeatColumns {
 
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
-    }
-
-    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
-        self.domain_coordination = mode;
     }
 
     pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
@@ -135,20 +141,30 @@ impl RepeatRows {
         Self::default()
     }
 
-    pub(crate) fn set_rows(&mut self, rows: Vec<CoreRepeatVariable>) {
-        self.rows = rows;
+    pub fn rows(mut self, rows: impl IntoIterator<Item = RepeatVariable>) -> Self {
+        self.rows = rows.into_iter().collect();
+        self
     }
 
-    pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cells.set_default(cell);
+    pub fn cell<P>(mut self, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.set_default(Box::new(cell));
+        self
     }
 
-    pub(crate) fn add_cell_when(
-        &mut self,
-        predicate: impl IntoExpr,
-        cell: Box<dyn SubplotChildPlotSpec>,
-    ) {
-        self.cells.add_branch(predicate, cell);
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.add_branch(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.domain_coordination = mode;
+        self
     }
 
     pub(crate) fn rows_config(&self) -> &[CoreRepeatVariable] {
@@ -157,10 +173,6 @@ impl RepeatRows {
 
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
-    }
-
-    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
-        self.domain_coordination = mode;
     }
 
     pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
@@ -183,24 +195,59 @@ impl RepeatGrid {
         Self::default()
     }
 
-    pub(crate) fn set_rows(&mut self, rows: Vec<CoreRepeatVariable>) {
-        self.rows = rows;
+    pub fn rows(mut self, rows: impl IntoIterator<Item = RepeatVariable>) -> Self {
+        self.rows = rows.into_iter().collect();
+        self
     }
 
-    pub(crate) fn set_columns(&mut self, columns: Vec<CoreRepeatVariable>) {
-        self.columns = columns;
+    pub fn columns(mut self, columns: impl IntoIterator<Item = RepeatVariable>) -> Self {
+        self.columns = columns.into_iter().collect();
+        self
     }
 
-    pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cells.set_default(cell);
+    pub fn cell<P>(mut self, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.set_default(Box::new(cell));
+        self
     }
 
-    pub(crate) fn add_cell_when(
-        &mut self,
-        predicate: impl IntoExpr,
-        cell: Box<dyn SubplotChildPlotSpec>,
-    ) {
-        self.cells.add_branch(predicate, cell);
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.add_branch(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn matrix_domains(mut self) -> Self {
+        self.domain_coordination = RepeatDomainCoordination::by_variable(CoordinationScope::Shared);
+        self
+    }
+
+    pub fn matrix_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
+        self.domain_coordination = RepeatDomainCoordination::by_variable(scope);
+        self
+    }
+
+    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
+        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(policy);
+        self.matrix_axis_defaults = false;
+        self
+    }
+
+    pub fn matrix_axes(mut self) -> Self {
+        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
+        );
+        self.matrix_axis_defaults = true;
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.domain_coordination = mode;
+        self
     }
 
     pub(crate) fn rows_config(&self) -> &[CoreRepeatVariable] {
@@ -215,28 +262,8 @@ impl RepeatGrid {
         &self.cells
     }
 
-    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
-        self.domain_coordination = mode;
-    }
-
-    pub(crate) fn matrix_domains(&mut self, scope: CoordinationScope) {
-        self.domain_coordination = RepeatDomainCoordination::by_variable(scope);
-    }
-
     pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {
         &self.domain_coordination
-    }
-
-    pub(crate) fn axis_guide_visibility(&mut self, policy: AxisGuideVisibilityPolicy) {
-        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(policy);
-        self.matrix_axis_defaults = false;
-    }
-
-    pub(crate) fn matrix_axes(&mut self) {
-        self.axis_guide_visibility = AxisGuideVisibilityConfig::same(
-            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups,
-        );
-        self.matrix_axis_defaults = true;
     }
 
     pub(crate) fn axis_guide_visibility_config(&self) -> AxisGuideVisibilityConfig {
@@ -272,34 +299,56 @@ impl RepeatWrap {
         Self::default()
     }
 
-    pub(crate) fn set_items(&mut self, items: Vec<CoreRepeatVariable>) {
-        self.items = items;
+    pub fn items(mut self, items: impl IntoIterator<Item = RepeatVariable>) -> Self {
+        self.items = items.into_iter().collect();
+        self
     }
 
-    pub(crate) fn set_columns(&mut self, expr: impl IntoExpr) {
+    pub fn columns(mut self, expr: impl IntoExpr) -> Self {
         self.column_mode = FacetWrapColumnMode::Fixed(
             LogicalExprNode::from_default_expr(expr.into_expr())
                 .expect("Failed to serialize repeat wrap columns expression"),
         );
+        self
     }
 
-    pub(crate) fn set_responsive_columns(&mut self, width: impl IntoExpr) {
+    pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
         self.column_mode = FacetWrapColumnMode::ResponsiveWidth(
             LogicalExprNode::from_default_expr(width.into_expr())
                 .expect("Failed to serialize repeat wrap responsive column width"),
         );
+        self
     }
 
-    pub(crate) fn set_cell(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
-        self.cells.set_default(cell);
+    pub fn cell<P>(mut self, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.set_default(Box::new(cell));
+        self
     }
 
-    pub(crate) fn add_cell_when(
-        &mut self,
-        predicate: impl IntoExpr,
-        cell: Box<dyn SubplotChildPlotSpec>,
-    ) {
-        self.cells.add_branch(predicate, cell);
+    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    where
+        P: SubplotChildPlotSpec + 'static,
+    {
+        self.cells.add_branch(predicate, Box::new(cell));
+        self
+    }
+
+    pub fn item_domains(mut self) -> Self {
+        self.domain_coordination = RepeatDomainCoordination::by_variable(CoordinationScope::Shared);
+        self
+    }
+
+    pub fn item_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
+        self.domain_coordination = RepeatDomainCoordination::by_variable(scope);
+        self
+    }
+
+    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
+        self.domain_coordination = mode;
+        self
     }
 
     pub(crate) fn items_config(&self) -> &[CoreRepeatVariable] {
@@ -312,14 +361,6 @@ impl RepeatWrap {
 
     pub(crate) fn cell_templates(&self) -> &RepeatCellTemplates {
         &self.cells
-    }
-
-    pub(crate) fn set_domain_coordination(&mut self, mode: RepeatDomainCoordination) {
-        self.domain_coordination = mode;
-    }
-
-    pub(crate) fn item_domains(&mut self, scope: CoordinationScope) {
-        self.domain_coordination = RepeatDomainCoordination::by_variable(scope);
     }
 
     pub(crate) fn domain_coordination_config(&self) -> &RepeatDomainCoordination {

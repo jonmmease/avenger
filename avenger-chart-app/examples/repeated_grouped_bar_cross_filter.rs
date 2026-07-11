@@ -93,11 +93,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .add_selection(picked)
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
-        .columns(vec![
-            RepeatVariable::field("team").title("Team"),
-            RepeatVariable::field("channel").title("Channel"),
-        ])
-        .cell(cell);
+        .configure_coord(|c| {
+            c.columns(vec![
+                RepeatVariable::field("team").title("Team"),
+                RepeatVariable::field("channel").title("Channel"),
+            ])
+            .cell(cell)
+        });
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

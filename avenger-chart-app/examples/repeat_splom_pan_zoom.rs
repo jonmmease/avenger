@@ -70,11 +70,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let plot = Plot::<RepeatGrid>::new()
         .canvas_size(960.0, 820.0)
         .data(df)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(cell)
-        .matrix_domains()
-        .matrix_axes();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(cell)
+                .matrix_domains()
+                .matrix_axes()
+        });
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

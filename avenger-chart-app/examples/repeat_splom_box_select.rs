@@ -66,11 +66,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let splom = Plot::<RepeatGrid>::new()
         .data(df.clone())
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(cell)
-        .matrix_domains()
-        .matrix_axes();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(cell)
+                .matrix_domains()
+                .matrix_axes()
+        });
 
     let sibling = Plot::<Cartesian>::new()
         .data(df)

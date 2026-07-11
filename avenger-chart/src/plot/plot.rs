@@ -11,15 +11,14 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, Axis, AxisGuideVisibilityPolicy, AxisSpec, ChannelValue, ChartTool,
-    CompileContext, CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem,
-    CoordinateSystemTransformCore, CoordinationScope, DataContext, DomainCoordination,
-    DomainCoordinationGroup, FormattingContext, IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind,
-    Mark, MarkDataMode, MarkState, Param, PlotMark, PlotMarkKind, RepeatContext,
-    RepeatDomainCoordination, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget, Selection,
-    SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme, TimeContext,
-    compile_selections, validate_structural_id,
+    AvengerChartError, Axis, AxisSpec, ChannelValue, ChartTool, CompileContext,
+    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
+    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
+    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, FormattingContext,
+    IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param,
+    PlotMark, PlotMarkKind, RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget,
+    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
+    TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -152,236 +151,6 @@ impl<C: CoordinateSystem> Plot<C> {
             cursor_params: Vec::new(),
             tools: Vec::new(),
         }
-    }
-}
-
-impl Plot<crate::concat::GridConcat> {
-    pub fn rows(mut self, rows: usize) -> Self {
-        self.coord_system = self.coord_system.clone().rows(rows);
-        self
-    }
-
-    pub fn columns(mut self, columns: usize) -> Self {
-        self.coord_system = self.coord_system.clone().columns(columns);
-        self
-    }
-
-    /// Per-column plot-area sizing. See [`crate::concat::TrackSizing`].
-    pub fn column_widths(
-        mut self,
-        widths: impl IntoIterator<Item = crate::concat::TrackSizing>,
-    ) -> Self {
-        self.coord_system = self.coord_system.clone().column_widths(widths);
-        self
-    }
-
-    /// Per-row plot-area sizing. See [`crate::concat::TrackSizing`].
-    pub fn row_heights(
-        mut self,
-        heights: impl IntoIterator<Item = crate::concat::TrackSizing>,
-    ) -> Self {
-        self.coord_system = self.coord_system.clone().row_heights(heights);
-        self
-    }
-
-    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
-        self.coord_system = self.coord_system.clone().axis_guide_visibility(policy);
-        self
-    }
-}
-
-impl Plot<crate::concat::HConcat> {
-    /// Per-column plot-area sizing, one entry per child. See
-    /// [`crate::concat::TrackSizing`].
-    pub fn widths(mut self, widths: impl IntoIterator<Item = crate::concat::TrackSizing>) -> Self {
-        self.coord_system = self.coord_system.clone().widths(widths);
-        self
-    }
-}
-
-impl Plot<crate::concat::VConcat> {
-    /// Per-row plot-area sizing, one entry per child. See
-    /// [`crate::concat::TrackSizing`].
-    pub fn heights(
-        mut self,
-        heights: impl IntoIterator<Item = crate::concat::TrackSizing>,
-    ) -> Self {
-        self.coord_system = self.coord_system.clone().heights(heights);
-        self
-    }
-}
-
-impl Plot<crate::concat::WrapConcat> {
-    pub fn columns(mut self, expr: impl IntoExpr) -> Self {
-        self.coord_system = self.coord_system.clone().columns(expr);
-        self
-    }
-
-    pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
-        self.coord_system = self.coord_system.clone().responsive_columns(width);
-        self
-    }
-
-    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
-        self.coord_system = self.coord_system.clone().axis_guide_visibility(policy);
-        self
-    }
-}
-
-impl Plot<RepeatColumns> {
-    pub fn columns(mut self, columns: impl IntoIterator<Item = RepeatVariable>) -> Self {
-        self.coord_system.set_columns(columns.into_iter().collect());
-        self
-    }
-
-    pub fn cell<P>(mut self, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.set_cell(Box::new(cell));
-        self
-    }
-
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.add_cell_when(predicate, Box::new(cell));
-        self
-    }
-
-    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
-        self.coord_system.set_domain_coordination(mode);
-        self
-    }
-}
-
-impl Plot<RepeatRows> {
-    pub fn rows(mut self, rows: impl IntoIterator<Item = RepeatVariable>) -> Self {
-        self.coord_system.set_rows(rows.into_iter().collect());
-        self
-    }
-
-    pub fn cell<P>(mut self, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.set_cell(Box::new(cell));
-        self
-    }
-
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.add_cell_when(predicate, Box::new(cell));
-        self
-    }
-
-    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
-        self.coord_system.set_domain_coordination(mode);
-        self
-    }
-}
-
-impl Plot<RepeatGrid> {
-    pub fn rows(mut self, rows: impl IntoIterator<Item = RepeatVariable>) -> Self {
-        self.coord_system.set_rows(rows.into_iter().collect());
-        self
-    }
-
-    pub fn columns(mut self, columns: impl IntoIterator<Item = RepeatVariable>) -> Self {
-        self.coord_system.set_columns(columns.into_iter().collect());
-        self
-    }
-
-    pub fn cell<P>(mut self, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.set_cell(Box::new(cell));
-        self
-    }
-
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.add_cell_when(predicate, Box::new(cell));
-        self
-    }
-
-    pub fn matrix_domains(mut self) -> Self {
-        self.coord_system.matrix_domains(CoordinationScope::Shared);
-        self
-    }
-
-    pub fn matrix_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
-        self.coord_system.matrix_domains(scope);
-        self
-    }
-
-    pub fn axis_guide_visibility(mut self, policy: AxisGuideVisibilityPolicy) -> Self {
-        self.coord_system.axis_guide_visibility(policy);
-        self
-    }
-
-    pub fn matrix_axes(mut self) -> Self {
-        self.coord_system.matrix_axes();
-        self
-    }
-
-    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
-        self.coord_system.set_domain_coordination(mode);
-        self
-    }
-}
-
-impl Plot<RepeatWrap> {
-    pub fn items(mut self, items: impl IntoIterator<Item = RepeatVariable>) -> Self {
-        self.coord_system.set_items(items.into_iter().collect());
-        self
-    }
-
-    pub fn columns(mut self, expr: impl IntoExpr) -> Self {
-        self.coord_system.set_columns(expr);
-        self
-    }
-
-    pub fn responsive_columns(mut self, width: impl IntoExpr) -> Self {
-        self.coord_system.set_responsive_columns(width);
-        self
-    }
-
-    pub fn cell<P>(mut self, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.set_cell(Box::new(cell));
-        self
-    }
-
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
-    where
-        P: SubplotChildPlotSpec + 'static,
-    {
-        self.coord_system.add_cell_when(predicate, Box::new(cell));
-        self
-    }
-
-    pub fn item_domains(mut self) -> Self {
-        self.coord_system.item_domains(CoordinationScope::Shared);
-        self
-    }
-
-    pub fn item_domains_with_scope(mut self, scope: CoordinationScope) -> Self {
-        self.coord_system.item_domains(scope);
-        self
-    }
-
-    pub fn with_repeat_domain_coordination(mut self, mode: RepeatDomainCoordination) -> Self {
-        self.coord_system.set_domain_coordination(mode);
-        self
     }
 }
 
@@ -822,6 +591,14 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Get a reference to the coordinate system
     pub fn coord_system(&self) -> &C {
         &self.coord_system
+    }
+
+    /// Apply coordinate-system configuration through the system's own
+    /// builder. Coordinate options live on `C`; `Plot` carries no
+    /// coordinate-specific methods.
+    pub fn configure_coord(mut self, f: impl FnOnce(C) -> C) -> Self {
+        self.coord_system = f(self.coord_system);
+        self
     }
 
     pub fn mark<M>(mut self, mark: M) -> Self
@@ -3001,8 +2778,10 @@ mod tests {
     async fn repeat_columns_lower_to_hconcat_children() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatColumns>::new()
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_column_cell())
+            .configure_coord(|c| {
+                c.columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_column_cell())
+            })
             .compile(&ctx)
             .await?;
 
@@ -3031,8 +2810,7 @@ mod tests {
     async fn repeat_rows_lower_to_vconcat_children() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatRows>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .cell(repeated_row_cell())
+            .configure_coord(|c| c.rows(repeat_vars(&["a", "b"])).cell(repeated_row_cell()))
             .compile(&ctx)
             .await?;
 
@@ -3051,9 +2829,11 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["r1", "r2"]))
-            .columns(repeat_vars(&["c1", "c2", "c3"]))
-            .cell(repeated_grid_cell())
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["r1", "r2"]))
+                    .columns(repeat_vars(&["c1", "c2", "c3"]))
+                    .cell(repeated_grid_cell())
+            })
             .compile(&ctx)
             .await?;
 
@@ -3085,10 +2865,12 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .matrix_domains()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .matrix_domains()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3117,10 +2899,12 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let level_compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["b"]))
-            .cell(repeated_grid_cell())
-            .matrix_domains_with_scope(CoordinationScope::Level(1))
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["b"]))
+                    .cell(repeated_grid_cell())
+                    .matrix_domains_with_scope(CoordinationScope::Level(1))
+            })
             .compile(&ctx)
             .await?;
         let level_child = lowered_children(&level_compiled);
@@ -3133,9 +2917,11 @@ mod tests {
         );
 
         let independent_compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["b"]))
-            .cell(repeated_grid_cell())
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["b"]))
+                    .cell(repeated_grid_cell())
+            })
             .compile(&ctx)
             .await?;
         let independent_child = lowered_children(&independent_compiled);
@@ -3154,10 +2940,12 @@ mod tests {
                 .size(64.0),
         );
         let err = match Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["a"]))
-            .cell(conflicting_cell)
-            .matrix_domains()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["a"]))
+                    .cell(conflicting_cell)
+                    .matrix_domains()
+            })
             .compile(&ctx)
             .await
         {
@@ -3176,14 +2964,16 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .cell_when(
-                repeat::row_index().eq(repeat::column_index()),
-                diagonal_histogram_count_shared_cell(),
-            )
-            .matrix_domains()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .cell_when(
+                        repeat::row_index().eq(repeat::column_index()),
+                        diagonal_histogram_count_shared_cell(),
+                    )
+                    .matrix_domains()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3213,14 +3003,16 @@ mod tests {
         let compiled = Plot::<RepeatGrid>::new()
             .data(repeat_histogram_domain_data(&ctx))
             .plot_size(180.0, 140.0)
-            .rows(repeat_vars(&["a", "b", "c"]))
-            .columns(repeat_vars(&["a", "b", "c"]))
-            .cell(repeated_grid_cell())
-            .cell_when(
-                repeat::row_index().eq(repeat::column_index()),
-                diagonal_histogram_count_shared_cell(),
-            )
-            .matrix_domains()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b", "c"]))
+                    .columns(repeat_vars(&["a", "b", "c"]))
+                    .cell(repeated_grid_cell())
+                    .cell_when(
+                        repeat::row_index().eq(repeat::column_index()),
+                        diagonal_histogram_count_shared_cell(),
+                    )
+                    .matrix_domains()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3263,10 +3055,12 @@ mod tests {
     async fn repeat_wrap_item_domains_generate_item_groups() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatWrap>::new()
-            .items(repeat_vars(&["a", "b"]))
-            .columns(2)
-            .cell(repeated_item_cell())
-            .item_domains_with_scope(CoordinationScope::Level(1))
+            .configure_coord(|c| {
+                c.items(repeat_vars(&["a", "b"]))
+                    .columns(2)
+                    .cell(repeated_item_cell())
+                    .item_domains_with_scope(CoordinationScope::Level(1))
+            })
             .compile(&ctx)
             .await?;
 
@@ -3290,10 +3084,12 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let repeat_compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .matrix_domains()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .matrix_domains()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3306,8 +3102,7 @@ mod tests {
             )
         };
         let manual_compiled = Plot::<GridConcat>::new()
-            .rows(2)
-            .columns(2)
+            .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(manual_cell("a", "a")).grid_cell(0, 0))
             .mark(Subplot::new(manual_cell("b", "a")).grid_cell(0, 1))
             .mark(Subplot::new(manual_cell("a", "b")).grid_cell(1, 0))
@@ -3392,10 +3187,12 @@ mod tests {
     async fn repeat_grid_pan_scroll_zoom_expands_across_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell().tool(PanScrollZoom::cartesian()))
-            .matrix_domains()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell().tool(PanScrollZoom::cartesian()))
+                    .matrix_domains()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3471,10 +3268,12 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell().tool(PanScrollZoom::cartesian()))
-            .matrix_domains_with_scope(CoordinationScope::Free)
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell().tool(PanScrollZoom::cartesian()))
+                    .matrix_domains_with_scope(CoordinationScope::Free)
+            })
             .compile(&ctx)
             .await?;
 
@@ -3510,11 +3309,13 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .matrix_domains()
-            .matrix_axes()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .matrix_domains()
+                    .matrix_axes()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3563,11 +3364,13 @@ mod tests {
                 .size(64.0),
         );
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["b"]))
-            .cell(explicit_cell)
-            .matrix_domains()
-            .matrix_axes()
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["b"]))
+                    .cell(explicit_cell)
+                    .matrix_domains()
+                    .matrix_axes()
+            })
             .compile(&ctx)
             .await?;
 
@@ -3584,13 +3387,15 @@ mod tests {
     async fn repeat_grid_cell_when_selects_diagonal_branch() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .cell_when(
-                repeat::row_index().eq(repeat::column_index()),
-                constant_y_grid_cell(99.0),
-            )
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .cell_when(
+                        repeat::row_index().eq(repeat::column_index()),
+                        constant_y_grid_cell(99.0),
+                    )
+            })
             .compile(&ctx)
             .await?;
 
@@ -3616,14 +3421,16 @@ mod tests {
     async fn repeat_cell_when_uses_author_order_priority() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .cell_when(
-                repeat::row_index().eq(repeat::column_index()),
-                constant_y_grid_cell(10.0),
-            )
-            .cell_when(lit(true), constant_y_grid_cell(20.0))
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .cell_when(
+                        repeat::row_index().eq(repeat::column_index()),
+                        constant_y_grid_cell(10.0),
+                    )
+                    .cell_when(lit(true), constant_y_grid_cell(20.0))
+            })
             .compile(&ctx)
             .await?;
 
@@ -3648,13 +3455,15 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["a"]))
-            .cell(repeated_grid_cell())
-            .cell_when(
-                repeat::row_index().eq(repeat::column_index()),
-                zerod_branch_cell(),
-            )
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["a"]))
+                    .cell(repeated_grid_cell())
+                    .cell_when(
+                        repeat::row_index().eq(repeat::column_index()),
+                        zerod_branch_cell(),
+                    )
+            })
             .compile(&ctx)
             .await?;
 
@@ -3676,9 +3485,11 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let compiled = Plot::<RepeatWrap>::new()
-            .items(repeat_vars(&["a", "b", "c"]))
-            .columns(2)
-            .cell(repeated_item_cell())
+            .configure_coord(|c| {
+                c.items(repeat_vars(&["a", "b", "c"]))
+                    .columns(2)
+                    .cell(repeated_item_cell())
+            })
             .compile(&ctx)
             .await?;
 
@@ -3718,11 +3529,13 @@ mod tests {
 
         let compiled = Plot::<RepeatColumns>::new()
             .data(df)
-            .columns(vec![
-                RepeatVariable::new("a", col("a")),
-                RepeatVariable::new("b", col("b")),
-            ])
-            .cell(repeated_column_cell())
+            .configure_coord(|c| {
+                c.columns(vec![
+                    RepeatVariable::new("a", col("a")),
+                    RepeatVariable::new("b", col("b")),
+                ])
+                .cell(repeated_column_cell())
+            })
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click)
                     .filter(crate::event::datum("group_name").is_not_null()),
@@ -3994,13 +3807,13 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 10.0), (2.0, 20.0)) AS t(a, b)")
             .await?;
-        let repeat = Plot::<RepeatGrid>::new()
-            .data(df)
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .matrix_domains()
-            .matrix_axes();
+        let repeat = Plot::<RepeatGrid>::new().data(df).configure_coord(|c| {
+            c.rows(repeat_vars(&["a", "b"]))
+                .columns(repeat_vars(&["a", "b"]))
+                .cell(repeated_grid_cell())
+                .matrix_domains()
+                .matrix_axes()
+        });
         let compiled = Plot::<HConcat>::new()
             .canvas_size(620.0, 320.0)
             .mark(Subplot::new(repeat).key("matrix").id("matrix"))
@@ -4058,12 +3871,13 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell())
-            .matrix_domains()
-            .matrix_axes();
+        let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows(repeat_vars(&["a", "b"]))
+                .columns(repeat_vars(&["a", "b"]))
+                .cell(repeated_grid_cell())
+                .matrix_domains()
+                .matrix_axes()
+        });
         let compiled = Plot::<FacetColumn>::new()
             .canvas_size(820.0, 320.0)
             .data(df)
@@ -4131,11 +3945,12 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatWrap>::new()
-            .items(repeat_vars(&["a", "b"]))
-            .columns(2)
-            .cell(repeated_item_cell())
-            .item_domains_with_scope(CoordinationScope::Free);
+        let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
+            c.items(repeat_vars(&["a", "b"]))
+                .columns(2)
+                .cell(repeated_item_cell())
+                .item_domains_with_scope(CoordinationScope::Free)
+        });
         let compiled = Plot::<FacetWrap>::new()
             .canvas_size(760.0, 420.0)
             .data(df)
@@ -4175,7 +3990,7 @@ mod tests {
     async fn repeat_container_validates_variables_and_cell_template() {
         let ctx = SessionContext::new();
         let missing_cell = match Plot::<RepeatColumns>::new()
-            .columns(repeat_vars(&["a"]))
+            .configure_coord(|c| c.columns(repeat_vars(&["a"])))
             .compile(&ctx)
             .await
         {
@@ -4185,11 +4000,13 @@ mod tests {
         assert!(missing_cell.to_string().contains("requires a default"));
 
         let duplicate = match Plot::<RepeatColumns>::new()
-            .columns(vec![
-                RepeatVariable::new("a", col("a")),
-                RepeatVariable::new("a", col("b")),
-            ])
-            .cell(repeated_column_cell())
+            .configure_coord(|c| {
+                c.columns(vec![
+                    RepeatVariable::new("a", col("a")),
+                    RepeatVariable::new("a", col("b")),
+                ])
+                .cell(repeated_column_cell())
+            })
             .compile(&ctx)
             .await
         {
@@ -4203,8 +4020,10 @@ mod tests {
         );
 
         let empty = match Plot::<RepeatRows>::new()
-            .rows(Vec::<RepeatVariable>::new())
-            .cell(repeated_row_cell())
+            .configure_coord(|c| {
+                c.rows(Vec::<RepeatVariable>::new())
+                    .cell(repeated_row_cell())
+            })
             .compile(&ctx)
             .await
         {
@@ -4218,13 +4037,15 @@ mod tests {
         );
 
         let data_dependent_predicate = match Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["a"]))
-            .cell(repeated_grid_cell())
-            .cell_when(
-                col("datum_value").eq(lit(1_i64)),
-                constant_y_grid_cell(99.0),
-            )
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["a"]))
+                    .cell(repeated_grid_cell())
+                    .cell_when(
+                        col("datum_value").eq(lit(1_i64)),
+                        constant_y_grid_cell(99.0),
+                    )
+            })
             .compile(&ctx)
             .await
         {
@@ -4468,9 +4289,11 @@ mod tests {
             );
         let compiled = Plot::<RepeatGrid>::new()
             .data(ctx.read_batch(batch)?)
-            .rows(repeat_vars(&["a"]))
-            .columns(repeat_vars(&["b"]))
-            .cell(repeated_grid_cell().event_binding(binding))
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a"]))
+                    .columns(repeat_vars(&["b"]))
+                    .cell(repeated_grid_cell().event_binding(binding))
+            })
             .compile(&ctx)
             .await?;
 

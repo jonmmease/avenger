@@ -135,9 +135,11 @@ async fn facet_axis_visibility_outer_edges() {
 async fn grid_concat_axis_visibility_outer_edges() {
     let ctx = SessionContext::new();
     let plot = Plot::<GridConcat>::new()
-        .rows(2)
-        .columns(2)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(2)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(Subplot::new(axis_policy_cell_plot(&ctx, 0.0, 0.0)).grid_cell(0, 0))
         .mark(Subplot::new(axis_policy_cell_plot(&ctx, 10.0, 10.0)).grid_cell(0, 1))
         .mark(Subplot::new(axis_policy_cell_plot(&ctx, 100.0, 100.0)).grid_cell(1, 0))
@@ -157,9 +159,11 @@ async fn grid_concat_axis_visibility_outer_edges() {
 async fn grid_concat_axis_visibility_equivalent_domain_groups() {
     let ctx = SessionContext::new();
     let plot = Plot::<GridConcat>::new()
-        .rows(2)
-        .columns(2)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(2)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+        })
         .mark(
             Subplot::new(axis_policy_named_domain_cell_plot(
                 &ctx, "length", "length", 0.0, 0.0,
@@ -202,8 +206,10 @@ async fn grid_concat_axis_visibility_equivalent_domain_groups() {
 async fn wrap_concat_axis_visibility_outer_edges() {
     let ctx = SessionContext::new();
     let plot = Plot::<WrapConcat>::new()
-        .columns(3.0)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.columns(3.0)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(Subplot::new(axis_policy_cell_plot(&ctx, 0.0, 0.0)))
         .mark(Subplot::new(axis_policy_cell_plot(&ctx, 10.0, 10.0)))
         .mark(Subplot::new(axis_policy_cell_plot(&ctx, 20.0, 20.0)))

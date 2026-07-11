@@ -5133,8 +5133,7 @@ mod tests {
         let compiled = Plot::<GridConcat>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
-            .rows(1)
-            .columns(2)
+            .configure_coord(|c| c.rows(1).columns(2))
             .mark(
                 Subplot::new(concat_pan_child("grid_nav_a", x_domain.clone()))
                     .grid_cell(0, 0)
@@ -5167,7 +5166,7 @@ mod tests {
         let compiled = Plot::<WrapConcat>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
-            .columns(2)
+            .configure_coord(|c| c.columns(2))
             .mark(Subplot::new(concat_pan_child("wrap_nav_a", x_domain.clone())).key("a"))
             .mark(Subplot::new(concat_pan_child("wrap_nav_b", x_domain.clone())).key("b"))
             .compile(&ctx)
@@ -5218,17 +5217,19 @@ mod tests {
         let compiled = Plot::<RepeatGrid>::new()
             .canvas_size(520.0, 520.0)
             .data(df)
-            .rows([
-                RepeatVariable::new("a", col("a")),
-                RepeatVariable::new("b", col("b")),
-            ])
-            .columns([
-                RepeatVariable::new("a", col("a")),
-                RepeatVariable::new("b", col("b")),
-            ])
-            .cell(repeat_pan_cell(settle_exact))
-            .matrix_domains_with_scope(scope)
-            .matrix_axes()
+            .configure_coord(|c| {
+                c.rows([
+                    RepeatVariable::new("a", col("a")),
+                    RepeatVariable::new("b", col("b")),
+                ])
+                .columns([
+                    RepeatVariable::new("a", col("a")),
+                    RepeatVariable::new("b", col("b")),
+                ])
+                .cell(repeat_pan_cell(settle_exact))
+                .matrix_domains_with_scope(scope)
+                .matrix_axes()
+            })
             .compile(&ctx)
             .await
             .expect("compile repeat pan plot");
@@ -6289,8 +6290,8 @@ mod tests {
             )
             .await
             .expect("nested repeat pan data");
-        let repeat_grid = Plot::<RepeatGrid>::new()
-            .rows([
+        let repeat_grid = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows([
                 RepeatVariable::new("a", col("a")),
                 RepeatVariable::new("b", col("b")),
             ])
@@ -6300,7 +6301,8 @@ mod tests {
             ])
             .cell(repeat_pan_cell(false))
             .matrix_domains()
-            .matrix_axes();
+            .matrix_axes()
+        });
         let compiled = Plot::<FacetColumn>::new()
             .canvas_size(900.0, 360.0)
             .data(df)
@@ -6379,8 +6381,8 @@ mod tests {
             )
             .await
             .expect("wrapped repeat pan data");
-        let repeat_grid = Plot::<RepeatGrid>::new()
-            .rows([
+        let repeat_grid = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows([
                 RepeatVariable::new("a", col("a")),
                 RepeatVariable::new("b", col("b")),
             ])
@@ -6390,7 +6392,8 @@ mod tests {
             ])
             .cell(repeat_pan_cell(false))
             .matrix_domains()
-            .matrix_axes();
+            .matrix_axes()
+        });
         let compiled = Plot::<FacetWrap>::new()
             .canvas_size(900.0, 560.0)
             .data(df)
@@ -11836,12 +11839,13 @@ mod tests {
             RepeatVariable::new("a", col("a")).title("A"),
             RepeatVariable::new("b", col("b")).title("B"),
         ];
-        let repeat_grid = Plot::<RepeatGrid>::new()
-            .rows(variables.clone())
-            .columns(variables)
-            .cell(cell)
-            .matrix_domains()
-            .matrix_axes();
+        let repeat_grid = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(cell)
+                .matrix_domains()
+                .matrix_axes()
+        });
         let compiled = Plot::<FacetColumn>::new()
             .canvas_size(760.0, 360.0)
             .data(df)
@@ -11914,12 +11918,13 @@ mod tests {
             RepeatVariable::new("a", col("a")).title("A"),
             RepeatVariable::new("b", col("b")).title("B"),
         ];
-        let repeat_grid = Plot::<RepeatGrid>::new()
-            .rows(variables.clone())
-            .columns(variables)
-            .cell(cell)
-            .matrix_domains()
-            .matrix_axes();
+        let repeat_grid = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(cell)
+                .matrix_domains()
+                .matrix_axes()
+        });
         let compiled = Plot::<FacetWrap>::new()
             .canvas_size(760.0, 500.0)
             .data(df)
@@ -12042,11 +12047,13 @@ mod tests {
         ];
         let repeat_grid = Plot::<RepeatGrid>::new()
             .data(df.clone())
-            .rows(variables.clone())
-            .columns(variables)
-            .cell(cell)
-            .matrix_domains()
-            .matrix_axes();
+            .configure_coord(|c| {
+                c.rows(variables.clone())
+                    .columns(variables)
+                    .cell(cell)
+                    .matrix_domains()
+                    .matrix_axes()
+            });
         let selection = match mode {
             RepeatBoxTestMode::Global | RepeatBoxTestMode::Union => {
                 Selection::new(REPEAT_BOX_SELECTION)

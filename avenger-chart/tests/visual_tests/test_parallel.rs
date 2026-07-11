@@ -654,11 +654,13 @@ async fn parallel_repeat_small_multiples() {
         .canvas_size(680.0, 330.0)
         .plot_size(215.0, 180.0)
         .data(numeric_parallel_data(&ctx))
-        .columns([
-            RepeatVariable::new("speed", col("speed")).title("Speed"),
-            RepeatVariable::new("cost", col("cost")).title("Cost"),
-        ])
-        .cell(repeat_parallel_cell());
+        .configure_coord(|c| {
+            c.columns([
+                RepeatVariable::new("speed", col("speed")).title("Speed"),
+                RepeatVariable::new("cost", col("cost")).title("Cost"),
+            ])
+            .cell(repeat_parallel_cell())
+        });
 
     let compiled = plot
         .compile(&ctx)

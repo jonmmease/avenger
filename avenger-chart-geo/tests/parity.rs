@@ -153,16 +153,18 @@ mod container {
         let evaluated = Plot::<RepeatGrid>::new()
             .plot_size(180.0, 140.0)
             .data(df)
-            .rows([
-                RepeatVariable::new("row_a", col("row_a")),
-                RepeatVariable::new("row_b", col("row_b")),
-            ])
-            .columns([
-                RepeatVariable::new("near", col("near")),
-                RepeatVariable::new("far", col("far")),
-            ])
-            .matrix_domains()
-            .cell(cell)
+            .configure_coord(|c| {
+                c.rows([
+                    RepeatVariable::new("row_a", col("row_a")),
+                    RepeatVariable::new("row_b", col("row_b")),
+                ])
+                .columns([
+                    RepeatVariable::new("near", col("near")),
+                    RepeatVariable::new("far", col("far")),
+                ])
+                .matrix_domains()
+                .cell(cell)
+            })
             .compile(&ctx)
             .await
             .expect("compile repeat grid")

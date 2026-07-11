@@ -251,9 +251,11 @@ fn alignment_grid_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<Car
 
 fn alignment_spanned_grid_concat() -> Plot<GridConcat> {
     Plot::<GridConcat>::new()
-        .rows(2)
-        .columns(3)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(3)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
                 .grid_cell(0, 0)
@@ -277,9 +279,11 @@ fn alignment_spanned_grid_concat() -> Plot<GridConcat> {
 
 fn alignment_grid_concat() -> Plot<GridConcat> {
     Plot::<GridConcat>::new()
-        .rows(2)
-        .columns(2)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(2)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
                 .grid_cell(0, 0)
@@ -304,8 +308,10 @@ fn alignment_grid_concat() -> Plot<GridConcat> {
 
 fn alignment_wrap_concat() -> Plot<WrapConcat> {
     Plot::<WrapConcat>::new()
-        .columns(2)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.columns(2)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8")).key("xy"))
         .mark(Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21")).key("x2y"))
         .mark(Subplot::new(alignment_grid_cell("x", "y2", "#f28f43")).key("xy2"))
@@ -662,8 +668,7 @@ async fn grid_concat_shared_axes_complete() {
         .canvas_size(820.0, 620.0)
         .data(df)
         .title("Grid concat shared axes")
-        .rows(2)
-        .columns(2)
+        .configure_coord(|c| c.rows(2).columns(2))
         .mark(
             Subplot::new(grid_shared_axes_child(
                 "sepal_length",
@@ -727,8 +732,7 @@ async fn grid_concat_holey_shared_axes() {
         .canvas_size(900.0, 560.0)
         .data(df)
         .title("Holey grid concat")
-        .rows(2)
-        .columns(3)
+        .configure_coord(|c| c.rows(2).columns(3))
         .mark(
             Subplot::new(grid_shared_axes_child(
                 "sepal_length",
@@ -783,8 +787,7 @@ async fn grid_concat_splom_named_domains() {
         .canvas_size(820.0, 760.0)
         .data(df)
         .title("Manual GridConcat SPLOM")
-        .rows(3)
-        .columns(3);
+        .configure_coord(|c| c.rows(3).columns(3));
 
     for (row, y) in variables.iter().enumerate() {
         for (column, x) in variables.iter().enumerate() {
@@ -817,9 +820,11 @@ async fn grid_concat_span_basic() {
         .canvas_size(900.0, 680.0)
         .data(concat_numeric_data(&ctx).await)
         .title("Grid concat span basic")
-        .rows(3)
-        .columns(3)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(3)
+                .columns(3)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(grid_span_child("x", "y", "Spans 2 x 2", "#2f7ed8"))
                 .grid_cell(0, 0)
@@ -856,9 +861,11 @@ async fn grid_concat_span_chrome() {
         .canvas_size(940.0, 680.0)
         .data(concat_numeric_data(&ctx).await)
         .title("Grid concat span chrome")
-        .rows(2)
-        .columns(3)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(3)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(
                 Plot::<Cartesian>::new()
@@ -909,9 +916,11 @@ async fn grid_concat_span_holes() {
         .canvas_size(900.0, 680.0)
         .data(concat_numeric_data(&ctx).await)
         .title("Grid concat spans with holes")
-        .rows(3)
-        .columns(3)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(3)
+                .columns(3)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(grid_span_child("x", "y", "Top-left edge", "#2f7ed8"))
                 .grid_cell(0, 0)
@@ -944,9 +953,11 @@ async fn grid_concat_span_domain_groups() {
         .canvas_size(940.0, 680.0)
         .data(df)
         .title("Grid concat span domain groups")
-        .rows(3)
-        .columns(3)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+        .configure_coord(|c| {
+            c.rows(3)
+                .columns(3)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+        })
         .mark(
             Subplot::new(grid_splom_child("sepal_length", "sepal_width"))
                 .grid_cell(0, 0)
@@ -1080,9 +1091,11 @@ async fn facet_column_inside_grid_concat_smoke() {
     let plot = Plot::<GridConcat>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 520.0)
-        .rows(2)
-        .columns(2)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(2)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(facet_column_alignment_cell("x", "y", "#2f7ed8"))
                 .grid_cell(0, 0)
@@ -1124,9 +1137,11 @@ async fn facet_column_inside_holey_grid_concat_aligned() {
     let plot = Plot::<GridConcat>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(1320.0, 820.0)
-        .rows(2)
-        .columns(3)
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(3)
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .mark(
             Subplot::new(facet_column_alignment_cell("x", "y", "#2f7ed8"))
                 .grid_cell(0, 0)
@@ -1165,7 +1180,7 @@ async fn wrap_concat_fixed_columns_shared_axes() {
         .plot_size(720.0, 420.0)
         .data(df)
         .title("Wrapped concat fixed columns")
-        .columns(3)
+        .configure_coord(|c| c.columns(3))
         .mark(
             Subplot::new(grid_shared_axes_child(
                 "sepal_length",
@@ -1269,7 +1284,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
         .plot_size(width, height)
         .data(df)
         .title("Wrapped concat responsive columns")
-        .responsive_columns(220.0)
+        .configure_coord(|c| c.responsive_columns(220.0))
         .mark(
             Subplot::new(grid_shared_axes_child(
                 "sepal_length",
@@ -1521,11 +1536,13 @@ async fn hconcat_widths_flex_split() {
     let plot = Plot::<HConcat>::new()
         .data(concat_numeric_data(&ctx).await)
         .canvas_size(900.0, 300.0)
-        .widths([
-            TrackSizing::Px(140.0),
-            TrackSizing::Flex(2.0),
-            TrackSizing::Flex(1.0),
-        ])
+        .configure_coord(|c| {
+            c.widths([
+                TrackSizing::Px(140.0),
+                TrackSizing::Flex(2.0),
+                TrackSizing::Flex(1.0),
+            ])
+        })
         .title("hconcat widths: Px(140) | Flex(2) | Flex(1)")
         .mark(Subplot::new(numeric_cartesian_child()).key("fixed"))
         .mark(Subplot::new(numeric_cartesian_child_alt()).key("wide"))
@@ -1545,7 +1562,7 @@ async fn vconcat_heights_px_rows() {
     let plot = Plot::<VConcat>::new()
         .data(concat_numeric_data(&ctx).await)
         .canvas_size(420.0, 560.0)
-        .heights([TrackSizing::Px(120.0), TrackSizing::Flex(1.0)])
+        .configure_coord(|c| c.heights([TrackSizing::Px(120.0), TrackSizing::Flex(1.0)]))
         .title("vconcat heights: Px(120) | Flex(1)")
         .mark(Subplot::new(numeric_cartesian_child()).key("pinned"))
         .mark(Subplot::new(numeric_cartesian_child_alt()).key("flex"));
@@ -1565,11 +1582,13 @@ async fn grid_concat_fixed_sidebar_column() {
     let plot = Plot::<GridConcat>::new()
         .data(concat_facet_alignment_data(&ctx).await)
         .canvas_size(900.0, 520.0)
-        .rows(2)
-        .columns(2)
-        .column_widths([TrackSizing::Px(150.0), TrackSizing::Flex(1.0)])
-        .row_heights([TrackSizing::Flex(1.0), TrackSizing::Flex(2.0)])
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        .configure_coord(|c| {
+            c.rows(2)
+                .columns(2)
+                .column_widths([TrackSizing::Px(150.0), TrackSizing::Flex(1.0)])
+                .row_heights([TrackSizing::Flex(1.0), TrackSizing::Flex(2.0)])
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        })
         .title("grid: Px(150) sidebar, rows Flex 1:2")
         .mark(
             Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))

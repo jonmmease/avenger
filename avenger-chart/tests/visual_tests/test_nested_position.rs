@@ -2144,11 +2144,13 @@ async fn test_nested_position_repeat_axis_titles() {
     let plot = Plot::<RepeatColumns>::new()
         .data(df)
         .plot_size(260.0, 165.0)
-        .columns(vec![
-            RepeatVariable::field("product").title("Product"),
-            RepeatVariable::field("team").title("Team"),
-        ])
-        .cell(cell);
+        .configure_coord(|c| {
+            c.columns(vec![
+                RepeatVariable::field("product").title("Product"),
+                RepeatVariable::field("team").title("Team"),
+            ])
+            .cell(cell)
+        });
 
     let compiled = plot.compile(&ctx).await.expect("compile repeat columns");
     assert_visual_match_default(

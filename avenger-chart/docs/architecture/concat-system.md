@@ -162,7 +162,9 @@ group.
 ## Guide Visibility
 
 `GridConcat` and `WrapConcat` can carry an `AxisGuideVisibilityConfig` through
-`.axis_guide_visibility(...)`. The reusable policies are defined by
+their coordinate-system builder's `.axis_guide_visibility(...)`. Attach the
+configured coordinate with `Plot::with_coord(...)` or `Plot::configure_coord`.
+The reusable policies are defined by
 `AxisGuideVisibilityPolicy`:
 
 - `Auto`: preserve the container's default behavior;

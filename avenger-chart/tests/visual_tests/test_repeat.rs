@@ -291,11 +291,12 @@ fn wrap_cell_preview_flow() -> Plot<Cartesian> {
 
 fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Plot<FacetColumn> {
     let width = Param::new("width", ScalarValue::Float64(Some(780.0)));
-    let repeat = Plot::<RepeatWrap>::new()
-        .items(repeat_variables_four())
-        .responsive_columns(230.0)
-        .cell(wrap_cell_preview_flow())
-        .item_domains();
+    let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
+        c.items(repeat_variables_four())
+            .responsive_columns(230.0)
+            .cell(wrap_cell_preview_flow())
+            .item_domains()
+    });
     Plot::<FacetColumn>::new()
         .add_param(width.clone())
         .data(df)
@@ -344,8 +345,7 @@ async fn repeat_columns_three_scatter() {
     let plot = Plot::<RepeatColumns>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(150.0, 140.0)
-        .columns(repeat_variables())
-        .cell(column_cell());
+        .configure_coord(|c| c.columns(repeat_variables()).cell(column_cell()));
     let compiled = plot.compile(&ctx).await.expect("compile repeat columns");
     assert_visual_match_default(
         &compiled,
@@ -363,8 +363,7 @@ async fn repeat_rows_three_scatter() {
     let plot = Plot::<RepeatRows>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(170.0, 115.0)
-        .rows(repeat_variables())
-        .cell(row_cell());
+        .configure_coord(|c| c.rows(repeat_variables()).cell(row_cell()));
     let compiled = plot.compile(&ctx).await.expect("compile repeat rows");
     assert_visual_match_default(&compiled, &ctx, None, "repeat", "repeat_rows_three_scatter").await;
 }
@@ -376,9 +375,11 @@ async fn repeat_grid_scatter_matrix_independent() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell());
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(grid_cell())
+        });
     let compiled = plot.compile(&ctx).await.expect("compile repeat grid");
     assert_visual_match_default(
         &compiled,
@@ -397,10 +398,12 @@ async fn repeat_grid_scatter_matrix_domains() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell())
-        .matrix_domains();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(grid_cell())
+                .matrix_domains()
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -422,11 +425,13 @@ async fn repeat_grid_matrix_axes_scatter() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_matrix_axes())
-        .matrix_domains()
-        .matrix_axes();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(grid_cell_matrix_axes())
+                .matrix_domains()
+                .matrix_axes()
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -448,13 +453,15 @@ async fn repeat_grid_scatter_with_diagonal_histograms() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_no_legend())
-        .cell_when(
-            repeat::row_index().eq(repeat::column_index()),
-            diagonal_histogram_cell(),
-        );
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(grid_cell_no_legend())
+                .cell_when(
+                    repeat::row_index().eq(repeat::column_index()),
+                    diagonal_histogram_cell(),
+                )
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -477,15 +484,17 @@ async fn repeat_grid_matrix_axes_diagonal_histograms() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(120.0, 105.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_matrix_axes())
-        .cell_when(
-            repeat::row_index().eq(repeat::column_index()),
-            diagonal_histogram_cell_matrix_axes(),
-        )
-        .matrix_domains()
-        .matrix_axes();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(grid_cell_matrix_axes())
+                .cell_when(
+                    repeat::row_index().eq(repeat::column_index()),
+                    diagonal_histogram_cell_matrix_axes(),
+                )
+                .matrix_domains()
+                .matrix_axes()
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -508,15 +517,17 @@ async fn repeat_grid_matrix_axes_diagonal_histograms_large_short_titles() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(270.0, 232.5)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_outer_axes_short_titles())
-        .cell_when(
-            repeat::row_index().eq(repeat::column_index()),
-            diagonal_histogram_cell_outer_axes_short_titles(),
-        )
-        .matrix_domains()
-        .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges);
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(grid_cell_outer_axes_short_titles())
+                .cell_when(
+                    repeat::row_index().eq(repeat::column_index()),
+                    diagonal_histogram_cell_outer_axes_short_titles(),
+                )
+                .matrix_domains()
+                .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -536,12 +547,13 @@ async fn repeat_grid_matrix_axes_diagonal_histograms_large_short_titles() {
 async fn repeat_grid_inside_facet_matrix_domains() {
     let ctx = SessionContext::new();
     let variables = repeat_variables()[0..2].to_vec();
-    let repeat = Plot::<RepeatGrid>::new()
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_matrix_axes())
-        .matrix_domains()
-        .matrix_axes();
+    let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(grid_cell_matrix_axes())
+            .matrix_domains()
+            .matrix_axes()
+    });
     let plot = Plot::<FacetColumn>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(1320.0, 380.0)
@@ -565,12 +577,13 @@ async fn repeat_grid_inside_facet_matrix_domains() {
 async fn repeat_grid_inside_facet_row_matrix_domains() {
     let ctx = SessionContext::new();
     let variables = repeat_variables()[0..2].to_vec();
-    let repeat = Plot::<RepeatGrid>::new()
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_matrix_axes())
-        .matrix_domains()
-        .matrix_axes();
+    let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(grid_cell_matrix_axes())
+            .matrix_domains()
+            .matrix_axes()
+    });
     let plot = Plot::<FacetRow>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(760.0, 820.0)
@@ -594,12 +607,13 @@ async fn repeat_grid_inside_facet_row_matrix_domains() {
 async fn repeat_grid_inside_facet_wrap_aligned() {
     let ctx = SessionContext::new();
     let variables = repeat_variables()[0..2].to_vec();
-    let repeat = Plot::<RepeatGrid>::new()
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(grid_cell_matrix_axes())
-        .matrix_domains()
-        .matrix_axes();
+    let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(grid_cell_matrix_axes())
+            .matrix_domains()
+            .matrix_axes()
+    });
     let plot = Plot::<FacetWrap>::new()
         .data(repeat_three_group_data(&ctx).await)
         .canvas_size(1320.0, 760.0)
@@ -625,11 +639,12 @@ async fn repeat_grid_inside_facet_wrap_aligned() {
 #[tokio::test]
 async fn repeat_wrap_inside_facet_wrap_aligned() {
     let ctx = SessionContext::new();
-    let repeat = Plot::<RepeatWrap>::new()
-        .items(repeat_variables())
-        .columns(2)
-        .cell(wrap_cell())
-        .item_domains();
+    let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
+        c.items(repeat_variables())
+            .columns(2)
+            .cell(wrap_cell())
+            .item_domains()
+    });
     let plot = Plot::<FacetWrap>::new()
         .data(repeat_three_group_data(&ctx).await)
         .canvas_size(1320.0, 920.0)
@@ -659,11 +674,13 @@ async fn facet_column_inside_repeat_grid_aligned() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(1320.0, 520.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(facet_column_cell_matrix_axes())
-        .matrix_domains()
-        .matrix_axes();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(facet_column_cell_matrix_axes())
+                .matrix_domains()
+                .matrix_axes()
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -686,11 +703,13 @@ async fn facet_wrap_inside_repeat_grid_aligned() {
     let plot = Plot::<RepeatGrid>::new()
         .data(repeat_three_group_data(&ctx).await)
         .canvas_size(1320.0, 780.0)
-        .rows(variables.clone())
-        .columns(variables)
-        .cell(facet_wrap_cell_matrix_axes())
-        .matrix_domains()
-        .matrix_axes();
+        .configure_coord(|c| {
+            c.rows(variables.clone())
+                .columns(variables)
+                .cell(facet_wrap_cell_matrix_axes())
+                .matrix_domains()
+                .matrix_axes()
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -712,9 +731,7 @@ async fn repeat_wrap_fixed_columns() {
     let plot = Plot::<RepeatWrap>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(170.0, 130.0)
-        .items(repeat_variables())
-        .columns(2)
-        .cell(wrap_cell());
+        .configure_coord(|c| c.items(repeat_variables()).columns(2).cell(wrap_cell()));
     let compiled = plot.compile(&ctx).await.expect("compile repeat wrap");
     assert_visual_match_default(&compiled, &ctx, None, "repeat", "repeat_wrap_fixed_columns").await;
 }
@@ -725,9 +742,11 @@ async fn repeat_wrap_responsive_columns() {
     let plot = Plot::<RepeatWrap>::new()
         .data(repeat_data(&ctx).await)
         .plot_size(500.0, 300.0)
-        .items(repeat_variables_four())
-        .responsive_columns(210.0)
-        .cell(wrap_cell());
+        .configure_coord(|c| {
+            c.items(repeat_variables_four())
+                .responsive_columns(210.0)
+                .cell(wrap_cell())
+        });
     let compiled = plot
         .compile(&ctx)
         .await
@@ -746,9 +765,7 @@ async fn repeat_wrap_responsive_columns() {
 async fn repeat_wrap_inside_facet_column_fixed_columns() {
     let ctx = SessionContext::new();
     let repeat = Plot::<RepeatWrap>::new()
-        .items(repeat_variables())
-        .columns(2)
-        .cell(wrap_cell());
+        .configure_coord(|c| c.items(repeat_variables()).columns(2).cell(wrap_cell()));
     let plot = Plot::<FacetColumn>::new()
         .data(repeat_data(&ctx).await)
         .canvas_size(1320.0, 380.0)

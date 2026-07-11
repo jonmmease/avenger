@@ -71,11 +71,13 @@ axis defaults. Metadata placeholders return ordinary DataFusion expressions.
 ```rust,ignore
 let plot = Plot::<RepeatGrid>::new()
     .data(df)
-    .rows(variables.clone())
-    .columns(variables)
-    .cell(cell)
-    .matrix_domains()
-    .matrix_axes();
+    .configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(cell)
+            .matrix_domains()
+            .matrix_axes()
+    });
 ```
 
 `matrix_domains()` coordinates domains by repeat variable id. If a variable is
@@ -88,11 +90,13 @@ and should coordinate domains at a particular logical level:
 
 ```rust,ignore
 let plot = Plot::<RepeatGrid>::new()
-    .rows(variables.clone())
-    .columns(variables)
-    .cell(cell)
-    .matrix_domains_with_scope(CoordinationScope::Level(1))
-    .matrix_axes();
+    .configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(cell)
+            .matrix_domains_with_scope(CoordinationScope::Level(1))
+            .matrix_axes()
+    });
 ```
 
 ## Conditional Cells
@@ -121,12 +125,14 @@ let histogram = Plot::<Cartesian>::new().mark(
 
 let plot = Plot::<RepeatGrid>::new()
     .data(df)
-    .rows(variables.clone())
-    .columns(variables)
-    .cell(scatter)
-    .cell_when(repeat::row_index().eq(repeat::column_index()), histogram)
-    .matrix_domains()
-    .matrix_axes();
+    .configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(scatter)
+            .cell_when(repeat::row_index().eq(repeat::column_index()), histogram)
+            .matrix_domains()
+            .matrix_axes()
+    });
 ```
 
 The histogram's `repeat::column()` resolves to the same expression as the
@@ -139,17 +145,19 @@ Use `RepeatWrap` when there is one list of variables and the layout should wrap:
 ```rust,ignore
 let plot = Plot::<RepeatWrap>::new()
     .data(df)
-    .items(variables)
-    .columns(3)
-    .cell(
-        Plot::<Cartesian>::new().mark(
-            Symbol::new()
-                .x(repeat::item())
-                .y(col("target"))
-                .size(36.0),
-        ),
-    )
-    .item_domains();
+    .configure_coord(|c| {
+        c.items(variables)
+            .columns(3)
+            .cell(
+                Plot::<Cartesian>::new().mark(
+                    Symbol::new()
+                        .x(repeat::item())
+                        .y(col("target"))
+                        .size(36.0),
+                ),
+            )
+            .item_domains()
+    });
 ```
 
 For canvas-width-driven workflows, use `responsive_columns(approx_width)`:
@@ -158,9 +166,11 @@ For canvas-width-driven workflows, use `responsive_columns(approx_width)`:
 let plot = Plot::<RepeatWrap>::new()
     .canvas_constraint(CanvasConstraint::width(width_param.expr()))
     .plot_constraint(PlotConstraint::height(160.0))
-    .items(variables)
-    .responsive_columns(180.0)
-    .cell(cell);
+    .configure_coord(|c| {
+        c.items(variables)
+            .responsive_columns(180.0)
+            .cell(cell)
+    });
 ```
 
 Responsive repeat uses the same column-count behavior as `WrapConcat`.
@@ -182,11 +192,13 @@ let cell = Plot::<Cartesian>::new()
 
 let plot = Plot::<RepeatGrid>::new()
     .data(df)
-    .rows(variables.clone())
-    .columns(variables)
-    .cell(cell)
-    .matrix_domains()
-    .matrix_axes();
+    .configure_coord(|c| {
+        c.rows(variables.clone())
+            .columns(variables)
+            .cell(cell)
+            .matrix_domains()
+            .matrix_axes()
+    });
 ```
 
 In a matrix, horizontal pan updates the repeated column variable domain and

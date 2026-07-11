@@ -305,14 +305,16 @@ async fn generated_repeat_allows_unit_aspect_shared_child_domain() {
     let plot = Plot::<RepeatColumns>::new()
         .plot_size(400.0, 100.0)
         .data(df)
-        .columns([
-            RepeatVariable::new("a", col("a")),
-            RepeatVariable::new("b", col("b")),
-        ])
-        .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
-            CoordinationScope::Shared,
-        ))
-        .cell(cell);
+        .configure_coord(|c| {
+            c.columns([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
+                CoordinationScope::Shared,
+            ))
+            .cell(cell)
+        });
     let compiled = plot.compile(&ctx).await.expect("compile repeat");
 
     SvgRenderer::new()
@@ -367,14 +369,16 @@ async fn generated_repeat_unit_aspect_shared_domain_handles_symbol_radius_paddin
     let plot = Plot::<RepeatColumns>::new()
         .plot_size(500.0, 120.0)
         .data(df)
-        .columns([
-            RepeatVariable::new("a", col("a")),
-            RepeatVariable::new("b", col("b")),
-        ])
-        .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
-            CoordinationScope::Shared,
-        ))
-        .cell(cell);
+        .configure_coord(|c| {
+            c.columns([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
+                CoordinationScope::Shared,
+            ))
+            .cell(cell)
+        });
     let compiled = plot.compile(&ctx).await.expect("compile repeat");
 
     SvgRenderer::new()
@@ -659,14 +663,16 @@ async fn generated_repeat_unit_aspect_canvas_refinement_reruns_shared_domain_sol
     let plot = Plot::<RepeatColumns>::new()
         .canvas_size(660.0, 320.0)
         .data(df)
-        .columns([
-            RepeatVariable::new("a", col("a")),
-            RepeatVariable::new("b", col("b")),
-        ])
-        .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
-            CoordinationScope::Shared,
-        ))
-        .cell(cell);
+        .configure_coord(|c| {
+            c.columns([
+                RepeatVariable::new("a", col("a")),
+                RepeatVariable::new("b", col("b")),
+            ])
+            .with_repeat_domain_coordination(RepeatDomainCoordination::by_variable(
+                CoordinationScope::Shared,
+            ))
+            .cell(cell)
+        });
     let compiled = plot.compile(&ctx).await.expect("compile canvas repeat");
     let (evaluated, metrics) = compiled
         .evaluate_with_options_and_metrics(

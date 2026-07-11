@@ -48,8 +48,7 @@ Use `VConcat` the same way when the plots should stack vertically.
 ```rust,ignore
 let plot = Plot::<GridConcat>::new()
     .data(df)
-    .rows(2)
-    .columns(2)
+    .configure_coord(|c| c.rows(2).columns(2))
     .mark(Subplot::new(top_left).grid_cell(0, 0))
     .mark(Subplot::new(top_right).grid_cell(0, 1))
     .mark(Subplot::new(bottom_left).grid_cell(1, 0));
@@ -69,7 +68,7 @@ before you reach for the repeat convenience API.
 ```rust,ignore
 let plot = Plot::<WrapConcat>::new()
     .data(df)
-    .columns(3)
+    .configure_coord(|c| c.columns(3))
     .mark(Subplot::new(plot_a).key("a"))
     .mark(Subplot::new(plot_b).key("b"))
     .mark(Subplot::new(plot_c).key("c"))
@@ -83,7 +82,7 @@ and should choose a column count from an approximate target cell width:
 let plot = Plot::<WrapConcat>::new()
     .canvas_constraint(CanvasConstraint::width(width_param.expr()))
     .plot_constraint(PlotConstraint::height(160.0))
-    .responsive_columns(180.0)
+    .configure_coord(|c| c.responsive_columns(180.0))
     .mark(Subplot::new(plot_a))
     .mark(Subplot::new(plot_b))
     .mark(Subplot::new(plot_c));
@@ -119,7 +118,9 @@ domains even though the visual axis names differ.
 
 ```rust,ignore
 let plot = Plot::<GridConcat>::new()
-    .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges);
+    .configure_coord(|c| {
+        c.axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
+    });
 ```
 
 `OuterForEquivalentDomainGroups` is the matrix-style policy. It hides interior
@@ -127,7 +128,9 @@ axes only when aligned cells use equivalent domain coordination targets:
 
 ```rust,ignore
 let plot = Plot::<GridConcat>::new()
-    .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups);
+    .configure_coord(|c| {
+        c.axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
+    });
 ```
 
 Repeat matrix axes use this policy internally, but manual concat grids can use

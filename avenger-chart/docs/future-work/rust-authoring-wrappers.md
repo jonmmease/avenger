@@ -105,8 +105,9 @@ surfaces today —
    `row_heights`/`axis_guide_visibility`), `HConcat`/`VConcat`
    (`widths`/`heights`), `WrapConcat` (`columns`/`responsive_columns`),
    and the four `Repeat*` kinds (`cell`/`cell_when`/`matrix_domains`/
-   `item_domains`/`with_repeat_domain_coordination`/…) — ~35 methods
-   across 7 impls (plot.rs:158–386).
+   `item_domains`/`with_repeat_domain_coordination`/…) — 35 methods
+   across 8 impls (plot.rs:158–386): four concat-family impls and four
+   repeat-family impls.
 
 Some systems also mint runtime state from their config — `Geo` exposes
 `center_x_param()`/`center_y_param()` (the pan/zoom-interactive center
@@ -126,7 +127,7 @@ type — with exactly two paths on both `Plot` and `Chart`:
 
 Consequences:
 
-- **The 7 per-`C` container impl blocks on `Plot` (~35 methods,
+- **The 8 per-`C` container impl blocks on `Plot` (35 methods,
   plot.rs:158–386) are deleted.** `Plot`'s public surface becomes truly
   coordinate-agnostic — the pure-construct story completes: zero
   position fields *and* zero coordinate-specific methods.
@@ -221,7 +222,7 @@ expectation** (no re-blesses).
    `.items()`, `.responsive_columns()`, `.cell()`, `.cell_when()`,
    `.matrix_domains[_with_scope]()`, `.item_domains[_with_scope]()`,
    `.matrix_axes()`, `.axis_guide_visibility()`,
-   `.domain_coordination()`. The concat types are already fluent — the
+   `.with_repeat_domain_coordination()`. The concat types are already fluent — the
    forwarding bodies call them — so verify completeness only
    (`rows`/`columns`/`column_widths`/`row_heights`/`widths`/`heights`/
    `responsive_columns`/`axis_guide_visibility`).
@@ -231,15 +232,18 @@ expectation** (no re-blesses).
    (concat-system.md and repeat-system.md at minimum). The inventory is
    greppable: the ~35 method names scoped to container-typed `Plot`
    receivers.
-4. **Delete the seven per-`C` impl blocks** (plot.rs:158–386) and any
+4. **Delete the eight per-`C` impl blocks** (plot.rs:158–386) and any
    setter surface on the repeat types made dead by step 2.
-5. **Verify.** Strict check per the house rule (debug
-   `cargo check -D warnings` scoped `-p avenger-layout -p
-   avenger-chart`); full release test suite; pin the known pre-existing
-   118-test ParquetFormat plan-serialization failures (chip
-   task_c87ae1b0) as known failures, not regressions. Exit criteria: no
-   coordinate-specific method resolves on any `Plot<C>` receiver; suite
-   green modulo pinned knowns; **zero baseline changes**.
+5. **Verify.** Use the execution plan's HEAD-regenerated package census:
+   debug `RUSTFLAGS="-D warnings" cargo check --all-targets` over the chart
+   packages and top-level example packages, targeted release tests per step,
+   then `cargo test --release --workspace` plus
+   `cargo test --release -p avenger-chart --features visual-tests` at the
+   campaign gate. The former 118-test `ParquetFormat` pin was fixed by
+   `f7f52ed5f`/`b35412b99`; Campaign 1 starts from a fresh failure set, and
+   any new Parquet failure is a regression. Exit criteria: no
+   coordinate-specific method resolves on any `Plot<C>` receiver; the fresh
+   failure-set diff is clean; **zero baseline changes**.
 
 Coordination hazard: the concurrent baking workstream actively edits
 avenger-chart (including plot.rs). Sequence with it or rebase

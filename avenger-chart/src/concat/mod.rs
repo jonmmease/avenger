@@ -2888,8 +2888,7 @@ mod tests {
 
     fn manual_grid_plot() -> Plot<GridConcat> {
         Plot::<GridConcat>::new()
-            .rows(1)
-            .columns(2)
+            .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("left"))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("right"))
     }
@@ -3234,8 +3233,7 @@ mod tests {
     async fn grid_concat_measurement_places_complete_grid() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .rows(2)
-            .columns(2)
+            .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("a"))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("b"))
             .mark(Subplot::new(zero_plot()).grid_cell(1, 0).key("c"))
@@ -3280,8 +3278,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .rows(1)
-            .columns(2)
+            .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("left"))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("right"))
             .compile(&ctx)
@@ -3359,8 +3356,7 @@ mod tests {
     async fn grid_concat_holes_preserve_track_indices() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .rows(2)
-            .columns(3)
+            .configure_coord(|c| c.rows(2).columns(3))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("top-left"))
             .mark(
                 Subplot::new(zero_plot())
@@ -3604,8 +3600,7 @@ mod tests {
     async fn grid_concat_measures_spanned_child() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .rows(2)
-            .columns(2)
+            .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 1))
             .mark(Subplot::new(zero_plot()).grid_cell(0, 1))
             .mark(Subplot::new(zero_plot()).grid_cell(1, 1))
@@ -3652,8 +3647,7 @@ mod tests {
     async fn grid_concat_rejects_span_outside_configured_shape() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .rows(2)
-            .columns(2)
+            .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(zero_plot()).grid_cell(1, 1).grid_span(2, 1))
             .compile(&ctx)
             .await?;
@@ -3695,10 +3689,11 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell());
+        let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows(repeat_vars(&["a", "b"]))
+                .columns(repeat_vars(&["a", "b"]))
+                .cell(repeated_grid_cell())
+        });
         let compiled = Plot::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(repeat).column(col("group_name")))
@@ -3813,9 +3808,11 @@ mod tests {
         let variables = repeat_vars(&["x", "y"]);
         let compiled = Plot::<RepeatGrid>::new()
             .data(grouped_xy_dataframe(&ctx))
-            .rows(variables.clone())
-            .columns(variables)
-            .cell(repeated_facet_column_cell())
+            .configure_coord(|c| {
+                c.rows(variables.clone())
+                    .columns(variables)
+                    .cell(repeated_facet_column_cell())
+            })
             .compile(&ctx)
             .await?;
 
@@ -3853,8 +3850,7 @@ mod tests {
         };
         let compiled = Plot::<GridConcat>::new()
             .data(grouped_xy_dataframe(&ctx))
-            .rows(1)
-            .columns(2)
+            .configure_coord(|c| c.rows(1).columns(2))
             .mark(
                 Subplot::new(facet_child())
                     .grid_cell(0, 0)
@@ -3912,8 +3908,7 @@ mod tests {
         );
         let compiled = Plot::<GridConcat>::new()
             .data(nested_grouped_xy_dataframe(&ctx))
-            .rows(1)
-            .columns(2)
+            .configure_coord(|c| c.rows(1).columns(2))
             .mark(
                 Subplot::new(group_facet)
                     .grid_cell(0, 0)
@@ -4031,7 +4026,10 @@ mod tests {
     async fn layout_coordination_nodes_export_wrap_concat_grid_topology()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(5).columns(3).compile(&ctx).await?;
+        let compiled = wrapped_zero_plot(5)
+            .configure_coord(|c| c.columns(3))
+            .compile(&ctx)
+            .await?;
 
         let measurement = measurement_for_plot(&compiled, 300.0, 200.0, &ctx).await?;
         let nodes = collect_child_frame_layout_coordination_nodes(&measurement)?;
@@ -4160,10 +4158,11 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatGrid>::new()
-            .rows(repeat_vars(&["a", "b"]))
-            .columns(repeat_vars(&["a", "b"]))
-            .cell(repeated_grid_cell());
+        let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+            c.rows(repeat_vars(&["a", "b"]))
+                .columns(repeat_vars(&["a", "b"]))
+                .cell(repeated_grid_cell())
+        });
         let compiled = Plot::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(repeat).column(col("group_name")))
@@ -4478,8 +4477,7 @@ mod tests {
             .event_binding(ChartEventBinding::on(ChartEventType::CursorMoved));
 
         let compiled = Plot::<GridConcat>::new()
-            .rows(2)
-            .columns(2)
+            .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(top_left).grid_cell(0, 0).key("top-left"))
             .mark(
                 Subplot::new(bottom_right)
@@ -4551,7 +4549,10 @@ mod tests {
     #[tokio::test]
     async fn wrap_concat_fixed_columns_place_children_row_major() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(5).columns(2).compile(&ctx).await?;
+        let compiled = wrapped_zero_plot(5)
+            .configure_coord(|c| c.columns(2))
+            .compile(&ctx)
+            .await?;
 
         let measurement = measurement_for_plot(&compiled, 200.0, 300.0, &ctx).await?;
         let concat = measurement
@@ -4593,7 +4594,10 @@ mod tests {
     #[tokio::test]
     async fn wrap_concat_trailing_holes_preserve_column_tracks() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(1).columns(3).compile(&ctx).await?;
+        let compiled = wrapped_zero_plot(1)
+            .configure_coord(|c| c.columns(3))
+            .compile(&ctx)
+            .await?;
 
         let measurement = measurement_for_plot(&compiled, 300.0, 100.0, &ctx).await?;
         let concat = measurement
@@ -4630,7 +4634,7 @@ mod tests {
     async fn wrap_concat_responsive_columns_change_with_width() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = wrapped_zero_plot(5)
-            .responsive_columns(180.0)
+            .configure_coord(|c| c.responsive_columns(180.0))
             .compile(&ctx)
             .await?;
 
@@ -5212,8 +5216,7 @@ mod tests {
                     .share_domain()
             }));
         let compiled = Plot::<GridConcat>::new()
-            .rows(1)
-            .columns(2)
+            .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(x_child).grid_cell(0, 0).key("x-child"))
             .mark(Subplot::new(y_child).grid_cell(0, 1).key("y-child"))
             .compile(&ctx)
