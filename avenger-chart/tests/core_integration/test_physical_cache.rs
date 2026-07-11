@@ -958,3 +958,124 @@ async fn retrofit_install_on_existing_context() {
         cache.metrics()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6: cache-boundary hint measurement (design doc's go/no-go input)
+// ---------------------------------------------------------------------------
+
+/// Two marks consume DIFFERENT outputs of one shared aggregate chain over a
+/// large-ish table, with a param upstream. Measures whether the shared
+/// chain's subtrees fingerprint-match across marks (the projection-pushdown
+/// thesis says no), what that costs, and what cross-evaluation reuse
+/// already covers. Prints numbers for the plan's decision memo.
+#[tokio::test]
+async fn boundary_hint_measurement_shared_chain_across_marks() {
+    use std::time::Instant;
+
+    fn big_batch() -> RecordBatch {
+        let n = 50_000i64;
+        let keys: Vec<i64> = (0..n).map(|i| (i * 2_654_435_761) % 500).collect();
+        let values: Vec<f64> = (0..n).map(|i| ((i % 10_007) as f64) * 0.25).collect();
+        record_batch(
+            vec![
+                Field::new("k", DataType::Int64, false),
+                Field::new("value", DataType::Float64, false),
+            ],
+            vec![
+                Arc::new(datafusion::arrow::array::Int64Array::from(keys)) as ArrayRef,
+                Arc::new(Float64Array::from(values)) as ArrayRef,
+            ],
+        )
+    }
+
+    async fn shared_chain_chart(ctx: &SessionContext) -> CompiledPlot {
+        ctx.register_batch("big", big_batch())
+            .expect("register big");
+        let data = ctx
+            .sql("SELECT k, value FROM big WHERE value > $min")
+            .await
+            .expect("big query");
+        Plot::<Cartesian>::new()
+            .data(data)
+            .mark(
+                MarkGroup::new().transform(
+                    Aggregate::new()
+                        .group_by([col("k")])
+                        .sum("total", col("value"))
+                        .max("peak", col("value")),
+                    |group, aggregate| {
+                        group
+                            .mark(
+                                Symbol::new()
+                                    .x(aggregate.output("total"))
+                                    .y(aggregate.output("total"))
+                                    .size(16.0),
+                            )
+                            .mark(
+                                Symbol::new()
+                                    .x(aggregate.output("peak"))
+                                    .y(aggregate.output("peak"))
+                                    .size(9.0),
+                            )
+                    },
+                ),
+            )
+            .compile(ctx)
+            .await
+            .expect("compile shared-chain chart")
+    }
+
+    let (cached_ctx, cache) = cached_ctx();
+    let cached = shared_chain_chart(&cached_ctx).await;
+    let plain_ctx = SessionContext::new();
+    let plain = shared_chain_chart(&plain_ctx).await;
+
+    let mut committed_at = Vec::new();
+    let mut timings = Vec::new();
+    for (label, min) in [
+        ("min=0 cold", 0.0),
+        ("min=0 warm", 0.0),
+        ("min=100 novel", 100.0),
+        ("min=200 novel", 200.0),
+        ("min=100 repeat", 100.0),
+    ] {
+        let p = Some(params(&[("min", min)]));
+        let start = Instant::now();
+        let cached_eval = cached
+            .evaluate(&cached_ctx, p.clone())
+            .await
+            .expect("cached evaluation");
+        let cached_ms = start.elapsed().as_secs_f64() * 1e3;
+        let start = Instant::now();
+        let plain_eval = plain
+            .evaluate(&plain_ctx, p)
+            .await
+            .expect("plain evaluation");
+        let plain_ms = start.elapsed().as_secs_f64() * 1e3;
+        // No cross-context scene-byte assert here: the mark data is an
+        // UNORDERED 500-group aggregate, whose row order is context-dependent
+        // even without any cache (equivalence is the census's job; this test
+        // measures). Sanity only:
+        assert!(cached_eval.scene_graph.width > 0.0);
+        assert!(plain_eval.scene_graph.width > 0.0);
+        let m = cache.metrics();
+        committed_at.push(m.committed_writes);
+        timings.push((label, plain_ms, cached_ms));
+        println!(
+            "boundary `{label}`: plain {plain_ms:.1} ms | cached {cached_ms:.1} ms | \
+             hits={} misses={} committed={} entries={} bytes={}",
+            m.hits, m.misses, m.committed_writes, m.entries, m.bytes
+        );
+    }
+
+    // The decision-memo quantities:
+    let cold_commits = committed_at[0];
+    let per_novel_param_commits = committed_at[2] - committed_at[1];
+    println!(
+        "boundary summary: cold committed {cold_commits} entries; each NOVEL param \
+         value commits {per_novel_param_commits} more (the shared chain re-executes \
+         once per consuming mark when its fingerprints do not match across marks); \
+         repeat-param evaluation committed {} (pure reuse).",
+        committed_at[4] - committed_at[3],
+    );
+}
