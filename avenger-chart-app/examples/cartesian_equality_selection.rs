@@ -90,10 +90,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1040.0, 470.0)
-        .mark(Subplot::new(bars).key("bars").label("Bar selection"))
+        .mark(Subplot::new(bars).name("bars").label("Bar selection"))
         .mark(
             Subplot::new(scatter)
-                .key("scatter")
+                .name("scatter")
                 .label("Cross-highlight"),
         );
 

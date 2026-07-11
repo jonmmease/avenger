@@ -58,7 +58,7 @@ async fn external_coordinate_can_compile_subplot_mark() {
         .subplot_u(lit(10.0))
         .subplot_v(lit(20.0))
         .label("child label")
-        .key("child-key");
+        .name("child-key");
 
     let compiled = subplot.compile_untransformed(&ctx).await.unwrap();
 

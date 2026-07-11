@@ -4700,11 +4700,11 @@ mod tests {
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
             .configure_coord(|c| c.responsive_columns(180.0))
-            .mark(Subplot::new(child()).key("a"))
-            .mark(Subplot::new(child()).key("b"))
-            .mark(Subplot::new(child()).key("c"))
-            .mark(Subplot::new(child()).key("d"))
-            .mark(Subplot::new(child()).key("e"))
+            .mark(Subplot::new(child()).name("a"))
+            .mark(Subplot::new(child()).name("b"))
+            .mark(Subplot::new(child()).name("c"))
+            .mark(Subplot::new(child()).name("d"))
+            .mark(Subplot::new(child()).name("e"))
             .compile(ctx)
             .await
     }
@@ -4814,8 +4814,8 @@ mod tests {
         };
         Plot::<HConcat>::new()
             .canvas_size(620.0, 280.0)
-            .mark(Subplot::new(child(left)).key("left"))
-            .mark(Subplot::new(child(right)).key("right"))
+            .mark(Subplot::new(child(left)).name("left"))
+            .mark(Subplot::new(child(right)).name("right"))
             .compile(ctx)
             .await
     }
@@ -8612,14 +8612,14 @@ mod tests {
                 .configure_coord(|c| c.rows(2).columns(3))
                 .mark(
                     Subplot::new(simple_interaction_scope_child())
-                        .grid_cell(0, 2)
-                        .key("top_right")
+                        .at(0, 2)
+                        .name("top_right")
                         .label("Top right"),
                 )
                 .mark(
                     Subplot::new(simple_interaction_scope_child())
-                        .grid_cell(1, 1)
-                        .key("bottom_middle")
+                        .at(1, 1)
+                        .name("bottom_middle")
                         .label("Bottom middle"),
                 )
                 .compile(&ctx)
@@ -8674,15 +8674,15 @@ mod tests {
                 .configure_coord(|c| c.rows(3).columns(3))
                 .mark(
                     Subplot::new(simple_interaction_scope_child())
-                        .grid_cell(0, 0)
-                        .grid_span(2, 2)
-                        .key("spanned")
+                        .at(0, 0)
+                        .span(2, 2)
+                        .name("spanned")
                         .label("Spanned"),
                 )
                 .mark(
                     Subplot::new(simple_interaction_scope_child())
-                        .grid_cell(2, 2)
-                        .key("bottom_right")
+                        .at(2, 2)
+                        .name("bottom_right")
                         .label("Bottom right"),
                 )
                 .compile(&ctx)
@@ -8733,9 +8733,9 @@ mod tests {
                 .canvas_size(720.0, 420.0)
                 .data(df)
                 .configure_coord(|c| c.columns(2))
-                .mark(Subplot::new(simple_interaction_scope_child()).key("a"))
-                .mark(Subplot::new(simple_interaction_scope_child()).key("b"))
-                .mark(Subplot::new(simple_interaction_scope_child()).key("c"))
+                .mark(Subplot::new(simple_interaction_scope_child()).name("a"))
+                .mark(Subplot::new(simple_interaction_scope_child()).name("b"))
+                .mark(Subplot::new(simple_interaction_scope_child()).name("c"))
                 .compile(&ctx)
                 .await?,
         );

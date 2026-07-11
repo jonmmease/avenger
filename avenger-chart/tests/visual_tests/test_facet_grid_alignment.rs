@@ -69,13 +69,13 @@ async fn concat_grid_facet_track_alignment() {
         .configure_coord(|c| c.rows(1).columns(2))
         .mark(
             Subplot::new(facet_child("y_small"))
-                .grid_cell(0, 0)
-                .key("metric_small"),
+                .at(0, 0)
+                .name("metric_small"),
         )
         .mark(
             Subplot::new(facet_child("y_large"))
-                .grid_cell(0, 1)
-                .key("metric_large"),
+                .at(0, 1)
+                .name("metric_large"),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

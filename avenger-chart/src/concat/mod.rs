@@ -1798,7 +1798,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
         .map(|prepared| {
             let placement = prepared.grid_placement().ok_or_else(|| {
                 AvengerChartError::InvalidArgument(
-                    "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+                    "GridConcat subplots require `.at(row, column)`".to_string(),
                 )
             })?;
             Ok(Size::new(
@@ -1824,7 +1824,7 @@ pub(crate) async fn measure_grid_concat_coord_system(
     {
         let placement = prepared.grid_placement().ok_or_else(|| {
             AvengerChartError::InvalidArgument(
-                "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+                "GridConcat subplots require `.at(row, column)`".to_string(),
             )
         })?;
         let facet_scoped_extents = eval_ctx
@@ -2338,7 +2338,7 @@ fn resolve_grid_shape(
     for subplot in subplots {
         let placement = subplot.grid_placement().ok_or_else(|| {
             AvengerChartError::InvalidArgument(
-                "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+                "GridConcat subplots require `.at(row, column)`".to_string(),
             )
         })?;
         if placement.row_span == 0 || placement.column_span == 0 {
@@ -2889,19 +2889,19 @@ mod tests {
     fn manual_grid_plot() -> Plot<GridConcat> {
         Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(1).columns(2))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("left"))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("right"))
+            .mark(Subplot::new(zero_plot()).at(0, 0).name("left"))
+            .mark(Subplot::new(zero_plot()).at(0, 1).name("right"))
     }
 
     fn keyed_hconcat(left_key: &str, right_key: &str) -> Plot<HConcat> {
         Plot::<HConcat>::new()
-            .mark(Subplot::new(zero_plot()).key(left_key))
-            .mark(Subplot::new(zero_plot()).key(right_key))
+            .mark(Subplot::new(zero_plot()).name(left_key))
+            .mark(Subplot::new(zero_plot()).name(right_key))
     }
 
     fn wrapped_zero_plot(count: usize) -> Plot<WrapConcat> {
         (0..count).fold(Plot::<WrapConcat>::new(), |plot, idx| {
-            plot.mark(Subplot::new(zero_plot()).key(format!("child-{idx}")))
+            plot.mark(Subplot::new(zero_plot()).name(format!("child-{idx}")))
         })
     }
 
@@ -3114,8 +3114,8 @@ mod tests {
     async fn grid_concat_spacing_floors_track_gaps() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::with_coord(GridConcat::new().rows(1).columns(2).spacing(30.0))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).grid_cell(0, 0))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).grid_cell(0, 1))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).at(0, 0))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).at(0, 1))
             .compile(&ctx)
             .await?;
 
@@ -3144,12 +3144,12 @@ mod tests {
         let compiled = Plot::<HConcat>::new()
             .mark(
                 Subplot::new(Plot::<ZeroDCoord>::new())
-                    .key("left")
+                    .name("left")
                     .label("Left"),
             )
             .mark(
                 Subplot::new(Plot::<ZeroDCoord>::new())
-                    .key("right")
+                    .name("right")
                     .label("Right"),
             )
             .compile(&ctx)
@@ -3208,8 +3208,8 @@ mod tests {
             .event_binding(ChartEventBinding::on(ChartEventType::CursorMoved));
 
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(left).key("left"))
-            .mark(Subplot::new(right).key("right"))
+            .mark(Subplot::new(left).name("left"))
+            .mark(Subplot::new(right).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -3234,10 +3234,10 @@ mod tests {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("a"))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("b"))
-            .mark(Subplot::new(zero_plot()).grid_cell(1, 0).key("c"))
-            .mark(Subplot::new(zero_plot()).grid_cell(1, 1).key("d"))
+            .mark(Subplot::new(zero_plot()).at(0, 0).name("a"))
+            .mark(Subplot::new(zero_plot()).at(0, 1).name("b"))
+            .mark(Subplot::new(zero_plot()).at(1, 0).name("c"))
+            .mark(Subplot::new(zero_plot()).at(1, 1).name("d"))
             .compile(&ctx)
             .await?;
 
@@ -3279,8 +3279,8 @@ mod tests {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(1).columns(2))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("left"))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 1).key("right"))
+            .mark(Subplot::new(zero_plot()).at(0, 0).name("left"))
+            .mark(Subplot::new(zero_plot()).at(0, 1).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -3357,12 +3357,8 @@ mod tests {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(3))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).key("top-left"))
-            .mark(
-                Subplot::new(zero_plot())
-                    .grid_cell(1, 2)
-                    .key("bottom-right"),
-            )
+            .mark(Subplot::new(zero_plot()).at(0, 0).name("top-left"))
+            .mark(Subplot::new(zero_plot()).at(1, 2).name("bottom-right"))
             .compile(&ctx)
             .await?;
 
@@ -3601,9 +3597,9 @@ mod tests {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 1))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 1))
-            .mark(Subplot::new(zero_plot()).grid_cell(1, 1))
+            .mark(Subplot::new(zero_plot()).at(0, 0).span(2, 1))
+            .mark(Subplot::new(zero_plot()).at(0, 1))
+            .mark(Subplot::new(zero_plot()).at(1, 1))
             .compile(&ctx)
             .await?;
 
@@ -3629,7 +3625,7 @@ mod tests {
     async fn grid_concat_rejects_zero_grid_span() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let result = Plot::<GridConcat>::new()
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(0, 1))
+            .mark(Subplot::new(zero_plot()).at(0, 0).span(0, 1))
             .compile(&ctx)
             .await;
         let err = match result {
@@ -3648,7 +3644,7 @@ mod tests {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
-            .mark(Subplot::new(zero_plot()).grid_cell(1, 1).grid_span(2, 1))
+            .mark(Subplot::new(zero_plot()).at(1, 1).span(2, 1))
             .compile(&ctx)
             .await?;
 
@@ -3663,8 +3659,8 @@ mod tests {
     async fn grid_concat_rejects_overlapping_span_rectangles() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0).grid_span(2, 2))
-            .mark(Subplot::new(zero_plot()).grid_cell(1, 1))
+            .mark(Subplot::new(zero_plot()).at(0, 0).span(2, 2))
+            .mark(Subplot::new(zero_plot()).at(1, 1))
             .compile(&ctx)
             .await?;
 
@@ -3851,16 +3847,8 @@ mod tests {
         let compiled = Plot::<GridConcat>::new()
             .data(grouped_xy_dataframe(&ctx))
             .configure_coord(|c| c.rows(1).columns(2))
-            .mark(
-                Subplot::new(facet_child())
-                    .grid_cell(0, 0)
-                    .key("left_facets"),
-            )
-            .mark(
-                Subplot::new(facet_child())
-                    .grid_cell(0, 1)
-                    .key("right_facets"),
-            )
+            .mark(Subplot::new(facet_child()).at(0, 0).name("left_facets"))
+            .mark(Subplot::new(facet_child()).at(0, 1).name("right_facets"))
             .compile(&ctx)
             .await?;
 
@@ -3909,15 +3897,11 @@ mod tests {
         let compiled = Plot::<GridConcat>::new()
             .data(nested_grouped_xy_dataframe(&ctx))
             .configure_coord(|c| c.rows(1).columns(2))
-            .mark(
-                Subplot::new(group_facet)
-                    .grid_cell(0, 0)
-                    .key("group_facets"),
-            )
+            .mark(Subplot::new(group_facet).at(0, 0).name("group_facets"))
             .mark(
                 Subplot::new(subgroup_facet)
-                    .grid_cell(0, 1)
-                    .key("subgroup_facets"),
+                    .at(0, 1)
+                    .name("subgroup_facets"),
             )
             .compile(&ctx)
             .await?;
@@ -3948,8 +3932,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(manual_grid_plot()).key("left_grid"))
-            .mark(Subplot::new(manual_grid_plot()).key("right_grid"))
+            .mark(Subplot::new(manual_grid_plot()).name("left_grid"))
+            .mark(Subplot::new(manual_grid_plot()).name("right_grid"))
             .compile(&ctx)
             .await?;
 
@@ -3995,8 +3979,8 @@ mod tests {
         }
 
         let vertical = Plot::<VConcat>::new()
-            .mark(Subplot::new(zero_plot()).key("top"))
-            .mark(Subplot::new(zero_plot()).key("bottom"))
+            .mark(Subplot::new(zero_plot()).name("top"))
+            .mark(Subplot::new(zero_plot()).name("bottom"))
             .compile(&ctx)
             .await?;
         let vertical_measurement = measurement_for_plot(&vertical, 120.0, 200.0, &ctx).await?;
@@ -4455,8 +4439,8 @@ mod tests {
     async fn grid_concat_rejects_duplicate_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<GridConcat>::new()
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0))
-            .mark(Subplot::new(zero_plot()).grid_cell(0, 0))
+            .mark(Subplot::new(zero_plot()).at(0, 0))
+            .mark(Subplot::new(zero_plot()).at(0, 0))
             .compile(&ctx)
             .await?;
 
@@ -4478,12 +4462,8 @@ mod tests {
 
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
-            .mark(Subplot::new(top_left).grid_cell(0, 0).key("top-left"))
-            .mark(
-                Subplot::new(bottom_right)
-                    .grid_cell(1, 1)
-                    .key("bottom-right"),
-            )
+            .mark(Subplot::new(top_left).at(0, 0).name("top-left"))
+            .mark(Subplot::new(bottom_right).at(1, 1).name("bottom-right"))
             .compile(&ctx)
             .await?;
 
@@ -4696,8 +4676,8 @@ mod tests {
         let compiled = Arc::new(
             Plot::<HConcat>::new()
                 .canvas_size(520.0, 240.0)
-                .mark(Subplot::new(left).key("left"))
-                .mark(Subplot::new(right).key("right"))
+                .mark(Subplot::new(left).name("left"))
+                .mark(Subplot::new(right).name("right"))
                 .compile(&ctx)
                 .await?,
         );
@@ -4720,8 +4700,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("left"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -4787,8 +4767,8 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).key("outer-left"))
-            .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).key("outer-right"))
+            .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).name("outer-left"))
+            .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).name("outer-right"))
             .compile(&ctx)
             .await?;
 
@@ -4962,8 +4942,8 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let compiled = Plot::<VConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("top"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("bottom"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("top"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("bottom"))
             .compile(&ctx)
             .await?;
 
@@ -4988,7 +4968,7 @@ mod tests {
     async fn concat_measurement_preserves_sparse_mark_indexes() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("first"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("first"))
             .compile(&ctx)
             .await?;
 
@@ -5005,8 +4985,8 @@ mod tests {
     async fn hconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("left"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("right"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("left"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -5042,7 +5022,7 @@ mod tests {
         let child_plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
         let compiled = Plot::<HConcat>::new()
             .data(data)
-            .mark(Subplot::new(child_plot).key("points"))
+            .mark(Subplot::new(child_plot).name("points"))
             .compile(&ctx)
             .await?;
 
@@ -5072,7 +5052,7 @@ mod tests {
             .mark(Symbol::new().x(col("x")).y(col("y")));
         let compiled = Plot::<HConcat>::new()
             .data(parent_data)
-            .mark(Subplot::new(child_plot).key("points"))
+            .mark(Subplot::new(child_plot).name("points"))
             .compile(&ctx)
             .await?;
 
@@ -5102,7 +5082,7 @@ mod tests {
         );
         let compiled = Plot::<HConcat>::new()
             .canvas_size(500.0, 220.0)
-            .mark(Subplot::new(facet_child).key("faceted"))
+            .mark(Subplot::new(facet_child).name("faceted"))
             .compile(&ctx)
             .await?;
 
@@ -5146,8 +5126,8 @@ mod tests {
         let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
         let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(child_scatter_plot(left_data, false)).key("left"))
-            .mark(Subplot::new(child_scatter_plot(right_data, false)).key("right"))
+            .mark(Subplot::new(child_scatter_plot(left_data, false)).name("left"))
+            .mark(Subplot::new(child_scatter_plot(right_data, false)).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -5173,8 +5153,8 @@ mod tests {
         let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
         let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
         let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(child_scatter_plot(left_data, true)).key("left"))
-            .mark(Subplot::new(child_scatter_plot(right_data, true)).key("right"))
+            .mark(Subplot::new(child_scatter_plot(left_data, true)).name("left"))
+            .mark(Subplot::new(child_scatter_plot(right_data, true)).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -5217,8 +5197,8 @@ mod tests {
             }));
         let compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(1).columns(2))
-            .mark(Subplot::new(x_child).grid_cell(0, 0).key("x-child"))
-            .mark(Subplot::new(y_child).grid_cell(0, 1).key("y-child"))
+            .mark(Subplot::new(x_child).at(0, 0).name("x-child"))
+            .mark(Subplot::new(y_child).at(0, 1).name("y-child"))
             .compile(&ctx)
             .await?;
 
@@ -5247,8 +5227,8 @@ mod tests {
         let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
         let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
         let concat_compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(line_child_plot(left_data, true)).key("left"))
-            .mark(Subplot::new(line_child_plot(right_data, true)).key("right"))
+            .mark(Subplot::new(line_child_plot(left_data, true)).name("left"))
+            .mark(Subplot::new(line_child_plot(right_data, true)).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -5296,8 +5276,8 @@ mod tests {
     async fn vconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = Plot::<VConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("top"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("bottom"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("top"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("bottom"))
             .compile(&ctx)
             .await?;
 

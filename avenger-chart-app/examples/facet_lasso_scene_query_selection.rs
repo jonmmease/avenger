@@ -108,8 +108,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         ))
         .add_param(cursor.clone())
         .cursor_param(cursor.name.clone())
-        .mark(Subplot::new(free_facets).key("free"))
-        .mark(Subplot::new(shared_facets).key("shared"))
+        .mark(Subplot::new(free_facets).name("free"))
+        .mark(Subplot::new(shared_facets).name("shared"))
         .event_binding(cursor_binding(&cursor));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");

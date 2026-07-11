@@ -258,21 +258,21 @@ fn alignment_spanned_grid_concat() -> Plot<GridConcat> {
         })
         .mark(
             Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .grid_span(2, 2)
-                .key("spanned_xy")
+                .at(0, 0)
+                .span(2, 2)
+                .name("spanned_xy")
                 .label("Spanned xy"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21"))
-                .grid_cell(0, 2)
-                .key("top_right")
+                .at(0, 2)
+                .name("top_right")
                 .label("Top right"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x", "y2", "#f28f43"))
-                .grid_cell(1, 2)
-                .key("bottom_right")
+                .at(1, 2)
+                .name("bottom_right")
                 .label("Bottom right"),
         )
 }
@@ -286,23 +286,23 @@ fn alignment_grid_concat() -> Plot<GridConcat> {
         })
         .mark(
             Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .key("xy"),
+                .at(0, 0)
+                .name("xy"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21"))
-                .grid_cell(0, 1)
-                .key("x2y"),
+                .at(0, 1)
+                .name("x2y"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x", "y2", "#f28f43"))
-                .grid_cell(1, 0)
-                .key("xy2"),
+                .at(1, 0)
+                .name("xy2"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x2", "y2", "#910000"))
-                .grid_cell(1, 1)
-                .key("x2y2"),
+                .at(1, 1)
+                .name("x2y2"),
         )
 }
 
@@ -312,9 +312,9 @@ fn alignment_wrap_concat() -> Plot<WrapConcat> {
             c.columns(2)
                 .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
         })
-        .mark(Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8")).key("xy"))
-        .mark(Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21")).key("x2y"))
-        .mark(Subplot::new(alignment_grid_cell("x", "y2", "#f28f43")).key("xy2"))
+        .mark(Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8")).name("xy"))
+        .mark(Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21")).name("x2y"))
+        .mark(Subplot::new(alignment_grid_cell("x", "y2", "#f28f43")).name("xy2"))
 }
 
 fn facet_column_alignment_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<FacetColumn> {
@@ -420,8 +420,8 @@ async fn hconcat_shared_x_domains() {
     let plot = Plot::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat x domain")
-        .mark(Subplot::new(shared_x_child(left, "Local low x")).key("low"))
-        .mark(Subplot::new(shared_x_child(right, "Local high x")).key("high"));
+        .mark(Subplot::new(shared_x_child(left, "Local low x")).name("low"))
+        .mark(Subplot::new(shared_x_child(right, "Local high x")).name("high"));
 
     let compiled = plot
         .compile(&ctx)
@@ -450,8 +450,8 @@ async fn hconcat_shared_y_axis() {
     let plot = Plot::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat y axis")
-        .mark(Subplot::new(shared_y_child(left, "Local low y")).key("low"))
-        .mark(Subplot::new(shared_y_child(right, "Local high y")).key("high"));
+        .mark(Subplot::new(shared_y_child(left, "Local low y")).name("low"))
+        .mark(Subplot::new(shared_y_child(right, "Local high y")).name("high"));
 
     let compiled = plot
         .compile(&ctx)
@@ -480,8 +480,8 @@ async fn vconcat_shared_x_axis() {
     let plot = Plot::<VConcat>::new()
         .canvas_size(560.0, 620.0)
         .title("Shared concat x axis")
-        .mark(Subplot::new(shared_x_child_no_title(top)).key("low"))
-        .mark(Subplot::new(shared_x_child_no_title(bottom)).key("high"));
+        .mark(Subplot::new(shared_x_child_no_title(top)).name("low"))
+        .mark(Subplot::new(shared_x_child_no_title(bottom)).name("high"));
 
     let compiled = plot
         .compile(&ctx)
@@ -510,8 +510,10 @@ async fn hconcat_shared_color_legend_right() {
     let plot = Plot::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat legend")
-        .mark(Subplot::new(shared_color_child(left, "Left", LegendPosition::Right)).key("left"))
-        .mark(Subplot::new(shared_color_child(right, "Right", LegendPosition::Right)).key("right"));
+        .mark(Subplot::new(shared_color_child(left, "Left", LegendPosition::Right)).name("left"))
+        .mark(
+            Subplot::new(shared_color_child(right, "Right", LegendPosition::Right)).name("right"),
+        );
 
     let compiled = plot
         .compile(&ctx)
@@ -536,8 +538,8 @@ async fn grid_concat_local_right_legends_coordinated_chrome() {
         .title("Local right legends")
         .mark(
             Subplot::new(local_right_legend_child("x", "y", "Small y labels", "y"))
-                .grid_cell(0, 0)
-                .key("small-y"),
+                .at(0, 0)
+                .name("small-y"),
         )
         .mark(
             Subplot::new(local_right_legend_child(
@@ -546,8 +548,8 @@ async fn grid_concat_local_right_legends_coordinated_chrome() {
                 "Large y labels",
                 "wide y",
             ))
-            .grid_cell(0, 1)
-            .key("large-y"),
+            .at(0, 1)
+            .name("large-y"),
         );
 
     let compiled = plot
@@ -584,10 +586,10 @@ async fn vconcat_shared_color_legend_bottom() {
     let plot = Plot::<VConcat>::new()
         .canvas_size(560.0, 620.0)
         .title("Shared concat legend")
-        .mark(Subplot::new(shared_color_child(top, "Top", LegendPosition::Bottom)).key("top"))
+        .mark(Subplot::new(shared_color_child(top, "Top", LegendPosition::Bottom)).name("top"))
         .mark(
             Subplot::new(shared_color_child(bottom, "Bottom", LegendPosition::Bottom))
-                .key("bottom"),
+                .name("bottom"),
         );
 
     let compiled = plot
@@ -635,16 +637,16 @@ async fn nested_concat_level1_shared_axis() {
     ];
 
     let left_column = Plot::<VConcat>::new()
-        .mark(Subplot::new(level1_shared_x_child(datasets[0].clone())).key("lt"))
-        .mark(Subplot::new(level1_shared_x_child(datasets[1].clone())).key("lb"));
+        .mark(Subplot::new(level1_shared_x_child(datasets[0].clone())).name("lt"))
+        .mark(Subplot::new(level1_shared_x_child(datasets[1].clone())).name("lb"));
     let right_column = Plot::<VConcat>::new()
-        .mark(Subplot::new(level1_shared_x_child(datasets[2].clone())).key("rt"))
-        .mark(Subplot::new(level1_shared_x_child(datasets[3].clone())).key("rb"));
+        .mark(Subplot::new(level1_shared_x_child(datasets[2].clone())).name("rt"))
+        .mark(Subplot::new(level1_shared_x_child(datasets[3].clone())).name("rb"));
     let plot = Plot::<HConcat>::new()
         .canvas_size(820.0, 560.0)
         .title("Nested Level(1) concat sharing")
-        .mark(Subplot::new(left_column).key("left").label("Left"))
-        .mark(Subplot::new(right_column).key("right").label("Right"));
+        .mark(Subplot::new(left_column).name("left").label("Left"))
+        .mark(Subplot::new(right_column).name("right").label("Right"));
 
     let compiled = plot
         .compile(&ctx)
@@ -676,8 +678,8 @@ async fn grid_concat_shared_axes_complete() {
                 "Sepal width",
                 "#2f7ed8",
             ))
-            .grid_cell(0, 0)
-            .key("sepal_width"),
+            .at(0, 0)
+            .name("sepal_width"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -686,8 +688,8 @@ async fn grid_concat_shared_axes_complete() {
                 "Sepal by petal",
                 "#8bbc21",
             ))
-            .grid_cell(0, 1)
-            .key("petal_sepal"),
+            .at(0, 1)
+            .name("petal_sepal"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -696,8 +698,8 @@ async fn grid_concat_shared_axes_complete() {
                 "Petal by sepal",
                 "#f28f43",
             ))
-            .grid_cell(1, 0)
-            .key("sepal_petal"),
+            .at(1, 0)
+            .name("sepal_petal"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -706,8 +708,8 @@ async fn grid_concat_shared_axes_complete() {
                 "Petal width",
                 "#910000",
             ))
-            .grid_cell(1, 1)
-            .key("petal_width"),
+            .at(1, 1)
+            .name("petal_width"),
         );
 
     let compiled = plot
@@ -740,8 +742,8 @@ async fn grid_concat_holey_shared_axes() {
                 "Top left",
                 "#2f7ed8",
             ))
-            .grid_cell(0, 0)
-            .key("top_left"),
+            .at(0, 0)
+            .name("top_left"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -750,8 +752,8 @@ async fn grid_concat_holey_shared_axes() {
                 "Top right",
                 "#8bbc21",
             ))
-            .grid_cell(0, 2)
-            .key("top_right"),
+            .at(0, 2)
+            .name("top_right"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -760,8 +762,8 @@ async fn grid_concat_holey_shared_axes() {
                 "Bottom middle",
                 "#f28f43",
             ))
-            .grid_cell(1, 1)
-            .key("bottom_middle"),
+            .at(1, 1)
+            .name("bottom_middle"),
         );
 
     let compiled = plot
@@ -793,8 +795,8 @@ async fn grid_concat_splom_named_domains() {
         for (column, x) in variables.iter().enumerate() {
             plot = plot.mark(
                 Subplot::new(grid_splom_child(x, y))
-                    .grid_cell(row, column)
-                    .key(format!("{y}__{x}")),
+                    .at(row, column)
+                    .name(format!("{y}__{x}")),
             );
         }
     }
@@ -827,24 +829,24 @@ async fn grid_concat_span_basic() {
         })
         .mark(
             Subplot::new(grid_span_child("x", "y", "Spans 2 x 2", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .grid_span(2, 2)
-                .key("span"),
+                .at(0, 0)
+                .span(2, 2)
+                .name("span"),
         )
         .mark(
             Subplot::new(grid_span_child("x2", "y", "Top right", "#8bbc21"))
-                .grid_cell(0, 2)
-                .key("top_right"),
+                .at(0, 2)
+                .name("top_right"),
         )
         .mark(
             Subplot::new(grid_span_child("x", "y2", "Bottom left", "#f28f43"))
-                .grid_cell(2, 0)
-                .key("bottom_left"),
+                .at(2, 0)
+                .name("bottom_left"),
         )
         .mark(
             Subplot::new(grid_span_child("x2", "y2", "Bottom right", "#910000"))
-                .grid_cell(2, 2)
-                .key("bottom_right"),
+                .at(2, 2)
+                .name("bottom_right"),
         );
 
     let compiled = plot
@@ -887,19 +889,19 @@ async fn grid_concat_span_chrome() {
                             .size(78.0),
                     ),
             )
-            .grid_cell(0, 0)
-            .grid_span(2, 2)
-            .key("span_chrome"),
+            .at(0, 0)
+            .span(2, 2)
+            .name("span_chrome"),
         )
         .mark(
             Subplot::new(grid_span_child("x2", "y", "Top neighbor", "#8bbc21"))
-                .grid_cell(0, 2)
-                .key("top_neighbor"),
+                .at(0, 2)
+                .name("top_neighbor"),
         )
         .mark(
             Subplot::new(grid_span_child("x2", "y2", "", "#f28f43"))
-                .grid_cell(1, 2)
-                .key("bottom_neighbor"),
+                .at(1, 2)
+                .name("bottom_neighbor"),
         );
 
     let compiled = plot
@@ -923,19 +925,19 @@ async fn grid_concat_span_holes() {
         })
         .mark(
             Subplot::new(grid_span_child("x", "y", "Top-left edge", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .key("top_left"),
+                .at(0, 0)
+                .name("top_left"),
         )
         .mark(
             Subplot::new(grid_span_child("x2", "y2", "Spans holes", "#8bbc21"))
-                .grid_cell(0, 1)
-                .grid_span(2, 2)
-                .key("span_holes"),
+                .at(0, 1)
+                .span(2, 2)
+                .name("span_holes"),
         )
         .mark(
             Subplot::new(grid_span_child("x", "y2", "Bottom middle", "#f28f43"))
-                .grid_cell(2, 1)
-                .key("bottom_middle"),
+                .at(2, 1)
+                .name("bottom_middle"),
         );
 
     let compiled = plot
@@ -960,24 +962,24 @@ async fn grid_concat_span_domain_groups() {
         })
         .mark(
             Subplot::new(grid_splom_child("sepal_length", "sepal_width"))
-                .grid_cell(0, 0)
-                .grid_span(2, 2)
-                .key("span_sepal"),
+                .at(0, 0)
+                .span(2, 2)
+                .name("span_sepal"),
         )
         .mark(
             Subplot::new(grid_splom_child("petal_length", "sepal_width"))
-                .grid_cell(0, 2)
-                .key("top_right"),
+                .at(0, 2)
+                .name("top_right"),
         )
         .mark(
             Subplot::new(grid_splom_child("sepal_length", "petal_width"))
-                .grid_cell(2, 0)
-                .key("bottom_left"),
+                .at(2, 0)
+                .name("bottom_left"),
         )
         .mark(
             Subplot::new(grid_splom_child("petal_length", "petal_width"))
-                .grid_cell(2, 2)
-                .key("bottom_right"),
+                .at(2, 2)
+                .name("bottom_right"),
         );
 
     let compiled = plot
@@ -1098,23 +1100,23 @@ async fn facet_column_inside_grid_concat_smoke() {
         })
         .mark(
             Subplot::new(facet_column_alignment_cell("x", "y", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .key("xy"),
+                .at(0, 0)
+                .name("xy"),
         )
         .mark(
             Subplot::new(facet_column_alignment_cell("x2", "y", "#8bbc21"))
-                .grid_cell(0, 1)
-                .key("x2y"),
+                .at(0, 1)
+                .name("x2y"),
         )
         .mark(
             Subplot::new(facet_column_alignment_cell("x", "y2", "#f28f43"))
-                .grid_cell(1, 0)
-                .key("xy2"),
+                .at(1, 0)
+                .name("xy2"),
         )
         .mark(
             Subplot::new(facet_column_alignment_cell("x2", "y2", "#910000"))
-                .grid_cell(1, 1)
-                .key("x2y2"),
+                .at(1, 1)
+                .name("x2y2"),
         );
 
     let compiled = plot
@@ -1144,18 +1146,18 @@ async fn facet_column_inside_holey_grid_concat_aligned() {
         })
         .mark(
             Subplot::new(facet_column_alignment_cell("x", "y", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .key("left_facets"),
+                .at(0, 0)
+                .name("left_facets"),
         )
         .mark(
             Subplot::new(facet_column_alignment_cell("x2", "y2", "#8bbc21"))
-                .grid_cell(0, 2)
-                .key("right_facets"),
+                .at(0, 2)
+                .name("right_facets"),
         )
         .mark(
             Subplot::new(alignment_grid_concat())
-                .grid_cell(1, 1)
-                .key("unrelated_grid"),
+                .at(1, 1)
+                .name("unrelated_grid"),
         );
 
     let compiled = plot
@@ -1188,7 +1190,7 @@ async fn wrap_concat_fixed_columns_shared_axes() {
                 "A",
                 "#2f7ed8",
             ))
-            .key("a"),
+            .name("a"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1197,7 +1199,7 @@ async fn wrap_concat_fixed_columns_shared_axes() {
                 "B",
                 "#8bbc21",
             ))
-            .key("b"),
+            .name("b"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1206,7 +1208,7 @@ async fn wrap_concat_fixed_columns_shared_axes() {
                 "C",
                 "#f28f43",
             ))
-            .key("c"),
+            .name("c"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1215,7 +1217,7 @@ async fn wrap_concat_fixed_columns_shared_axes() {
                 "D",
                 "#910000",
             ))
-            .key("d"),
+            .name("d"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1224,7 +1226,7 @@ async fn wrap_concat_fixed_columns_shared_axes() {
                 "E",
                 "#492970",
             ))
-            .key("e"),
+            .name("e"),
         );
 
     let compiled = plot
@@ -1292,7 +1294,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
                 "Sepal",
                 "#2f7ed8",
             ))
-            .key("sepal"),
+            .name("sepal"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1301,7 +1303,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
                 "Petal x",
                 "#8bbc21",
             ))
-            .key("petal_x"),
+            .name("petal_x"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1310,7 +1312,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
                 "Petal y",
                 "#f28f43",
             ))
-            .key("petal_y"),
+            .name("petal_y"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1319,7 +1321,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
                 "Petal",
                 "#910000",
             ))
-            .key("petal"),
+            .name("petal"),
         )
         .mark(
             Subplot::new(grid_shared_axes_child(
@@ -1328,7 +1330,7 @@ fn responsive_wrap_concat_plot(df: DataFrame, width: f64, height: f64) -> Plot<W
                 "Widths",
                 "#492970",
             ))
-            .key("widths"),
+            .name("widths"),
         )
 }
 
@@ -1340,8 +1342,8 @@ async fn hconcat_two_cartesian() {
         .canvas_size(820.0, 360.0)
         .data(df)
         .title("Horizontal concat")
-        .mark(Subplot::new(sepal_child()).key("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).key("petal").label("Petal"));
+        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
+        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
 
     let compiled = plot.compile(&ctx).await.expect("compile hconcat chart");
     assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_two_cartesian").await;
@@ -1355,8 +1357,8 @@ async fn vconcat_two_cartesian() {
         .canvas_size(560.0, 720.0)
         .data(df)
         .title("Vertical concat")
-        .mark(Subplot::new(sepal_child()).key("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).key("petal").label("Petal"));
+        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
+        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
 
     let compiled = plot.compile(&ctx).await.expect("compile vconcat chart");
     assert_visual_match_default(&compiled, &ctx, None, "concat", "vconcat_two_cartesian").await;
@@ -1370,8 +1372,8 @@ async fn hconcat_plot_size_two_cartesian() {
         .plot_size(620.0, 240.0)
         .data(df)
         .title("Plot-size concat")
-        .mark(Subplot::new(sepal_child()).key("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).key("petal").label("Petal"));
+        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
+        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
 
     let compiled = plot
         .compile(&ctx)
@@ -1415,12 +1417,12 @@ async fn hconcat_cartesian_polar() {
         .title("Mixed coordinate concat")
         .mark(
             Subplot::new(numeric_cartesian_child())
-                .key("cartesian")
+                .name("cartesian")
                 .label("Cartesian"),
         )
         .mark(
             Subplot::new(numeric_polar_child())
-                .key("polar")
+                .name("polar")
                 .label("Polar"),
         );
 
@@ -1436,13 +1438,13 @@ async fn nested_concat_grid() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let top_row = Plot::<HConcat>::new()
-        .mark(Subplot::new(sepal_child()).key("sepal"))
-        .mark(Subplot::new(petal_child()).key("petal"));
+        .mark(Subplot::new(sepal_child()).name("sepal"))
+        .mark(Subplot::new(petal_child()).name("petal"));
     let plot = Plot::<VConcat>::new()
         .canvas_size(820.0, 640.0)
         .data(df)
         .title("Nested concat")
-        .mark(Subplot::new(top_row).key("top-row").label("Top Row"))
+        .mark(Subplot::new(top_row).name("top-row").label("Top Row"))
         .mark(
             Subplot::new(
                 Plot::<Cartesian>::new().title("Combined").mark(
@@ -1453,7 +1455,7 @@ async fn nested_concat_grid() {
                         .size(80.0),
                 ),
             )
-            .key("combined")
+            .name("combined")
             .label("Combined"),
         );
 
@@ -1469,8 +1471,8 @@ async fn facet_row_hconcat_shared_data() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let subplot = Plot::<HConcat>::new()
-        .mark(Subplot::new(sepal_child()).key("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).key("petal").label("Petal"));
+        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
+        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
     let plot = Plot::<FacetRow>::new()
         .canvas_size(860.0, 760.0)
         .data(df)
@@ -1500,12 +1502,12 @@ async fn hconcat_components_debug() {
         .title("Debug concat")
         .mark(
             Subplot::new(numeric_cartesian_child())
-                .key("cartesian")
+                .name("cartesian")
                 .label("Cartesian"),
         )
         .mark(
             Subplot::new(numeric_cartesian_child_alt())
-                .key("alternate")
+                .name("alternate")
                 .label("Alternate"),
         );
 
@@ -1544,9 +1546,9 @@ async fn hconcat_widths_flex_split() {
             ])
         })
         .title("hconcat widths: Px(140) | Flex(2) | Flex(1)")
-        .mark(Subplot::new(numeric_cartesian_child()).key("fixed"))
-        .mark(Subplot::new(numeric_cartesian_child_alt()).key("wide"))
-        .mark(Subplot::new(numeric_cartesian_child()).key("narrow"));
+        .mark(Subplot::new(numeric_cartesian_child()).name("fixed"))
+        .mark(Subplot::new(numeric_cartesian_child_alt()).name("wide"))
+        .mark(Subplot::new(numeric_cartesian_child()).name("narrow"));
 
     let compiled = plot
         .compile(&ctx)
@@ -1564,8 +1566,8 @@ async fn vconcat_heights_px_rows() {
         .canvas_size(420.0, 560.0)
         .configure_coord(|c| c.heights([TrackSizing::Px(120.0), TrackSizing::Flex(1.0)]))
         .title("vconcat heights: Px(120) | Flex(1)")
-        .mark(Subplot::new(numeric_cartesian_child()).key("pinned"))
-        .mark(Subplot::new(numeric_cartesian_child_alt()).key("flex"));
+        .mark(Subplot::new(numeric_cartesian_child()).name("pinned"))
+        .mark(Subplot::new(numeric_cartesian_child_alt()).name("flex"));
 
     let compiled = plot
         .compile(&ctx)
@@ -1592,23 +1594,23 @@ async fn grid_concat_fixed_sidebar_column() {
         .title("grid: Px(150) sidebar, rows Flex 1:2")
         .mark(
             Subplot::new(alignment_grid_cell("x", "y", "#2f7ed8"))
-                .grid_cell(0, 0)
-                .key("side_top"),
+                .at(0, 0)
+                .name("side_top"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x2", "y", "#8bbc21"))
-                .grid_cell(0, 1)
-                .key("main_top"),
+                .at(0, 1)
+                .name("main_top"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x", "y2", "#f28f43"))
-                .grid_cell(1, 0)
-                .key("side_bottom"),
+                .at(1, 0)
+                .name("side_bottom"),
         )
         .mark(
             Subplot::new(alignment_grid_cell("x2", "y2", "#910000"))
-                .grid_cell(1, 1)
-                .key("main_bottom"),
+                .at(1, 1)
+                .name("main_bottom"),
         );
 
     let compiled = plot

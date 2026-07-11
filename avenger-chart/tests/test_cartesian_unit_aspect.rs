@@ -274,8 +274,8 @@ async fn authored_concat_rejects_unit_aspect_shared_child_domain() {
     };
     let plot = Plot::<HConcat>::new()
         .plot_size(300.0, 120.0)
-        .mark(Subplot::new(child()).key("left"))
-        .mark(Subplot::new(child()).key("right"));
+        .mark(Subplot::new(child()).name("left"))
+        .mark(Subplot::new(child()).name("right"));
     let compiled = plot.compile(&ctx).await.expect("compile concat");
 
     let err = SvgRenderer::new()

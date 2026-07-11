@@ -258,12 +258,12 @@ impl GridPlacementConfig {
     fn from_subplot(subplot: &dyn SubplotMarkCore) -> Result<Self, AvengerChartError> {
         let row = subplot.grid_row_config().ok_or_else(|| {
             AvengerChartError::InvalidArgument(
-                "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+                "GridConcat subplots require `.at(row, column)`".to_string(),
             )
         })?;
         let column = subplot.grid_column_config().ok_or_else(|| {
             AvengerChartError::InvalidArgument(
-                "GridConcat subplots require `.grid_cell(row, column)`".to_string(),
+                "GridConcat subplots require `.at(row, column)`".to_string(),
             )
         })?;
         let row_span = subplot.grid_row_span_config();

@@ -1473,7 +1473,7 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
             )?;
             Ok(Arc::new(
                 Subplot::<HConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .key(key)
+                    .name(key)
                     .id(id)
                     .label(label),
             ) as Arc<dyn Mark<HConcat>>)
@@ -1513,7 +1513,7 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
             )?;
             Ok(Arc::new(
                 Subplot::<VConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .key(key)
+                    .name(key)
                     .id(id)
                     .label(label),
             ) as Arc<dyn Mark<VConcat>>)
@@ -1560,9 +1560,9 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
             )?;
             marks.push(Arc::new(
                 Subplot::<GridConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .key(key)
+                    .name(key)
                     .id(id)
-                    .grid_cell(row_index, column_index),
+                    .at(row_index, column_index),
             ) as Arc<dyn Mark<GridConcat>>);
         }
     }
@@ -1608,7 +1608,7 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
             )?;
             Ok(Arc::new(
                 Subplot::<WrapConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .key(key)
+                    .name(key)
                     .id(id)
                     .label(label),
             ) as Arc<dyn Mark<WrapConcat>>)
@@ -3103,10 +3103,10 @@ mod tests {
         };
         let manual_compiled = Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
-            .mark(Subplot::new(manual_cell("a", "a")).grid_cell(0, 0))
-            .mark(Subplot::new(manual_cell("b", "a")).grid_cell(0, 1))
-            .mark(Subplot::new(manual_cell("a", "b")).grid_cell(1, 0))
-            .mark(Subplot::new(manual_cell("b", "b")).grid_cell(1, 1))
+            .mark(Subplot::new(manual_cell("a", "a")).at(0, 0))
+            .mark(Subplot::new(manual_cell("b", "a")).at(0, 1))
+            .mark(Subplot::new(manual_cell("a", "b")).at(1, 0))
+            .mark(Subplot::new(manual_cell("b", "b")).at(1, 1))
             .compile(&ctx)
             .await?;
 
@@ -3816,10 +3816,10 @@ mod tests {
         });
         let compiled = Plot::<HConcat>::new()
             .canvas_size(620.0, 320.0)
-            .mark(Subplot::new(repeat).key("matrix").id("matrix"))
+            .mark(Subplot::new(repeat).name("matrix").id("matrix"))
             .mark(
                 Subplot::new(Plot::<ZeroDCoord>::new())
-                    .key("summary")
+                    .name("summary")
                     .id("summary"),
             )
             .compile(&ctx)

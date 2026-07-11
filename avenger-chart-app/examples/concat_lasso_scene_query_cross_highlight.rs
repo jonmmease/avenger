@@ -95,13 +95,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .mark(
             Subplot::new(source)
                 .id("source")
-                .key("source")
+                .name("source")
                 .label("Query rendered marks"),
         )
         .mark(
             Subplot::new(sibling)
                 .id("sibling")
-                .key("sibling")
+                .name("sibling")
                 .label("Same semantic selection"),
         );
 

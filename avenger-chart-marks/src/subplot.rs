@@ -151,13 +151,14 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         self
     }
 
-    pub fn key(mut self, key: impl Into<String>) -> Self {
+    /// Set the stable container name used by concat/facet child identity.
+    pub fn name(mut self, key: impl Into<String>) -> Self {
         self.config.key = Some(key.into());
         self
     }
 
     /// Place this subplot in an explicit `GridConcat` row and column.
-    pub fn grid_cell(mut self, row: usize, column: usize) -> Self {
+    pub fn at(mut self, row: usize, column: usize) -> Self {
         self.config.grid_row = Some(row);
         self.config.grid_column = Some(column);
         self
@@ -176,7 +177,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     /// Set the row and column span used by `GridConcat`.
-    pub fn grid_span(mut self, row_span: usize, column_span: usize) -> Self {
+    pub fn span(mut self, row_span: usize, column_span: usize) -> Self {
         self.config.grid_row_span = row_span;
         self.config.grid_column_span = column_span;
         self

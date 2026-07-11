@@ -211,8 +211,8 @@ mod container {
         };
         let plot = Plot::<HConcat>::new()
             .plot_size(260.0, 180.0)
-            .mark(Subplot::new(child()).key("left"))
-            .mark(Subplot::new(child()).key("right"));
+            .mark(Subplot::new(child()).name("left"))
+            .mark(Subplot::new(child()).name("right"));
         let compiled = plot.compile(&ctx).await.expect("compile concat");
 
         let err = SvgRenderer::new()

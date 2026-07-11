@@ -93,8 +93,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let plot = Plot::<HConcat>::new()
         .canvas_size(1180.0, 720.0)
-        .mark(Subplot::new(splom).id("splom").key("splom"))
-        .mark(Subplot::new(sibling).id("sibling").key("sibling"));
+        .mark(Subplot::new(splom).id("splom").name("splom"))
+        .mark(Subplot::new(sibling).id("sibling").name("sibling"));
 
     chart_avenger_app(
         plot.compile(&ctx).await.expect("compile plot"),

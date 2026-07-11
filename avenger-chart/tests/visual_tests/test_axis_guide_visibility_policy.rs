@@ -140,10 +140,10 @@ async fn grid_concat_axis_visibility_outer_edges() {
                 .columns(2)
                 .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
         })
-        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 0.0, 0.0)).grid_cell(0, 0))
-        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 10.0, 10.0)).grid_cell(0, 1))
-        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 100.0, 100.0)).grid_cell(1, 0))
-        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 200.0, 200.0)).grid_cell(1, 1));
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 0.0, 0.0)).at(0, 0))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 10.0, 10.0)).at(0, 1))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 100.0, 100.0)).at(1, 0))
+        .mark(Subplot::new(axis_policy_cell_plot(&ctx, 200.0, 200.0)).at(1, 1));
     let compiled = plot.compile(&ctx).await.expect("compile grid policy plot");
     assert_visual_match_default(
         &compiled,
@@ -168,25 +168,25 @@ async fn grid_concat_axis_visibility_equivalent_domain_groups() {
             Subplot::new(axis_policy_named_domain_cell_plot(
                 &ctx, "length", "length", 0.0, 0.0,
             ))
-            .grid_cell(0, 0),
+            .at(0, 0),
         )
         .mark(
             Subplot::new(axis_policy_named_domain_cell_plot(
                 &ctx, "width", "length", 10.0, 10.0,
             ))
-            .grid_cell(0, 1),
+            .at(0, 1),
         )
         .mark(
             Subplot::new(axis_policy_named_domain_cell_plot(
                 &ctx, "length", "width", 100.0, 100.0,
             ))
-            .grid_cell(1, 0),
+            .at(1, 0),
         )
         .mark(
             Subplot::new(axis_policy_named_domain_cell_plot(
                 &ctx, "width", "width", 200.0, 200.0,
             ))
-            .grid_cell(1, 1),
+            .at(1, 1),
         );
     let compiled = plot
         .compile(&ctx)

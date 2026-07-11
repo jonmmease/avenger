@@ -448,7 +448,7 @@ async fn cartesian_positioned_components_debug() {
         .title("Positioned subplot debug")
         .mark(
             Subplot::new(cartesian_child(&ctx).await)
-                .key("mini")
+                .name("mini")
                 .label("Mini")
                 .subplot_x_with(col("x"), |c| {
                     c.scale_with::<Linear>(|s| s.domain((lit(0.7), lit(4.1))))

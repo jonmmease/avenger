@@ -5136,13 +5136,13 @@ mod tests {
             .configure_coord(|c| c.rows(1).columns(2))
             .mark(
                 Subplot::new(concat_pan_child("grid_nav_a", x_domain.clone()))
-                    .grid_cell(0, 0)
-                    .key("a"),
+                    .at(0, 0)
+                    .name("a"),
             )
             .mark(
                 Subplot::new(concat_pan_child("grid_nav_b", x_domain.clone()))
-                    .grid_cell(0, 1)
-                    .key("b"),
+                    .at(0, 1)
+                    .name("b"),
             )
             .compile(&ctx)
             .await
@@ -5167,8 +5167,8 @@ mod tests {
             .canvas_size(640.0, 320.0)
             .data(df)
             .configure_coord(|c| c.columns(2))
-            .mark(Subplot::new(concat_pan_child("wrap_nav_a", x_domain.clone())).key("a"))
-            .mark(Subplot::new(concat_pan_child("wrap_nav_b", x_domain.clone())).key("b"))
+            .mark(Subplot::new(concat_pan_child("wrap_nav_a", x_domain.clone())).name("a"))
+            .mark(Subplot::new(concat_pan_child("wrap_nav_b", x_domain.clone())).name("b"))
             .compile(&ctx)
             .await
             .expect("compile wrap concat pan plot");
@@ -10115,8 +10115,8 @@ mod tests {
         let compiled = Plot::<HConcat>::new()
             .canvas_size(720.0, 380.0)
             .add_selection(picked)
-            .mark(Subplot::new(source_plot).key("source"))
-            .mark(Subplot::new(detail_plot).key("detail"))
+            .mark(Subplot::new(source_plot).name("source"))
+            .mark(Subplot::new(detail_plot).name("detail"))
             .compile(&ctx)
             .await
             .expect("compile temporal nested cross-filter plot");
@@ -11308,8 +11308,8 @@ mod tests {
 
         let compiled = Plot::<HConcat>::new()
             .add_selection(picked)
-            .mark(Subplot::new(bar_child).key("bars"))
-            .mark(Subplot::new(scatter_child).key("scatter"))
+            .mark(Subplot::new(bar_child).name("bars"))
+            .mark(Subplot::new(scatter_child).name("scatter"))
             .compile(&ctx)
             .await
             .expect("compile concat event datum plot");

@@ -330,7 +330,7 @@ async fn lump_faceted_free_vs_shared() {
                 "Free: local top category",
                 "#2563eb",
             ))
-            .key("free"),
+            .name("free"),
         )
         .mark(
             Subplot::new(faceted_lump_plot(
@@ -339,7 +339,7 @@ async fn lump_faceted_free_vs_shared() {
                 "Shared: global top category",
                 "#ea580c",
             ))
-            .key("shared"),
+            .name("shared"),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile faceted lump");

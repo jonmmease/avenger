@@ -30,11 +30,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn subplot_compilation_preserves_label_key_and_child_plot() {
+    async fn subplot_compilation_preserves_label_name_and_child_plot() {
         let ctx = SessionContext::new();
         let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new())
             .label("overview")
-            .key("overview-key");
+            .name("overview-key");
 
         let compiled_state = CompiledMarkState::from_mark_state(subplot.state(), None);
         let compiled = <Subplot<HConcat> as Mark<HConcat>>::compile(&subplot, compiled_state, &ctx)
@@ -109,8 +109,8 @@ mod tests {
     async fn repeated_subplot_marks_receive_stable_child_indexes() {
         let ctx = SessionContext::new();
         let compiled_plot = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("first"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).key("second"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("first"))
+            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("second"))
             .compile(&ctx)
             .await
             .unwrap();
@@ -122,5 +122,17 @@ mod tests {
         assert_eq!(second.child_index(), 1);
         assert_eq!(first.key(), Some("first"));
         assert_eq!(second.key(), Some("second"));
+    }
+
+    #[test]
+    fn subplot_canonical_grid_placement_preserves_internal_config() {
+        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new())
+            .at(2, 3)
+            .span(4, 5);
+
+        assert_eq!(subplot.grid_row_config(), Some(2));
+        assert_eq!(subplot.grid_column_config(), Some(3));
+        assert_eq!(subplot.grid_row_span_config(), 4);
+        assert_eq!(subplot.grid_column_span_config(), 5);
     }
 }

@@ -182,10 +182,10 @@ async fn symbol_wide_vs_tall_same_zoom() {
         .data(landmarks(&ctx).await)
         .mark(
             Subplot::new(geo_child(coord.clone()))
-                .key("wide")
+                .name("wide")
                 .label("Wide"),
         )
-        .mark(Subplot::new(geo_child(coord)).key("tall").label("Tall"));
+        .mark(Subplot::new(geo_child(coord)).name("tall").label("Tall"));
 
     let compiled = plot
         .compile(&ctx)

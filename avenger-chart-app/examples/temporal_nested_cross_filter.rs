@@ -73,8 +73,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let plot = Plot::<HConcat>::new()
         .canvas_size(SIZE[0], SIZE[1])
         .add_selection(picked)
-        .mark(Subplot::new(source_plot).key("nested"))
-        .mark(Subplot::new(detail_plot).key("detail"));
+        .mark(Subplot::new(source_plot).name("nested"))
+        .mark(Subplot::new(detail_plot).name("detail"));
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
