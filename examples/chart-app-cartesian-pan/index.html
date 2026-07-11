@@ -36,10 +36,12 @@
     <main id="wasm-example" aria-label="Avenger chart canvas"></main>
     <script type="module">
         const cacheBust = Date.now();
-        const { default: init, run } = await import(`./pkg/chart_app_cartesian_pan.js?v=${cacheBust}`);
+        const { default: init, run, cache_metrics } = await import(`./pkg/chart_app_cartesian_pan.js?v=${cacheBust}`);
         console.log("Loading Avenger chart app WASM...");
         await init({ module_or_path: `./pkg/chart_app_cartesian_pan_bg.wasm?v=${cacheBust}` });
         console.log("Avenger chart app WASM initialized");
+        // Physical-cache validation hook: call cache_metrics() in the console.
+        window.cache_metrics = cache_metrics;
         await run();
     </script>
 </body>

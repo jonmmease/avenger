@@ -22,10 +22,10 @@ cd examples/chart-app-cartesian-pan && python3 -m http.server 8765
 
 The app builds its session context through
 `avenger_chart::physical_cache::cached_session_context()` and exports
-`cache_metrics()` to JS. In the browser console (with the wasm module
-bound as `wasm` per the example's loader):
+`cache_metrics()` to JS; the loader puts it on `window`, so in the browser
+console it is just `cache_metrics()`:
 
-1. After first render, call `wasm.cache_metrics()` — expect committed
+1. After first render, call `cache_metrics()` — expect committed
    entries > 0 and no panics (the web-time clock working).
 2. Pan the chart, calling `cache_metrics()` during the gesture — expect
    `hits` to grow while `admitted_writes` stays FLAT (preview evaluations
