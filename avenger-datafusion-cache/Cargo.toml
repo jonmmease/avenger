@@ -23,6 +23,17 @@ datafusion-proto = { version = "54.0.0", default-features = false, features = [
     "parquet",
 ] }
 
+# Wasm-only std-polyfill/backend plumbing (not avenger knowledge):
+# web-time backs StdClock (std::time::Instant panics at runtime on
+# wasm32-unknown-unknown; version already in the workspace lock via wgpu),
+# and getrandom needs its wasm_js backend feature enabled somewhere in the
+# graph for isolated wasm checks of this crate (the root .cargo/config.toml
+# already carries the matching `getrandom_backend="wasm_js"` rustflag; the
+# transitive 0.3 edge comes via rand <- datafusion-datasource).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1.1.0"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 # datafusion-proto's `datafusion/parquet` feature entry points at its

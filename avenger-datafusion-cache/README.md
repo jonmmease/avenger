@@ -80,9 +80,16 @@ The full design document lives at
 `avenger-chart/docs/future-work/physical-plan-evaluation-cache.md`; the
 implementation plan of record is `scratch/datafusion-cache-crate-plan.md`.
 This crate is v1 of that design: memory-only, exact property compatibility,
-conservative dynamic-filter exclusion, and a concrete cache type. Spill,
-property adapters, cost-aware admission, and wasm32 builds are deliberate
+conservative dynamic/subquery-ref exclusion, and a concrete cache type.
+Spill, property adapters, and cost-aware admission are deliberate
 follow-ups.
+
+Wasm: the crate compiles for `wasm32-unknown-unknown` in isolation, and
+`StdClock` is `web_time::Instant`-backed there (safe at runtime). Byte
+budgets are `usize`: on 32-bit wasm, size `max_memory_bytes` to the browser
+heap rather than the 256 MiB native default. First-touch content hashing of
+large memory tables runs on the calling (interaction) thread — memoized
+afterwards.
 
 This crate depends only on DataFusion, Arrow, and `futures` — no `avenger-*`
 crates.

@@ -7,6 +7,17 @@
 
 use std::time::Duration;
 
+/// `Instant` backing for [`StdClock`]: `std::time::Instant` panics at
+/// runtime on `wasm32-unknown-unknown`, so wasm builds use
+/// [`web_time::Instant`] (API-compatible, backed by `performance.now()`,
+/// and `Send + Sync`) — the same cfg switch the avenger workspace uses in
+/// `avenger-common/src/time.rs`.
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+
 /// A monotonic time source for cache bookkeeping.
 ///
 /// Implementations must be monotonic non-decreasing. The epoch is arbitrary
@@ -16,19 +27,21 @@ pub trait CacheClock: Send + Sync + std::fmt::Debug {
     fn now(&self) -> Duration;
 }
 
-/// Default [`CacheClock`] backed by [`std::time::Instant`].
+/// Default [`CacheClock`] backed by a monotonic `Instant`
+/// (`std::time::Instant` natively; `web_time::Instant` on wasm32, where
+/// the std type panics at runtime).
 ///
 /// The epoch is the moment the clock was constructed.
 #[derive(Debug)]
 pub struct StdClock {
-    origin: std::time::Instant,
+    origin: Instant,
 }
 
 impl StdClock {
     /// Create a clock whose epoch is "now".
     pub fn new() -> Self {
         Self {
-            origin: std::time::Instant::now(),
+            origin: Instant::now(),
         }
     }
 }
