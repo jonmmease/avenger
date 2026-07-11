@@ -1265,8 +1265,8 @@ mod tests {
         let ctx = SessionContext::new();
         let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
         let height = Param::new("height", ScalarValue::Float64(Some(480.0)));
-        let compiled = Plot::<Cartesian>::new()
-            .add_params([width.clone(), height.clone()])
+        let compiled = Chart::<Cartesian>::new()
+            .params([width.clone(), height.clone()])
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(height.expr()))
             .compile(&ctx)
@@ -1350,7 +1350,7 @@ mod tests {
             .await
             .expect("build tiny raster data");
 
-        Plot::<Cartesian>::new()
+        Chart::<Cartesian>::new()
             .canvas_size(240.0, 180.0)
             .data(df)
             .mark(
@@ -1645,8 +1645,8 @@ mod tests {
     async fn param_bool_reads_bool_param() {
         let ctx = SessionContext::new();
         let enabled = Param::new("enabled", ScalarValue::Boolean(Some(true)));
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(enabled)
+        let compiled = Chart::<Cartesian>::new()
+            .param(enabled)
             .compile(&ctx)
             .await
             .expect("compile bool param test plot");
@@ -1755,8 +1755,8 @@ mod tests {
     async fn resize_handler_ignores_unbound_canvas_axes() {
         let ctx = SessionContext::new();
         let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(width.clone())
+        let compiled = Chart::<Cartesian>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .compile(&ctx)
             .await

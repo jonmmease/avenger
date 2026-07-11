@@ -5014,7 +5014,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
             .await
             .expect("data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
             .data(df)
             .mark(
@@ -5066,7 +5066,7 @@ mod tests {
             )
             .await
             .expect("data");
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = Chart::<FacetColumn>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
             .mark(
@@ -5130,7 +5130,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
             .await
             .expect("data");
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = Chart::<GridConcat>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
             .configure_coord(|c| c.rows(1).columns(2))
@@ -5163,7 +5163,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
             .await
             .expect("data");
-        let compiled = Plot::<WrapConcat>::new()
+        let compiled = Chart::<WrapConcat>::new()
             .canvas_size(640.0, 320.0)
             .data(df)
             .configure_coord(|c| c.columns(2))
@@ -5214,7 +5214,7 @@ mod tests {
             )
             .await
             .expect("repeat pan data");
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = Chart::<RepeatGrid>::new()
             .canvas_size(520.0, 520.0)
             .data(df)
             .configure_coord(|c| {
@@ -5568,7 +5568,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 10.0)) AS t(x, y)")
             .await
             .expect("data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
             .data(df)
             .mark(
@@ -6303,7 +6303,7 @@ mod tests {
             .matrix_domains()
             .matrix_axes()
         });
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = Chart::<FacetColumn>::new()
             .canvas_size(900.0, 360.0)
             .data(df)
             .mark(
@@ -6394,7 +6394,7 @@ mod tests {
             .matrix_domains()
             .matrix_axes()
         });
-        let compiled = Plot::<FacetWrap>::new()
+        let compiled = Chart::<FacetWrap>::new()
             .canvas_size(900.0, 560.0)
             .data(df)
             .mark(
@@ -6721,8 +6721,8 @@ mod tests {
     async fn bound_state(binding: ChartEventBinding) -> ChartAppState {
         let ctx = SessionContext::new();
         let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(width.clone())
+        let compiled = Chart::<Cartesian>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .event_binding(binding)
             .compile(&ctx)
@@ -6735,8 +6735,8 @@ mod tests {
 
     async fn handler_for_binding(binding: ChartEventBinding) -> ChartEventBindingHandler {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+        let compiled = Chart::<Cartesian>::new()
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -6764,9 +6764,9 @@ mod tests {
         let binding = ChartEventBinding::on(ChartEventType::DoubleClick)
             .set_param(&x_domain, lit(x_domain.default.clone()))
             .exact();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
-            .add_param(x_domain)
+            .param(x_domain)
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -7128,9 +7128,9 @@ mod tests {
             )
             .await
             .expect("data");
-        let mut plot = Plot::<Cartesian>::new()
+        let mut plot = Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 Rect::new()
@@ -7197,9 +7197,9 @@ mod tests {
         let df = ctx
             .read_batch(nested_grouped_bar_batch())
             .expect("nested grouped bar data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(520.0, 360.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 Rect::new()
@@ -7364,9 +7364,9 @@ mod tests {
         let df = ctx
             .read_batch(temporal_nested_bar_batch())
             .expect("temporal nested bar data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(560.0, 380.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 Rect::new().transform(
@@ -7578,9 +7578,9 @@ mod tests {
                         .no_legend()
                 }),
         );
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = Chart::<FacetColumn>::new()
             .canvas_size(720.0, 360.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(Subplot::new(leaf).column(col("region")))
             .event_binding(binding)
@@ -7665,9 +7665,9 @@ mod tests {
             )
             .await
             .expect("data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 Symbol::new()
@@ -7765,10 +7765,10 @@ mod tests {
             )
             .await
             .expect("parallel point data");
-        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+        let compiled = Chart::with_coord(speed_cost_parallel_coord())
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 speed_cost_parallel_symbol()
@@ -7855,9 +7855,9 @@ mod tests {
             .expect("colorbar data");
         let mut legend_bindings = bindings.into_iter();
         let first = legend_bindings.next().expect("at least one binding");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(480.0, 360.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill_with(
                 col("temperature"),
@@ -8230,8 +8230,8 @@ mod tests {
     async fn cursor_only_patch_updates_cursor_without_rerender() {
         let ctx = SessionContext::new();
         let cursor = Param::cursor("cursor", CursorStyle::Default);
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(cursor.clone())
+        let compiled = Chart::<Cartesian>::new()
+            .param(cursor.clone())
             .cursor_param(cursor.name.clone())
             .event_binding(
                 ChartEventBinding::on(ChartEventType::CursorMoved)
@@ -8287,7 +8287,7 @@ mod tests {
         let ctx = SessionContext::new();
         let cursor = Param::cursor("decorated_treemap_cursor", CursorStyle::Default);
         let root = Param::new("decorated_treemap_root", ScalarValue::Utf8(None));
-        let compiled = Plot::with_coord(
+        let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "region", "team", "product"])
                 .value(sum(col("sales")))
@@ -8298,8 +8298,8 @@ mod tests {
         )
         .data(ctx.read_batch(decorated_treemap_batch()).unwrap())
         .plot_size(420.0, 280.0)
-        .add_param(cursor.clone())
-        .add_param(root.clone())
+        .param(cursor.clone())
+        .param(root.clone())
         .cursor_param(cursor.name.clone())
         .configure_guide(TreemapGuide::new().breadcrumbs(true).separators(true))
         .mark(TreeRect::new().id("cells").stroke_width(0.0))
@@ -8420,8 +8420,8 @@ mod tests {
                     .field("x_max", event::canvas_height())]),
             )
             .preview();
-        let compiled = Plot::<Cartesian>::new()
-            .add_store(
+        let compiled = Chart::<Cartesian>::new()
+            .store(
                 Store::empty("brush_boxes")
                     .field("id", DataType::Utf8, false)
                     .field("x_min", DataType::Float64, false)
@@ -8516,8 +8516,8 @@ mod tests {
                 .endpoints(event::canvas_width(), event::canvas_height())]),
             )
             .preview();
-        let compiled = Plot::<Cartesian>::new()
-            .add_selection(Selection::new("brush").empty_selects_nothing())
+        let compiled = Chart::<Cartesian>::new()
+            .selection(Selection::new("brush").empty_selects_nothing())
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -8604,8 +8604,8 @@ mod tests {
                 .expr(col("x").gt_eq(avenger_chart::selection::clause_value("cx")))]),
             )
             .preview();
-        let compiled = Plot::<Cartesian>::new()
-            .add_selection(Selection::new("brush").empty_selects_nothing())
+        let compiled = Chart::<Cartesian>::new()
+            .selection(Selection::new("brush").empty_selects_nothing())
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -8774,13 +8774,13 @@ mod tests {
         )
         .id("brush_overlay")
         .width_px(40.0);
-        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+        let compiled = Chart::with_coord(speed_cost_parallel_coord())
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
-            .add_param(clicked_axis)
-            .add_param(clicked_min)
-            .add_param(clicked_max)
-            .add_store(Store::from_record_batch("axis_brush_boxes", store_batch))
+            .param(clicked_axis)
+            .param(clicked_min)
+            .param(clicked_max)
+            .store(Store::from_record_batch("axis_brush_boxes", store_batch))
             .data(parent_data)
             .mark(speed_cost_parallel_line().visible(false))
             .mark(overlay)
@@ -8955,12 +8955,12 @@ mod tests {
             .combine(SelectionCombine::Intersect)
             .empty_selects_nothing();
         let selected = brush.predicate();
-        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+        let compiled = Chart::with_coord(speed_cost_parallel_coord())
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
             .data(data)
-            .add_selection(brush)
-            .add_store(parallel_brush_store())
+            .selection(brush)
+            .store(parallel_brush_store())
             .mark(
                 speed_cost_parallel_line()
                     .id("context_lines")
@@ -9071,12 +9071,12 @@ mod tests {
             .combine(SelectionCombine::Intersect)
             .empty_selects_nothing();
         let selected = brush.predicate();
-        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+        let compiled = Chart::with_coord(speed_cost_parallel_coord())
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
             .data(data)
-            .add_selection(brush)
-            .add_store(parallel_brush_store())
+            .selection(brush)
+            .store(parallel_brush_store())
             .mark(
                 speed_cost_parallel_line()
                     .id("cost_color_scale_seed")
@@ -9213,12 +9213,12 @@ mod tests {
             .combine(SelectionCombine::Intersect)
             .empty_selects_nothing();
         let selected = brush.predicate();
-        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+        let compiled = Chart::with_coord(speed_cost_parallel_coord())
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
             .data(data)
-            .add_selection(brush)
-            .add_store(parallel_brush_store())
+            .selection(brush)
+            .store(parallel_brush_store())
             .mark(
                 speed_cost_parallel_line()
                     .id("context_lines")
@@ -9318,12 +9318,12 @@ mod tests {
             .sql("SELECT 10.0 AS speed, 30.0 AS cost")
             .await
             .expect("parallel header data");
-        let compiled = Plot::with_coord(speed_cost_parallel_coord())
+        let compiled = Chart::with_coord(speed_cost_parallel_coord())
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
-            .add_param(drag_dimension)
-            .add_param(drag_start_x)
-            .add_param(drag_display_x)
+            .param(drag_dimension)
+            .param(drag_start_x)
+            .param(drag_display_x)
             .data(data)
             .mark(speed_cost_parallel_line())
             .event_binding(binding)
@@ -9412,15 +9412,15 @@ mod tests {
             .await
             .expect("parallel header data");
         let compiled =
-            Plot::with_coord(speed_cost_parallel_coord().active_axis_display_params(
+            Chart::with_coord(speed_cost_parallel_coord().active_axis_display_params(
                 drag_dimension.name.clone(),
                 drag_display_x.name.clone(),
             ))
             .canvas_size(420.0, 320.0)
             .plot_size(260.0, 180.0)
-            .add_param(drag_dimension)
-            .add_param(drag_start_x)
-            .add_param(drag_display_x)
+            .param(drag_dimension)
+            .param(drag_start_x)
+            .param(drag_display_x)
             .data(data)
             .mark(speed_cost_parallel_line())
             .mark(speed_cost_parallel_symbol().fill("#2563eb").size(16.0))
@@ -9600,7 +9600,7 @@ mod tests {
             .sql("SELECT 10.0 AS speed, 20.0 AS efficiency, 30.0 AS cost")
             .await
             .expect("parallel header data");
-        let compiled = Plot::with_coord(
+        let compiled = Chart::with_coord(
             speed_efficiency_cost_parallel_coord()
                 .order_param(order_param.name.clone())
                 .active_axis_display_params(
@@ -9610,10 +9610,10 @@ mod tests {
         )
         .canvas_size(420.0, 320.0)
         .plot_size(260.0, 180.0)
-        .add_param(order_param)
-        .add_param(drag_dimension)
-        .add_param(drag_start_x)
-        .add_param(drag_display_x)
+        .param(order_param)
+        .param(drag_dimension)
+        .param(drag_start_x)
+        .param(drag_display_x)
         .data(data)
         .mark(speed_efficiency_cost_parallel_line())
         .event_binding(start_binding)
@@ -9767,10 +9767,10 @@ mod tests {
                     .fill("#2563eb")
                 },
             );
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
-            .add_selection(picked)
+            .selection(picked)
             .mark(full_counts)
             .mark(filtered_counts)
             .event_binding(binding)
@@ -10112,9 +10112,9 @@ mod tests {
             .plot_size(240.0, 260.0)
             .mark(detail_background)
             .mark(detail_overlay);
-        let compiled = Plot::<HConcat>::new()
+        let compiled = Chart::<HConcat>::new()
             .canvas_size(720.0, 380.0)
-            .add_selection(picked)
+            .selection(picked)
             .mark(Subplot::new(source_plot).name("source"))
             .mark(Subplot::new(detail_plot).name("detail"))
             .compile(&ctx)
@@ -10241,9 +10241,9 @@ mod tests {
                 ),
             )
             .exact();
-        let plot = Plot::<Cartesian>::new()
+        let plot = Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 Symbol::new()
@@ -10332,9 +10332,9 @@ mod tests {
             .filter(event::datum("channel").eq(lit("fill")))
             .set_selection("picked", SelectionUpdate::clear())
             .exact();
-        let plot = Plot::<Cartesian>::new()
+        let plot = Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(
                 Symbol::new()
@@ -10445,9 +10445,9 @@ mod tests {
                 ),
             )
             .exact();
-        let plot = Plot::<Cartesian>::new()
+        let plot = Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .event_binding(binding)
             .mark(
@@ -10514,9 +10514,9 @@ mod tests {
                 SelectionUpdate::replace_clause(colorbar_interval_clause("y")),
             )
             .exact();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(480.0, 360.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .event_binding(binding)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill_with(
@@ -10859,9 +10859,9 @@ mod tests {
             )
             .await
             .expect("colorbar data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(480.0, 360.0)
-            .add_selection(picked)
+            .selection(picked)
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(80.0).fill_with(
                 col("temperature"),
@@ -11306,8 +11306,8 @@ mod tests {
             .data(df)
             .mark(Symbol::new().x(col("x_value")).y(col("amount")).size(20.0));
 
-        let compiled = Plot::<HConcat>::new()
-            .add_selection(picked)
+        let compiled = Chart::<HConcat>::new()
+            .selection(picked)
             .mark(Subplot::new(bar_child).name("bars"))
             .mark(Subplot::new(scatter_child).name("scatter"))
             .compile(&ctx)
@@ -11398,9 +11398,9 @@ mod tests {
                 .endpoints(lit(1.0), lit(3.0))]),
             )
             .preview();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
-            .add_selection(
+            .selection(
                 Selection::new("brush")
                     .facet_context_field("group_name", col("group_name"))
                     .empty_selects_nothing(),
@@ -11500,9 +11500,9 @@ mod tests {
                     .field("x_min", lit(1.0))]),
             )
             .preview();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
-            .add_store(
+            .store(
                 Store::empty("brush_boxes")
                     .field("id", DataType::Utf8, false)
                     .field("x_min", DataType::Float64, false)
@@ -11608,9 +11608,9 @@ mod tests {
                     .field("x_min", lit(1.0))]),
             )
             .preview();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
-            .add_store(
+            .store(
                 Store::empty("brush_boxes")
                     .field("id", DataType::Utf8, false)
                     .field("x_min", DataType::Float64, false)
@@ -11846,7 +11846,7 @@ mod tests {
                 .matrix_domains()
                 .matrix_axes()
         });
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = Chart::<FacetColumn>::new()
             .canvas_size(760.0, 360.0)
             .data(df)
             .mark(Subplot::new(repeat_grid).column(col("group_name")))
@@ -11925,7 +11925,7 @@ mod tests {
                 .matrix_domains()
                 .matrix_axes()
         });
-        let compiled = Plot::<FacetWrap>::new()
+        let compiled = Chart::<FacetWrap>::new()
             .canvas_size(760.0, 500.0)
             .data(df)
             .mark(
@@ -12064,9 +12064,9 @@ mod tests {
                 .combine(SelectionCombine::Intersect)
                 .empty_selects_all(),
         };
-        let compiled = Plot::<HConcat>::new()
+        let compiled = Chart::<HConcat>::new()
             .canvas_size(640.0, 360.0)
-            .add_store(
+            .store(
                 Store::empty(REPEAT_BOX_STORE)
                     .field("id", DataType::Utf8, false)
                     .field("cell_id", DataType::Utf8, false)
@@ -12077,7 +12077,7 @@ mod tests {
                     .primary_key(["id"])
                     .sharing(CoordinationScope::Shared),
             )
-            .add_selection(selection)
+            .selection(selection)
             .mark(Subplot::new(repeat_grid).id("splom"))
             .mark(Subplot::new(sibling).id("sibling"))
             .compile(&ctx)
@@ -12495,8 +12495,8 @@ mod tests {
             .set_param("width", event::x())
             .preview();
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+        let compiled = Chart::<Cartesian>::new()
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -12536,8 +12536,8 @@ mod tests {
             )
             .preview();
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(x_domain.clone())
+        let compiled = Chart::<Cartesian>::new()
+            .param(x_domain.clone())
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -12580,8 +12580,8 @@ mod tests {
             .set_param("width", event::canvas_width())
             .preview();
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+        let compiled = Chart::<Cartesian>::new()
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .event_binding(binding)
             .compile(&ctx)
             .await
