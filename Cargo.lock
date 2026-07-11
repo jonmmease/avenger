@@ -1017,6 +1017,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-datafusion-cache"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "datafusion",
+ "datafusion-common",
+ "datafusion-proto",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-datafusion-partial-eval"
 version = "0.1.0"
 dependencies = [

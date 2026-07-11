@@ -28,6 +28,7 @@ members = [
     "avenger-chart-scales",
     "avenger-chart-tools",
     "avenger-chart-transforms",
+    "avenger-datafusion-cache",
     "avenger-datafusion-partial-eval",
     "avenger-chart-cartesian",
     "avenger-chart-polar",

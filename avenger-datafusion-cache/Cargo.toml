@@ -1,0 +1,32 @@
+[package]
+name = "avenger-datafusion-cache"
+version = "0.1.0"
+edition = "2024"
+description = "Physical-plan result caching for DataFusion execution"
+
+[dependencies]
+arrow = { workspace = true }
+datafusion = { workspace = true }
+datafusion-common = { workspace = true }
+datafusion-proto = { version = "54.0.0", default-features = false }
+futures = { workspace = true }
+
+# datafusion-proto's PHYSICAL plan serialization arms for parquet scans are
+# behind its `parquet` cargo feature (18 cfg sites in src/physical_plan/).
+# Without it, fingerprinting any plan containing a parquet DataSourceExec
+# fails serialization and exclusion propagates to every ancestor, making
+# whole parquet-backed plans uncacheable. The feature also transitively
+# enables `datafusion/parquet`. Target-gated so wasm builds stay lean,
+# mirroring avenger-chart-core (f7f52ed5f).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+datafusion-proto = { version = "54.0.0", default-features = false, features = [
+    "parquet",
+] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# datafusion-proto's `datafusion/parquet` feature entry points at its
+# DEV-dependency and does not propagate to consumers; tests that register
+# parquet files need the feature on datafusion itself. Test-only — the lib
+# serializes host-built parquet plans via datafusion-datasource-parquet.
+datafusion = { workspace = true, features = ["parquet"] }

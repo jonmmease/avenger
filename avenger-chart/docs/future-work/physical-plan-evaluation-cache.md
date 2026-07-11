@@ -2,7 +2,15 @@
 
 ## Status
 
-Ready for design spike. This note focuses on a physical-plan-only cache for
+Phase 1 BUILT (2026-07-10): the `avenger-datafusion-cache` workspace crate
+implements the memory-only prototype exactly as phased below — safety-gated
+proto-bytes fingerprints, `CacheReadExec`/`CacheWriteExec` with single-flight
+pending entries, LRU byte budget, observe-then-admit policy — with a
+cache-on/off equivalence census and a measured fingerprint overhead of ~10%
+of plan+optimize time (~100 µs on chart-scale plans). Implementation plan of
+record: `scratch/datafusion-cache-crate-plan.md`. Phases 2-5 (Avenger
+integration onward) remain future work. This note focuses on a
+physical-plan-only cache for
 DataFusion execution results. The design is useful for Avenger chart sessions,
 but it must not depend on Avenger-specific types: the implementation target is
 an `avenger-datafusion-cache` workspace crate whose dependencies are DataFusion
@@ -17,6 +25,21 @@ insertion, clock, admission hints). The motivating use cases are:
 - online editing and hot reload, where style changes should not force
   re-execution of data queries. The cache is a necessary layer for this use
   case but not the whole answer; see "Hot Reload Scope" below.
+
+Reviewed 2026-07-10 against the landed bake layer
+(`avenger-datafusion-partial-eval` + `CompiledPlot::bake`; see
+[logical-plan-partial-evaluation.md](logical-plan-partial-evaluation.md), now
+built): the design holds, and the bake campaign strengthened its motivation.
+Baked artifacts deliberately leave work live that only a runtime cache can
+capture — faceted group chains stay live per cell even when param-free
+(shared-scale domain inference evaluates chains at sharing-owner scope, so
+per-cell folds are semantically unreachable at build time), and every
+param-dependent residual replays on each interaction. A baked interactive
+session is therefore exactly this cache's target workload: recurring physical
+subtrees over stable `MemTable` leaves. As-built bake facts are folded in
+below where they touch the design (memory-leaf fingerprints, source versions,
+proto codec feature gates, the decode memo). The implementation plan of
+record for phase 1 (the crate) is `scratch/datafusion-cache-crate-plan.md`.
 
 The key choice is to work after physical planning. Cache hits become
 `CacheReadExec` nodes. Cache writes become `CacheWriteExec` nodes that tee the
@@ -41,8 +64,10 @@ design.
 
 This is also not build-time precomputation. Folding param-free plan subtrees
 into materialized tables on a server and shipping the result inside the
-compiled artifact is a separate, complementary design; see
+compiled artifact is a separate, complementary layer that has since shipped
+as `avenger-datafusion-partial-eval` + `CompiledPlot::bake`; see
 [logical-plan-partial-evaluation.md](logical-plan-partial-evaluation.md).
+Baked `MemTable` scans appear to this cache as ordinary memory-source leaves.
 
 Logical-plan fingerprints may be useful later for observability or broader
 semantic reuse, but the first design should not require them.
@@ -174,6 +199,15 @@ Hand-written per-node normalization can replace proto hashing later if proto
 encoding shows further unstable details (prost map encoding of schema
 metadata is one known miss-only instability).
 
+Proto codec coverage is also cargo-feature-gated, and a missing arm fails
+with a misleading error rather than an obviously-missing-feature one: the
+bake campaign lost datafusion-proto's ListingTable/`ParquetFormat` logical
+arm to a `default-features = false` dependency rewrite and spent a diagnosis
+cycle on the resulting "bug in DataFusion" message (restored in `f7f52ed5f`,
+target-gated for native builds). The physical codec needs the same per-target
+feature audit, and the fingerprinter should treat an unserializable node as
+non-cacheable (fail-safe miss), never as an error that blocks execution.
+
 At the physical layer, chart params will usually appear as literal values or as
 bound physical expressions. Store values will usually appear as a table provider,
 memory table, or join input with its own revision. That is fine: changing a param
@@ -199,6 +233,25 @@ fallback for memory sources is a content hash of the partitions (memoized by
 column-`ArrayRef` pointer identity), which is also the version story for
 baked tables produced by `avenger-datafusion-partial-eval`. File scans need
 no provider — their proto bytes already carry paths, sizes, and mtimes.
+
+The landed bake layer turns two aspects of that fallback from nice-to-haves
+into requirements:
+
+- Baked table names are non-deterministic by design: every bake generates a
+  unique registration prefix (`__pe_baked_{12 hex}_`,
+  `unique_bake_table_prefix()` in `avenger-chart/src/bake.rs`) so artifacts
+  from different bakes — including re-bakes of the same chart — can register
+  side by side in one consuming context. Memory-leaf fingerprints must
+  therefore exclude the registered table name and key on content; otherwise a
+  re-baked artifact with identical data never hits the previous artifact's
+  entries. (Within one artifact the prefix is fixed at bake time, so replans
+  of the same compiled plot see stable names either way.)
+- The pointer-identity memoization is effective in practice because baked
+  manifest entries decode once per compiled plot into a cached
+  `Arc<MemTable>` (`BakedTableManifestEntry::mem_table`, a serde-skipped
+  `Arc<OnceLock<Arc<MemTable>>>`): replans within a session see the same
+  `ArrayRef`s, so the content hash is computed once, and a freshly
+  deserialized artifact pays one hash per table.
 
 Possible source versions:
 
@@ -514,6 +567,19 @@ Consequences:
 Interactive Avenger charts should look like ordinary repeated physical planning
 requests against a context-scoped cache.
 
+Baked charts sharpen this picture. After `CompiledPlot::bake`, everything
+param-free that can fold has already folded into embedded tables, so the
+remaining runtime work is by construction the recurring kind: param-dependent
+residuals above baked scans, plus faceted per-cell chains, which stay live
+even when param-free — the bake system cannot fold them, because shared-scale
+domain inference evaluates group chains at sharing-owner scope, making
+per-cell folds semantically unreachable at build time (see
+[logical-plan-partial-evaluation.md](logical-plan-partial-evaluation.md)). A
+faceted baked chart re-executes N per-cell subtrees over the same baked leaf
+on every interaction and every hot-reload replan; subtrees untouched by the
+changed param are exact repeats. No build-time layer can capture that
+recurrence — this cache is the layer that does.
+
 Params should become physical constants or bound physical expressions. When a
 param changes, only subtrees containing that param and their ancestors should get
 new fingerprints. Unrelated scans, joins, or aggregates can still hit.
@@ -584,6 +650,7 @@ cache can provide the same reuse with better invalidation.
 | `PartitionSlotCache` | Session cache of facet observed/domain slot values, string-keyed on the `Debug` format of the full logical plan plus filters and params. | Replace the query reuse with physical cache entries. The current key embeds no source versions, so it can serve stale slots if a registered table's content changes mid-session; physical fingerprints with source versions fix that class. Keep a thin derived-value memo (`Vec<ScalarValue>` per fingerprint) so the common path stays a lookup with no planning. |
 | `ScaleDomainCache` | Session cache of `ScaleBuilder` domain artifacts keyed by compiled-object pointers, scope, and stringified params. | Split derived scale-artifact reuse from DataFusion query reuse. The physical cache owns extent/distinct/aggregate query results; the assembled `ScaleBuilder` stays an Avenger cache. Its pointer keys cannot survive recompiles, so if scale artifacts should survive hot reload they need structural keys regardless of this design. |
 | `MaterializationCache` ready payloads | Stores queued/running/ready/error materialization entries and ready `MaterializationResult` payloads. Keys are already versioned structural hashes of the proto-serialized plan, transform, and params — computable without planning. | Keep scheduling, debounce/throttle, latest-ready identity, stale fallback, and invalidation, and keep the logical key for schedule-time identity (it must remain computable without planning). Ready payloads can move into the physical cache only once entries are pinnable: stale fallback requires the payload to still exist when policy reaches for it, so eviction must not be able to break scheduling semantics. |
+| `BakedTableManifestEntry` decode memo | Per-manifest-entry `OnceLock` that decodes embedded Arrow IPC bytes into an `Arc<MemTable>` once per compiled plot. | Keep. This is deserialization memoization, not query-result caching — nothing executes. Its stable `Arc`/`ArrayRef` identity is also what makes memory-leaf content-hash versioning cheap for this cache (see "Source And Context Versions"). |
 | Future owner-scope transform caches | Proposed future cache for transformed owner-scope tables and derived scalar maps. | Prefer physical subplan caching before adding another bespoke transform-table cache. |
 
 Likely caches to keep because they are not DataFusion result caches:
@@ -712,6 +779,14 @@ The prototype can keep the fingerprinter small and explicitly support the
 physical nodes Avenger emits most often. A general DataFusion project would need
 a registry (or proto codec coverage) so extension `ExecutionPlan` nodes and UDFs
 can participate without being serialized through brittle display strings.
+
+As built (v1, `avenger-datafusion-cache`): `EvaluationCache` shipped as a
+CONCRETE type — the trait above is deferred until a second implementation
+exists — with `CacheVersionProvider` in the resolver shape, exact property
+compatibility only, the conservative dynamic-filter rule (consumer-above-
+filters not special-cased), memory-only storage, and no wasm build yet; all
+per this document's phase 1. The proto-bytes fingerprinter is the default;
+`PhysicalPlanFingerprinter` is the extension seam.
 
 ## Implementation Phases
 
