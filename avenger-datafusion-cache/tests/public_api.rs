@@ -591,3 +591,123 @@ async fn bench_fingerprint_overhead() {
         (total_fp as f64 / total_plan as f64) * 100.0
     );
 }
+
+// ---------------------------------------------------------------------------
+// End-to-end speedup benchmark: repeated + shared-structure queries over a
+// 1M-row table (run explicitly with `-- --ignored bench_shared`)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+#[ignore = "benchmark: run explicitly and record numbers in the plan's progress log"]
+async fn bench_shared_structure_speedup() {
+    use std::time::Duration;
+
+    // 1M rows, 50k distinct group keys, split into 8 batches.
+    let n: i64 = 1_000_000;
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("k", DataType::Int64, false),
+        Field::new("amount", DataType::Float64, false),
+    ]));
+    let batches: Vec<RecordBatch> = (0..8)
+        .map(|chunk| {
+            let lo = chunk * (n / 8);
+            let hi = lo + n / 8;
+            let ids: Vec<i64> = (lo..hi).collect();
+            let keys: Vec<i64> = (lo..hi).map(|i| (i * 2_654_435_761) % 50_000).collect();
+            let amounts: Vec<f64> = (lo..hi)
+                .map(|i| ((i % 10_007) as f64) * 0.25 - 100.0)
+                .collect();
+            RecordBatch::try_new(
+                Arc::clone(&schema),
+                vec![
+                    Arc::new(Int64Array::from(ids)),
+                    Arc::new(Int64Array::from(keys)),
+                    Arc::new(Float64Array::from(amounts)),
+                ],
+            )
+            .unwrap()
+        })
+        .collect();
+
+    let register_big = |ctx: &SessionContext| {
+        let table = MemTable::try_new(Arc::clone(&schema), vec![batches.clone()]).unwrap();
+        ctx.register_table("big", Arc::new(table)).unwrap();
+    };
+    let (cached, cache) = cached_context(EvaluationCacheConfig::default());
+    register_big(&cached);
+    let plain = plain_context();
+    register_big(&plain);
+
+    async fn timed(ctx: &SessionContext, sql: &str) -> (Duration, String) {
+        let start = Instant::now();
+        let batches = run(ctx, sql).await;
+        (start.elapsed(), rendered(&batches))
+    }
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+
+    // Case A: the identical query repeated (heavy aggregate + sort).
+    let q =
+        "SELECT k, sum(amount) AS s, count(*) AS c FROM big GROUP BY k ORDER BY s DESC, k LIMIT 20";
+    println!("\n=== Case A: identical query repeated (1M rows, 50k groups) ===");
+    println!("{:<10} {:>12} {:>12}", "run", "plain (ms)", "cached (ms)");
+    let mut reference: Option<String> = None;
+    for i in 0..5 {
+        let (plain_time, plain_out) = timed(&plain, q).await;
+        let (cached_time, cached_out) = timed(&cached, q).await;
+        assert_eq!(plain_out, cached_out, "run {i}: outputs must match");
+        reference.get_or_insert(plain_out);
+        let label = match i {
+            0 => "1 observe",
+            1 => "2 write",
+            _ => "3+ hit",
+        };
+        println!(
+            "{:<10} {:>12.2} {:>12.2}",
+            label,
+            ms(plain_time),
+            ms(cached_time)
+        );
+    }
+    let m = cache.metrics();
+    assert!(m.hits >= 3, "case A must serve hits: {m:?}");
+
+    // Case B: shared upstream structure under changing literals — the heavy
+    // aggregate is identical across variants; only the outer filter/sort
+    // changes. After the aggregate commits (variant 1), every NEW variant
+    // executes only the cheap outer stage over the cached 50k-row result.
+    cache.clear();
+    let variant = |x: i64| {
+        format!(
+            "SELECT k, s FROM (SELECT k, sum(amount) AS s FROM big GROUP BY k) \
+             WHERE s > {x} ORDER BY s, k LIMIT 10"
+        )
+    };
+    println!("\n=== Case B: shared heavy aggregate under changing literals ===");
+    println!(
+        "{:<10} {:>12} {:>12} {:>9}",
+        "variant", "plain (ms)", "cached (ms)", "speedup"
+    );
+    for (i, x) in [0, 50, 100, 150, 200, 250, 300, 350].iter().enumerate() {
+        let sql = variant(*x);
+        let (plain_time, plain_out) = timed(&plain, &sql).await;
+        let (cached_time, cached_out) = timed(&cached, &sql).await;
+        assert_eq!(plain_out, cached_out, "variant {i}: outputs must match");
+        println!(
+            "{:<10} {:>12.2} {:>12.2} {:>8.1}x",
+            format!("x>{x}"),
+            ms(plain_time),
+            ms(cached_time),
+            ms(plain_time) / ms(cached_time),
+        );
+    }
+    let m = cache.metrics();
+    println!(
+        "case B metrics: hits={} committed={} entries={} bytes={}",
+        m.hits, m.committed_writes, m.entries, m.bytes
+    );
+    assert!(
+        m.hits >= 5,
+        "later variants must reuse the shared aggregate: {m:?}"
+    );
+}
