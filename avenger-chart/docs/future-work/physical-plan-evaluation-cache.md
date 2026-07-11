@@ -266,6 +266,16 @@ The execution context also matters. Include any configuration that can change
 semantics or physical compatibility, such as timezone, SQL options, extension
 registry versions, UDF versions, and nondeterminism policy.
 
+UDF identity (as built): `datafusion-proto` encodes scalar and aggregate
+UDFs by NAME plus arguments and return type (its codec encode hooks are
+no-ops), so a fingerprint identifies a UDF by its registered name.
+Re-registering a DIFFERENT function under an unchanged name mid-session is
+therefore unsupported while the cache is enabled — that is registration
+discipline the host already owes the cache for tables, extended to
+functions. Avenger registers its scale and transform UDFs once per process
+with stable semantics per build, which satisfies the contract; hosts that
+hot-swap UDFs must `clear()` the cache or version via a provider.
+
 Plans that call nondeterministic functions should be non-cacheable by default.
 If the application supplies an evaluation epoch for values such as "now", the
 epoch can become part of the key and make those expressions deterministic within

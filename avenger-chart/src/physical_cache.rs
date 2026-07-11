@@ -14,6 +14,15 @@
 //! session state at construction, so a host that pre-builds DataFrames from
 //! an uncached state and evaluates them later bypasses the cache silently.
 //!
+//! Store versioning note: scoped store and selection tables need no
+//! [`CacheVersionProvider`](avenger_datafusion_cache::CacheVersionProvider)
+//! registration. Store batches embed their revision as a column
+//! (`__avenger_store_revision`), so the cache's built-in content-hash
+//! versioning of memory leaves incorporates the revision by construction:
+//! every store patch changes the scanned bytes, which changes the
+//! fingerprint. Store provenance is erased at the physical layer (plain
+//! memory scans), so a resolver could not attribute scans to stores anyway.
+//!
 //! UDF identity note: fingerprints identify UDFs and UDAFs by NAME (plus
 //! arguments and return type). Avenger registers its scale and transform
 //! functions once per process with stable semantics per build, which is
