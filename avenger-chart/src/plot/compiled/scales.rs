@@ -540,7 +540,7 @@ mod tests {
             )
             .await
             .expect("view scale data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Line::new().view(
@@ -595,7 +595,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (0.0, 0.0), (10.0, 8.0)) AS t(x, y)")
             .await
             .expect("view scale data");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Rect::new().view(
@@ -654,7 +654,7 @@ mod tests {
         .unwrap();
         let df = ctx.read_batch(batch).unwrap();
 
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .data(df)
             .mark(ParallelLine::new().dimension("value_axis", col("value")))
             .compile(&ctx)
@@ -689,7 +689,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (21.0, 'usa'), (28.0, 'japan')) AS t(mpg, origin)")
             .await
             .expect("parallel data");
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .data(df)
             .mark(
                 ParallelLine::new()
@@ -742,7 +742,7 @@ mod tests {
         )
         .expect("timestamp batch");
         let df = ctx.read_batch(batch).expect("timestamp dataframe");
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .data(df)
             .mark(ParallelLine::new().dimension("observed_at", col("observed_at")))
             .compile(&ctx)
@@ -777,7 +777,7 @@ mod tests {
             RecordBatch::try_new(schema, vec![Arc::new(x_values), Arc::new(y_values)]).unwrap();
         let df = ctx.read_batch(batch).unwrap();
 
-        let plot = Plot::<Cartesian>::new().data(df).mark(
+        let plot = crate::plot::Chart::<Cartesian>::new().data(df).mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
@@ -855,7 +855,7 @@ mod tests {
         .unwrap();
         let df = ctx.read_batch(batch).unwrap();
 
-        let plot = Plot::<Cartesian>::new()
+        let plot = crate::plot::Chart::<Cartesian>::new()
             .time_context(TimeContext::new().timezone("America/New_York"))
             .data(df)
             .mark(Symbol::new().x(col("timestamp")).y(col("value")));
@@ -927,7 +927,7 @@ mod tests {
 
         let plot_df = df;
 
-        let plot = Plot::<Cartesian>::new()
+        let plot = crate::plot::Chart::<Cartesian>::new()
             .data(plot_df)
             .title("Custom Legend Titles")
             .mark(

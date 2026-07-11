@@ -1111,7 +1111,7 @@ mod tests {
         let left = ctx.sql(sql).await?;
         let right = ctx.sql(sql).await?;
 
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .data(left)
@@ -1131,7 +1131,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let ctx = SessionContext::new();
         let data = register_sales(&ctx).await;
-        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
             Aggregate::new().sum("total", col("value")),
             |group, aggregate| {
                 group.mark(
@@ -1142,7 +1142,7 @@ mod tests {
                 )
             },
         ));
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(data)
             .mark(Subplot::new(leaf).column(col("region")))
             .compile(&ctx)
@@ -1175,7 +1175,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let ctx = SessionContext::new();
         let data = register_sales(&ctx).await;
-        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
             Aggregate::new().sum("total", col("value")),
             |group, aggregate| {
                 group.mark(
@@ -1186,7 +1186,7 @@ mod tests {
                 )
             },
         ));
-        let compiled = Plot::<FacetWrap>::new()
+        let compiled = crate::plot::Chart::<FacetWrap>::new()
             .data(data)
             .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
             .compile(&ctx)
@@ -1222,7 +1222,7 @@ mod tests {
         let ctx = SessionContext::new();
         ctx.register_batch("sales", sales_batch())?;
         let data = ctx.sql("SELECT * FROM sales WHERE value > $min").await?;
-        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
             Aggregate::new().sum("total", col("value")),
             |group, aggregate| {
                 group.mark(
@@ -1233,7 +1233,7 @@ mod tests {
                 )
             },
         ));
-        let compiled = Plot::<FacetWrap>::new()
+        let compiled = crate::plot::Chart::<FacetWrap>::new()
             .data(data)
             .mark(Subplot::new(leaf).wrap_with(col("region"), |c| c.columns(2)))
             .compile(&ctx)
@@ -1388,7 +1388,7 @@ mod tests {
         let ctx = SessionContext::new();
         ctx.register_batch("sales", sales_batch())?;
         let data = ctx.sql("SELECT * FROM sales WHERE value > $min").await?;
-        let leaf = Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(MarkGroup::new().transform(
             Aggregate::new().sum("total", col("value")),
             |group, aggregate| {
                 group.mark(
@@ -1399,7 +1399,7 @@ mod tests {
                 )
             },
         ));
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(data)
             .mark(Subplot::new(leaf).column(col("region")))
             .compile(&ctx)
@@ -1465,7 +1465,7 @@ mod tests {
                 vec![datafusion::functions_aggregate::expr_fn::sum(col("value")).alias("total")],
             )?
             .filter(col("total").gt(datafusion::prelude::placeholder("$min")))?;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(data)
             .mark(Symbol::new().x(col("total")).y(col("total")).size(48.0))
             .compile(&ctx)
@@ -1564,7 +1564,7 @@ mod tests {
                  FROM big JOIN side ON big.region = side.region",
             )
             .await?;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .data(folding)

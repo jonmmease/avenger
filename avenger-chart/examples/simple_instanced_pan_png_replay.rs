@@ -190,9 +190,9 @@ async fn build_plot(
     let x_raw = x_domain.expr();
     let y_raw = y_domain.expr();
 
-    Ok(Plot::<Cartesian>::new()
-        .add_param(x_domain.clone())
-        .add_param(y_domain.clone())
+    Ok(Chart::<Cartesian>::new()
+        .param(x_domain.clone())
+        .param(y_domain.clone())
         .canvas_size(PNG_CANVAS_SIZE[0], PNG_CANVAS_SIZE[1])
         .data(df)
         .mark(

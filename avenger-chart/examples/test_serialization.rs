@@ -2,7 +2,7 @@
 
 use avenger_chart::cartesian::CartesianRectPositionChannels;
 use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::{CompiledPlot, Plot};
+use avenger_chart::plot::{Chart, CompiledPlot};
 use datafusion::prelude::*;
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Create a simple plot with rect mark
-    let plot = Plot::new().data(df).mark(
+    let plot = Chart::new().data(df).mark(
         Rect::new()
             .x_with(col("category"), |c| c)
             .y_with(col("value"), |c| c),

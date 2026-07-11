@@ -736,7 +736,7 @@ mod tests {
     async fn child_frame_domain_sharing_levels_include_mark_owned_parallel_dimensions()
     -> Result<(), avenger_chart_core::AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .mark(
                 ParallelLine::new()
                     .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())

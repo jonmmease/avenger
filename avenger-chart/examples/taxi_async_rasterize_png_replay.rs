@@ -174,7 +174,7 @@ async fn build_plot(
 ) -> Result<avenger_chart::plot::CompiledPlot, Box<dyn std::error::Error>> {
     let df = cached_taxi_dataframe(ctx).await?;
 
-    Ok(Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    Ok(Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .title("NYC taxi pickup density")
         .canvas_size(PNG_CANVAS_SIZE[0], PNG_CANVAS_SIZE[1])
         .data(df)

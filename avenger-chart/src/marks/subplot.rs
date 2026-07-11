@@ -12,7 +12,6 @@ mod tests {
     use super::*;
     use crate::{
         concat::{HConcat, compiled_subplot},
-        plot::Plot,
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
@@ -32,7 +31,7 @@ mod tests {
     #[tokio::test]
     async fn subplot_compilation_preserves_label_name_and_child_plot() {
         let ctx = SessionContext::new();
-        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new())
+        let subplot = Subplot::<HConcat>::new(crate::plot::Plot::<ZeroDCoord>::new())
             .label("overview")
             .name("overview-key");
 
@@ -54,7 +53,8 @@ mod tests {
     async fn subplot_compilation_keeps_explicit_child_plot_data() {
         let ctx = SessionContext::new();
         let child_data = single_column_df(&ctx, 1.0);
-        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new().data(child_data));
+        let subplot =
+            Subplot::<HConcat>::new(crate::plot::Plot::<ZeroDCoord>::new().data(child_data));
 
         let compiled_state = CompiledMarkState::from_mark_state(subplot.state(), None);
         let compiled = <Subplot<HConcat> as Mark<HConcat>>::compile(&subplot, compiled_state, &ctx)
@@ -70,7 +70,7 @@ mod tests {
     #[tokio::test]
     async fn concat_subplot_rejects_facet_channels() {
         let ctx = SessionContext::new();
-        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new())
+        let subplot = Subplot::<HConcat>::new(crate::plot::Plot::<ZeroDCoord>::new())
             .with_channel_value(RowDimensionConfig::channel_name(), col("group").into());
 
         let compiled_state = CompiledMarkState::from_mark_state(subplot.state(), None);
@@ -84,9 +84,9 @@ mod tests {
     async fn plot_compile_passes_parent_data_to_subplot_mark_state() {
         let ctx = SessionContext::new();
         let parent_data = single_column_df(&ctx, 2.0);
-        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new());
+        let subplot = Subplot::<HConcat>::new(crate::plot::Plot::<ZeroDCoord>::new());
 
-        let compiled_plot = Plot::<HConcat>::new()
+        let compiled_plot = crate::plot::Chart::<HConcat>::new()
             .data(parent_data)
             .mark(subplot)
             .compile(&ctx)
@@ -108,9 +108,9 @@ mod tests {
     #[tokio::test]
     async fn repeated_subplot_marks_receive_stable_child_indexes() {
         let ctx = SessionContext::new();
-        let compiled_plot = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("first"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("second"))
+        let compiled_plot = crate::plot::Chart::<HConcat>::new()
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("first"))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("second"))
             .compile(&ctx)
             .await
             .unwrap();
@@ -126,7 +126,7 @@ mod tests {
 
     #[test]
     fn subplot_canonical_grid_placement_preserves_internal_config() {
-        let subplot = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new())
+        let subplot = Subplot::<HConcat>::new(crate::plot::Plot::<ZeroDCoord>::new())
             .at(2, 3)
             .span(4, 5);
 

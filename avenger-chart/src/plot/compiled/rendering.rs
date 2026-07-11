@@ -7732,15 +7732,15 @@ mod tests {
             .expect("read sparse fixed column hole batch")
     }
 
-    fn build_deeply_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    fn build_deeply_nested_plot(df: DataFrame) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(700, 500)
             .mark(
                 Subplot::new(
-                    Plot::<FacetRow>::new().mark(
+                    crate::plot::Plot::<FacetRow>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new().mark(
+                            crate::plot::Plot::<Cartesian>::new().mark(
                                 Rect::new()
                                     .x_with(col("category"), |c| {
                                         c.scale_with::<Band>(|s| s)
@@ -7763,19 +7763,19 @@ mod tests {
             )
     }
 
-    fn build_sparse_fixed_column_hole_plot(df: DataFrame) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    fn build_sparse_fixed_column_hole_plot(df: DataFrame) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .plot_size(80.0, 60.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<FacetColumn>::new().mark(
+                            crate::plot::Plot::<FacetColumn>::new().mark(
                                 Subplot::new(
-                                    Plot::<FacetColumn>::new().mark(
+                                    crate::plot::Plot::<FacetColumn>::new().mark(
                                         Subplot::new(
-                                            Plot::<Cartesian>::new().mark(
+                                            crate::plot::Plot::<Cartesian>::new().mark(
                                                 Symbol::new()
                                                     .x_with(col("x_val"), |c| {
                                                         c.with_domain_scope(
@@ -7810,9 +7810,9 @@ mod tests {
     }
 
     fn build_simple_facet_col_plot(df: DataFrame) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new().data(df).mark(
+        crate::plot::Plot::<FacetColumn>::new().data(df).mark(
             Subplot::new(
-                Plot::<Cartesian>::new().mark(
+                crate::plot::Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("value"))
                         .y(col("value"))
@@ -7824,14 +7824,14 @@ mod tests {
         )
     }
 
-    fn build_simple_facet_wrap_plot(df: DataFrame) -> Plot<FacetWrap> {
-        Plot::<FacetWrap>::new()
+    fn build_simple_facet_wrap_plot(df: DataFrame) -> crate::plot::Chart<FacetWrap> {
+        crate::plot::Chart::<FacetWrap>::new()
             .data(df)
             .canvas_constraint(CanvasConstraint::width(360.0))
             .plot_constraint(PlotConstraint::height(90.0))
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("value"))
                             .y(col("value"))
@@ -7845,13 +7845,13 @@ mod tests {
             )
     }
 
-    fn build_canvas_sized_facet_wrap_plot(df: DataFrame) -> Plot<FacetWrap> {
-        Plot::<FacetWrap>::new()
+    fn build_canvas_sized_facet_wrap_plot(df: DataFrame) -> crate::plot::Chart<FacetWrap> {
+        crate::plot::Chart::<FacetWrap>::new()
             .data(df)
             .canvas_size(360.0, 260.0)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("value"))
                             .y(col("value"))
@@ -8101,15 +8101,15 @@ mod tests {
     fn build_two_level_col_legend_sharing_plot(
         df: DataFrame,
         position: LegendPosition,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(960.0, 420.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new()
+                            crate::plot::Plot::<Cartesian>::new()
                                 .mark(build_level1_fill_legend_symbol(position)),
                         )
                         .column(col("department")),
@@ -8122,15 +8122,15 @@ mod tests {
     fn build_two_level_col_free_legend_plot(
         df: DataFrame,
         position: LegendPosition,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(960.0, 420.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new().mark(
+                            crate::plot::Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("x_val"), |c| {
                                         c.with_domain_scope(CoordinationScope::Shared)
@@ -8156,17 +8156,17 @@ mod tests {
     fn build_three_level_col_legend_sharing_plot(
         df: DataFrame,
         position: LegendPosition,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(1500.0, 380.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<FacetColumn>::new().mark(
+                            crate::plot::Plot::<FacetColumn>::new().mark(
                                 Subplot::new(
-                                    Plot::<Cartesian>::new()
+                                    crate::plot::Plot::<Cartesian>::new()
                                         .mark(build_level2_fill_legend_symbol(position)),
                                 )
                                 .column(col("team")),
@@ -8182,17 +8182,17 @@ mod tests {
     fn build_three_level_col_legend_sharing_plot_area_sized(
         df: DataFrame,
         position: LegendPosition,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .plot_size(120.0, 90.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<FacetColumn>::new().mark(
+                            crate::plot::Plot::<FacetColumn>::new().mark(
                                 Subplot::new(
-                                    Plot::<Cartesian>::new()
+                                    crate::plot::Plot::<Cartesian>::new()
                                         .mark(build_level2_fill_legend_symbol(position)),
                                 )
                                 .column(col("team")),
@@ -8207,17 +8207,17 @@ mod tests {
 
     fn build_nested_col_row_col_continuous_legend_plot_area_sized(
         df: DataFrame,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .plot_size(110.0, 80.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetRow>::new().mark(
+                    crate::plot::Plot::<FacetRow>::new().mark(
                         Subplot::new(
-                            Plot::<FacetColumn>::new().mark(
+                            crate::plot::Plot::<FacetColumn>::new().mark(
                                 Subplot::new(
-                                    Plot::<Cartesian>::new().mark(
+                                    crate::plot::Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x_with(col("x_val"), |c| {
                                                 c.with_domain_scope(CoordinationScope::Shared)
@@ -8247,7 +8247,7 @@ mod tests {
     }
 
     fn build_shared_positioned_legend_child() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(
+        crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x_with(col("child_x"), |c| {
                     c.scale_with::<Linear>(|s| {
@@ -8271,59 +8271,65 @@ mod tests {
         )
     }
 
-    fn build_polar_positioned_legend_sharing_plot(df: DataFrame) -> Plot<Polar> {
-        Plot::<Polar>::new().data(df).plot_size(480.0, 360.0).mark(
-            Subplot::<Polar>::new(build_shared_positioned_legend_child())
-                .partition_by(col("slot"))
-                .r_with(avg(col("parent_r")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+    fn build_polar_positioned_legend_sharing_plot(df: DataFrame) -> crate::plot::Chart<Polar> {
+        crate::plot::Chart::<Polar>::new()
+            .data(df)
+            .plot_size(480.0, 360.0)
+            .mark(
+                Subplot::<Polar>::new(build_shared_positioned_legend_child())
+                    .partition_by(col("slot"))
+                    .r_with(avg(col("parent_r")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(1.0))).nice(false).zero(false)
+                        })
                     })
-                })
-                .theta_with(avg(col("parent_theta")), |c| {
-                    c.scale_with::<Linear>(|s| {
-                        s.domain((lit(0.0), lit(std::f64::consts::TAU)))
-                            .nice(false)
-                            .zero(false)
+                    .theta_with(avg(col("parent_theta")), |c| {
+                        c.scale_with::<Linear>(|s| {
+                            s.domain((lit(0.0), lit(std::f64::consts::TAU)))
+                                .nice(false)
+                                .zero(false)
+                        })
                     })
-                })
-                .plot_size(118.0, 92.0),
-        )
-    }
-
-    fn build_nested_sparse_row_plot(df: DataFrame) -> Plot<FacetRow> {
-        Plot::<FacetRow>::new().data(df).canvas_size(600, 600).mark(
-            Subplot::new(
-                Plot::<FacetColumn>::new().mark(
-                    Subplot::new(
-                        Plot::<Cartesian>::new().mark(
-                            Symbol::new()
-                                .x_with(col("sepal_length"), |c| {
-                                    c.with_domain_scope(CoordinationScope::Shared)
-                                })
-                                .y_with(col("sepal_width"), |c| {
-                                    c.with_domain_scope(CoordinationScope::Level(1))
-                                })
-                                .size(25.0)
-                                .fill("#4682b4"),
-                        ),
-                    )
-                    .column(col("petal_width_bin")),
-                ),
+                    .plot_size(118.0, 92.0),
             )
-            .row(col("species")),
-        )
     }
 
-    fn build_nested_shared_row_basic_plot(df: DataFrame) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    fn build_nested_sparse_row_plot(df: DataFrame) -> crate::plot::Chart<FacetRow> {
+        crate::plot::Chart::<FacetRow>::new()
+            .data(df)
+            .canvas_size(600, 600)
+            .mark(
+                Subplot::new(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
+                        Subplot::new(
+                            crate::plot::Plot::<Cartesian>::new().mark(
+                                Symbol::new()
+                                    .x_with(col("sepal_length"), |c| {
+                                        c.with_domain_scope(CoordinationScope::Shared)
+                                    })
+                                    .y_with(col("sepal_width"), |c| {
+                                        c.with_domain_scope(CoordinationScope::Level(1))
+                                    })
+                                    .size(25.0)
+                                    .fill("#4682b4"),
+                            ),
+                        )
+                        .column(col("petal_width_bin")),
+                    ),
+                )
+                .row(col("species")),
+            )
+    }
+
+    fn build_nested_shared_row_basic_plot(df: DataFrame) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(760.0, 560.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetRow>::new().mark(
+                    crate::plot::Plot::<FacetRow>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new()
+                            crate::plot::Plot::<Cartesian>::new()
                                 .mark(Symbol::new().x(col("x_val")).y(col("y_val")).size(35.0)),
                         )
                         .row_with(col("row_group"), |c| {
@@ -8336,15 +8342,15 @@ mod tests {
             )
     }
 
-    fn build_nested_shared_row_shared_both_plot(df: DataFrame) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    fn build_nested_shared_row_shared_both_plot(df: DataFrame) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(760.0, 560.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetRow>::new().mark(
+                    crate::plot::Plot::<FacetRow>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new().mark(
+                            crate::plot::Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("x_val"), |c| {
                                         c.with_domain_scope(CoordinationScope::Shared)
@@ -8367,15 +8373,15 @@ mod tests {
     fn build_nested_shared_row_shared_both_plot_with_empty_policy(
         df: DataFrame,
         policy: FacetEmptyCellPolicy,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(760.0, 560.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetRow>::new().mark(
+                    crate::plot::Plot::<FacetRow>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new().mark(
+                            crate::plot::Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("x_val"), |c| {
                                         c.with_domain_scope(CoordinationScope::Shared)
@@ -8396,17 +8402,17 @@ mod tests {
             )
     }
 
-    fn build_jagged_group_local_shared_row_plot(df: DataFrame) -> Plot<FacetRow> {
-        Plot::<FacetRow>::new()
+    fn build_jagged_group_local_shared_row_plot(df: DataFrame) -> crate::plot::Chart<FacetRow> {
+        crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .canvas_size(980.0, 700.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<FacetRow>::new().mark(
+                            crate::plot::Plot::<FacetRow>::new().mark(
                                 Subplot::new(
-                                    Plot::<Cartesian>::new().mark(
+                                    crate::plot::Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x(col("x_val"))
                                             .y(col("y_val"))
@@ -8430,13 +8436,14 @@ mod tests {
     fn build_single_level_row_legend_plot(
         df: DataFrame,
         position: LegendPosition,
-    ) -> Plot<FacetRow> {
-        Plot::<FacetRow>::new()
+    ) -> crate::plot::Chart<FacetRow> {
+        crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .canvas_size(960.0, 420.0)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
+                    crate::plot::Plot::<Cartesian>::new()
+                        .mark(build_unshared_fill_legend_symbol(position)),
                 )
                 .row(col("department")),
             )
@@ -8445,13 +8452,14 @@ mod tests {
     fn build_single_level_col_legend_plot(
         df: DataFrame,
         position: LegendPosition,
-    ) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    ) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(960.0, 420.0)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(build_unshared_fill_legend_symbol(position)),
+                    crate::plot::Plot::<Cartesian>::new()
+                        .mark(build_unshared_fill_legend_symbol(position)),
                 )
                 .column(col("division")),
             )
@@ -8501,14 +8509,14 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = two_level_col_col_refinement_dataframe(ctx).await;
-        Plot::<FacetColumn>::new()
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(1800, 500)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new().mark(
+                            crate::plot::Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x_with(col("x_val"), |c| {
                                         c.with_domain_scope(CoordinationScope::Level(2))
@@ -8542,16 +8550,16 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = legend_sharing_three_level_dataframe(ctx).await;
-        Plot::<FacetRow>::new()
+        crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .plot_size(110.0, 80.0)
             .mark(
                 Subplot::new(
-                    Plot::<FacetColumn>::new().mark(
+                    crate::plot::Plot::<FacetColumn>::new().mark(
                         Subplot::new(
-                            Plot::<FacetRow>::new().mark(
+                            crate::plot::Plot::<FacetRow>::new().mark(
                                 Subplot::new(
-                                    Plot::<Cartesian>::new().mark(
+                                    crate::plot::Plot::<Cartesian>::new().mark(
                                         Symbol::new()
                                             .x_with(col("x_val"), |c| {
                                                 c.with_domain_scope(CoordinationScope::Shared)
@@ -8658,7 +8666,7 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = deeply_nested_dataframe(ctx);
-        build_simple_facet_col_plot(df)
+        crate::plot::Chart::from_plot(build_simple_facet_col_plot(df))
             .plot_size(120.0, 90.0)
             .compile(ctx)
             .await
@@ -8675,7 +8683,7 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = deeply_nested_dataframe(ctx);
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -8720,7 +8728,7 @@ mod tests {
             ],
         )?;
         let df = ctx.read_batch(batch)?;
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .data(df)
             .plot_size(220.0, 140.0)
             .mark(
@@ -8757,7 +8765,7 @@ mod tests {
     async fn discrete_legend_items_register_event_datum_rows() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let df = legend_sharing_dataframe(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .canvas_size(520.0, 360.0)
             .event_binding(
@@ -8810,7 +8818,7 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .canvas_size(420.0, 320.0)
             .mark(
@@ -8898,7 +8906,7 @@ mod tests {
                 .stroke("#2563eb")
                 .stroke_width(1.5),
         );
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .canvas_size(420.0, 320.0)
             .mark(
@@ -8965,7 +8973,7 @@ mod tests {
                 .stroke("#2563eb")
                 .stroke_width(1.5),
         );
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .canvas_size(420.0, 320.0)
             .mark(
@@ -9014,7 +9022,7 @@ mod tests {
                 .y2(lit(1_000.0))
                 .fill("#2563eb"),
         );
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .canvas_size(420.0, 320.0)
             .mark(
@@ -9067,7 +9075,7 @@ mod tests {
                 .y2(lit(7.0))
                 .fill_with(lit("overlay"), |c| c.legend(|l| l.title("Overlay"))),
         );
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -9097,7 +9105,7 @@ mod tests {
                 .y2(lit(7.0))
                 .fill("#2563eb"),
         );
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -9118,10 +9126,11 @@ mod tests {
     async fn colorbar_overlay_rejects_positioned_subplots() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
-        let child = Plot::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
+        let child =
+            crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
         let overlay = crate::legend::ColorbarOverlay::new()
             .mark(Subplot::new(child).subplot_x(lit(0.5)).subplot_y(lit(5.0)));
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -9151,7 +9160,7 @@ mod tests {
                 .y2(lit(7.0))
                 .fill("#2563eb"),
         );
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -9182,9 +9191,9 @@ mod tests {
         let x1 = Param::new("x1", ScalarValue::Float64(Some(10.0)));
         let x0_expr = x0.expr();
         let x1_expr = x1.expr();
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .data(df)
-            .add_params([x0.clone(), x1.clone()])
+            .params([x0.clone(), x1.clone()])
             .mark(
                 Symbol::new()
                     .x_with(col("value"), move |c| {
@@ -10717,7 +10726,7 @@ mod tests {
     async fn facet_canvas_and_plot_size_combination_errors() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
-        let compiled = build_simple_facet_col_plot(df)
+        let compiled = crate::plot::Chart::from_plot(build_simple_facet_col_plot(df))
             .canvas_size(640.0, 420.0)
             .plot_size(120.0, 90.0)
             .compile(&ctx)
@@ -10742,7 +10751,7 @@ mod tests {
     async fn facet_partial_plot_width_constraint_evaluates() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
-        let compiled = build_simple_facet_col_plot(df)
+        let compiled = crate::plot::Chart::from_plot(build_simple_facet_col_plot(df))
             .plot_constraint(PlotConstraint::width(200.0))
             .compile(&ctx)
             .await
@@ -10854,12 +10863,12 @@ mod tests {
     async fn nested_subplot_plot_size_under_facet_errors() {
         let ctx = SessionContext::new();
         let df = deeply_nested_dataframe(&ctx);
-        let plot = Plot::<FacetColumn>::new()
+        let plot = crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .plot_size(120.0, 90.0)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new()
+                    crate::plot::Plot::<Cartesian>::new()
                         .plot_size(80.0, 60.0)
                         .mark(Symbol::new().x(col("value")).y(col("value")).size(24.0)),
                 )

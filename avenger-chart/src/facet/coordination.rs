@@ -309,15 +309,15 @@ mod tests {
         states
     }
 
-    fn build_nested_plot(df: DataFrame) -> Plot<FacetColumn> {
-        Plot::<FacetColumn>::new()
+    fn build_nested_plot(df: DataFrame) -> crate::plot::Chart<FacetColumn> {
+        crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .canvas_size(640, 420)
             .mark(
                 Subplot::new(
-                    Plot::<FacetRow>::new().mark(
+                    crate::plot::Plot::<FacetRow>::new().mark(
                         Subplot::new(
-                            Plot::<Cartesian>::new().mark(
+                            crate::plot::Plot::<Cartesian>::new().mark(
                                 Symbol::new()
                                     .x(col("x"))
                                     .y(col("y"))

@@ -709,7 +709,7 @@ mod tests {
     async fn pan_scroll_zoom_plain_cartesian_generates_params_bindings_and_raw_domains() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(PanScrollZoom::cartesian())
@@ -748,14 +748,14 @@ mod tests {
     async fn leaf_tool_inside_facet_column_mirrors_shared_scale() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new()
+        let leaf = crate::plot::Plot::<Cartesian>::new()
             .mark(
                 Symbol::new()
                     .x_with(col("x"), |c| c.share_domain())
                     .y_with(col("y"), |c| c.free_domain()),
             )
             .tool(PanScrollZoom::cartesian());
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(leaf).column(col("group_name")))
             .compile(&ctx)
@@ -776,7 +776,7 @@ mod tests {
     async fn tool_raw_domain_param_mirrors_named_domain_group() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x_with(col("x"), |c| {
                 c.with_domain_group("measurement").share_domain()
@@ -803,7 +803,7 @@ mod tests {
     async fn pan_scroll_zoom_generates_one_raw_domain_param_for_same_named_group() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -859,9 +859,9 @@ mod tests {
         let domain = Param::raw_domain("shared_domain");
         let x_raw = domain.expr();
         let y_raw = domain.expr();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .data(df)
-            .add_param_with_sharing(domain, CoordinationScope::Shared)
+            .param_with_sharing(domain, CoordinationScope::Shared)
             .mark(
                 Symbol::new()
                     .x_with(col("x"), move |c| {
@@ -894,9 +894,9 @@ mod tests {
         let domain = Param::raw_domain("measurement_domain");
         let x_raw = domain.expr();
         let y_raw = domain.expr();
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .data(df)
-            .add_param_with_sharing(domain, CoordinationScope::Shared)
+            .param_with_sharing(domain, CoordinationScope::Shared)
             .mark(
                 Symbol::new()
                     .x_with(col("x"), move |c| {
@@ -921,14 +921,14 @@ mod tests {
     async fn leaf_tool_inside_facet_wrap_compiles() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new()
+        let leaf = crate::plot::Plot::<Cartesian>::new()
             .mark(
                 Symbol::new()
                     .x_with(col("x"), |c| c.share_domain())
                     .y_with(col("y"), |c| c.share_domain()),
             )
             .tool(PanScrollZoom::cartesian());
-        let compiled = Plot::<FacetWrap>::new()
+        let compiled = crate::plot::Chart::<FacetWrap>::new()
             .data(df)
             .mark(Subplot::new(leaf).wrap(col("group_name")))
             .compile(&ctx)
@@ -946,7 +946,7 @@ mod tests {
     async fn leaf_tool_inside_nested_row_column_uses_level_sharing() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new()
+        let leaf = crate::plot::Plot::<Cartesian>::new()
             .mark(
                 Symbol::new()
                     .x_with(col("x"), |c| {
@@ -957,8 +957,9 @@ mod tests {
                     }),
             )
             .tool(PanScrollZoom::cartesian());
-        let column = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("group_name")));
-        let compiled = Plot::<FacetRow>::new()
+        let column = crate::plot::Plot::<FacetColumn>::new()
+            .mark(Subplot::new(leaf).column(col("group_name")));
+        let compiled = crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .mark(Subplot::new(column).row(col("group_name")))
             .compile(&ctx)
@@ -1003,7 +1004,7 @@ mod tests {
     async fn public_custom_tool_can_expand_to_param_binding_and_scale_edit() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(CustomXTool)
@@ -1049,10 +1050,10 @@ mod tests {
     async fn leaf_tool_inside_facet_can_expand_to_store_and_selection() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let leaf = Plot::<Cartesian>::new()
+        let leaf = crate::plot::Plot::<Cartesian>::new()
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(CustomSelectionTool);
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(leaf).column(col("group_name")))
             .compile(&ctx)
@@ -1076,7 +1077,7 @@ mod tests {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
         let picked = PointSelection::new("picked").field("group_name");
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -1117,10 +1118,10 @@ mod tests {
             .dimensions(repeat::column(), repeat::row())
             .resolve(BoxSelectionResolve::Union)
             .repeat_cell_chrome();
-        let cell = Plot::<Cartesian>::new()
+        let cell = crate::plot::Plot::<Cartesian>::new()
             .mark(Symbol::new().x(repeat::column()).y(repeat::row()))
             .tool(brush);
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .data(df)
             .configure_coord(|c| {
                 c.rows([RepeatVariable::new("x", col("x"))])
@@ -1143,7 +1144,7 @@ mod tests {
     async fn box_zoom_cartesian_injects_unit_rect_mark_and_raw_domains() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(BoxZoom::cartesian())
@@ -1176,7 +1177,7 @@ mod tests {
     async fn box_zoom_unit_aspect_requires_coordinate_constraint() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(BoxZoom::cartesian().unit_aspect())
@@ -1194,7 +1195,7 @@ mod tests {
     async fn box_zoom_unit_aspect_receives_coordinate_constraint() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        let compiled = crate::plot::Chart::with_coord(Cartesian::new().unit_aspect(1.0))
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(BoxZoom::cartesian().unit_aspect())
@@ -1218,7 +1219,7 @@ mod tests {
     async fn unit_data_mark_renders_once_without_inherited_rows() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -1244,7 +1245,7 @@ mod tests {
     async fn visible_false_suppresses_mark_rendering() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -1271,7 +1272,7 @@ mod tests {
     async fn duplicate_tool_ids_error() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let result = Plot::<Cartesian>::new()
+        let result = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(PanScrollZoom::cartesian())
@@ -1289,7 +1290,7 @@ mod tests {
     async fn invalid_tool_id_errors() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let result = Plot::<Cartesian>::new()
+        let result = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")))
             .tool(PanScrollZoom::cartesian().id("bad.id"))
@@ -1305,7 +1306,7 @@ mod tests {
     #[tokio::test]
     async fn pan_scroll_zoom_errors_without_matching_target() {
         let ctx = SessionContext::new();
-        let result = Plot::<Cartesian>::new()
+        let result = crate::plot::Chart::<Cartesian>::new()
             .tool(PanScrollZoom::cartesian())
             .compile(&ctx)
             .await;
@@ -1323,7 +1324,7 @@ mod tests {
     async fn explicit_tool_param_sharing_must_cover_target_scale_sharing() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let result = Plot::<Cartesian>::new()
+        let result = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -1351,7 +1352,7 @@ mod tests {
     async fn existing_different_raw_domain_conflicts() {
         let ctx = SessionContext::new();
         let df = data(&ctx).await;
-        let result = Plot::<Cartesian>::new()
+        let result = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()

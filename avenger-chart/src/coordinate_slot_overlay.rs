@@ -534,7 +534,7 @@ mod tests {
         let data = ctx.sql("SELECT 50.0 AS speed").await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new()
+            crate::plot::Plot::<Cartesian>::new()
                 .mark(
                     Rect::new()
                         .x(lit(0.0))
@@ -555,7 +555,7 @@ mod tests {
         .id("speed_overlay")
         .width_px(40.0);
 
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
@@ -621,7 +621,7 @@ mod tests {
             .await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("slot"))
                     .y(col("speed"))
@@ -631,7 +631,7 @@ mod tests {
         )
         .width_px(48.0);
 
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
@@ -665,7 +665,7 @@ mod tests {
         let data = ctx
             .sql("SELECT 50.0 AS speed UNION ALL SELECT 60.0 AS speed")
             .await?;
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data.clone())
@@ -676,7 +676,7 @@ mod tests {
             )
             .mark(ParallelAxisOverlay::new(
                 "speed",
-                Plot::<Cartesian>::new().mark(
+                crate::plot::Plot::<Cartesian>::new().mark(
                     Rect::new()
                         .x(lit(0.0))
                         .x2(lit(1.0))
@@ -710,7 +710,7 @@ mod tests {
         let child_data = ctx.sql("SELECT 25.0 AS speed").await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().data(child_data).mark(
+            crate::plot::Plot::<Cartesian>::new().data(child_data).mark(
                 Rect::new()
                     .x(lit(0.0))
                     .x2(lit(1.0))
@@ -719,7 +719,7 @@ mod tests {
             ),
         )
         .width_px(40.0);
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(parent_data)
@@ -753,7 +753,7 @@ mod tests {
             .expect("store batch");
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .data_store(StoreData::new("axis_overlay_rows"))
                     .x(lit(0.0))
@@ -763,11 +763,11 @@ mod tests {
             ),
         )
         .width_px(40.0);
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(parent_data)
-            .add_store(Store::from_record_batch("axis_overlay_rows", store_batch))
+            .store(Store::from_record_batch("axis_overlay_rows", store_batch))
             .mark(speed_dimension_owner())
             .mark(overlay)
             .compile(&ctx)
@@ -790,7 +790,7 @@ mod tests {
         let parent_data = ctx.sql("SELECT 80.0 AS speed").await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .data_store(StoreData::new("axis_brush_boxes"))
                     .transform_no_output(Filter::new(col("id").eq(lit("speed"))), |mark| mark)
@@ -802,11 +802,11 @@ mod tests {
         )
         .width_px(40.0);
 
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(parent_data)
-            .add_store(
+            .store(
                 Store::empty("axis_brush_boxes")
                     .field("id", DataType::Utf8, false)
                     .field("value_min", DataType::Float64, false)
@@ -840,7 +840,7 @@ mod tests {
             .expect("store batch");
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .data_store(StoreData::new("axis_brush_boxes"))
                     .x(lit(0.0))
@@ -851,11 +851,11 @@ mod tests {
         )
         .id("brush_overlay")
         .width_px(40.0);
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(parent_data)
-            .add_store(Store::from_record_batch("axis_brush_boxes", store_batch))
+            .store(Store::from_record_batch("axis_brush_boxes", store_batch))
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click)
                     .filter(crate::event::datum("id").is_not_null())
@@ -918,7 +918,7 @@ mod tests {
             .await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .x(lit(0.0))
                     .x2(lit(1.0))
@@ -927,10 +927,10 @@ mod tests {
             ),
         )
         .width_px(40.0);
-        let child = Plot::with_coord(parallel_for_overlay_test())
+        let child = crate::plot::Plot::with_coord(parallel_for_overlay_test())
             .mark(speed_dimension_owner())
             .mark(overlay);
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .plot_size(120.0, 100.0)
             .data(data)
             .mark(Subplot::new(child).column(col("panel")))
@@ -965,7 +965,7 @@ mod tests {
         let data = ctx.sql("SELECT 50.0 AS speed").await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .x(lit(0.0))
                     .x2(lit(1.0))
@@ -975,7 +975,7 @@ mod tests {
         )
         .id("speed_overlay")
         .width_px(40.0);
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
@@ -1017,7 +1017,7 @@ mod tests {
         let data = ctx.sql("SELECT 50.0 AS speed").await?;
         let overlay = ParallelAxisOverlay::new(
             "speed",
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Rect::new()
                     .x(lit(0.0))
                     .x2(lit(1.0))
@@ -1026,7 +1026,7 @@ mod tests {
             ),
         )
         .zindex(10);
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
@@ -1055,13 +1055,13 @@ mod tests {
     async fn axis_overlay_unknown_dimension_errors() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let data = ctx.sql("SELECT 50.0 AS speed").await?;
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
             .mark(ParallelAxisOverlay::new(
                 "missing",
-                Plot::<Cartesian>::new().mark(
+                crate::plot::Plot::<Cartesian>::new().mark(
                     Rect::new()
                         .x(lit(0.0))
                         .x2(lit(1.0))
@@ -1087,14 +1087,14 @@ mod tests {
     async fn axis_overlay_rejects_child_y_scale_override() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let data = ctx.sql("SELECT 50.0 AS speed").await?;
-        let compiled = Plot::with_coord(parallel_for_overlay_test())
+        let compiled = crate::plot::Chart::with_coord(parallel_for_overlay_test())
             .canvas_size(220.0, 160.0)
             .plot_size(120.0, 100.0)
             .data(data)
             .mark(speed_dimension_owner())
             .mark(ParallelAxisOverlay::new(
                 "speed",
-                Plot::<Cartesian>::new().mark(
+                crate::plot::Plot::<Cartesian>::new().mark(
                     Rect::new()
                         .x(lit(0.0))
                         .x2(lit(1.0))

@@ -37,11 +37,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let width = Param::new("width", ScalarValue::from(600.0));
     let height = Param::new("height", ScalarValue::from(300.0));
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .theme(theme)
         .data(df)
-        .add_param(width.clone())
-        .add_param(height.clone())
+        .param(width.clone())
+        .param(height.clone())
         .canvas_size(&width, &height)
         .mark(
             Line::new()

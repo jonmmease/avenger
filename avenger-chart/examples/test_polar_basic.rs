@@ -1,5 +1,5 @@
 use avenger_chart::marks::symbol::Symbol;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart::polar::{Polar, PolarSymbolPositionChannels};
 use avenger_chart::render::CanvasExt;
 use avenger_chart::scales::ScaleChannelConfig;
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut canvas = PngCanvas::new(dimensions, config).await?;
 
         // Create a new plot with the specific size
-        let sized_plot = Plot::<Polar>::new()
+        let sized_plot = Chart::<Polar>::new()
             .data(df)
             .canvas_size(width, height)
             .mark(

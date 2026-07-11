@@ -1941,11 +1941,13 @@ mod tests {
     }
 
     fn repeated_column_cell() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(1.0)).size(64.0))
+        crate::plot::Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(repeat::column()).y(lit(1.0)).size(64.0))
     }
 
     fn repeated_row_cell() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Symbol::new().x(lit(1.0)).y(repeat::row()).size(64.0))
+        crate::plot::Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(lit(1.0)).y(repeat::row()).size(64.0))
     }
 
     #[tokio::test]
@@ -1963,7 +1965,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .formatting_context(
                 FormattingContext::new()
                     .number_locale("custom")
@@ -2037,7 +2039,7 @@ mod tests {
     }
 
     fn repeated_grid_cell() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(
+        crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x(repeat::column())
                 .y(repeat::row())
@@ -2056,7 +2058,7 @@ mod tests {
     }
 
     fn diagonal_histogram_count_shared_cell() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Rect::new().transform(
+        crate::plot::Plot::<Cartesian>::new().mark(Rect::new().transform(
             Bin::new(repeat::column()).maxbins(5),
             |mark, bin| {
                 mark.x(bin.start())
@@ -2072,7 +2074,8 @@ mod tests {
     }
 
     fn constant_y_grid_cell(value: f64) -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(value)).size(64.0))
+        crate::plot::Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(repeat::column()).y(lit(value)).size(64.0))
     }
 
     struct TestCompoundMark;
@@ -2133,7 +2136,7 @@ mod tests {
     #[tokio::test]
     async fn mark_group_flattening_preserves_author_order() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().id("a").x(lit(1.0)).y(lit(1.0)))
             .mark(
                 MarkGroup::new()
@@ -2186,7 +2189,7 @@ mod tests {
     #[tokio::test]
     async fn nested_mark_group_records_nearest_parent_group() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new().id("outer").mark(
                     MarkGroup::new()
@@ -2211,7 +2214,7 @@ mod tests {
     #[tokio::test]
     async fn mark_group_event_targets_resolve_to_public_paths() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("manual_box_plot")
@@ -2241,7 +2244,7 @@ mod tests {
     #[tokio::test]
     async fn root_primitive_event_target_resolves_to_mark_path() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().id("points").x(lit(1.0)).y(lit(1.0)))
             .event_binding(ChartEventBinding::on_between_end(
                 ChartEventStream::on(ChartEventType::MouseDown).mark("points"),
@@ -2262,7 +2265,7 @@ mod tests {
     #[tokio::test]
     async fn mark_group_root_target_resolves_to_descendants() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("manual_box_plot")
@@ -2288,7 +2291,7 @@ mod tests {
     #[tokio::test]
     async fn nested_local_mark_target_without_root_group_is_invalid() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(MarkGroup::new().mark(Symbol::new().id("outliers").x(lit(1.0)).y(lit(1.0))))
             .event_binding(ChartEventBinding::on_between_end(
                 ChartEventStream::on(ChartEventType::MouseDown).mark("outliers"),
@@ -2306,7 +2309,7 @@ mod tests {
     #[tokio::test]
     async fn same_local_child_ids_under_different_roots_are_valid_targets() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("a")
@@ -2347,7 +2350,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_child_target_paths_under_same_root_error() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("a")
@@ -2370,14 +2373,14 @@ mod tests {
     #[tokio::test]
     async fn scene_query_mark_targets_resolve_to_public_paths() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("manual_box_plot")
                     .mark(Symbol::new().id("box").x(lit(1.0)).y(lit(1.0)))
                     .mark(Symbol::new().id("outliers").x(lit(2.0)).y(lit(2.0))),
             )
-            .add_selection(Selection::new("picked"))
+            .selection(Selection::new("picked"))
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click).set_selection(
                     "picked",
@@ -2406,7 +2409,7 @@ mod tests {
     #[tokio::test]
     async fn empty_mark_group_is_invalid() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(MarkGroup::new())
             .compile(&ctx)
             .await
@@ -2421,7 +2424,7 @@ mod tests {
     async fn primitive_group_child_cannot_set_explicit_data() {
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx).await;
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(MarkGroup::new().mark(Symbol::new().data(data).x(col("x")).y(col("y"))))
             .compile(&ctx)
             .await
@@ -2439,7 +2442,7 @@ mod tests {
     #[tokio::test]
     async fn flattened_group_child_ids_must_be_unique() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().id("duplicate").x(lit(1.0)).y(lit(1.0)))
             .mark(MarkGroup::new().mark(Symbol::new().id("duplicate").x(lit(2.0)).y(lit(2.0))))
             .compile(&ctx)
@@ -2457,7 +2460,7 @@ mod tests {
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx).await;
         COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(data.clone())
             .mark(
                 MarkGroup::new().transform_no_output(CountingGroupTransform, |group| {
@@ -2488,7 +2491,7 @@ mod tests {
                 group.mark(Symbol::new().x(col("x")).y(col("y")))
             })
         };
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(data.clone())
             .mark(branch())
             .mark(branch())
@@ -2506,7 +2509,7 @@ mod tests {
     #[tokio::test]
     async fn data_transparent_groups_do_not_shadow_child_mark_data() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("transparent")
@@ -2540,7 +2543,7 @@ mod tests {
         let _guard = COUNTING_GROUP_TRANSFORM_TEST_LOCK.lock().await;
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx).await;
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(data.clone())
             .mark(
                 MarkGroup::new().transform_no_output(CountingGroupTransform, |group| {
@@ -2573,7 +2576,7 @@ mod tests {
             .await
             .expect("child dataframe");
         COUNTING_GROUP_TRANSFORM_APPLIES.store(0, Ordering::SeqCst);
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(parent_data.clone())
             .mark(
                 MarkGroup::new().transform_no_output(CountingGroupTransform, |group| {
@@ -2604,7 +2607,7 @@ mod tests {
     #[tokio::test]
     async fn compiled_plot_serializes_mark_group_metadata() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("outer")
@@ -2657,7 +2660,7 @@ mod tests {
     #[tokio::test]
     async fn compiled_plot_serializes_single_mark_group_metadata() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 MarkGroup::new()
                     .id("group")
@@ -2684,11 +2687,12 @@ mod tests {
     }
 
     fn repeated_item_cell() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Symbol::new().x(lit(1.0)).y(repeat::item()).size(64.0))
+        crate::plot::Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(lit(1.0)).y(repeat::item()).size(64.0))
     }
 
     fn zerod_branch_cell() -> Plot<ZeroDCoord> {
-        Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#2f7ed8").size(64.0))
+        crate::plot::Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#2f7ed8").size(64.0))
     }
 
     fn repeat_histogram_domain_data(ctx: &SessionContext) -> DataFrame {
@@ -2777,7 +2781,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_columns_lower_to_hconcat_children() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatColumns>::new()
+        let compiled = crate::plot::Chart::<RepeatColumns>::new()
             .configure_coord(|c| {
                 c.columns(repeat_vars(&["a", "b"]))
                     .cell(repeated_column_cell())
@@ -2809,7 +2813,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_rows_lower_to_vconcat_children() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatRows>::new()
+        let compiled = crate::plot::Chart::<RepeatRows>::new()
             .configure_coord(|c| c.rows(repeat_vars(&["a", "b"])).cell(repeated_row_cell()))
             .compile(&ctx)
             .await?;
@@ -2828,7 +2832,7 @@ mod tests {
     async fn repeat_grid_lowers_to_grid_concat_with_cell_placement() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["r1", "r2"]))
                     .columns(repeat_vars(&["c1", "c2", "c3"]))
@@ -2864,7 +2868,7 @@ mod tests {
     async fn repeat_grid_matrix_domains_generate_variable_groups() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -2898,7 +2902,7 @@ mod tests {
     async fn repeat_grid_matrix_domains_preserve_explicit_scope_and_independent_mode()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let level_compiled = Plot::<RepeatGrid>::new()
+        let level_compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
                     .columns(repeat_vars(&["b"]))
@@ -2916,7 +2920,7 @@ mod tests {
             DomainCoordinationGroup::Named("b".to_string())
         );
 
-        let independent_compiled = Plot::<RepeatGrid>::new()
+        let independent_compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
                     .columns(repeat_vars(&["b"]))
@@ -2933,13 +2937,13 @@ mod tests {
     #[tokio::test]
     async fn repeat_grid_matrix_domains_reject_conflicting_authored_domain_group() {
         let ctx = SessionContext::new();
-        let conflicting_cell = Plot::<Cartesian>::new().mark(
+        let conflicting_cell = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x_with(repeat::column(), |c| c.with_domain_group("other"))
                 .y(repeat::row())
                 .size(64.0),
         );
-        let err = match Plot::<RepeatGrid>::new()
+        let err = match crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
                     .columns(repeat_vars(&["a"]))
@@ -2963,7 +2967,7 @@ mod tests {
     async fn repeat_grid_conditional_histogram_preserves_count_domain_group()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3000,7 +3004,7 @@ mod tests {
     async fn repeat_grid_conditional_histogram_coordinates_count_domains()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .data(repeat_histogram_domain_data(&ctx))
             .plot_size(180.0, 140.0)
             .configure_coord(|c| {
@@ -3054,7 +3058,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_wrap_item_domains_generate_item_groups() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatWrap>::new()
+        let compiled = crate::plot::Chart::<RepeatWrap>::new()
             .configure_coord(|c| {
                 c.items(repeat_vars(&["a", "b"]))
                     .columns(2)
@@ -3083,7 +3087,7 @@ mod tests {
     async fn repeat_grid_matrix_domains_match_manual_grid_concat() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let repeat_compiled = Plot::<RepeatGrid>::new()
+        let repeat_compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3094,14 +3098,14 @@ mod tests {
             .await?;
 
         let manual_cell = |x: &'static str, y: &'static str| {
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x_with(col(x), move |c| c.with_domain_group(x).share_domain())
                     .y_with(col(y), move |c| c.with_domain_group(y).share_domain())
                     .size(64.0),
             )
         };
-        let manual_compiled = Plot::<GridConcat>::new()
+        let manual_compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(manual_cell("a", "a")).at(0, 0))
             .mark(Subplot::new(manual_cell("b", "a")).at(0, 1))
@@ -3186,7 +3190,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_grid_pan_scroll_zoom_expands_across_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3267,7 +3271,7 @@ mod tests {
     async fn repeat_grid_free_pan_scroll_zoom_uses_cell_specific_params()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3308,7 +3312,7 @@ mod tests {
     async fn repeat_grid_matrix_axes_generate_title_defaults_and_policy()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3357,13 +3361,13 @@ mod tests {
     async fn repeat_grid_matrix_axes_preserve_explicit_titles_and_skip_non_repeat_axes()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let explicit_cell = Plot::<Cartesian>::new().mark(
+        let explicit_cell = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x_with(repeat::column(), |c| c.axis(|a| a.title("authored x")))
                 .y(lit(1.0))
                 .size(64.0),
         );
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
                     .columns(repeat_vars(&["b"]))
@@ -3386,7 +3390,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_grid_cell_when_selects_diagonal_branch() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3420,7 +3424,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_cell_when_uses_author_order_priority() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3454,7 +3458,7 @@ mod tests {
     async fn repeat_cell_when_allows_heterogeneous_child_plot_specs()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
                     .columns(repeat_vars(&["a"]))
@@ -3484,7 +3488,7 @@ mod tests {
     async fn repeat_wrap_lowers_to_wrap_concat_with_item_context() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let compiled = Plot::<RepeatWrap>::new()
+        let compiled = crate::plot::Chart::<RepeatWrap>::new()
             .configure_coord(|c| {
                 c.items(repeat_vars(&["a", "b", "c"]))
                     .columns(2)
@@ -3527,7 +3531,7 @@ mod tests {
         .expect("record batch");
         let df = ctx.read_batch(batch).expect("dataframe");
 
-        let compiled = Plot::<RepeatColumns>::new()
+        let compiled = crate::plot::Chart::<RepeatColumns>::new()
             .data(df)
             .configure_coord(|c| {
                 c.columns(vec![
@@ -3570,7 +3574,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let data = ctx.sql("SELECT 50.0 AS speed, 100.0 AS cost").await?;
-        let compiled = Plot::with_coord(
+        let compiled = crate::plot::Chart::with_coord(
             Parallel::new()
                 .dimension_with("speed", |d| d.axis(|a| a.title("Speed")))
                 .dimension_with("cost", |d| d.axis(|a| a.title("Cost"))),
@@ -3650,7 +3654,7 @@ mod tests {
                 ) AS t(row_id, speed, cost)",
             )
             .await?;
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .plot_size(120.0, 100.0)
             .data(data)
             .mark(
@@ -3727,10 +3731,10 @@ mod tests {
         let selected = Selection::new("picked").empty_selects_nothing();
         let selected_predicate = selected.predicate();
         let compiled = Arc::new(
-            Plot::<Parallel>::new()
+            crate::plot::Chart::<Parallel>::new()
                 .plot_size(120.0, 100.0)
                 .data(data)
-                .add_selection(selected)
+                .selection(selected)
                 .mark(
                     ParallelLine::new()
                         .id("context_lines")
@@ -3807,18 +3811,20 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 10.0), (2.0, 20.0)) AS t(a, b)")
             .await?;
-        let repeat = Plot::<RepeatGrid>::new().data(df).configure_coord(|c| {
-            c.rows(repeat_vars(&["a", "b"]))
-                .columns(repeat_vars(&["a", "b"]))
-                .cell(repeated_grid_cell())
-                .matrix_domains()
-                .matrix_axes()
-        });
-        let compiled = Plot::<HConcat>::new()
+        let repeat = crate::plot::Plot::<RepeatGrid>::new()
+            .data(df)
+            .configure_coord(|c| {
+                c.rows(repeat_vars(&["a", "b"]))
+                    .columns(repeat_vars(&["a", "b"]))
+                    .cell(repeated_grid_cell())
+                    .matrix_domains()
+                    .matrix_axes()
+            });
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .canvas_size(620.0, 320.0)
             .mark(Subplot::new(repeat).name("matrix").id("matrix"))
             .mark(
-                Subplot::new(Plot::<ZeroDCoord>::new())
+                Subplot::new(crate::plot::Plot::<ZeroDCoord>::new())
                     .name("summary")
                     .id("summary"),
             )
@@ -3871,14 +3877,14 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+        let repeat = crate::plot::Plot::<RepeatGrid>::new().configure_coord(|c| {
             c.rows(repeat_vars(&["a", "b"]))
                 .columns(repeat_vars(&["a", "b"]))
                 .cell(repeated_grid_cell())
                 .matrix_domains()
                 .matrix_axes()
         });
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .canvas_size(820.0, 320.0)
             .data(df)
             .mark(Subplot::new(repeat).id("matrix").column(col("group_name")))
@@ -3945,13 +3951,13 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
+        let repeat = crate::plot::Plot::<RepeatWrap>::new().configure_coord(|c| {
             c.items(repeat_vars(&["a", "b"]))
                 .columns(2)
                 .cell(repeated_item_cell())
                 .item_domains_with_scope(CoordinationScope::Free)
         });
-        let compiled = Plot::<FacetWrap>::new()
+        let compiled = crate::plot::Chart::<FacetWrap>::new()
             .canvas_size(760.0, 420.0)
             .data(df)
             .mark(
@@ -3989,7 +3995,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_container_validates_variables_and_cell_template() {
         let ctx = SessionContext::new();
-        let missing_cell = match Plot::<RepeatColumns>::new()
+        let missing_cell = match crate::plot::Chart::<RepeatColumns>::new()
             .configure_coord(|c| c.columns(repeat_vars(&["a"])))
             .compile(&ctx)
             .await
@@ -3999,7 +4005,7 @@ mod tests {
         };
         assert!(missing_cell.to_string().contains("requires a default"));
 
-        let duplicate = match Plot::<RepeatColumns>::new()
+        let duplicate = match crate::plot::Chart::<RepeatColumns>::new()
             .configure_coord(|c| {
                 c.columns(vec![
                     RepeatVariable::new("a", col("a")),
@@ -4019,7 +4025,7 @@ mod tests {
                 .contains("duplicate repeat columns variable id 'a'")
         );
 
-        let empty = match Plot::<RepeatRows>::new()
+        let empty = match crate::plot::Chart::<RepeatRows>::new()
             .configure_coord(|c| {
                 c.rows(Vec::<RepeatVariable>::new())
                     .cell(repeated_row_cell())
@@ -4036,7 +4042,7 @@ mod tests {
                 .contains("requires at least one repeat rows variable")
         );
 
-        let data_dependent_predicate = match Plot::<RepeatGrid>::new()
+        let data_dependent_predicate = match crate::plot::Chart::<RepeatGrid>::new()
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
                     .columns(repeat_vars(&["a"]))
@@ -4063,7 +4069,7 @@ mod tests {
     #[tokio::test]
     async fn mark_id_is_accepted_on_regular_mark() {
         let ctx = SessionContext::new();
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().id("points").x(lit(1.0)).y(lit(1.0)))
             .compile(&ctx)
             .await
@@ -4073,7 +4079,7 @@ mod tests {
     #[tokio::test]
     async fn invalid_mark_id_errors() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().id("bad.id").x(lit(1.0)).y(lit(1.0)))
             .compile(&ctx)
             .await
@@ -4087,7 +4093,7 @@ mod tests {
     #[tokio::test]
     async fn duplicate_sibling_mark_ids_error() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().id("points").x(lit(1.0)).y(lit(1.0)))
             .mark(Symbol::new().id("points").x(lit(2.0)).y(lit(2.0)))
             .compile(&ctx)
@@ -4103,7 +4109,8 @@ mod tests {
     async fn repeat_context_resolves_mark_channel_placeholders_during_compile() {
         let ctx = SessionContext::new();
         let template = || {
-            Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(lit(1.0)).size(64.0))
+            crate::plot::Plot::<Cartesian>::new()
+                .mark(Symbol::new().x(repeat::column()).y(lit(1.0)).size(64.0))
         };
 
         let compiled_a =
@@ -4143,7 +4150,7 @@ mod tests {
     #[tokio::test]
     async fn coordinate_axis_configs_merge_into_compiled_axes() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(
+        let compiled = crate::plot::Chart::with_coord(
             Parallel::new()
                 .dimension_with("mpg", |d| d.axis(|axis| axis.title("Miles per gallon"))),
         )
@@ -4164,7 +4171,7 @@ mod tests {
     #[tokio::test]
     async fn configured_parallel_dimension_without_mark_binding_errors() {
         let ctx = SessionContext::new();
-        let err = match Plot::with_coord(Parallel::new().dimension("mpg"))
+        let err = match crate::plot::Chart::with_coord(Parallel::new().dimension("mpg"))
             .data(ctx.sql("SELECT 21.0 AS mpg").await.expect("data"))
             .compile(&ctx)
             .await
@@ -4182,7 +4189,7 @@ mod tests {
     #[tokio::test]
     async fn coordinate_axis_configs_round_trip_with_compiled_plot() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(
+        let compiled = crate::plot::Chart::with_coord(
             Parallel::new()
                 .dimension_with("mpg", |d| d.axis(|axis| axis.title("Miles per gallon"))),
         )
@@ -4221,12 +4228,12 @@ mod tests {
         let df = ctx.read_batch(batch).expect("dataframe");
 
         let template = || {
-            Plot::<Cartesian>::new()
-                .data(df.clone())
-                .mark(Symbol::new().transform_no_output(
+            crate::plot::Plot::<Cartesian>::new().data(df.clone()).mark(
+                Symbol::new().transform_no_output(
                     Calculate::new().expr("repeated", repeat::column()),
                     |mark| mark.x(col("repeated")).y(lit(1.0)).size(64.0),
-                ))
+                ),
+            )
         };
 
         let compiled_a =
@@ -4287,7 +4294,7 @@ mod tests {
                         .build(),
                 ),
             );
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .data(ctx.read_batch(batch)?)
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
@@ -4375,7 +4382,7 @@ mod tests {
     #[tokio::test]
     async fn repeat_placeholder_without_context_errors_during_compile() {
         let ctx = SessionContext::new();
-        let err = match Plot::<Cartesian>::new()
+        let err = match crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().x(repeat::column()).y(lit(1.0)))
             .compile(&ctx)
             .await

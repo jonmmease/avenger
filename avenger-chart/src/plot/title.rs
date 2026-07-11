@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn title_and_subtitle_default_to_plain_text() {
-        let plot = Plot::<Cartesian>::new()
+        let plot = crate::plot::Chart::<Cartesian>::new()
             .title("cost $5")
             .subtitle("#underline[raw]");
 
@@ -267,7 +267,7 @@ mod tests {
 
     #[test]
     fn title_and_subtitle_opt_into_typst_markup() {
-        let plot = Plot::<Cartesian>::new()
+        let plot = crate::plot::Chart::<Cartesian>::new()
             .configure_title("Price $R^2$", |t| t.typst())
             .configure_subtitle("cost \\$5", |s| s.typst());
 
@@ -283,7 +283,8 @@ mod tests {
 
     #[test]
     fn plain_text_overrides_typst_markup() {
-        let plot = Plot::<Cartesian>::new().configure_title("cost $5", |t| t.typst().plain_text());
+        let plot = crate::plot::Chart::<Cartesian>::new()
+            .configure_title("cost $5", |t| t.typst().plain_text());
 
         assert_eq!(plot.get_title().unwrap().syntax_mode, TextSyntaxMode::Plain);
     }
@@ -291,7 +292,7 @@ mod tests {
     #[tokio::test]
     async fn plain_title_with_literal_dollar_evaluates() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .title("cost $5")
             .compile(&ctx)
             .await
@@ -303,7 +304,7 @@ mod tests {
     #[tokio::test]
     async fn typst_title_with_unmatched_dollar_errors() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .configure_title("cost $5", |t| t.typst())
             .compile(&ctx)
             .await
@@ -315,7 +316,7 @@ mod tests {
     #[tokio::test]
     async fn typst_title_with_escaped_dollar_evaluates() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .configure_title("cost \\$5", |t| t.typst())
             .compile(&ctx)
             .await
@@ -327,7 +328,7 @@ mod tests {
     #[tokio::test]
     async fn typst_title_and_subtitle_scene_marks_keep_syntax_mode() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .configure_title("Price $R^2$", |t| t.typst())
             .configure_subtitle("cost \\$5", |s| s.typst())
             .compile(&ctx)
@@ -350,7 +351,7 @@ mod tests {
     #[tokio::test]
     async fn typst_title_scene_mark_contains_only_referenced_params() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .configure_title("#series", |t| t.typst())
             .compile(&ctx)
             .await
@@ -377,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn typst_title_missing_param_errors() {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .configure_title("#series", |t| t.typst())
             .compile(&ctx)
             .await

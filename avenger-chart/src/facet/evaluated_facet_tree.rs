@@ -2775,11 +2775,14 @@ mod tests {
         target_width: Expr,
         available_width: f32,
     ) -> Result<EvaluatedFacetTree, AvengerChartError> {
-        let plot = Plot::<FacetWrap>::new()
+        let plot = crate::plot::Chart::<FacetWrap>::new()
             .data(responsive_wrap_data(ctx).await)
             .mark(
-                Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                    .wrap_with(col("facet"), move |c| c.responsive_columns(target_width)),
+                Subplot::new(
+                    crate::plot::Plot::<Cartesian>::new()
+                        .mark(Symbol::new().x(col("x")).y(col("y"))),
+                )
+                .wrap_with(col("facet"), move |c| c.responsive_columns(target_width)),
             );
         let compiled = plot.compile(ctx).await?;
         EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
@@ -2797,9 +2800,11 @@ mod tests {
         available_width: f32,
     ) -> Result<EvaluatedFacetTree, AvengerChartError> {
         let df = ctx.sql(sql).await?;
-        let plot = Plot::<FacetWrap>::new().data(df).mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+        let plot = crate::plot::Chart::<FacetWrap>::new().data(df).mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
         );
         let compiled = plot.compile(ctx).await?;
         EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
@@ -2819,16 +2824,18 @@ mod tests {
         use datafusion::functions_aggregate::min_max::max;
 
         let df = responsive_wrap_data(ctx).await;
-        let plot = Plot::<FacetWrap>::new().data(df).mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .wrap_with(col("facet"), move |c| {
-                    let c = c.responsive_columns(180.0).order_by(max(col("y")));
-                    if order_desc {
-                        c.order_desc()
-                    } else {
-                        c.order_asc()
-                    }
-                }),
+        let plot = crate::plot::Chart::<FacetWrap>::new().data(df).mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .wrap_with(col("facet"), move |c| {
+                let c = c.responsive_columns(180.0).order_by(max(col("y")));
+                if order_desc {
+                    c.order_desc()
+                } else {
+                    c.order_asc()
+                }
+            }),
         );
         let compiled = plot.compile(ctx).await?;
         EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
@@ -2856,11 +2863,13 @@ mod tests {
                 ) AS t(region, facet, x, y)",
             )
             .await?;
-        let wrap = Plot::<FacetWrap>::new().mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+        let wrap = crate::plot::Plot::<FacetWrap>::new().mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
         );
-        let plot = Plot::<FacetRow>::new()
+        let plot = crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .mark(Subplot::new(wrap).row(col("region")));
         let compiled = plot.compile(ctx).await?;
@@ -2911,9 +2920,11 @@ mod tests {
                 ) AS t(facet, x, y)",
             )
             .await?;
-        let plot = Plot::<FacetWrap>::new().data(df).mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .wrap_with(col("facet"), |c| c.columns(2).empty_cells_as_holes()),
+        let plot = crate::plot::Chart::<FacetWrap>::new().data(df).mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .wrap_with(col("facet"), |c| c.columns(2).empty_cells_as_holes()),
         );
         let compiled = plot.compile(&ctx).await?;
         let tree = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx).await?;
@@ -3064,12 +3075,15 @@ mod tests {
     async fn responsive_wrap_columns_accept_params() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let target = Param::new("target_width", ScalarValue::Float32(Some(160.0)));
-        let plot = Plot::<FacetWrap>::new()
+        let plot = crate::plot::Chart::<FacetWrap>::new()
             .data(responsive_wrap_data(&ctx).await)
-            .add_param(target.clone())
+            .param(target.clone())
             .mark(
-                Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                    .wrap_with(col("facet"), move |c| c.responsive_columns(target.expr())),
+                Subplot::new(
+                    crate::plot::Plot::<Cartesian>::new()
+                        .mark(Symbol::new().x(col("x")).y(col("y"))),
+                )
+                .wrap_with(col("facet"), move |c| c.responsive_columns(target.expr())),
             );
         let compiled = plot.compile(&ctx).await?;
         let tree = EvaluatedFacetTree::from_compiled_plot_with_params_and_wrap_layout_context(
@@ -3115,11 +3129,14 @@ mod tests {
     #[tokio::test]
     async fn responsive_wrap_columns_reject_unsupported_sizing() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let plot = Plot::<FacetWrap>::new()
+        let plot = crate::plot::Chart::<FacetWrap>::new()
             .data(responsive_wrap_data(&ctx).await)
             .mark(
-                Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                    .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+                Subplot::new(
+                    crate::plot::Plot::<Cartesian>::new()
+                        .mark(Symbol::new().x(col("x")).y(col("y"))),
+                )
+                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
             );
         let compiled = plot.compile(&ctx).await?;
 
@@ -3187,11 +3204,13 @@ mod tests {
             )
             .await
             .expect("nested responsive wrap data");
-        let wrap = Plot::<FacetWrap>::new().mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
+        let wrap = crate::plot::Plot::<FacetWrap>::new().mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .wrap_with(col("facet"), |c| c.responsive_columns(180.0)),
         );
-        let plot = Plot::<FacetColumn>::new()
+        let plot = crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(wrap).column(col("region")));
         let compiled = plot.compile(&ctx).await?;
@@ -3931,7 +3950,7 @@ mod tests {
     async fn extract_channel_domain_coordinations_preserves_named_groups()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(Symbol::new().x_with(lit(1.0), |c| c.with_domain_group("height").share_domain()))
             .compile(&ctx)
             .await?;
@@ -3961,7 +3980,7 @@ mod tests {
     async fn extract_channel_domain_coordinations_adds_default_shared_scaled_channels()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 Symbol::new()
                     .x(col("x"))
@@ -3986,7 +4005,7 @@ mod tests {
     async fn extract_plot_channel_domain_metadata_includes_mark_owned_parallel_dimensions()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Parallel>::new()
+        let compiled = crate::plot::Chart::<Parallel>::new()
             .mark(
                 ParallelLine::new()
                     .dimension_with("mpg", col("mpg"), |dimension| dimension.free_domain())
@@ -4020,7 +4039,7 @@ mod tests {
     async fn nested_level_domain_coordination_suppresses_implicit_channel_sharing()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 Rect::new()
                     .x_with(avenger_chart_core::nested(["outer", "inner"]), |x| {
@@ -4051,7 +4070,7 @@ mod tests {
                 .contains(&SharingLevel::from_raw(1))
         );
 
-        let explicit = Plot::<Cartesian>::new()
+        let explicit = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 Rect::new()
                     .x_with(avenger_chart_core::nested(["outer", "inner"]), |x| {
@@ -4081,7 +4100,7 @@ mod tests {
     async fn explicit_domain_coordination_wins_over_implicit_related_channel()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .mark(
                 Rect::new()
                     .x_with(col("x0"), |c| c.free_domain())
@@ -4114,11 +4133,13 @@ mod tests {
                 ) AS t(facet, x, y)",
             )
             .await?;
-        let plot = Plot::<FacetRow>::new().data(df).mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .row_with(col("facet"), |c| {
-                    c.axis_guide_visibility(AxisGuideVisibilityPolicy::All)
-                }),
+        let plot = crate::plot::Chart::<FacetRow>::new().data(df).mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .row_with(col("facet"), |c| {
+                c.axis_guide_visibility(AxisGuideVisibilityPolicy::All)
+            }),
         );
         let compiled = plot.compile(&ctx).await?;
         let tree = EvaluatedFacetTree::from_compiled_plot(&compiled, &ctx).await?;

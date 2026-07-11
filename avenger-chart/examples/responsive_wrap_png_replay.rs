@@ -129,8 +129,8 @@ async fn build_plot(
             .size(90.0),
     );
 
-    Ok(Plot::<FacetWrap>::new()
-        .add_param(width.clone())
+    Ok(Chart::<FacetWrap>::new()
+        .param(width.clone())
         .canvas_constraint(CanvasConstraint::width(width.expr()))
         .plot_constraint(PlotConstraint::height(150.0))
         .data(df)

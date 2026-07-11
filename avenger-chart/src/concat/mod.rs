@@ -2816,7 +2816,9 @@ mod tests {
         } else {
             Symbol::new().x(col("x")).y(col("y"))
         };
-        Plot::<Cartesian>::new().data(data).mark(symbol)
+        crate::plot::Plot::<Cartesian>::new()
+            .data(data)
+            .mark(symbol)
     }
 
     fn line_mark(share_x: bool) -> Line<Cartesian> {
@@ -2834,7 +2836,9 @@ mod tests {
     }
 
     fn line_child_plot(data: datafusion::dataframe::DataFrame, share_x: bool) -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().data(data).mark(line_mark(share_x))
+        crate::plot::Plot::<Cartesian>::new()
+            .data(data)
+            .mark(line_mark(share_x))
     }
 
     fn child_x_domain(child: &ConcatChildMeasurement) -> (f32, f32) {
@@ -2862,7 +2866,7 @@ mod tests {
     }
 
     fn zero_plot() -> Plot<ZeroDCoord> {
-        Plot::<ZeroDCoord>::new()
+        crate::plot::Plot::<ZeroDCoord>::new()
     }
 
     fn repeat_vars(names: &[&str]) -> Vec<RepeatVariable> {
@@ -2873,34 +2877,35 @@ mod tests {
     }
 
     fn repeated_grid_cell() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Symbol::new().x(repeat::column()).y(repeat::row()))
+        crate::plot::Plot::<Cartesian>::new()
+            .mark(Symbol::new().x(repeat::column()).y(repeat::row()))
     }
 
     fn repeated_facet_column_cell() -> Plot<FacetColumn> {
-        let child = Plot::<Cartesian>::new().mark(
+        let child = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x(repeat::column())
                 .y(repeat::row())
                 .size(32.0),
         );
-        Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group")))
+        crate::plot::Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group")))
     }
 
     fn manual_grid_plot() -> Plot<GridConcat> {
-        Plot::<GridConcat>::new()
+        crate::plot::Plot::<GridConcat>::new()
             .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(zero_plot()).at(0, 0).name("left"))
             .mark(Subplot::new(zero_plot()).at(0, 1).name("right"))
     }
 
     fn keyed_hconcat(left_key: &str, right_key: &str) -> Plot<HConcat> {
-        Plot::<HConcat>::new()
+        crate::plot::Plot::<HConcat>::new()
             .mark(Subplot::new(zero_plot()).name(left_key))
             .mark(Subplot::new(zero_plot()).name(right_key))
     }
 
     fn wrapped_zero_plot(count: usize) -> Plot<WrapConcat> {
-        (0..count).fold(Plot::<WrapConcat>::new(), |plot, idx| {
+        (0..count).fold(crate::plot::Plot::<WrapConcat>::new(), |plot, idx| {
             plot.mark(Subplot::new(zero_plot()).name(format!("child-{idx}")))
         })
     }
@@ -3086,9 +3091,9 @@ mod tests {
     #[tokio::test]
     async fn hconcat_spacing_floors_child_gaps() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(HConcat::new().spacing(25.0))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()))
+        let compiled = crate::plot::Chart::with_coord(HConcat::new().spacing(25.0))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()))
             .compile(&ctx)
             .await?;
 
@@ -3113,11 +3118,12 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_spacing_floors_track_gaps() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(GridConcat::new().rows(1).columns(2).spacing(30.0))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).at(0, 0))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).at(0, 1))
-            .compile(&ctx)
-            .await?;
+        let compiled =
+            crate::plot::Chart::with_coord(GridConcat::new().rows(1).columns(2).spacing(30.0))
+                .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).at(0, 0))
+                .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).at(0, 1))
+                .compile(&ctx)
+                .await?;
 
         let measurement = measurement_for_plot(&compiled, 240.0, 100.0, &ctx).await?;
         let concat = measurement
@@ -3141,14 +3147,14 @@ mod tests {
     async fn hconcat_measurement_exposes_child_frame_container_view()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .mark(
-                Subplot::new(Plot::<ZeroDCoord>::new())
+                Subplot::new(crate::plot::Plot::<ZeroDCoord>::new())
                     .name("left")
                     .label("Left"),
             )
             .mark(
-                Subplot::new(Plot::<ZeroDCoord>::new())
+                Subplot::new(crate::plot::Plot::<ZeroDCoord>::new())
                     .name("right")
                     .label("Right"),
             )
@@ -3207,7 +3213,7 @@ mod tests {
         let right = child_scatter_plot(xy_dataframe(&ctx, vec![2.0], vec![2.0]), false)
             .event_binding(ChartEventBinding::on(ChartEventType::CursorMoved));
 
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .mark(Subplot::new(left).name("left"))
             .mark(Subplot::new(right).name("right"))
             .compile(&ctx)
@@ -3232,7 +3238,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_measurement_places_complete_grid() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(zero_plot()).at(0, 0).name("a"))
             .mark(Subplot::new(zero_plot()).at(0, 1).name("b"))
@@ -3277,7 +3283,7 @@ mod tests {
     async fn grid_concat_applies_merged_track_requirements_idempotently()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(zero_plot()).at(0, 0).name("left"))
             .mark(Subplot::new(zero_plot()).at(0, 1).name("right"))
@@ -3319,7 +3325,9 @@ mod tests {
     async fn hconcat_applies_merged_track_requirements_idempotently()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = keyed_hconcat("left", "right").compile(&ctx).await?;
+        let compiled = crate::plot::Chart::from_plot(keyed_hconcat("left", "right"))
+            .compile(&ctx)
+            .await?;
 
         let mut measurement = measurement_for_plot(&compiled, 200.0, 100.0, &ctx).await?;
         let concat = measurement
@@ -3355,7 +3363,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_holes_preserve_track_indices() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(3))
             .mark(Subplot::new(zero_plot()).at(0, 0).name("top-left"))
             .mark(Subplot::new(zero_plot()).at(1, 2).name("bottom-right"))
@@ -3595,7 +3603,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_measures_spanned_child() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(zero_plot()).at(0, 0).span(2, 1))
             .mark(Subplot::new(zero_plot()).at(0, 1))
@@ -3624,7 +3632,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_rejects_zero_grid_span() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let result = Plot::<GridConcat>::new()
+        let result = crate::plot::Chart::<GridConcat>::new()
             .mark(Subplot::new(zero_plot()).at(0, 0).span(0, 1))
             .compile(&ctx)
             .await;
@@ -3642,7 +3650,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_rejects_span_outside_configured_shape() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(zero_plot()).at(1, 1).span(2, 1))
             .compile(&ctx)
@@ -3658,7 +3666,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_rejects_overlapping_span_rectangles() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .mark(Subplot::new(zero_plot()).at(0, 0).span(2, 2))
             .mark(Subplot::new(zero_plot()).at(1, 1))
             .compile(&ctx)
@@ -3685,12 +3693,12 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+        let repeat = crate::plot::Plot::<RepeatGrid>::new().configure_coord(|c| {
             c.rows(repeat_vars(&["a", "b"]))
                 .columns(repeat_vars(&["a", "b"]))
                 .cell(repeated_grid_cell())
         });
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(repeat).column(col("group_name")))
             .compile(&ctx)
@@ -3744,10 +3752,11 @@ mod tests {
     async fn layout_coordination_nodes_export_facet_band_topology() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(grouped_xy_dataframe(&ctx))
             .mark(
-                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+                Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(false)))
+                    .column(col("group")),
             )
             .compile(&ctx)
             .await?;
@@ -3802,7 +3811,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let variables = repeat_vars(&["x", "y"]);
-        let compiled = Plot::<RepeatGrid>::new()
+        let compiled = crate::plot::Chart::<RepeatGrid>::new()
             .data(grouped_xy_dataframe(&ctx))
             .configure_coord(|c| {
                 c.rows(variables.clone())
@@ -3840,11 +3849,12 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let facet_child = || {
-            Plot::<FacetColumn>::new().mark(
-                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+            crate::plot::Plot::<FacetColumn>::new().mark(
+                Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(false)))
+                    .column(col("group")),
             )
         };
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .data(grouped_xy_dataframe(&ctx))
             .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(facet_child()).at(0, 0).name("left_facets"))
@@ -3888,13 +3898,15 @@ mod tests {
     async fn layout_coordination_keeps_different_manual_grid_facet_fields_separate()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let group_facet = Plot::<FacetColumn>::new().mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+        let group_facet = crate::plot::Plot::<FacetColumn>::new().mark(
+            Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(false)))
+                .column(col("group")),
         );
-        let subgroup_facet = Plot::<FacetColumn>::new().mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("subgroup")),
+        let subgroup_facet = crate::plot::Plot::<FacetColumn>::new().mark(
+            Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(false)))
+                .column(col("subgroup")),
         );
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .data(nested_grouped_xy_dataframe(&ctx))
             .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(group_facet).at(0, 0).name("group_facets"))
@@ -3931,7 +3943,7 @@ mod tests {
     async fn grid_layout_coordination_nodes_keep_unrelated_manual_grids_separate()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .mark(Subplot::new(manual_grid_plot()).name("left_grid"))
             .mark(Subplot::new(manual_grid_plot()).name("right_grid"))
             .compile(&ctx)
@@ -3955,7 +3967,9 @@ mod tests {
     async fn layout_coordination_nodes_export_degenerate_hconcat_and_vconcat()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let horizontal = keyed_hconcat("left", "right").compile(&ctx).await?;
+        let horizontal = crate::plot::Chart::from_plot(keyed_hconcat("left", "right"))
+            .compile(&ctx)
+            .await?;
         let horizontal_measurement = measurement_for_plot(&horizontal, 240.0, 100.0, &ctx).await?;
         let horizontal_nodes =
             collect_child_frame_layout_coordination_nodes(&horizontal_measurement)?;
@@ -3978,7 +3992,7 @@ mod tests {
             }
         }
 
-        let vertical = Plot::<VConcat>::new()
+        let vertical = crate::plot::Chart::<VConcat>::new()
             .mark(Subplot::new(zero_plot()).name("top"))
             .mark(Subplot::new(zero_plot()).name("bottom"))
             .compile(&ctx)
@@ -4010,7 +4024,7 @@ mod tests {
     async fn layout_coordination_nodes_export_wrap_concat_grid_topology()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(5)
+        let compiled = crate::plot::Chart::from_plot(wrapped_zero_plot(5))
             .configure_coord(|c| c.columns(3))
             .compile(&ctx)
             .await?;
@@ -4142,12 +4156,12 @@ mod tests {
                 ) AS t(group_name, a, b)",
             )
             .await?;
-        let repeat = Plot::<RepeatGrid>::new().configure_coord(|c| {
+        let repeat = crate::plot::Plot::<RepeatGrid>::new().configure_coord(|c| {
             c.rows(repeat_vars(&["a", "b"]))
                 .columns(repeat_vars(&["a", "b"]))
                 .cell(repeated_grid_cell())
         });
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(df)
             .mark(Subplot::new(repeat).column(col("group_name")))
             .compile(&ctx)
@@ -4423,7 +4437,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_requires_grid_cell_placement() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let result = Plot::<GridConcat>::new()
+        let result = crate::plot::Chart::<GridConcat>::new()
             .mark(Subplot::new(zero_plot()))
             .compile(&ctx)
             .await;
@@ -4438,7 +4452,7 @@ mod tests {
     #[tokio::test]
     async fn grid_concat_rejects_duplicate_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .mark(Subplot::new(zero_plot()).at(0, 0))
             .mark(Subplot::new(zero_plot()).at(0, 0))
             .compile(&ctx)
@@ -4460,7 +4474,7 @@ mod tests {
         let bottom_right = child_scatter_plot(xy_dataframe(&ctx, vec![2.0], vec![2.0]), false)
             .event_binding(ChartEventBinding::on(ChartEventType::CursorMoved));
 
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(2).columns(2))
             .mark(Subplot::new(top_left).at(0, 0).name("top-left"))
             .mark(Subplot::new(bottom_right).at(1, 1).name("bottom-right"))
@@ -4486,7 +4500,9 @@ mod tests {
     #[tokio::test]
     async fn wrap_concat_auto_columns_use_ceil_sqrt() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(5).compile(&ctx).await?;
+        let compiled = crate::plot::Chart::from_plot(wrapped_zero_plot(5))
+            .compile(&ctx)
+            .await?;
 
         let measurement = measurement_for_plot(&compiled, 300.0, 200.0, &ctx).await?;
         let concat = measurement
@@ -4529,7 +4545,7 @@ mod tests {
     #[tokio::test]
     async fn wrap_concat_fixed_columns_place_children_row_major() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(5)
+        let compiled = crate::plot::Chart::from_plot(wrapped_zero_plot(5))
             .configure_coord(|c| c.columns(2))
             .compile(&ctx)
             .await?;
@@ -4574,7 +4590,7 @@ mod tests {
     #[tokio::test]
     async fn wrap_concat_trailing_holes_preserve_column_tracks() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(1)
+        let compiled = crate::plot::Chart::from_plot(wrapped_zero_plot(1))
             .configure_coord(|c| c.columns(3))
             .compile(&ctx)
             .await?;
@@ -4613,7 +4629,7 @@ mod tests {
     #[tokio::test]
     async fn wrap_concat_responsive_columns_change_with_width() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = wrapped_zero_plot(5)
+        let compiled = crate::plot::Chart::from_plot(wrapped_zero_plot(5))
             .configure_coord(|c| c.responsive_columns(180.0))
             .compile(&ctx)
             .await?;
@@ -4674,7 +4690,7 @@ mod tests {
         let right = child_scatter_plot(xy_dataframe(&ctx, vec![2.0], vec![2.0]), false);
 
         let compiled = Arc::new(
-            Plot::<HConcat>::new()
+            crate::plot::Chart::<HConcat>::new()
                 .canvas_size(520.0, 240.0)
                 .mark(Subplot::new(left).name("left"))
                 .mark(Subplot::new(right).name("right"))
@@ -4699,9 +4715,9 @@ mod tests {
     async fn concat_coordination_scope_hooks_group_children_by_container()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("left"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("right"))
+        let compiled = crate::plot::Chart::<HConcat>::new()
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("left"))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -4766,7 +4782,7 @@ mod tests {
     async fn nested_concat_child_scopes_include_outer_concat_child() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).name("outer-left"))
             .mark(Subplot::new(keyed_hconcat("inner-left", "inner-right")).name("outer-right"))
             .compile(&ctx)
@@ -4813,10 +4829,11 @@ mod tests {
     async fn facet_child_scopes_include_existing_concat_container_path()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(grouped_xy_dataframe(&ctx))
             .mark(
-                Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).column(col("group")),
+                Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(false)))
+                    .column(col("group")),
             )
             .compile(&ctx)
             .await?;
@@ -4849,7 +4866,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let concat_child = keyed_hconcat("inner-left", "inner-right");
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(grouped_xy_dataframe(&ctx))
             .mark(Subplot::new(concat_child).column(col("group")))
             .compile(&ctx)
@@ -4889,10 +4906,11 @@ mod tests {
     async fn nested_facet_child_scopes_do_not_duplicate_outer_facet_cell()
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let inner = Plot::<FacetRow>::new().mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(line_mark(false))).row(col("subgroup")),
+        let inner = crate::plot::Plot::<FacetRow>::new().mark(
+            Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(false)))
+                .row(col("subgroup")),
         );
-        let compiled = Plot::<FacetColumn>::new()
+        let compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(nested_grouped_xy_dataframe(&ctx))
             .mark(Subplot::new(inner).column(col("group")))
             .compile(&ctx)
@@ -4941,9 +4959,9 @@ mod tests {
     async fn vconcat_measurement_places_children_on_vertical_band() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let compiled = Plot::<VConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("top"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("bottom"))
+        let compiled = crate::plot::Chart::<VConcat>::new()
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("top"))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("bottom"))
             .compile(&ctx)
             .await?;
 
@@ -4967,8 +4985,8 @@ mod tests {
     #[tokio::test]
     async fn concat_measurement_preserves_sparse_mark_indexes() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("first"))
+        let compiled = crate::plot::Chart::<HConcat>::new()
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("first"))
             .compile(&ctx)
             .await?;
 
@@ -4984,9 +5002,9 @@ mod tests {
     #[tokio::test]
     async fn hconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<HConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("left"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("right"))
+        let compiled = crate::plot::Chart::<HConcat>::new()
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("left"))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("right"))
             .compile(&ctx)
             .await?;
 
@@ -5019,8 +5037,9 @@ mod tests {
     async fn concat_child_rendering_inherits_parent_data() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![3.0, 4.0]);
-        let child_plot = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
-        let compiled = Plot::<HConcat>::new()
+        let child_plot =
+            crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .data(data)
             .mark(Subplot::new(child_plot).name("points"))
             .compile(&ctx)
@@ -5047,10 +5066,10 @@ mod tests {
         let ctx = SessionContext::new();
         let parent_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![3.0, 4.0]);
         let child_data = xy_dataframe(&ctx, vec![5.0], vec![6.0]);
-        let child_plot = Plot::<Cartesian>::new()
+        let child_plot = crate::plot::Plot::<Cartesian>::new()
             .data(child_data)
             .mark(Symbol::new().x(col("x")).y(col("y")));
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .data(parent_data)
             .mark(Subplot::new(child_plot).name("points"))
             .compile(&ctx)
@@ -5076,11 +5095,13 @@ mod tests {
     {
         let ctx = SessionContext::new();
         let data = grouped_xy_dataframe(&ctx);
-        let facet_child = Plot::<FacetColumn>::new().data(data).mark(
-            Subplot::new(Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))))
-                .column(col("group")),
+        let facet_child = crate::plot::Plot::<FacetColumn>::new().data(data).mark(
+            Subplot::new(
+                crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y"))),
+            )
+            .column(col("group")),
         );
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .canvas_size(500.0, 220.0)
             .mark(Subplot::new(facet_child).name("faceted"))
             .compile(&ctx)
@@ -5125,7 +5146,7 @@ mod tests {
         let ctx = SessionContext::new();
         let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
         let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .mark(Subplot::new(child_scatter_plot(left_data, false)).name("left"))
             .mark(Subplot::new(child_scatter_plot(right_data, false)).name("right"))
             .compile(&ctx)
@@ -5152,7 +5173,7 @@ mod tests {
         let ctx = SessionContext::new();
         let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
         let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
-        let compiled = Plot::<HConcat>::new()
+        let compiled = crate::plot::Chart::<HConcat>::new()
             .mark(Subplot::new(child_scatter_plot(left_data, true)).name("left"))
             .mark(Subplot::new(child_scatter_plot(right_data, true)).name("right"))
             .compile(&ctx)
@@ -5177,7 +5198,7 @@ mod tests {
     async fn grid_concat_named_domain_group_links_x_and_y_domains() -> Result<(), AvengerChartError>
     {
         let ctx = SessionContext::new();
-        let x_child = Plot::<Cartesian>::new()
+        let x_child = crate::plot::Plot::<Cartesian>::new()
             .data(xy_dataframe(&ctx, vec![1.0, 2.0], vec![0.0, 1.0]))
             .mark(
                 Line::new()
@@ -5188,14 +5209,14 @@ mod tests {
                     })
                     .y(col("y")),
             );
-        let y_child = Plot::<Cartesian>::new()
+        let y_child = crate::plot::Plot::<Cartesian>::new()
             .data(xy_dataframe(&ctx, vec![0.0, 1.0], vec![100.0, 101.0]))
             .mark(Line::new().x(col("x")).y_with(col("y"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
                     .with_domain_group("measurement")
                     .share_domain()
             }));
-        let compiled = Plot::<GridConcat>::new()
+        let compiled = crate::plot::Chart::<GridConcat>::new()
             .configure_coord(|c| c.rows(1).columns(2))
             .mark(Subplot::new(x_child).at(0, 0).name("x-child"))
             .mark(Subplot::new(y_child).at(0, 1).name("y-child"))
@@ -5226,16 +5247,19 @@ mod tests {
         let ctx = SessionContext::new();
         let left_data = xy_dataframe(&ctx, vec![1.0, 2.0], vec![1.0, 2.0]);
         let right_data = xy_dataframe(&ctx, vec![100.0, 101.0], vec![1.0, 2.0]);
-        let concat_compiled = Plot::<HConcat>::new()
+        let concat_compiled = crate::plot::Chart::<HConcat>::new()
             .mark(Subplot::new(line_child_plot(left_data, true)).name("left"))
             .mark(Subplot::new(line_child_plot(right_data, true)).name("right"))
             .compile(&ctx)
             .await?;
 
         let grouped_data = grouped_xy_dataframe(&ctx);
-        let facet_compiled = Plot::<FacetColumn>::new()
+        let facet_compiled = crate::plot::Chart::<FacetColumn>::new()
             .data(grouped_data)
-            .mark(Subplot::new(Plot::<Cartesian>::new().mark(line_mark(true))).column(col("group")))
+            .mark(
+                Subplot::new(crate::plot::Plot::<Cartesian>::new().mark(line_mark(true)))
+                    .column(col("group")),
+            )
             .compile(&ctx)
             .await?;
 
@@ -5275,9 +5299,9 @@ mod tests {
     #[tokio::test]
     async fn vconcat_renders_child_subplot_groups() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<VConcat>::new()
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("top"))
-            .mark(Subplot::new(Plot::<ZeroDCoord>::new()).name("bottom"))
+        let compiled = crate::plot::Chart::<VConcat>::new()
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("top"))
+            .mark(Subplot::new(crate::plot::Plot::<ZeroDCoord>::new()).name("bottom"))
             .compile(&ctx)
             .await?;
 

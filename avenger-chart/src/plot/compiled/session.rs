@@ -3147,7 +3147,7 @@ mod tests {
                  (0.4, 1.6, 'bus'), (0.5, 1.5, 'car'), (1.6, 1.4, 'car')) AS t(x, y, cat)",
             )
             .await?;
-        let plot = Plot::<Cartesian>::new()
+        let plot = crate::plot::Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3216,7 +3216,7 @@ mod tests {
                  (0.2, 0.2, 'walk'), (1.5, 0.5, 'bike'), (0.4, 1.6, 'walk')) AS t(x, y, cat)",
             )
             .await?;
-        let plot = Plot::<Cartesian>::new()
+        let plot = crate::plot::Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3325,7 +3325,7 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
             .compile(ctx)
@@ -3339,8 +3339,8 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<Cartesian>::new()
+            .param(width.clone())
             .canvas_size(width.expr(), 300.0)
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
@@ -3356,9 +3356,9 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
-            .add_param(width.clone())
-            .add_param(symbol_size.clone())
+        crate::plot::Chart::<Cartesian>::new()
+            .param(width.clone())
+            .param(symbol_size.clone())
             .canvas_size(width.expr(), 300.0)
             .data(df)
             .mark(
@@ -3375,7 +3375,7 @@ mod tests {
     async fn compiled_plot_resize_policy_classifies_layout_axes() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
 
-        let canvas = Plot::<Cartesian>::new()
+        let canvas = crate::plot::Chart::<Cartesian>::new()
             .canvas_size(640.0, 420.0)
             .compile(&ctx)
             .await?;
@@ -3387,7 +3387,7 @@ mod tests {
             }
         );
 
-        let plot_area = Plot::<Cartesian>::new()
+        let plot_area = crate::plot::Chart::<Cartesian>::new()
             .plot_size(320.0, 180.0)
             .compile(&ctx)
             .await?;
@@ -3399,7 +3399,7 @@ mod tests {
             }
         );
 
-        let mixed = Plot::<Cartesian>::new()
+        let mixed = crate::plot::Chart::<Cartesian>::new()
             .canvas_constraint(CanvasConstraint::width(700.0))
             .plot_constraint(PlotConstraint::height(160.0))
             .compile(&ctx)
@@ -3412,7 +3412,7 @@ mod tests {
             }
         );
 
-        let auto = Plot::<Cartesian>::new().compile(&ctx).await?;
+        let auto = crate::plot::Chart::<Cartesian>::new().compile(&ctx).await?;
         assert_eq!(
             auto.resize_policy(),
             ChartResizePolicy {
@@ -3421,7 +3421,7 @@ mod tests {
             }
         );
 
-        let conflict = Plot::<Cartesian>::new()
+        let conflict = crate::plot::Chart::<Cartesian>::new()
             .canvas_constraint(CanvasConstraint::width(700.0))
             .plot_constraint(PlotConstraint::width(320.0))
             .compile(&ctx)
@@ -3444,8 +3444,8 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
-            .add_param(scale_factor.clone())
+        crate::plot::Chart::<Cartesian>::new()
+            .param(scale_factor.clone())
             .data(df)
             .mark(
                 Symbol::new()
@@ -3467,9 +3467,9 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
-            .add_param(x_min.clone())
-            .add_param(x_max.clone())
+        crate::plot::Chart::<Cartesian>::new()
+            .param(x_min.clone())
+            .param(x_max.clone())
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3496,8 +3496,8 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
-            .add_param(x_domain.clone())
+        crate::plot::Chart::<Cartesian>::new()
+            .param(x_domain.clone())
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3521,7 +3521,7 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3722,7 +3722,7 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3793,7 +3793,7 @@ mod tests {
         if let Some(debounce) = debounce {
             view = view.debounce(debounce);
         }
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3854,8 +3854,8 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::with_coord(Cartesian::new().unit_aspect(1.0))
-            .add_param(x_domain.clone())
+        crate::plot::Chart::with_coord(Cartesian::new().unit_aspect(1.0))
+            .param(x_domain.clone())
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3883,8 +3883,8 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::with_coord(Cartesian::new().unit_aspect(1.0))
-            .add_param(width.clone())
+        crate::plot::Chart::with_coord(Cartesian::new().unit_aspect(1.0))
+            .param(width.clone())
             .canvas_size(width.expr(), 320.0)
             .data(df)
             .mark(
@@ -3915,13 +3915,13 @@ mod tests {
                 ) AS t(group_name, x, y)",
             )
             .await?;
-        Plot::<FacetColumn>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<FacetColumn>::new()
+            .param(width.clone())
             .canvas_size(width.expr(), 320.0)
             .data(df)
             .mark(
                 Subplot::new(
-                    Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
+                    crate::plot::Plot::with_coord(Cartesian::new().unit_aspect(1.0)).mark(
                         Symbol::new()
                             .x_with(col("x"), |c| {
                                 c.scale_with::<Linear>(|s| {
@@ -3961,8 +3961,8 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
-            .add_selection(brush)
+        crate::plot::Chart::<Cartesian>::new()
+            .selection(brush)
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -3995,8 +3995,8 @@ mod tests {
                 ) AS t(category, x, y)",
             )
             .await?;
-        Plot::<Cartesian>::new()
-            .add_selection(picked)
+        crate::plot::Chart::<Cartesian>::new()
+            .selection(picked)
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -4034,8 +4034,8 @@ mod tests {
             ),
         ])?;
         let df = ctx.read_batch(batch)?;
-        Plot::<Cartesian>::new()
-            .add_selection(picked)
+        crate::plot::Chart::<Cartesian>::new()
+            .selection(picked)
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -4071,8 +4071,8 @@ mod tests {
             ) AS t(row_group, col_group, x, y)",
             )
             .await?;
-        Plot::<Cartesian>::new()
-            .add_selection(brush)
+        crate::plot::Chart::<Cartesian>::new()
+            .selection(brush)
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -4392,7 +4392,7 @@ mod tests {
                 ) AS t(x, y, category)",
             )
             .await?;
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .title("Cached Legend Plot")
             .data(df)
             .mark(
@@ -4414,7 +4414,7 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .title("Cached Session Title")
             .data(df)
             .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
@@ -4434,13 +4434,13 @@ mod tests {
                 ) AS t(group_name, x, y)",
             )
             .await?;
-        Plot::<FacetColumn>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<FacetColumn>::new()
+            .param(width.clone())
             .canvas_size(width.expr(), 320.0)
             .data(df)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
                             .y(col("y"))
@@ -4466,13 +4466,13 @@ mod tests {
                 ) AS t(group_name, x, y)",
             )
             .await?;
-        Plot::<FacetColumn>::new()
-            .add_param(scale_factor.clone())
+        crate::plot::Chart::<FacetColumn>::new()
+            .param(scale_factor.clone())
             .canvas_size(520.0, 320.0)
             .data(df)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x") * scale_factor.expr())
                             .y(col("y"))
@@ -4498,14 +4498,14 @@ mod tests {
                 ) AS t(facet, x, y)",
             )
             .await?;
-        Plot::<FacetWrap>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<FacetWrap>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
                             .y(col("y"))
@@ -4533,15 +4533,15 @@ mod tests {
                 ) AS t(facet, x, y)",
             )
             .await?;
-        Plot::<FacetWrap>::new()
-            .add_param(width.clone())
-            .add_param(scale_factor.clone())
+        crate::plot::Chart::<FacetWrap>::new()
+            .param(width.clone())
+            .param(scale_factor.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x") * child_scale_factor.expr())
                             .y(col("y"))
@@ -4572,15 +4572,15 @@ mod tests {
                 ) AS t(facet, x, y, score)",
             )
             .await?;
-        Plot::<FacetWrap>::new()
-            .add_param(width.clone())
-            .add_param(order_factor.clone())
+        crate::plot::Chart::<FacetWrap>::new()
+            .param(width.clone())
+            .param(order_factor.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(col("x"))
                             .y(col("y"))
@@ -4614,9 +4614,9 @@ mod tests {
                 ) AS t(region, facet, x, y)",
             )
             .await?;
-        let wrap = Plot::<FacetWrap>::new().mark(
+        let wrap = crate::plot::Plot::<FacetWrap>::new().mark(
             Subplot::new(
-                Plot::<Cartesian>::new().mark(
+                crate::plot::Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
                         .y(col("y"))
@@ -4626,8 +4626,8 @@ mod tests {
             )
             .wrap_with(col("facet"), |c| c.responsive_columns(160.0)),
         );
-        Plot::<FacetRow>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<FacetRow>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
@@ -4652,9 +4652,9 @@ mod tests {
                 ) AS t(region, facet, x, y)",
             )
             .await?;
-        let wrap = Plot::<FacetWrap>::new().mark(
+        let wrap = crate::plot::Plot::<FacetWrap>::new().mark(
             Subplot::new(
-                Plot::<Cartesian>::new().mark(
+                crate::plot::Plot::<Cartesian>::new().mark(
                     Symbol::new()
                         .x(col("x"))
                         .y(col("y"))
@@ -4664,8 +4664,8 @@ mod tests {
             )
             .wrap_with(col("facet"), |c| c.responsive_columns(160.0)),
         );
-        Plot::<FacetColumn>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<FacetColumn>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
@@ -4686,7 +4686,7 @@ mod tests {
             )
             .await?;
         let child = || {
-            Plot::<Cartesian>::new().mark(
+            crate::plot::Plot::<Cartesian>::new().mark(
                 Symbol::new()
                     .x(col("x"))
                     .y(col("y"))
@@ -4694,8 +4694,8 @@ mod tests {
                     .fill("#4682b4"),
             )
         };
-        Plot::<WrapConcat>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<WrapConcat>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(120.0))
             .data(df)
@@ -4728,11 +4728,11 @@ mod tests {
         let items = ["a", "b", "c"]
             .into_iter()
             .map(|name| RepeatVariable::new(name, col(name)).title(format!("Title {name}")));
-        let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
+        let repeat = crate::plot::Plot::<RepeatWrap>::new().configure_coord(|c| {
             c.items(items)
                 .responsive_columns(180.0)
                 .cell(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x(lit(1.0))
                             .y(repeat::item())
@@ -4742,8 +4742,8 @@ mod tests {
                 )
                 .item_domains()
         });
-        Plot::<FacetWrap>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<FacetWrap>::new()
+            .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
             .plot_constraint(PlotConstraint::height(110.0))
             .data(df)
@@ -4765,15 +4765,15 @@ mod tests {
         let child_df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.5), (3.0, 5.0)) AS t(child_x, child_y)")
             .await?;
-        let child = Plot::<Cartesian>::new().data(child_df).mark(
+        let child = crate::plot::Plot::<Cartesian>::new().data(child_df).mark(
             Symbol::new()
                 .x(col("child_x"))
                 .y(col("child_y"))
                 .size(18.0)
                 .fill("#4682b4"),
         );
-        Plot::<Cartesian>::new()
-            .add_param(width.clone())
+        crate::plot::Chart::<Cartesian>::new()
+            .param(width.clone())
             .canvas_size(width.expr(), 320.0)
             .data(parent_df)
             .mark(
@@ -4804,7 +4804,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (10.0, 1.0), (12.0, 4.0)) AS t(x, y)")
             .await?;
         let child = |df| {
-            Plot::<Cartesian>::new().data(df).mark(
+            crate::plot::Plot::<Cartesian>::new().data(df).mark(
                 Symbol::new()
                     .x(col("x"))
                     .y(col("y"))
@@ -4812,7 +4812,7 @@ mod tests {
                     .fill("#4682b4"),
             )
         };
-        Plot::<HConcat>::new()
+        crate::plot::Chart::<HConcat>::new()
             .canvas_size(620.0, 280.0)
             .mark(Subplot::new(child(left)).name("left"))
             .mark(Subplot::new(child(right)).name("right"))
@@ -5399,7 +5399,7 @@ mod tests {
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
-        Plot::<Cartesian>::new()
+        crate::plot::Chart::<Cartesian>::new()
             .canvas_size(420.0, 320.0)
             .data(df)
             .mark(
@@ -5659,7 +5659,7 @@ mod tests {
                 "SELECT * FROM (VALUES (0.0, 0.0), (0.25, 0.25), (1.0, 1.0), (2.0, 2.0), (3.0, 3.0)) AS t(x, y)",
             )
             .await?;
-        Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+        crate::plot::Chart::with_coord(Cartesian::new().unit_aspect(1.0))
             .canvas_size(420.0, 320.0)
             .mark(
                 MarkGroup::<Cartesian>::new().data(df).view(
@@ -6348,7 +6348,7 @@ mod tests {
             .request;
 
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
+            crate::plot::Chart::<Cartesian>::new()
                 .mark(Symbol::new().x(0.0).y(0.0))
                 .compile(ctx.as_ref())
                 .await?,
@@ -6442,7 +6442,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
+            crate::plot::Chart::<Cartesian>::new()
                 .mark(Symbol::new().x(0.0).y(0.0))
                 .compile(ctx.as_ref())
                 .await?,
@@ -6494,7 +6494,7 @@ mod tests {
     {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
+            crate::plot::Chart::<Cartesian>::new()
                 .mark(Symbol::new().x(0.0).y(0.0))
                 .compile(ctx.as_ref())
                 .await?,
@@ -7033,8 +7033,8 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0)) AS t(u, v)")
             .await?;
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
-                .add_selection(brush)
+            crate::plot::Chart::<Cartesian>::new()
+                .selection(brush)
                 .canvas_size(420.0, 320.0)
                 .data(df)
                 .mark(
@@ -7137,8 +7137,8 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0)) AS t(u, v)")
             .await?;
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
-                .add_selection(brush)
+            crate::plot::Chart::<Cartesian>::new()
+                .selection(brush)
                 .canvas_size(420.0, 320.0)
                 .data(df)
                 .mark(
@@ -8389,8 +8389,8 @@ mod tests {
     #[tokio::test]
     async fn add_param_compiles_to_shared_sharing() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let compiled = Plot::<Cartesian>::new()
-            .add_param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .compile(&ctx)
             .await?;
         let spec = compiled
@@ -8406,8 +8406,8 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
-        let compiled = Plot::<Cartesian>::new()
-            .add_param_with_sharing(x_domain, CoordinationScope::Level(1))
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .param_with_sharing(x_domain, CoordinationScope::Level(1))
             .compile(&ctx)
             .await?;
         assert_eq!(
@@ -8428,9 +8428,9 @@ mod tests {
     #[tokio::test]
     async fn duplicate_param_names_error_on_compile() {
         let ctx = SessionContext::new();
-        let result = Plot::<Cartesian>::new()
-            .add_param(Param::new("width", ScalarValue::Float64(Some(1.0))))
-            .add_param_with_sharing(
+        let result = crate::plot::Chart::<Cartesian>::new()
+            .param(Param::new("width", ScalarValue::Float64(Some(1.0))))
+            .param_with_sharing(
                 Param::new("width", ScalarValue::Float64(Some(2.0))),
                 CoordinationScope::Level(1),
             )
@@ -8455,8 +8455,8 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
-                .add_param(x_domain.clone())
+            crate::plot::Chart::<Cartesian>::new()
+                .param(x_domain.clone())
                 .canvas_size(420.0, 320.0)
                 .data(df)
                 .mark(
@@ -8491,7 +8491,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
+            crate::plot::Chart::<Cartesian>::new()
                 .canvas_size(420.0, 320.0)
                 .data(df)
                 .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
@@ -8540,12 +8540,12 @@ mod tests {
             )
             .await?;
         let compiled = Arc::new(
-            Plot::<FacetColumn>::new()
+            crate::plot::Chart::<FacetColumn>::new()
                 .canvas_size(520.0, 320.0)
                 .data(df)
                 .mark(
                     Subplot::new(
-                        Plot::<Cartesian>::new()
+                        crate::plot::Plot::<Cartesian>::new()
                             .mark(Symbol::new().x(col("x")).y(col("y")).size(20.0)),
                     )
                     .column(col("group_name")),
@@ -8594,7 +8594,7 @@ mod tests {
     }
 
     fn simple_interaction_scope_child() -> Plot<Cartesian> {
-        Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
+        crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")).size(20.0))
     }
 
     #[tokio::test]
@@ -8606,7 +8606,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
         let compiled = Arc::new(
-            Plot::<GridConcat>::new()
+            crate::plot::Chart::<GridConcat>::new()
                 .canvas_size(720.0, 420.0)
                 .data(df)
                 .configure_coord(|c| c.rows(2).columns(3))
@@ -8668,7 +8668,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
         let compiled = Arc::new(
-            Plot::<GridConcat>::new()
+            crate::plot::Chart::<GridConcat>::new()
                 .canvas_size(720.0, 420.0)
                 .data(df)
                 .configure_coord(|c| c.rows(3).columns(3))
@@ -8729,7 +8729,7 @@ mod tests {
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
         let compiled = Arc::new(
-            Plot::<WrapConcat>::new()
+            crate::plot::Chart::<WrapConcat>::new()
                 .canvas_size(720.0, 420.0)
                 .data(df)
                 .configure_coord(|c| c.columns(2))
@@ -9008,13 +9008,13 @@ mod tests {
             )
             .await?;
         let compiled = Arc::new(
-            Plot::<FacetColumn>::new()
-                .add_param(x_domain.clone())
+            crate::plot::Chart::<FacetColumn>::new()
+                .param(x_domain.clone())
                 .canvas_size(640.0, 320.0)
                 .data(df)
                 .mark(
                     Subplot::new(
-                        Plot::<Cartesian>::new().mark(
+                        crate::plot::Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x"), move |c| {
                                     c.scale_with::<Linear>(move |s| {
@@ -9088,13 +9088,13 @@ mod tests {
             )
             .await?;
         let compiled = Arc::new(
-            Plot::<FacetColumn>::new()
-                .add_param(x_domain.clone())
+            crate::plot::Chart::<FacetColumn>::new()
+                .param(x_domain.clone())
                 .canvas_size(640.0, 320.0)
                 .data(df)
                 .mark(
                     Subplot::new(
-                        Plot::<Cartesian>::new().mark(
+                        crate::plot::Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x"), move |c| {
                                     c.scale_with::<Linear>(move |s| {
@@ -9201,8 +9201,8 @@ mod tests {
         let ctx = Arc::new(SessionContext::new());
         let x_domain = Param::raw_domain("x_domain");
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
-                .add_param_with_sharing(x_domain, CoordinationScope::Level(1))
+            crate::plot::Chart::<Cartesian>::new()
+                .param_with_sharing(x_domain, CoordinationScope::Level(1))
                 .compile(&ctx)
                 .await?,
         );
@@ -9279,8 +9279,8 @@ mod tests {
         )
         .unwrap();
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
-                .add_store(
+            crate::plot::Chart::<Cartesian>::new()
+                .store(
                     Store::from_record_batch("brush_boxes", batch)
                         .primary_key(["id"])
                         .sharing(CoordinationScope::Level(1)),
@@ -9327,9 +9327,9 @@ mod tests {
         use datafusion::arrow::datatypes::DataType;
 
         let ctx = SessionContext::new();
-        let result = Plot::<Cartesian>::new()
-            .add_store(Store::empty("brush").field("id", DataType::Utf8, false))
-            .add_store(Store::empty("brush").field("id", DataType::Utf8, false))
+        let result = crate::plot::Chart::<Cartesian>::new()
+            .store(Store::empty("brush").field("id", DataType::Utf8, false))
+            .store(Store::empty("brush").field("id", DataType::Utf8, false))
             .compile(&ctx)
             .await;
         let Err(err) = result else {
@@ -9363,8 +9363,8 @@ mod tests {
     async fn brush_store_session() -> Result<PlotSession, AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(
-            Plot::<Cartesian>::new()
-                .add_store(brush_store())
+            crate::plot::Chart::<Cartesian>::new()
+                .store(brush_store())
                 .compile(&ctx)
                 .await?,
         );
@@ -9604,13 +9604,13 @@ mod tests {
             )
             .await?;
         let compiled = Arc::new(
-            Plot::<FacetColumn>::new()
-                .add_param_with_sharing(x_domain.clone(), sharing)
+            crate::plot::Chart::<FacetColumn>::new()
+                .param_with_sharing(x_domain.clone(), sharing)
                 .canvas_size(640.0, 320.0)
                 .data(df)
                 .mark(
                     Subplot::new(
-                        Plot::<Cartesian>::new().mark(
+                        crate::plot::Plot::<Cartesian>::new().mark(
                             Symbol::new()
                                 .x_with(col("x"), move |c| {
                                     let c = c.scale_with::<Linear>(move |s| {
@@ -9698,10 +9698,11 @@ mod tests {
                 ) AS t(facet_row, facet_col, x, y)",
             )
             .await?;
-        let leaf = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
-        let col_plot =
-            Plot::<FacetColumn>::new().mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c));
-        let compiled = Plot::<FacetRow>::new()
+        let leaf =
+            crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
+        let col_plot = crate::plot::Plot::<FacetColumn>::new()
+            .mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c));
+        let compiled = crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c))
             .compile(&ctx)
@@ -9817,7 +9818,7 @@ mod tests {
                 ) AS t(row_name, col_name, x, y)",
             )
             .await?;
-        let leaf = Plot::<Cartesian>::new().mark(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x_with(col("x"), move |c| {
                     c.scale_with::<Linear>(move |s| {
@@ -9828,10 +9829,11 @@ mod tests {
                 .y(col("y"))
                 .size(20.0),
         );
-        let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
+        let columns = crate::plot::Plot::<FacetColumn>::new()
+            .mark(Subplot::new(leaf).column(col("col_name")));
         let compiled = Arc::new(
-            Plot::<FacetRow>::new()
-                .add_param_with_sharing(x_domain.clone(), CoordinationScope::Level(1))
+            crate::plot::Chart::<FacetRow>::new()
+                .param_with_sharing(x_domain.clone(), CoordinationScope::Level(1))
                 .canvas_size(640.0, 480.0)
                 .data(df)
                 .mark(Subplot::new(columns).row(col("row_name")))
@@ -9911,7 +9913,7 @@ mod tests {
                 ) AS t(group_name, x, y)",
             )
             .await?;
-        let leaf = Plot::<Cartesian>::new().mark(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x_with(col("x"), move |c| {
                     c.scale_with::<Linear>(move |s| {
@@ -9923,8 +9925,8 @@ mod tests {
                 .size(20.0),
         );
         let compiled = Arc::new(
-            Plot::<FacetWrap>::new()
-                .add_param_with_sharing(x_domain.clone(), CoordinationScope::Free)
+            crate::plot::Chart::<FacetWrap>::new()
+                .param_with_sharing(x_domain.clone(), CoordinationScope::Free)
                 .canvas_size(640.0, 480.0)
                 .data(df)
                 .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(2))))
@@ -10016,7 +10018,7 @@ mod tests {
                 ) AS t(group_name, x, y)",
             )
             .await?;
-        let leaf = Plot::<Cartesian>::new().mark(
+        let leaf = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x_with(col("x"), move |c| {
                     c.scale_with::<Linear>(move |s| {
@@ -10033,9 +10035,9 @@ mod tests {
                 .size(20.0),
         );
         let compiled = Arc::new(
-            Plot::<FacetWrap>::new()
-                .add_param_with_sharing(x_domain.clone(), CoordinationScope::Shared)
-                .add_param_with_sharing(y_domain.clone(), CoordinationScope::Free)
+            crate::plot::Chart::<FacetWrap>::new()
+                .param_with_sharing(x_domain.clone(), CoordinationScope::Shared)
+                .param_with_sharing(y_domain.clone(), CoordinationScope::Free)
                 .canvas_size(640.0, 480.0)
                 .data(df)
                 .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(2))))
@@ -10115,11 +10117,11 @@ mod tests {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
         let raw = x_domain.expr();
-        let result = Plot::<FacetColumn>::new()
-            .add_param_with_sharing(x_domain, CoordinationScope::Free)
+        let result = crate::plot::Chart::<FacetColumn>::new()
+            .param_with_sharing(x_domain, CoordinationScope::Free)
             .mark(
                 Subplot::new(
-                    Plot::<Cartesian>::new().mark(
+                    crate::plot::Plot::<Cartesian>::new().mark(
                         Symbol::new()
                             .x_with(col("x"), move |c| {
                                 c.scale_with::<Linear>(move |s| s.raw_domain(raw.clone()))

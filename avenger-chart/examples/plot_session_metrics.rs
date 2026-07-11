@@ -43,8 +43,8 @@ async fn run_resize_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn std
         )
         .await?;
 
-    let plot = Plot::<Cartesian>::new()
-        .add_param(width.clone())
+    let plot = Chart::<Cartesian>::new()
+        .param(width.clone())
         .canvas_size(width.expr(), 320.0)
         .data(df)
         .mark(Symbol::new().x(col("x")).y(col("y")).size(24.0));
@@ -102,8 +102,8 @@ async fn run_responsive_wrap_scenario(
         )
         .await?;
 
-    let plot = Plot::<FacetWrap>::new()
-        .add_param(width.clone())
+    let plot = Chart::<FacetWrap>::new()
+        .param(width.clone())
         .canvas_constraint(CanvasConstraint::width(width.expr()))
         .plot_constraint(PlotConstraint::height(120.0))
         .data(df)
@@ -142,9 +142,9 @@ async fn run_pan_zoom_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn s
         .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
         .await?;
 
-    let plot = Plot::<Cartesian>::new()
-        .add_param(x_min.clone())
-        .add_param(x_max.clone())
+    let plot = Chart::<Cartesian>::new()
+        .param(x_min.clone())
+        .param(x_max.clone())
         .canvas_size(420.0, 320.0)
         .data(df)
         .mark(

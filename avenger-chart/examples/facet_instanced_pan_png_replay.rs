@@ -190,9 +190,9 @@ async fn build_plot(
             .size(40.0),
     );
 
-    Ok(Plot::<FacetWrap>::new()
-        .add_param(x_domain.clone())
-        .add_param(y_domain.clone())
+    Ok(Chart::<FacetWrap>::new()
+        .param(x_domain.clone())
+        .param(y_domain.clone())
         .canvas_size(PNG_CANVAS_SIZE[0], PNG_CANVAS_SIZE[1])
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(3)))

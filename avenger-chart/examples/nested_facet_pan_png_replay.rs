@@ -197,9 +197,9 @@ async fn build_plot(
 
     let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
 
-    Ok(Plot::<FacetRow>::new()
-        .add_param_with_sharing(x_domain.clone(), CoordinationScope::Level(1))
-        .add_param_with_sharing(y_domain.clone(), CoordinationScope::Level(1))
+    Ok(Chart::<FacetRow>::new()
+        .param_with_sharing(x_domain.clone(), CoordinationScope::Level(1))
+        .param_with_sharing(y_domain.clone(), CoordinationScope::Level(1))
         .canvas_size(PNG_CANVAS_SIZE[0], PNG_CANVAS_SIZE[1])
         .data(df)
         .mark(Subplot::new(columns).row(col("row_name")))

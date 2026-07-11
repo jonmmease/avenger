@@ -3072,11 +3072,11 @@ fn retarget_cells_to_final_plot_area(
 ///
 /// # Example
 /// ```ignore
-/// let plot = Plot::<FacetColumn>::new()
+/// let plot = crate::plot::Chart::<FacetColumn>::new()
 ///     .data(df)
 ///     .mark(
 ///         Subplot::new(
-///             Plot::<Cartesian>::new().mark(Symbol::new()...),
+///             crate::plot::Chart::<Cartesian>::new().mark(Symbol::new()...),
 ///         )
 ///         .column(col("year")),
 ///     );
@@ -4886,7 +4886,7 @@ mod tests {
             .await
             .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
 
-        let inner_subplot = Plot::<Cartesian>::new().mark(
+        let inner_subplot = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
@@ -4896,14 +4896,14 @@ mod tests {
 
         let compiled_plot = match axis {
             FacetAxis::Column => {
-                Plot::<FacetColumn>::new()
+                crate::plot::Chart::<FacetColumn>::new()
                     .data(data_df.clone())
                     .mark(Subplot::new(inner_subplot.clone()).col_with(col("col_group"), |c| c))
                     .compile(&session)
                     .await?
             }
             FacetAxis::Row => {
-                Plot::<FacetRow>::new()
+                crate::plot::Chart::<FacetRow>::new()
                     .data(data_df.clone())
                     .mark(Subplot::new(inner_subplot).row_with(col("row_group"), |c| c))
                     .compile(&session)
@@ -4946,16 +4946,16 @@ mod tests {
             .await
             .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
 
-        let leaf_subplot = Plot::<Cartesian>::new().mark(
+        let leaf_subplot = crate::plot::Plot::<Cartesian>::new().mark(
             Symbol::new()
                 .x(col("x"))
                 .y(col("y"))
                 .fill("#4682b4")
                 .size(42.0),
         );
-        let nested_subplot = Plot::<FacetColumn>::new()
+        let nested_subplot = crate::plot::Plot::<FacetColumn>::new()
             .mark(Subplot::new(leaf_subplot).col_with(col("team_id"), |c| c));
-        let compiled_plot = Plot::<FacetColumn>::new()
+        let compiled_plot = crate::plot::Chart::<FacetColumn>::new()
             .data(data_df.clone())
             .mark(Subplot::new(nested_subplot).col_with(col("group_id"), |c| c))
             .compile(&session)
@@ -4995,13 +4995,15 @@ mod tests {
             .await
             .map_err(|e| AvengerChartError::InternalError(e.to_string()))?;
 
-        let subplot_plot = Plot::<Cartesian>::new().data(data_df.clone()).mark(
-            Symbol::new()
-                .x(col("x"))
-                .y(col("y"))
-                .fill("#4682b4")
-                .size(42.0),
-        );
+        let subplot_plot = crate::plot::Chart::<Cartesian>::new()
+            .data(data_df.clone())
+            .mark(
+                Symbol::new()
+                    .x(col("x"))
+                    .y(col("y"))
+                    .fill("#4682b4")
+                    .size(42.0),
+            );
         let compiled_subplot = Arc::new(subplot_plot.compile(&session).await?);
 
         let facet_tree = Arc::new(sample_tree_for_cell_plan_tests());

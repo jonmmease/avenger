@@ -2790,7 +2790,6 @@ mod tests {
         marks::{ChannelValue, Mark, Subplot, symbol::Symbol},
         parallel::{Parallel, ParallelLine, generated_dimension_channel},
         plot::{
-            Plot,
             compiled::materialization::MaterializationCache,
             compiled::session::{ScopedStoreAssignment, ScopedStoreState, StoreStateUpdate},
         },
@@ -2970,10 +2969,11 @@ mod tests {
         df: datafusion::dataframe::DataFrame,
         ctx: &SessionContext,
     ) -> Result<EvaluatedFacetTree, AvengerChartError> {
-        let leaf = Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
-        let col_plot =
-            Plot::<FacetColumn>::new().mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c));
-        let row_plot = Plot::<FacetRow>::new()
+        let leaf =
+            crate::plot::Plot::<Cartesian>::new().mark(Symbol::new().x(col("x")).y(col("y")));
+        let col_plot = crate::plot::Plot::<FacetColumn>::new()
+            .mark(Subplot::new(leaf).col_with(col("facet_col"), |c| c));
+        let row_plot = crate::plot::Chart::<FacetRow>::new()
             .data(df)
             .mark(Subplot::new(col_plot).row_with(col("facet_row"), |c| c));
         let compiled = row_plot.compile(ctx).await?;
@@ -3826,7 +3826,7 @@ mod tests {
     {
         let session = SessionContext::new();
         let df = nested_category_dataframe(&session);
-        let compiled = Plot::<Cartesian>::new()
+        let compiled = crate::plot::Chart::<Cartesian>::new()
             .data(df)
             .mark(
                 Symbol::new()
@@ -3964,7 +3964,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let session = Arc::new(SessionContext::new());
         let df = xy_dataframe(&session);
-        let mark = Subplot::<HConcat>::new(Plot::<ZeroDCoord>::new());
+        let mark = Subplot::<HConcat>::new(crate::plot::Plot::<ZeroDCoord>::new());
         let compiled_mark = mark.compile_untransformed(&session).await?;
         let eval_ctx = eval_context(session);
         let scales = HashMap::new();
