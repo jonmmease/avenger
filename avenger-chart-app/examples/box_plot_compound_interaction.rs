@@ -53,13 +53,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let selected = selected_group.predicate();
     let cursor = Param::cursor("box_plot_cursor", CursorStyle::Default);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Click boxes; hover outliers")
         .canvas_size(SIZE[0], SIZE[1])
         .data(ctx.read_batch(source_batch()).expect("read data"))
-        .add_selection(selected_group)
-        .add_store(outlier_tooltip_store())
-        .add_param(cursor.clone())
+        .selection(selected_group)
+        .store(outlier_tooltip_store())
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(base_box_plot())
         .mark(selected_box_plot(selected))

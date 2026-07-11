@@ -100,7 +100,7 @@ async fn build_app(
         .zoom(4.2)
         .graticule(GraticuleStyle::default())
         .tiles(tiles);
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(860.0, 600.0)
         .title("Tinted georegistered tile over the basemap")
         .data(df)

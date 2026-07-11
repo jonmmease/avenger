@@ -71,7 +71,7 @@ async fn build_app(
         .await
         .expect("build data");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Image marks in an app")
         .canvas_size(760.0, 520.0)
         .data(df)

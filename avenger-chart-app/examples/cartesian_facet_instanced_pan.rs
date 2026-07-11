@@ -93,7 +93,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .tool(PanScrollZoom::cartesian());
 
     // Wrap the 6 groups into a 3-column layout ⇒ a 2-row × 3-column grid.
-    let plot = Plot::<FacetWrap>::new()
+    let plot = Chart::<FacetWrap>::new()
         .canvas_size(960.0, 640.0)
         .data(df)
         .mark(Subplot::new(leaf).wrap_with(col("group_name"), |c| c.columns(lit(3))));

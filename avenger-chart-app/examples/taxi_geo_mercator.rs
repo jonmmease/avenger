@@ -125,7 +125,7 @@ async fn build_app(
         .zoom(11.0)
         .tiles(tiles);
 
-    let plot = Plot::with_coord(coord.clone())
+    let plot = Chart::with_coord(coord.clone())
         .title("NYC taxi pickups: raster above 10k in view, points below")
         .canvas_size(960.0, 720.0)
         .mark(

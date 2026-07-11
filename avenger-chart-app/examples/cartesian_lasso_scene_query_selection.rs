@@ -68,15 +68,15 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .stroke_width(1.5)
         .zindex(10_000);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .plot_size(PLOT_WIDTH, PLOT_HEIGHT)
         .data(df)
-        .add_selection(picked)
-        .add_store(lasso_overlay_store(
+        .selection(picked)
+        .store(lasso_overlay_store(
             "selection_lasso",
             CoordinationScope::Shared,
         ))
-        .add_param(cursor.clone())
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(
             Symbol::new()

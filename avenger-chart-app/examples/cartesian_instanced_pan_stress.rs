@@ -48,7 +48,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .read_batch(make_points_batch())
         .expect("read generated 1M points");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(960.0, 640.0)
         .data(df)
         .mark(

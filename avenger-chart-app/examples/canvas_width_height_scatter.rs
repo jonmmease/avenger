@@ -46,8 +46,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .await
         .expect("build data");
 
-    let plot = Plot::<Cartesian>::new()
-        .add_params([width.clone(), height.clone()])
+    let plot = Chart::<Cartesian>::new()
+        .params([width.clone(), height.clone()])
         .canvas_size(width.expr(), height.expr())
         .data(df)
         .mark(

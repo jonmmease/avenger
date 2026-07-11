@@ -68,7 +68,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .viewport_id("world")
         .sphere(SphereStyle::default())
         .graticule(GraticuleStyle::default());
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(900.0, 560.0)
         .title("Great-circle routes — drag to pan, scroll to zoom")
         .mark(

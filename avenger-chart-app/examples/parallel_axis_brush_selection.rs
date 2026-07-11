@@ -96,13 +96,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let coord = parallel_coord();
 
-    let mut plot = Plot::with_coord(coord)
+    let mut plot = Chart::with_coord(coord)
         .canvas_size(CANVAS_SIZE[0], CANVAS_SIZE[1])
         .plot_size(PLOT_SIZE[0], PLOT_SIZE[1])
         .title("Drag an axis to brush; shift-drag to combine dimensions")
         .data(ctx.read_batch(source_batch()).expect("read data"))
-        .add_selection(brush)
-        .add_store(brush_store())
+        .selection(brush)
+        .store(brush_store())
         // Seed the selected-line color scale from all rows, even when the
         // current selection is empty.
         .mark(

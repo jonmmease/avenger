@@ -94,19 +94,19 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         ))
         .event_binding(lasso_clear_binding(SHARED_LASSO_STORE, "shared_pick"));
 
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(1440.0, 520.0)
-        .add_selection(free_pick)
-        .add_selection(shared_pick)
-        .add_store(lasso_overlay_store(
+        .selection(free_pick)
+        .selection(shared_pick)
+        .store(lasso_overlay_store(
             FREE_LASSO_STORE,
             CoordinationScope::Free,
         ))
-        .add_store(lasso_overlay_store(
+        .store(lasso_overlay_store(
             SHARED_LASSO_STORE,
             CoordinationScope::Shared,
         ))
-        .add_param(cursor.clone())
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(Subplot::new(free_facets).name("free"))
         .mark(Subplot::new(shared_facets).name("shared"))

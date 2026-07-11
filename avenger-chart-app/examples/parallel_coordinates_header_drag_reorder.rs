@@ -47,8 +47,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .order_param(order.name.clone())
         .active_axis_display_params(drag_dimension.name.clone(), drag_display_x.name.clone());
 
-    let mut plot = Plot::with_coord(coord)
-        .add_params([
+    let mut plot = Chart::with_coord(coord)
+        .params([
             cursor.clone(),
             order.clone(),
             drag_dimension.clone(),

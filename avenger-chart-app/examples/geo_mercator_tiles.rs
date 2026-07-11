@@ -85,7 +85,7 @@ async fn build_app(
         .center_lon_lat(-73.9857, 40.7484)
         .zoom(12.0)
         .tiles(tiles);
-    let plot = Plot::with_coord(coord.clone())
+    let plot = Chart::with_coord(coord.clone())
         .canvas_size(800.0, 560.0)
         .data(df)
         .mark(

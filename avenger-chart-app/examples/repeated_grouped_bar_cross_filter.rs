@@ -85,13 +85,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .event_binding(select_bar_binding())
         .event_binding(clear_selection_binding());
 
-    let plot = Plot::<RepeatColumns>::new()
+    let plot = Chart::<RepeatColumns>::new()
         .title("Click a grouped bar to cross-filter")
         .canvas_size(SIZE[0], SIZE[1])
         .data(ctx.read_batch(source_batch()).expect("read data"))
         .plot_size(380.0, 250.0)
-        .add_selection(picked)
-        .add_param(cursor.clone())
+        .selection(picked)
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .configure_coord(|c| {
             c.columns(vec![

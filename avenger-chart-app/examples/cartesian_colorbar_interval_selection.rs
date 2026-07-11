@@ -96,12 +96,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             .zindex(10_000),
     );
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(860.0, 560.0)
         .title("Colorbar interval selection")
         .data(df)
-        .add_selection(temperature_selection)
-        .add_store(temperature_interval_store())
+        .selection(temperature_selection)
+        .store(temperature_interval_store())
         .mark(
             Symbol::new()
                 .id("all_points")

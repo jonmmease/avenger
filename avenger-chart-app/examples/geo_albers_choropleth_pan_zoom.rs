@@ -52,7 +52,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let geo = Geo::albers_usa_conus()
         .viewport_id("us")
         .graticule(GraticuleStyle::default());
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(860.0, 600.0)
         .title("Population density — drag to pan, scroll to zoom")
         .data(df)

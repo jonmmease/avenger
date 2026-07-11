@@ -54,7 +54,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let cursor = Param::cursor("treemap_zoom_cursor", CursorStyle::Default);
     let root = Param::new("treemap_root", ScalarValue::Utf8(None));
 
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -64,8 +64,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .title("Click a treemap group to zoom")
     .canvas_size(SIZE[0], SIZE[1])
     .data(ctx.read_batch(treemap_batch()).expect("read data"))
-    .add_param(cursor.clone())
-    .add_param(root.clone())
+    .param(cursor.clone())
+    .param(root.clone())
     .cursor_param(cursor.name.clone())
     .configure_guide(
         TreemapGuide::new()

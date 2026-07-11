@@ -66,7 +66,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         )
         .tool(PanScrollZoom::cartesian().settle_exact(true));
 
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .canvas_size(820.0, 360.0)
         .data(df)
         .mark(Subplot::new(leaf).column(col("group_name")));

@@ -70,9 +70,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .mark(month_detail_background())
         .mark(month_detail_overlay(selected));
 
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(SIZE[0], SIZE[1])
-        .add_selection(picked)
+        .selection(picked)
         .mark(Subplot::new(source_plot).name("nested"))
         .mark(Subplot::new(detail_plot).name("detail"));
 

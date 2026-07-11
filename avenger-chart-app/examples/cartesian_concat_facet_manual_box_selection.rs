@@ -81,11 +81,11 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .title("Sibling view")
         .mark(selection_points(selected, 115.0));
 
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(1120.0, 520.0)
-        .add_store(brush_box_store(CoordinationScope::Free))
-        .add_selection(brush)
-        .add_param(cursor.clone())
+        .store(brush_box_store(CoordinationScope::Free))
+        .selection(brush)
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(Subplot::new(faceted).name("faceted").label("Faceted"))
         .mark(Subplot::new(all_points).name("all").label("All rows"))

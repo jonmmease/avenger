@@ -56,7 +56,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             ..GraticuleStyle::default()
         })
         .adaptive_blend(BlendConfig::default());
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(860.0, 600.0)
         .title("Zoom in: Albers morphs into Mercator")
         .data(df)

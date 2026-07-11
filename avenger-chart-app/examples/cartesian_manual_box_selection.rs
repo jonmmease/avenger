@@ -66,12 +66,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .stroke_width(1.5)
         .zindex(10_000);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(760.0, 520.0)
         .data(df)
-        .add_selection(brush)
-        .add_store(brush_box_store(CoordinationScope::Shared))
-        .add_param(cursor.clone())
+        .selection(brush)
+        .store(brush_box_store(CoordinationScope::Shared))
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(
             Symbol::new()

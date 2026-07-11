@@ -65,10 +65,10 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .set_selection("picked", SelectionUpdate::clear())
         .exact();
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(760.0, 520.0)
         .title("Legend opacity selection")
-        .add_selection(picked)
+        .selection(picked)
         .data(df)
         .mark(
             Symbol::new()

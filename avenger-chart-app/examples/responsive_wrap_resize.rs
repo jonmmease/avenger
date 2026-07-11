@@ -59,8 +59,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             .size(90.0),
     );
 
-    let plot = Plot::<FacetWrap>::new()
-        .add_param(width.clone())
+    let plot = Chart::<FacetWrap>::new()
+        .param(width.clone())
         .canvas_constraint(CanvasConstraint::width(width.expr()))
         .plot_constraint(PlotConstraint::height(150.0))
         .data(df)

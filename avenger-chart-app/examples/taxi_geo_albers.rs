@@ -127,7 +127,7 @@ async fn build_app(
             ..Default::default()
         });
 
-    let plot = Plot::with_coord(coord.clone())
+    let plot = Chart::with_coord(coord.clone())
         .title("Taxi density warps with the blend")
         .canvas_size(960.0, 720.0)
         .data(df)

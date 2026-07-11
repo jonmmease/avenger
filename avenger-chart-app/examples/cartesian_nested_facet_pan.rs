@@ -78,7 +78,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     // Inner: facet leaf by column. Outer: facet that by row.
     let columns = Plot::<FacetColumn>::new().mark(Subplot::new(leaf).column(col("col_name")));
 
-    let plot = Plot::<FacetRow>::new()
+    let plot = Chart::<FacetRow>::new()
         .canvas_size(820.0, 520.0)
         .data(df)
         .mark(Subplot::new(columns).row(col("row_name")));

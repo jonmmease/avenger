@@ -107,7 +107,7 @@ async fn build_app(
             z1: 12.0,
             ..Default::default()
         });
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(860.0, 600.0)
         .title("Warped satellite tiles — zoom in to morph into Mercator")
         .data(landmarks)

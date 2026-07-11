@@ -50,12 +50,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let selected = picked.predicate();
     let cursor = Param::cursor("pick_cursor", CursorStyle::Default);
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .title("Click a grouped bar")
         .canvas_size(SIZE[0], SIZE[1])
         .data(ctx.read_batch(grouped_bar_batch()).expect("read data"))
-        .add_selection(picked)
-        .add_param(cursor.clone())
+        .selection(picked)
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .legend("fill", |legend| legend.title("Team"))
         .mark(

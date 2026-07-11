@@ -67,7 +67,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         )
         .tool(PanScrollZoom::cartesian());
 
-    let plot = Plot::<RepeatGrid>::new()
+    let plot = Chart::<RepeatGrid>::new()
         .canvas_size(960.0, 820.0)
         .data(df)
         .configure_coord(|c| {

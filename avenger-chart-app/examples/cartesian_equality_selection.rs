@@ -88,7 +88,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .size(150.0),
         );
 
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(1040.0, 470.0)
         .mark(Subplot::new(bars).name("bars").label("Bar selection"))
         .mark(

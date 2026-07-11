@@ -93,7 +93,7 @@ async fn build_app(
         .await
         .expect("load cached NYC taxi fixture");
 
-    let plot = Plot::with_coord(Cartesian::new().unit_aspect(1.0))
+    let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .title("NYC taxi pickup density")
         .canvas_size(960.0, 720.0)
         .data(df)

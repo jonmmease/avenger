@@ -83,14 +83,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             "#d97706",
         ));
 
-    let plot = Plot::<HConcat>::new()
+    let plot = Chart::<HConcat>::new()
         .canvas_size(1080.0, 480.0)
-        .add_selection(picked)
-        .add_store(lasso_overlay_store(
+        .selection(picked)
+        .store(lasso_overlay_store(
             "source_lasso",
             CoordinationScope::Shared,
         ))
-        .add_param(cursor.clone())
+        .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(
             Subplot::new(source)
