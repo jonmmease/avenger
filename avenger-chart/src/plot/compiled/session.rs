@@ -1320,7 +1320,18 @@ pub struct EvaluationRequest {
 
 /// Runtime options owned by a reusable `PlotSession`.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct PlotSessionOptions {}
+pub struct PlotSessionOptions {
+    /// MEASUREMENT knob (cache-dissolution campaign): give every
+    /// evaluation a fresh, throwaway facet-semantic (partition slot)
+    /// cache instead of the session-lived one.
+    #[doc(hidden)]
+    pub disable_facet_semantic_cache: bool,
+    /// MEASUREMENT knob (cache-dissolution campaign): give every
+    /// evaluation a fresh, throwaway scale-domain cache instead of the
+    /// session-lived one.
+    #[doc(hidden)]
+    pub disable_scale_domain_cache: bool,
+}
 
 impl Default for EvaluationRequest {
     fn default() -> Self {
@@ -1884,6 +1895,26 @@ impl PlotSession {
             .then(|| Arc::new(self.scoped_selections.clone()))
     }
 
+    /// The facet-semantic cache handle for one evaluation (a throwaway
+    /// when disabled by the measurement knob).
+    fn facet_semantic_cache_for_evaluation(&self) -> FacetSemanticCacheHandle {
+        if self.options.disable_facet_semantic_cache {
+            Arc::new(Mutex::new(PartitionSlotCache::new()))
+        } else {
+            self.facet_semantic_cache.clone()
+        }
+    }
+
+    /// The scale-domain cache handle for one evaluation (a throwaway when
+    /// disabled by the measurement knob).
+    fn scale_domain_cache_for_evaluation(&self) -> ScaleDomainCacheHandle {
+        if self.options.disable_scale_domain_cache {
+            Arc::new(Mutex::new(ScaleDomainCache::default()))
+        } else {
+            self.scale_domain_cache.clone()
+        }
+    }
+
     fn scoped_store_state_handle(&self) -> Option<Arc<ScopedStoreState>> {
         (!self.scoped_stores.specs.is_empty()).then(|| Arc::new(self.scoped_stores.clone()))
     }
@@ -1952,8 +1983,8 @@ impl PlotSession {
                         Some(next_params.clone()),
                         options.clone(),
                         layout_profile,
-                        self.scale_domain_cache.clone(),
-                        self.facet_semantic_cache.clone(),
+                        self.scale_domain_cache_for_evaluation(),
+                        self.facet_semantic_cache_for_evaluation(),
                         self.facet_scale_builder_precompute_cache.clone(),
                         use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                         use_measurement_profile_caches
@@ -1992,8 +2023,8 @@ impl PlotSession {
                     self.ctx.as_ref(),
                     Some(next_params.clone()),
                     options,
-                    self.scale_domain_cache.clone(),
-                    self.facet_semantic_cache.clone(),
+                    self.scale_domain_cache_for_evaluation(),
+                    self.facet_semantic_cache_for_evaluation(),
                     self.facet_scale_builder_precompute_cache.clone(),
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
@@ -2036,8 +2067,8 @@ impl PlotSession {
                 self.ctx.as_ref(),
                 Some(next_params.clone()),
                 options,
-                self.scale_domain_cache.clone(),
-                self.facet_semantic_cache.clone(),
+                self.scale_domain_cache_for_evaluation(),
+                self.facet_semantic_cache_for_evaluation(),
                 self.facet_scale_builder_precompute_cache.clone(),
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
