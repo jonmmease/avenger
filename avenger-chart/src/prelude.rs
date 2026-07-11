@@ -56,13 +56,13 @@ pub use avenger_chart_parallel::{
 };
 pub use avenger_chart_polar::Polar;
 
-// Re-export the Plot type
+// Re-export root Chart and position-neutral Plot types
 pub use crate::layout::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, PlotConstraint,
 };
 pub use crate::plot::{
-    EvaluationRequest, Plot, PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle, TitleAlign,
-    TitleSpan,
+    Chart, EvaluationRequest, Plot, PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle,
+    TitleAlign, TitleSpan,
 };
 pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,

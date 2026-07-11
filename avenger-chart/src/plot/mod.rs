@@ -4,6 +4,7 @@
 //! along with supporting types for titles, scales, and axes.
 
 mod channel;
+mod chart;
 pub(crate) mod compiled;
 mod plot;
 mod scales;
@@ -11,6 +12,7 @@ mod title;
 
 // Re-export core plot types
 pub use avenger_chart_core::IntoExpr;
+pub use chart::Chart;
 pub use compiled::{
     CompiledPlot, EvaluationRequest, PlotSession, PlotSessionOptions, ScopedParamAssignment,
     ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,
