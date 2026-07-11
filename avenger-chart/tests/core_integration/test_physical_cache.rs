@@ -9,9 +9,13 @@
 
 use std::sync::Arc;
 
-use avenger_chart::{plot::CompiledPlot, prelude::*};
-use avenger_datafusion_cache::{
-    CacheMetricsSnapshot, EvaluationCache, EvaluationCacheConfig, EvaluationCachePlanner,
+use avenger_chart::{
+    physical_cache::{
+        CacheMetricsSnapshot, EvaluationCache, EvaluationCacheConfig, cached_session_context,
+        install_physical_cache, physical_cache_from_ctx,
+    },
+    plot::CompiledPlot,
+    prelude::*,
 };
 use datafusion::{
     arrow::{
@@ -31,16 +35,9 @@ use indexmap::IndexMap;
 // ---------------------------------------------------------------------------
 
 /// A context with the cache rule installed as the LAST physical optimizer
-/// rule — the Phase 0 probe wires this by hand; Phase 1 replaces the body
-/// with the blessed helper.
+/// rule, via the blessed helper.
 fn cached_ctx() -> (SessionContext, Arc<EvaluationCache>) {
-    let cache = EvaluationCache::new(EvaluationCacheConfig::default());
-    let planner = EvaluationCachePlanner::new(Arc::clone(&cache));
-    let state = SessionStateBuilder::new()
-        .with_default_features()
-        .with_physical_optimizer_rule(Arc::new(planner))
-        .build();
-    (SessionContext::new_with_state(state), cache)
+    cached_session_context(EvaluationCacheConfig::default())
 }
 
 fn record_batch(fields: Vec<Field>, columns: Vec<ArrayRef>) -> RecordBatch {
@@ -463,4 +460,56 @@ async fn census_baked_chart_on_cached_context() {
         Some(params(&[("min", 2.5)])),
     )
     .await;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1: helper wiring + kill switch
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn helper_context_serves_hits_and_is_discoverable() {
+    let (ctx, cache) = cached_session_context(EvaluationCacheConfig::default());
+    let found = physical_cache_from_ctx(&ctx).expect("cache discoverable from ctx");
+    assert!(
+        Arc::ptr_eq(&found, &cache),
+        "extension returns the same cache"
+    );
+
+    let compiled = colored_scatter_legend(&ctx).await;
+    compiled.evaluate(&ctx, None).await.expect("eval 1");
+    compiled.evaluate(&ctx, None).await.expect("eval 2");
+    compiled.evaluate(&ctx, None).await.expect("eval 3");
+    assert!(
+        cache.metrics().hits > 0,
+        "helper-built context must serve hits: {:?}",
+        cache.metrics()
+    );
+}
+
+#[tokio::test]
+async fn install_composes_with_existing_builder() {
+    // Hosts with their own builder use the primitive; everything still works.
+    let (builder, cache) = install_physical_cache(
+        SessionStateBuilder::new().with_default_features(),
+        EvaluationCacheConfig::default(),
+    );
+    let ctx = SessionContext::new_with_state(builder.build());
+    let compiled = colored_scatter_legend(&ctx).await;
+    for _ in 0..3 {
+        compiled.evaluate(&ctx, None).await.expect("evaluate");
+    }
+    assert!(cache.metrics().hits > 0, "{:?}", cache.metrics());
+}
+
+#[tokio::test]
+async fn disabled_cache_records_nothing_and_is_undiscoverable() {
+    // The env kill switch cannot be safely toggled in-process (tests run
+    // threaded); this exercises the same disabled path the switch takes.
+    let ctx = SessionContext::new();
+    assert!(
+        physical_cache_from_ctx(&ctx).is_none(),
+        "plain context has no cache extension"
+    );
+    let compiled = colored_scatter_legend(&ctx).await;
+    compiled.evaluate(&ctx, None).await.expect("evaluate");
 }

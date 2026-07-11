@@ -118,6 +118,8 @@ pub mod marks;
 pub mod maybe;
 pub mod param;
 pub(crate) mod partition;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod physical_cache;
 pub mod plot;
 pub mod polar;
 pub(crate) mod positioned_subplot;
