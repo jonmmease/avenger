@@ -59,12 +59,17 @@ impl ConfiguredScaleDataFusionExt for ConfiguredScaleWithSpec {
                 datafusion::arrow::array::StructArray::new_empty_fields(1, None).into(),
             ))
         } else {
-            // Convert HashMap<String, Scalar> to named_struct expression
-            let struct_args: Vec<Expr> = self
-                .configured
-                .config
-                .options
-                .iter()
+            // Convert HashMap<String, Scalar> to named_struct expression.
+            // Sort by key: the options map is a HashMap, and letting its
+            // per-instance iteration order pick the struct field order makes
+            // the emitted plan nondeterministic across evaluations (options
+            // are read back BY NAME, so field order is semantically inert,
+            // but plan-identity consumers — display, proto serialization,
+            // the physical result cache's fingerprints — all see it).
+            let mut sorted_options: Vec<_> = self.configured.config.options.iter().collect();
+            sorted_options.sort_by(|(a, _), (b, _)| a.cmp(b));
+            let struct_args: Vec<Expr> = sorted_options
+                .into_iter()
                 .flat_map(|(key, value)| {
                     // Convert avenger_scales::Scalar to ScalarValue
                     let scalar_value =

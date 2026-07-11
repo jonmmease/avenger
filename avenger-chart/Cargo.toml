@@ -95,6 +95,7 @@ tempfile = "3.14"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 datafusion = { workspace = true, features = ["parquet"] }
+avenger-datafusion-cache = { path = "../avenger-datafusion-cache" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }

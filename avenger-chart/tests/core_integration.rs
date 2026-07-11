@@ -30,6 +30,8 @@ mod core_integration {
     mod test_media_query_font_cascade;
     mod test_media_query_with_params;
     mod test_param;
+    #[cfg(not(target_arch = "wasm32"))]
+    mod test_physical_cache;
     mod test_polar_line;
     mod test_prelude;
     mod test_radius_expressions;
