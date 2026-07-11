@@ -18,7 +18,9 @@ preview-mode observe-only policy + per-evaluation metrics deltas, and the
 full visual suite byte-identical WITH the cache enabled
 (`AVENGER_PHYSICAL_CACHE_CENSUS=1`, 729/729) — the census caught and fixed
 one real false-hit class (DF54 `ScalarSubqueryExpr` serializes as a bare
-results index; now a third deep-guard exclusion). Compile-time
+results index; now a third deep-guard exclusion). Wasm: crate and
+integration un-gated, browser-validated 2026-07-10 (no panics, startup
+reuse, observe-only enforced, ~43 µs/plan fingerprinting). Compile-time
 cache-boundary hints: measured and declined for now (see the dated NO-GO
 memo in the integration plan; per-mark chain specialization is real but
 worth single-digit milliseconds at chart scale). Phases 3-5 below
