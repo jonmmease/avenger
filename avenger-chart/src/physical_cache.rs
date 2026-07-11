@@ -103,6 +103,27 @@ pub fn cached_session_context(
     (SessionContext::new_with_state(builder.build()), cache)
 }
 
+/// Retrofit the physical result cache onto an EXISTING context.
+///
+/// Rebuilds the context's session state from itself with the cache rule
+/// appended and the extension installed, then swaps it in place. Registered
+/// tables and configuration survive (the catalog is shared by `Arc`).
+///
+/// Prefer [`install_physical_cache`] at context build time. This entry
+/// exists for harnesses that receive contexts they did not construct (the
+/// visual-census hook). Caveats: `DataFrame`s created BEFORE the retrofit
+/// carry the old state and bypass the cache; callers are responsible for
+/// not installing twice (check [`physical_cache_from_ctx`] first).
+pub fn install_physical_cache_on_ctx(
+    ctx: &SessionContext,
+    config: EvaluationCacheConfig,
+) -> Arc<EvaluationCache> {
+    let builder = SessionStateBuilder::new_from_existing(ctx.state());
+    let (builder, cache) = install_physical_cache(builder, config);
+    *ctx.state_ref().write() = builder.build();
+    cache
+}
+
 /// Scoped observe-only hint: construction flips the cache to observe-only
 /// (hits keep being served, no new writes are admitted); drop restores the
 /// PREVIOUS value, so an outer host-level hint (for example a gesture in

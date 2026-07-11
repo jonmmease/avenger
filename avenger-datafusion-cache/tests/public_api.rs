@@ -711,3 +711,131 @@ async fn bench_shared_structure_speedup() {
         "later variants must reuse the shared aggregate: {m:?}"
     );
 }
+// Appended temporarily to the cache crate's public_api tests.
+#[tokio::test]
+async fn repro_sliced_batch_fingerprints_must_differ() {
+    use arrow::array::Float64Array;
+    use datafusion::datasource::MemTable;
+
+    let parent = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Float64,
+            false,
+        )])),
+        vec![Arc::new(Float64Array::from(
+            (0..20).map(|i| i as f64).collect::<Vec<_>>(),
+        ))],
+    )
+    .unwrap();
+    // Facet-style split: two cells as SLICES of one parent batch.
+    let cell_a = parent.slice(0, 10);
+    let cell_b = parent.slice(10, 10);
+    assert_ne!(
+        format!("{:?}", cell_a.column(0)),
+        format!("{:?}", cell_b.column(0)),
+        "cells hold different values"
+    );
+
+    let cache = EvaluationCache::new(EvaluationCacheConfig {
+        min_seen_count: 1, // admit immediately for the repro
+        ..Default::default()
+    });
+    let planner = EvaluationCachePlanner::new(Arc::clone(&cache));
+    let state = SessionStateBuilder::new()
+        .with_default_features()
+        .with_physical_optimizer_rule(Arc::new(planner))
+        .build();
+    let ctx = SessionContext::new_with_state(state);
+    ctx.register_table(
+        "cell_a",
+        Arc::new(MemTable::try_new(cell_a.schema(), vec![vec![cell_a.clone()]]).unwrap()),
+    )
+    .unwrap();
+    ctx.register_table(
+        "cell_b",
+        Arc::new(MemTable::try_new(cell_b.schema(), vec![vec![cell_b.clone()]]).unwrap()),
+    )
+    .unwrap();
+
+    let q = |t: &str| format!("SELECT min(value) AS lo, max(value) AS hi FROM {t}");
+    let a1 = pretty_format_batches(&run(&ctx, &q("cell_a")).await)
+        .unwrap()
+        .to_string();
+    let b1 = pretty_format_batches(&run(&ctx, &q("cell_b")).await)
+        .unwrap()
+        .to_string();
+    println!("A: {a1}\nB: {b1}\nmetrics: {:?}", cache.metrics());
+    assert_ne!(
+        a1, b1,
+        "different cells must produce different min/max (false hit if equal)"
+    );
+}
+
+/// Regression (found by avenger's visual census on per-cell bin
+/// transforms): `ScalarSubqueryExpr` proto-serializes as a bare results
+/// index, so two queries identical except for WHICH subquery feeds that
+/// index must never share cache entries.
+#[tokio::test]
+async fn scalar_subquery_refs_never_false_hit() {
+    let (ctx, cache) = {
+        let cache = EvaluationCache::new(EvaluationCacheConfig {
+            min_seen_count: 1, // admit immediately to maximize hit exposure
+            ..Default::default()
+        });
+        let planner = EvaluationCachePlanner::new(Arc::clone(&cache));
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_physical_optimizer_rule(Arc::new(planner))
+            .build();
+        (SessionContext::new_with_state(state), cache)
+    };
+    register_fixtures(&ctx);
+
+    // aux_a / aux_b: same schema, different values.
+    for (name, values) in [("aux_a", vec![10.0f64]), ("aux_b", vec![1000.0f64])] {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)])),
+            vec![Arc::new(Float64Array::from(values))],
+        )
+        .unwrap();
+        let table = MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap();
+        ctx.register_table(name, Arc::new(table)).unwrap();
+    }
+
+    // Identical main queries whose ONLY difference is the subquery source.
+    let q = |aux: &str| {
+        format!(
+            "SELECT id, amount + (SELECT max(x) FROM {aux}) AS shifted \
+             FROM sales WHERE id < 3 ORDER BY id"
+        )
+    };
+    // Warm each shape twice, interleaved, then compare against uncached.
+    let plain = plain_context();
+    for (name, values) in [("aux_a", vec![10.0f64]), ("aux_b", vec![1000.0f64])] {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, false)])),
+            vec![Arc::new(Float64Array::from(values))],
+        )
+        .unwrap();
+        let table = MemTable::try_new(batch.schema(), vec![vec![batch]]).unwrap();
+        plain.register_table(name, Arc::new(table)).unwrap();
+    }
+    for _ in 0..3 {
+        for aux in ["aux_a", "aux_b"] {
+            let cached_out = rendered(&run(&ctx, &q(aux)).await);
+            let plain_out = rendered(&run(&plain, &q(aux)).await);
+            assert_eq!(
+                cached_out, plain_out,
+                "scalar-subquery results must never cross plans (aux={aux})"
+            );
+        }
+    }
+    // The subquery-bearing subtrees are excluded (counted with dynamic);
+    // subquery pipelines and scans below them may still cache.
+    let metrics = cache.metrics();
+    assert!(
+        metrics.excluded_dynamic > 0,
+        "subquery refs must be excluded: {metrics:?}"
+    );
+}

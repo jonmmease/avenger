@@ -929,3 +929,32 @@ async fn metrics_delta_reported_per_evaluation() {
         .expect("plain evaluation");
     assert!(metrics.physical_cache.is_none(), "no cache, no delta");
 }
+
+/// Retrofit path (the visual-census hook): install onto an EXISTING
+/// context; registered tables survive and evaluations reuse.
+#[tokio::test]
+async fn retrofit_install_on_existing_context() {
+    use avenger_chart::physical_cache::install_physical_cache_on_ctx;
+
+    let ctx = SessionContext::new();
+    // Table registered BEFORE the retrofit must survive the state swap.
+    let compiled = scatter_param_filter(&ctx).await;
+    let cache = install_physical_cache_on_ctx(&ctx, EvaluationCacheConfig::default());
+    assert!(
+        physical_cache_from_ctx(&ctx).is_some(),
+        "retrofit installs the extension"
+    );
+
+    let p = Some(params(&[("min", 2.5)]));
+    for _ in 0..3 {
+        compiled
+            .evaluate(&ctx, p.clone())
+            .await
+            .expect("evaluation on retrofitted context");
+    }
+    assert!(
+        cache.metrics().hits > 0,
+        "retrofitted context serves hits: {:?}",
+        cache.metrics()
+    );
+}

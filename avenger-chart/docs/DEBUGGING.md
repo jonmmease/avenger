@@ -5,6 +5,23 @@ The avenger-chart crate provides two complementary debugging approaches:
 1. **Tracing Logs** - Structured textual logging for understanding internal operations
 2. **Visual Debug Rectangles** - Visual overlays showing layout bounds and component positions
 
+## Physical result-cache census
+
+`AVENGER_PHYSICAL_CACHE_CENSUS=1` makes every visual assertion evaluate
+with a per-context physical result cache installed
+(`avenger-datafusion-cache` via `avenger_chart::physical_cache`). The suite
+must stay byte-identical to the committed baselines — any diff under the
+census is a cache-integration bug (or an order-stability finding), never a
+re-bless:
+
+```bash
+AVENGER_PHYSICAL_CACHE_CENSUS=1 cargo test --release -p avenger-chart \
+    --features visual-tests --test visual_regression
+```
+
+Hosts control the cache itself with `AVENGER_PHYSICAL_CACHE=0` (disables
+the blessed `cached_session_context` constructor entirely).
+
 ## Quick Start
 
 ```bash

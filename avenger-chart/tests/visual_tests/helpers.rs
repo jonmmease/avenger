@@ -108,6 +108,115 @@ fn serialized_compiled_plot_copy(compiled: &CompiledPlot) -> CompiledPlot {
     bincode::deserialize(&serialized).expect("Failed to deserialize CompiledPlot from bincode")
 }
 
+/// Whether the physical-cache visual census is active
+/// (`AVENGER_PHYSICAL_CACHE_CENSUS=1`): every visual assertion evaluates
+/// with a per-context result cache installed, and must stay byte-identical
+/// to the committed baselines.
+fn physical_cache_census_mode() -> Option<&'static str> {
+    static MODE: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    MODE.get_or_init(|| std::env::var("AVENGER_PHYSICAL_CACHE_CENSUS").ok())
+        .as_deref()
+        .filter(|value| !value.is_empty() && *value != "0")
+}
+
+fn physical_cache_census_enabled() -> bool {
+    physical_cache_census_mode().is_some()
+}
+
+/// Census hook: retrofit a per-context cache onto the test's context
+/// (idempotent — repeated assertions on one context share its cache).
+fn maybe_install_physical_cache_census(ctx: &datafusion::prelude::SessionContext) {
+    if !physical_cache_census_enabled() {
+        return;
+    }
+    if avenger_chart::physical_cache::physical_cache_from_ctx(ctx).is_some() {
+        return;
+    }
+    let mut config = avenger_chart::physical_cache::EvaluationCacheConfig::default();
+    // Diagnostic census mode: `nocommit` wraps admitted subtrees with the
+    // write tee but discards every entry (oversize), so no hit is ever
+    // served — isolates tee-wrapper effects from replay effects.
+    if physical_cache_census_mode() == Some("nocommit") {
+        config.max_entry_bytes = 0;
+    }
+    let _cache = avenger_chart::physical_cache::install_physical_cache_on_ctx(ctx, config);
+
+    // Diagnostic census mode: `dump` also prints every final physical plan
+    // (after cache substitution) so hit placements are visible.
+    if physical_cache_census_mode() == Some("dump") {
+        #[derive(Debug)]
+        struct PlanDump;
+        impl datafusion::physical_optimizer::PhysicalOptimizerRule for PlanDump {
+            fn optimize(
+                &self,
+                plan: std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+                _config: &datafusion::config::ConfigOptions,
+            ) -> datafusion::common::Result<
+                std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+            > {
+                eprintln!(
+                    "=== FINAL PLAN ===\n{}",
+                    datafusion::physical_plan::displayable(plan.as_ref()).indent(true)
+                );
+                // Print every memory leaf's content digest so cross-cell
+                // fingerprint collisions are directly observable.
+                fn dump_leaves(
+                    plan: &std::sync::Arc<dyn datafusion::physical_plan::ExecutionPlan>,
+                    depth: usize,
+                ) {
+                    if let Some(exec) = plan
+                        .as_ref()
+                        .downcast_ref::<datafusion::datasource::source::DataSourceExec>()
+                    {
+                        if let Some(memory) = exec
+                            .data_source()
+                            .downcast_ref::<datafusion::datasource::memory::MemorySourceConfig>(
+                        ) {
+                            for (p, batches) in memory.partitions().iter().enumerate() {
+                                for batch in batches {
+                                    let digest = arrow::util::pretty::pretty_format_batches(
+                                        std::slice::from_ref(batch),
+                                    )
+                                    .map(|t| {
+                                        let text = t.to_string();
+                                        let mut lines: Vec<&str> = text.lines().collect();
+                                        lines.truncate(9);
+                                        lines.join(" | ")
+                                    })
+                                    .unwrap_or_default();
+                                    eprintln!(
+                                        "  LEAF depth={depth} partition={p} rows={}: {digest}",
+                                        batch.num_rows()
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    for child in plan.children() {
+                        dump_leaves(child, depth + 1);
+                    }
+                }
+                dump_leaves(&plan, 0);
+                Ok(plan)
+            }
+            fn name(&self) -> &str {
+                "census_plan_dump"
+            }
+            fn schema_check(&self) -> bool {
+                true
+            }
+        }
+        let state_ref = ctx.state_ref();
+        let new_state =
+            datafusion::execution::session_state::SessionStateBuilder::new_from_existing(
+                ctx.state(),
+            )
+            .with_physical_optimizer_rule(std::sync::Arc::new(PlanDump))
+            .build();
+        *state_ref.write() = new_state;
+    }
+}
+
 /// Evaluate a CompiledPlot directly and after a bincode round-trip.
 async fn evaluate_compiled_plot_with_serialization(
     compiled: &CompiledPlot,
@@ -951,6 +1060,7 @@ pub async fn assert_visual_match(
     baseline_name: &str,
     tolerance: f64,
 ) {
+    maybe_install_physical_cache_census(ctx);
     let params_for_derived_plot_size = params.clone();
     let derived_category = canvas_derived_plot_size_category(category);
     if canvas_derived_plot_size_only_enabled() {
@@ -1308,6 +1418,7 @@ pub async fn assert_visual_match_with_options(
     if canvas_derived_plot_size_only_enabled() {
         return;
     }
+    maybe_install_physical_cache_census(ctx);
 
     try_init_tracing();
 

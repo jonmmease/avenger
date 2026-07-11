@@ -261,7 +261,8 @@ struct ExclusionCounts {
 
 fn count_exclusions(node: &FingerprintedNode, counts: &mut ExclusionCounts) {
     match &node.outcome {
-        FingerprintOutcome::Excluded(ExclusionReason::DynamicExpr) => counts.dynamic += 1,
+        FingerprintOutcome::Excluded(ExclusionReason::DynamicExpr)
+        | FingerprintOutcome::Excluded(ExclusionReason::SubqueryRef) => counts.dynamic += 1,
         FingerprintOutcome::Excluded(ExclusionReason::VolatileExpr) => counts.volatile += 1,
         FingerprintOutcome::Excluded(ExclusionReason::Unbounded) => counts.unbounded += 1,
         FingerprintOutcome::Excluded(ExclusionReason::UnsupportedNode { .. }) => {

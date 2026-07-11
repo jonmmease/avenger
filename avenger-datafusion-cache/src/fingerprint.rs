@@ -96,6 +96,13 @@ pub enum ExclusionReason {
     /// The subtree contains a runtime-mutated expression (dynamic filter).
     /// Caching under one would replay data pruned for a different consumer.
     DynamicExpr,
+    /// The subtree contains a scalar-subquery reference
+    /// (`ScalarSubqueryExpr`): its value is injected at execution time from
+    /// a shared results container that proto serialization reduces to a
+    /// bare index, so byte-identical plans can read DIFFERENT subquery
+    /// results — a false-hit shape (found by the avenger visual census on
+    /// per-cell bin transforms).
+    SubqueryRef,
     /// The subtree contains a volatile expression such as `random()`.
     VolatileExpr,
     /// The subtree is not bounded; a cache entry can never be complete.
@@ -354,6 +361,9 @@ pub(crate) fn node_fingerprint(
         Err(NodeBytesError::Guard(GuardViolation::Dynamic)) => {
             return FingerprintOutcome::Excluded(ExclusionReason::DynamicExpr);
         }
+        Err(NodeBytesError::Guard(GuardViolation::SubqueryRef)) => {
+            return FingerprintOutcome::Excluded(ExclusionReason::SubqueryRef);
+        }
         Err(NodeBytesError::Guard(GuardViolation::Volatile)) => {
             return FingerprintOutcome::Excluded(ExclusionReason::VolatileExpr);
         }
@@ -533,6 +543,7 @@ fn contains_memory_source(plan: &Arc<dyn ExecutionPlan>) -> bool {
 enum GuardViolation {
     Dynamic,
     Volatile,
+    SubqueryRef,
 }
 
 /// Typed marker error threaded through the proto converter so exclusion
@@ -550,11 +561,43 @@ impl std::fmt::Display for GuardError {
             GuardViolation::Volatile => {
                 f.write_str("subtree contains a volatile expression; excluded from caching")
             }
+            GuardViolation::SubqueryRef => f.write_str(
+                "subtree reads a scalar-subquery results container; proto bytes \
+                 carry only the index, so caching would false-hit across plans",
+            ),
         }
     }
 }
 
 impl std::error::Error for GuardError {}
+
+/// Deep check for [`ScalarSubqueryExpr`] references. Like the dynamic and
+/// volatile guards, this must walk the WHOLE expression (the default
+/// converter recurses through itself for child expressions, bypassing the
+/// interception hook). `ScalarSubqueryExpr` carries no snapshot generation
+/// and proto-serializes as a bare results index, so without this guard two
+/// plans reading DIFFERENT subquery results fingerprint identically.
+///
+/// [`ScalarSubqueryExpr`]: datafusion::physical_expr::scalar_subquery::ScalarSubqueryExpr
+fn contains_scalar_subquery_ref(expr: &Arc<dyn PhysicalExpr>) -> bool {
+    use datafusion::physical_expr::scalar_subquery::ScalarSubqueryExpr;
+    use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
+
+    let mut found = false;
+    expr.apply(|node| {
+        if (node.as_ref() as &dyn std::any::Any)
+            .downcast_ref::<ScalarSubqueryExpr>()
+            .is_some()
+        {
+            found = true;
+            Ok(TreeNodeRecursion::Stop)
+        } else {
+            Ok(TreeNodeRecursion::Continue)
+        }
+    })
+    .expect("infallible traversal");
+    found
+}
 
 fn find_guard_violation(err: &DataFusionError) -> Option<GuardViolation> {
     match err {
@@ -619,6 +662,11 @@ impl PhysicalProtoConverterExtension for GuardedProtoConverter {
         if is_volatile(expr) {
             return Err(DataFusionError::External(Box::new(GuardError(
                 GuardViolation::Volatile,
+            ))));
+        }
+        if contains_scalar_subquery_ref(expr) {
+            return Err(DataFusionError::External(Box::new(GuardError(
+                GuardViolation::SubqueryRef,
             ))));
         }
         DefaultPhysicalProtoConverter {}.physical_expr_to_proto(expr, codec)
