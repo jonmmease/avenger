@@ -31,10 +31,10 @@ use indexmap::IndexMap;
 use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
-    AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, FacetEmptyCellPolicy,
-    FacetWrapColumnMode, GuideRenderContext, LegendPosition, ScalarValueHelpers,
-    TextMeasurementService, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
-    params_to_datafusion,
+    AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, EmptyCoordMeasurement,
+    FacetEmptyCellPolicy, FacetWrapColumnMode, GuideRenderContext, LegendPosition, PixelFrame,
+    ScalarValueHelpers, TextMeasurementService, eval_to_scalars, evaluate_bool_expr,
+    evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
 };
 use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
 
@@ -2318,6 +2318,70 @@ impl CompiledPlot {
             marks,
             event_datums,
         })
+    }
+
+    async fn render_composed_widget_groups(
+        &self,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+        let mut renderer = self.clone();
+        renderer.coord_transform = Box::new(PixelFrame);
+        renderer.data = None;
+        renderer.widgets.clear();
+        let scales = HashMap::new();
+        let mut groups = Vec::new();
+        for attachment in &self.widgets {
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+                continue;
+            };
+            let (width, height) = widget.measure.provisional_frame_size();
+            let mut parts = Vec::new();
+            for mark in &widget.marks {
+                let output = Box::pin(renderer.render_mark_with_plot_df(
+                    mark.as_ref(),
+                    eval_ctx,
+                    &scales,
+                    width,
+                    height,
+                    None,
+                    &[],
+                    &EmptyCoordMeasurement,
+                    MarkRenderPhase::Combined,
+                    None,
+                    None,
+                    None,
+                ))
+                .await?;
+                let part = mark
+                    .state()
+                    .widget_theme
+                    .as_ref()
+                    .map(|provenance| provenance.part.as_str())
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Compiled widget '{}' mark lacks part provenance",
+                            widget.id
+                        ))
+                    })?;
+                for mut scene_mark in output.marks {
+                    set_scene_mark_name(&mut scene_mark, part);
+                    parts.push(scene_mark);
+                }
+            }
+            groups.push(SceneMark::Group(SceneGroup {
+                name: widget.id.clone(),
+                interactive: false,
+                clip: Clip::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width,
+                    height,
+                },
+                marks: parts,
+                ..Default::default()
+            }));
+        }
+        Ok(groups)
     }
 
     /// Create guide marks (axes, grids) for the coordinate system
@@ -5132,6 +5196,7 @@ impl CompiledPlot {
             data_marks,
             guide_marks: cached_components.guide_marks.clone(),
             legend_marks: cached_components.legend_marks.clone(),
+            widget_marks: cached_components.widget_marks.clone(),
             title_marks: cached_components.title_marks.clone(),
             subtitle_marks: cached_components.subtitle_marks.clone(),
             plot_bounds: local_scope_bounds,
@@ -5599,6 +5664,7 @@ impl CompiledPlot {
             data_marks,
             guide_marks,
             legend_marks,
+            widget_marks: self.render_composed_widget_groups(&mark_eval_ctx).await?,
             title_marks,
             subtitle_marks,
             plot_bounds: plot_bounds_struct,
@@ -5799,6 +5865,14 @@ impl CompiledPlot {
 
         let data_group_index = all_marks.len();
         all_marks.push(SceneMark::Group(data_marks_group));
+        if !components.widget_marks.is_empty() {
+            all_marks.push(SceneMark::Group(SceneGroup {
+                name: "__widgets".to_string(),
+                interactive: false,
+                marks: components.widget_marks,
+                ..Default::default()
+            }));
+        }
         all_marks.extend(components.guide_marks);
         all_marks.extend(components.legend_marks);
         all_marks.extend(components.title_marks);

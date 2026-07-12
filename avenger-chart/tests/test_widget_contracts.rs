@@ -4,10 +4,41 @@ use avenger_chart::{
     pixel_frame::{PixelFrameRectPositionChannels, PixelFrameTextPositionChannels},
     prelude::*,
 };
+use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::{
     array::{Int64Array, RecordBatch},
     datatypes::{DataType, Field, Schema},
 };
+
+fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a [SceneMark]> {
+    for mark in marks {
+        if let SceneMark::Group(group) = mark {
+            if group.name == name {
+                return Some(&group.marks);
+            }
+            if let Some(found) = find_group(&group.marks, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_rect_path(marks: &[SceneMark], name: &str, prefix: &mut Vec<usize>) -> Option<Vec<usize>> {
+    for (index, mark) in marks.iter().enumerate() {
+        prefix.push(index);
+        if matches!(mark, SceneMark::Rect(rect) if rect.name == name) {
+            return Some(prefix.clone());
+        }
+        if let SceneMark::Group(group) = mark
+            && let Some(path) = find_rect_path(&group.marks, name, prefix)
+        {
+            return Some(path);
+        }
+        prefix.pop();
+    }
+    None
+}
 
 #[derive(Clone)]
 struct ContractWidget;
@@ -41,7 +72,11 @@ impl ChartWidget for ContractWidget {
                         .x(8.0)
                         .y(12.0)
                         .text("Contract"),
-                ),
+                )
+                .event_binding(ChartEventBinding::on_between_end(
+                    ChartEventStream::on(ChartEventType::MouseDown).mark("contract.box"),
+                    ChartEventStream::on(ChartEventType::MouseUp).mark("contract.box"),
+                )),
             items: Some(WidgetItems::Static(vec![
                 WidgetItemRow::new(vec![(
                     "value".to_string(),
@@ -192,6 +227,30 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
             ..
         }
     ));
+    let evaluated = decoded.evaluate(&ctx, None).await.unwrap();
+    let widget_children =
+        find_group(&evaluated.scene_graph.marks, "contract").expect("compiler-owned widget group");
+    assert!(
+        widget_children
+            .iter()
+            .any(|mark| matches!(mark, SceneMark::Rect(rect) if rect.name == "box"))
+    );
+    assert!(
+        widget_children
+            .iter()
+            .any(|mark| matches!(mark, SceneMark::Text(text) if text.name == "label"))
+    );
+    let binding = decoded.event_bindings().first().expect("widget binding");
+    let resolved = binding
+        .between
+        .as_ref()
+        .unwrap()
+        .start
+        .resolved_mark_paths()
+        .unwrap();
+    assert_eq!(resolved, &[vec![0, 0]]);
+    let box_path = find_rect_path(&evaluated.scene_graph.marks, "box", &mut Vec::new()).unwrap();
+    assert!(box_path.ends_with(&resolved[0]));
 }
 
 #[tokio::test]

@@ -77,6 +77,20 @@ impl WidgetMeasureSpec {
             height: WidgetAxisMeasureSpec::Fixed { px: height },
         }
     }
+
+    /// Conservative pre-measurement frame used while the W1.4 host solver is
+    /// not yet active. Content/fill axes use their declared minimum.
+    #[doc(hidden)]
+    pub fn provisional_frame_size(&self) -> (f32, f32) {
+        fn axis(spec: &WidgetAxisMeasureSpec) -> f32 {
+            match spec {
+                WidgetAxisMeasureSpec::Fixed { px } => *px,
+                WidgetAxisMeasureSpec::Content { min_px, .. }
+                | WidgetAxisMeasureSpec::Fill { min_px, .. } => *min_px,
+            }
+        }
+        (axis(&self.width), axis(&self.height))
+    }
 }
 
 impl Default for WidgetMeasureSpec {

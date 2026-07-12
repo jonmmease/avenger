@@ -1510,6 +1510,9 @@ pub struct PlotComponents {
     /// Legend scene graph elements
     pub legend_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
 
+    /// Compiler-owned widget groups, one per composed attachment.
+    pub widget_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
+
     /// Title scene graph elements
     pub title_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
 

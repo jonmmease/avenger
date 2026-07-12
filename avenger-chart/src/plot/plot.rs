@@ -617,7 +617,28 @@ impl<C: CoordinateSystem> Plot<C> {
                     .map(PlotMark::from_mark_arc),
             );
         }
-        let flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
+        let mut flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
+        let mut composed_widget_index = 0usize;
+        for attachment in &compiled_widgets {
+            let CompiledWidget::Composed(widget) = &attachment.widget else {
+                continue;
+            };
+            for (target, relative_paths) in &widget.relative_target_paths {
+                let paths = relative_paths
+                    .iter()
+                    .map(|path| {
+                        let mut rebased = Vec::with_capacity(path.len() + 1);
+                        rebased.push(composed_widget_index);
+                        rebased.extend(path);
+                        rebased
+                    })
+                    .collect();
+                flat_marks
+                    .mark_target_registry
+                    .insert(target.clone(), paths)?;
+            }
+            composed_widget_index += 1;
+        }
         let mut resolved_mark_states =
             resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
         lower_group_views(&flat_marks, &mut resolved_mark_states)?;
