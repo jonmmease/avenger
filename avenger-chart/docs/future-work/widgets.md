@@ -2,9 +2,12 @@
 
 ## Status
 
-Draft design, 2026-07-09 (revised same day: composed + native tiers
-promoted; external-toolkit embedding demoted to a recorded fallback; text
-input planned as a native widget over the in-repo Typst-based text stack).
+Planned design, 2026-07-09 (implementation contract synchronized
+2026-07-12). Composed + native tiers are promoted; external-toolkit
+embedding is a recorded fallback; text input is a native widget over the
+in-repo Typst-based text stack. The active implementation plan is
+`scratch/2026-07-09/02-widgets/plan.md`; this document remains planned until
+that plan's phase gates land.
 Rust-first implementation plan for the widget paradigm: interactive input
 controls built from the engine's own primitives — marks, params,
 selections, event bindings, and, where declarative composition runs out,
@@ -13,8 +16,8 @@ arbitrary Rust emitting scene marks.
 Two tiers are promoted:
 
 - **Composed widgets** (`ChartWidget`): declarative expansions — state +
-  event bindings + data-encoded marks. Checkbox, checkbox list, radio
-  list, slider.
+  event bindings + data-encoded marks. Checkbox, Button, checkbox list,
+  radio list, slider.
 - **Native widgets** (`NativeWidget`): params in → arbitrary Rust → vector
   scene marks out. Text input is the flagship, built on the engine's own
   text stack while studying how other GUI toolkits implement editing.
@@ -100,6 +103,7 @@ Everything the design builds on already exists:
 | `Sql` transform | avenger-chart-transforms | item ordering (`row_number()`) in data-encoded widgets |
 | `Subplot` marks in concat plots | concat system | the `WidgetCell` sibling |
 | `param kind: cursor` | param system | hover cursor feedback (I-beam over text input) |
+| `SceneKeyPressEvent { key, modifiers: ModifiersState }` | avenger-eventstream/src/scene.rs:156 | arrow / shift-select / Cmd-Ctrl chord detection for editing (verified 2026-07-10); clipboard and IME events do **not** exist yet — phase-5 work |
 | the custom Typst-based text stack: `avenger-text` (`TextEngine`, font resolver, measurement, rasterization, path/PDF output) over `avenger-typst-label`'s adapted Typst layout/eval/render modules, rustybuzz shaping | avenger-text / avenger-typst-label | shaping, line layout, and measurement for text input; **no editing surface exists yet** — the editing layer is new work over this stack |
 | avenger-format-number | formatting | slider value labels |
 
@@ -116,24 +120,46 @@ job is "positions are pixels; no data scales, no axes, no legends here."
 already used by legends) but has no position channels, which widget marks
 need. Plain `Cartesian` with identity scales works as an interim at the
 cost of dragging axis/scale machinery along and letting a widget author
-accidentally bind a data scale. Target state is the dedicated type; the
-implementation is expected to be `zero_d.rs`-sized.
+accidentally bind a data scale. Target state is the dedicated type.
+(Cost note, corrected 2026-07-10: the coordinate *type* is
+`zero_d.rs`-sized, but marks are implemented per coordinate system —
+`Rect` exists only as `Mark<Cartesian>` — so `PixelFrame` also brings
+a `Rect`/`Symbol`/`Rule`/`Text` mark matrix and an explicit
+unscaled-channel mechanism; expression channels default to scaled.)
+
+`PixelFrameTransform::channel_uses_scale` is false only for
+`x`/`y`/`x2`/`y2`; generic mark preparation evaluates those expressions
+directly, including conditionals. Color, opacity, size, and other channels keep
+the ordinary scale path, so data-encoded widgets can use real scales without
+axes/guides. Compilation namespaces every widget-local scale name and
+reference by widget id before merging it into the root scale registry; parts
+within one widget may share, but host marks and other widgets never couple
+domains accidentally.
 
 ### Shared types
 
-```rust
-/// Sizing policy resolved before the host's slot/track solve.
-pub enum SizePolicy {
-    Fixed(f32),        // exact pixels
-    FillAvailable,     // take what the host grants
-    Content(f32),      // content-derived pixels
-}
+Sizing is serializable and numeric. Each axis of `WidgetMeasureSpec` is
+`Fixed { px }`, `Content { expr, min_px, max_px }`, or
+`Fill { expr, min_px, max_px, stretch }`. `WidgetMeasureExpr` contains pixel
+constants, typed resolved-style lengths, measured part text width/height,
+item-count extents, `Add`, and `Max`. Evaluation returns finite,
+nonnegative `{ min_px, preferred_px, stretch }`; content tracks consume the
+preferred size and flexible hosts honor all three values. Runtime sizing
+closures and implicit 400×300 plot defaults are forbidden.
 
-pub struct WidgetSizeHints {
-    pub width: SizePolicy,
-    pub height: SizePolicy,
-}
-```
+`WidgetItems` is also explicit and serializable:
+
+- `Static(Vec<WidgetItemRow>)` preserves declaration order with a
+  compiler-owned monotonic `__order`.
+- `DataFrame { data, order_key: Vec<Expr> }` requires a nonempty total key;
+  every materialized revision rejects NULL/duplicate key tuples and a
+  preexisting reserved `__order`, then derives `__order` and `__idx` before
+  sizing or marks consume the relation.
+
+The compiler projects canonical `__value` and `__label` fields and builds one
+shared `WidgetPreparedBaseData` per result/revision. Validation, measurement,
+part mark preparation, scale domains, and event datums all consume that same
+object; no part independently rematerializes the item query.
 
 ### State wiring: the three tiers (identical to tools)
 
@@ -180,25 +206,53 @@ pub struct WidgetExpansion {
     /// Params, stores, selections, event bindings, marks — the tool
     /// bundle, fixed to the widget frame's coordinate system.
     pub expansion: ToolExpansion<PixelFrame>,
-    /// Item relation for data-encoded widgets. Marks inherit it the way
-    /// group marks inherit a group's data context. None for scalar
-    /// widgets (checkbox, slider).
-    pub data: Option<DataFrame>,
+    /// Ordered/validated item provenance for data-encoded widgets.
+    pub items: Option<WidgetItems>,
+    /// Serializable intrinsic measurement program.
+    pub measure: WidgetMeasureSpec,
 }
 
 pub trait ChartWidget: Send + Sync {
     fn id(&self) -> &str;
-
-    /// Intrinsic sizing. `ctx` provides the text measurement service and
-    /// the materialized item relation (for row counts / max label width).
-    fn size_hints(&self, ctx: &WidgetSizeContext<'_>) -> WidgetSizeHints;
+    /// Stable kind name — the CSS element (`checkbox`, `slider`, …).
+    fn kind(&self) -> &'static str;
 
     /// Same shape as ChartTool::expand. Marks author in the widget's
     /// pixel frame; event bindings default-target the widget's own marks.
+    /// The expansion carries a declarative `WidgetMeasureSpec` (per-axis
+    /// SizePolicy + measurable inputs: label text exprs, item-count
+    /// source, padding) — sizing is a SPEC the measurement phase
+    /// evaluates each pass (the legend precedent), never a runtime
+    /// closure: the compiled artifact is serializable, and a one-shot
+    /// sizing call would freeze theme/param/data-dependent measurement.
+    /// Runtime sizing callbacks are deliberately absent.
     fn expand(&self, ctx: WidgetExpansionContext<'_>)
         -> Result<WidgetExpansion, AvengerChartError>;
 }
 ```
+
+**The compiled form is serializable.** `WidgetExpansion` lowers to
+`CompiledWidget::Composed(CompiledComposedWidget { id, kind, marks,
+relative_target_paths, measure, items })`. The compiler owns a group named
+`{id}` with structurally named child parts (`box`, `check`, `label`, and so
+on); periods remain invalid inside structural ids, while public targeting uses
+the existing dot-separated `{id}.{part}` path. An omitted widget mark target
+expands to all interactive parts, never empty chrome whitespace or decorative
+parts. The relative target registry is rebased under the group's stable scene
+slot and merged before event-binding target resolution.
+
+`CompiledWidget` is always positionless. `CompiledPlot.widgets` stores
+`CompiledWidgetAttachment { widget, placement, declaration_order }`, where
+placement is either a guide side or an explicit frame. `WidgetCell` embeds the
+same positionless artifact. Direct evaluation and bincode round trips must
+produce equivalent sizing, validation, target registries, and scenes.
+
+`CompiledWidgetItemPlan` serializes its final canonical projection plus generic
+`NonNullUnique`, `ContainsScalar`, and `ContainsParam` validations. They encode
+total-order/identity and radio default/current-value requirements without a
+widget-kind switch in `avenger-chart`, and run once per newly materialized
+revision before measurement or parts. Dynamic invalidation is an evaluation
+diagnostic and performs no implicit state repair.
 
 Deliberately **not generic over a coordinate system**. `ToolExpansion<C>`'s
 generic is load-bearing for tools (a tool expands *into* a host plot and
@@ -230,38 +284,42 @@ already builds things this way in three places — guides (axes/legends are
 Rust logic reading resolved state and emitting scene marks, including
 CSS-resolved theme values), custom marks (tiles, rasters), and
 `SceneGraphBuilder<State>` at app scope. A `NativeWidget` is that pattern
-miniaturized to a widget frame, with `State` = its declared params plus
-private ephemeral fields:
+miniaturized to a widget frame. Three contracts remain deliberately distinct:
 
-```rust
-pub trait NativeWidget: Send {
-    fn id(&self) -> &str;
-    fn size_hints(&self, ctx: &WidgetSizeContext<'_>) -> WidgetSizeHints;
+1. `NativeWidget` is the authoring trait: `id`, `kind`, `schema_version`,
+   canonicalizable JSON payload, `NativeWidgetMeasureSpec`, and ordered
+   param-only `NativeWidgetStateSpec`. It compiles without a registry.
+2. `NativeWidgetFactory` is an injected, kind-keyed runtime capability. It
+   validates the schema version, parses canonical JSON, evaluates registry
+   sizing when requested, and creates an instance.
+3. `NativeWidgetInstance` alone owns `on_state_sync`, `on_event`, dirty state,
+   `scene`, `on_environment_sync`, `on_deactivate`, `on_session_detach`, and
+   `on_unmount`.
 
-    /// Params it mints/reads/writes, plus optional small data
-    /// requirements (a relation materialized and handed to `scene`).
-    /// Registered by the compiler exactly like tool/widget params.
-    fn state_spec(&self) -> WidgetStateSpec;
+The serialized variant is `CompiledNativeWidgetSpec { id, kind,
+schema_version, payload: CanonicalJson, measure, state }`. Canonical JSON is a
+UTF-8 compact string with recursively sorted object keys, not
+`serde_json::Value`, so bincode and direct evaluation agree. Unknown
+kind/version, malformed payload, duplicate state names, or a native attachment
+evaluated before W5 installs runtime resources are structured errors—not
+deserializer lookups, empty scenes, or panics. Factories, instances, prepared
+batches, and caches never serialize.
 
-    /// External param writes flow in (controlled-input contract): a
-    /// reset button, dashboard aliasing, or hot-reload restore must
-    /// update the widget's internal state; the external write wins
-    /// unless an IME composition is in flight. Returns dirty.
-    fn on_state_sync(&mut self, params: &WidgetParamView) -> bool;
+Live instances are host-owned in `NativeWidgetInstanceStore`, keyed by stable
+document id, plot/member id, and widget id. A session receives immutable
+registry/store handles and an explicit namespace through
+`NativeWidgetRuntimeResources`; attachment epochs make stale cleanup, IME
+commands, and wakeups inert after replacement. Session detach preserves the
+instance/editor for rebuild, deactivation handles retained-but-hidden owners,
+and final unmount runs exactly once only on store eviction.
 
-    /// Arbitrary Rust event logic; param writes + dirty + cursor + IME
-    /// rect out. Events arrive frame-local, carrying any rtree hit on
-    /// the widget's own named marks; the widget may also do its own
-    /// geometry hit-testing (it computed the layout).
-    fn on_event(&mut self, event: &WidgetEvent, ctx: &mut NativeWidgetCtx)
-        -> WidgetEventResponse;
-
-    /// Arbitrary Rust scene construction — called only when dirty.
-    /// Vector marks: full export fidelity, native baselines, theme
-    /// tokens via `ctx` (the guide-style CSS-to-Rust path).
-    fn scene(&mut self, frame: &FrameSpec, ctx: &SceneCtx) -> Vec<SceneMark>;
-}
-```
+`NativeWidgetCtx` accumulates a host-neutral dispatch outcome—resolved scoped
+param assignments, evaluation intent, scene/index dirty flags, focus, cursor,
+dynamic consume, and `RuntimeHostCommand`s. Commands include keyed exact
+wakeups, IME enable/cursor area, and clipboard writes. Rectangles are
+root-canvas logical pixels; native hosts apply device scale and Wasm hosts
+apply the full canvas-to-CSS-client affine transform. Instances never mutate a
+`PlotSession` directly or read wall-clock time directly.
 
 Properties of the tier:
 
@@ -279,7 +337,14 @@ Properties of the tier:
   native widgets are DSL *kinds* (schema-registered, instantiable) but
   not definable in the language, and `avenger expand` treats them as
   opaque primitives. This is the cost that keeps the composed tier
-  preferred where it suffices.
+  preferred where it suffices. **Serialization rides a kind registry**
+  (2026-07-10): the compiled artifact carries a kind-keyed spec; a
+  registered factory reconstructs instances on deserialization, and
+  headless/export paths construct an instance and call `scene()`
+  without an app loop — which is what keeps native widgets inside the
+  baseline and PDF stories. Measurement for a reconstructed native
+  widget comes from the registered instance (or a registered
+  measurement evaluator), never from a serialized closure.
 
 The two-tier split mirrors the language's own law for marks: compounds
 live in the language, primitives live in Rust.
@@ -299,18 +364,29 @@ proves uneconomical to build natively.
 One widget type, three hosts. The contract is identical in all three; only
 the frame provider differs.
 
+Authoring remains type-disjoint. `ChartWidgetPlacementExt::position` produces
+`PositionedChartWidget<W>` consumed by `.widget`; the native equivalent is
+consumed by `.native_widget`. `Plot<PixelFrame>::host_widget` and
+`host_native_widget` accept bare sources and select explicit-frame placement.
+Internally the sealed `WidgetSource::{Composed, Native}` uses explicit
+constructors—there are no overlapping blanket `From`/`Into` implementations,
+so a downstream type may implement both authoring traits without ambiguity.
+
 ### 1. Chart chrome (guide slots) — the v1 target
 
 ```rust
 Chart::<Cartesian>::new()                 // post-wrapper-refactor API; .widget()
     .mark(...)                            // lives on Plot and forwards
-    .widget(trend_toggle.position(ChromePosition::TopRight))
+    .widget(trend_toggle.position(ChromePosition::Right))
 ```
 
 Widgets occupy positioned guide slots exactly as legends do, joining the
-legend stacking `Layout`. `ChromePosition` reuses the legend position
-vocabulary. Widget size hints feed guide measurement the way legend
-measurement already does. This is the cheapest placement to implement
+legend stacking `Layout`. `ChromePosition` is a widget-facing alias for the
+existing side-only `LegendPosition`; corners and inside overlays are not v1.
+Legends and widgets form one declaration-ordered `ChromeOccupant` list and
+each side gets exactly one layout solve, including reprojection. Updating a
+keyed declaration preserves its first position. Widget measurements feed that
+mixed solve the way legend measurements already do. This is the cheapest placement to implement
 (the slot machinery is mature) and the most immediately useful: toggles,
 filters, and parameter controls that belong to one chart.
 
@@ -319,30 +395,46 @@ filters, and parameter controls that belong to one chart.
 ```rust
 Chart::<HConcat>::new()
     .selection(regions)
-    .configure_coord(|c| c.widths([TrackSize::content(), TrackSize::fr(1.0)]))
+    .configure_coord(|c| c.widths([TrackSizing::Auto, TrackSizing::Flex(1.0)]))
     .mark(WidgetCell::new(region_filter).name("filters"))
     .mark(Subplot::new(scatter).name("scatter"));
 ```
 
-`WidgetCell` is `Subplot`'s widget sibling: a concat mark wrapping the
-widget in an implicit `Plot<PixelFrame>` so concat sizing and placement
-treat it like any cell. Because a concat is one `CompiledPlot`, shared
+`WidgetCell` is `Subplot`'s widget sibling and does **not** create an implicit
+default-sized `Plot<PixelFrame>`. It embeds a positionless compiled widget,
+forwards its numeric preferred size to `GridCell.content_size`, rebases its
+targets under the cell path, and registers its state in the enclosing compile
+scope. Because a concat is one `CompiledPlot`, shared
 params/selections and cross-filtering run through the existing scoped
 state machinery — **control-panel layouts ship on today's runtime, before
 any dashboard layer exists.** Requires content-sized concat tracks
-(`TrackSize::content()` fed by widget hints).
+(`TrackSizing::Auto` fed by widget measurements).
 
 ### 3. Dashboard chrome plot (future)
 
 The dashboard layer (`dashboard-layer.md`) hosts every
 widget as a hygienically-named group inside one document-spanning
-`Plot<PixelFrame>`, frames assigned by the document layout. Nothing in the
+`Plot<PixelFrame>`, frames assigned by the document layout — via the
+**explicit-frame hosting API** (2026-07-10): per-evaluation frame
+assignments (`widget_id → frame rect`) supplied on session/evaluation
+state, with the evaluated frame state retained for event provenance,
+so re-assignment moves a widget without recompilation. Nothing in the
 widget contract changes; it is listed here only to show the contract was
 designed against all three hosts.
 
+The explicit-frame API is already part of the widget contract even though the
+dashboard host is deferred. `WidgetFrame` rejects non-finite coordinates and
+negative/non-finite extents; `WidgetFrameAssignments` rejects duplicates;
+evaluation requires exactly one assignment for every explicit attachment and
+rejects unknown ids or guide-widget assignments. `EvaluatedWidgetFrameState`
+retains both widget-id and final numeric mark-path maps for event provenance.
+An x/y-only move reuses child geometry and rebuilds placement/index state;
+width/height changes invalidate measurement, frame inputs, geometry, and hit
+data without recompilation. V1 rejects facet/repeat-local multi-instantiation.
+
 ## Built-In Widgets
 
-Five ship first: four composed, one native. All live in a new
+Six ship first: five composed, one native. All live in a new
 `avenger-chart-widgets` crate — no per-widget engine code.
 
 ### `Checkbox` — composed, scalar boolean
@@ -353,7 +445,7 @@ let trend_toggle = Checkbox::new("trend_toggle")
     .default(true);
 
 chart.mark(trend_line().visible(trend_toggle.checked()))
-    .widget(trend_toggle.position(ChromePosition::TopRight));
+    .widget(trend_toggle.position(ChromePosition::Right));
 ```
 
 - **State**: one boolean param (name = widget id). Accessor
@@ -367,6 +459,33 @@ chart.mark(trend_line().visible(trend_toggle.checked()))
 - **Sizing**: `Content(box + gap + measured label)` × `Content(line
   height)`.
 
+### `Button` — composed, momentary activation
+
+```rust
+let clear = Button::new("clear").label("Clear selection");
+let clear_selection = ChartParamChangeBinding::on(clear.activation_param())
+    .set_selection(&regions, SelectionUpdate::Clear);
+
+chart
+    .param_change_binding(clear_selection)
+    .widget(clear.position(ChromePosition::Right));
+```
+
+- **State**: one shared `UInt64` activation parameter, initially zero. A
+  pointer activation increments exactly once; overflow is a structured event
+  assignment error. A boolean pulse is forbidden because coalescing can lose
+  occurrences. `activation_param() -> Param` identifies the reaction source;
+  `activations() -> Expr` reads its count. An external-param override follows
+  the same sharing convention as other widgets.
+- **Marks**: bounded background/outline, label, optional focus-ring part. The
+  whole interactive surface activates; decorative parts do not enter the hit
+  registry.
+- **Actions**: W1 ships the counter. W6 adds `Button::action(ChartAction)` as
+  sugar for a parameter-change binding while retaining the independent
+  plot-level reaction API. The required example clears a selection.
+- **Sizing**: measured label plus themed horizontal/vertical padding, clamped
+  by themed minimum size.
+
 ### `CheckboxList` — composed, data-encoded multi-select
 
 ```rust
@@ -378,21 +497,31 @@ let region_filter = CheckboxList::new("region_filter", region_items, &regions)
 scatter_mark.transform_no_output(Filter::new(regions.predicate()), |m| m);
 ```
 
-- **State**: selection membership — checked ⇔ the item's clause is in the
-  selection. Toggling emits `SelectionUpdate::toggle_clause` with the item
-  identity (`ev::datum("__value")`), i.e. *semantically identical to
+- **State**: selection membership — checked ⇔ the item's typed equality
+  predicate is present. Toggling emits
+  `SelectionUpdate::toggle_equality_value(field_expr,
+  ev::datum("__value"), ev::datum("__item_id"))`, i.e. *semantically identical to
   clicking marks under point selection*; the widget is an alternate
   rendering of an existing interaction. `empty_selects_all()` gives
   filter-style semantics (nothing checked = no filter). Default tier mints
   the selection; `.selection(&external)` is the common override because
   cross-filtering wants the handle in other charts.
 - **Item pipeline**: project `value AS __value, label AS __label` once;
-  a `Sql` stage assigns presentation order
-  (`row_number() OVER (ORDER BY __label) - 1 AS __idx`); positions are
+  a `Sql` stage assigns presentation order as `__idx` — **stable
+  declaration order by default** (the input relation's insertion
+  order, captured as a monotonic column at materialization; corrected
+  2026-07-10 — ordering by `__label` alphabetizes and breaks the
+  declaration order tab strips and navbars require), with an optional
+  caller-supplied order expression; positions are
   `__idx * item_height` arithmetic — no scales.
 - **Marks**: box rects for every row; checked overlay behind
-  `Filter::new(selection.predicate())` — the same filtered-layer idiom the
-  cross-filter example uses; text labels.
+  `Selection::contains_equality_value(field_expr, col("__value"))`, a
+  **membership-display predicate** (is a clause for this item's value
+  present in the selection?) — corrected 2026-07-10: under
+  `empty_selects_all` the *filter* predicate is true-for-all when
+  nothing is checked, so `Filter::new(selection.predicate())` would
+  draw every box checked; display state and filter state are distinct
+  serializable membership expression independent of clause ids; text labels.
 - **Sizing**: `Content(box + gap + max measured label)` ×
   `Content(n_items * item_height)`.
 - **Extensions** (recorded, not v1): store-backed variant (a store with a
@@ -444,14 +573,16 @@ mark.transform_no_output(Filter::new(col("fare").gt_eq(min_fare.value())), |m| m
   mapping is pure SQL arithmetic; `step` is a `round(x / step) * step`
   wrapper.
 - **New helper requirement**: frame-local event coordinates
-  (`ev::frame_coord(x)`) and `frame_width()` — the widget-frame analogs of
-  the existing `ev::event_coord(channel)` / `canvas_width()` helpers.
+  (`ev::frame_x()`, `frame_y()`, `frame_width()`, `frame_height()`) over
+  reserved `__frame_*` fields — the widget-frame analogs of the existing
+  event/canvas helpers. A between gesture snapshots widget id + frame at
+  gesture start and retains it through mouse-up, even if layout changes.
   These are the slider's only genuinely new engine surface.
 - **Update cadence**: bindings reuse existing `throttle_ms`; a
   `commit: on_release` option (write a preview param during drag, commit
   on `mouse_up`) is recorded as an open question shared with the dashboard
   layer's deferred-commit forms.
-- **Sizing**: `FillAvailable` width (with a `Fixed` override) ×
+- **Sizing**: `Fill` width (with a `Fixed` override) ×
   `Content(thumb + label)`.
 
 ### `TextInput` — native, single-line text
@@ -488,8 +619,19 @@ plot.mark(
   `OnEnterOrBlur` (form-style; the half-typed buffer is exactly the
   "staged form input" ephemeral state from the dashboard exploration).
   Accessor `value() -> Expr`.
+- **Opt-in editing-state params** (added 2026-07-10): cursor position
+  (grapheme index, integer) and selected text (Utf8) surface as
+  additional minted params — `generated_widget_name(id, "cursor")` /
+  `(id, "selected_text")`, accessors `cursor_position() -> Expr` and
+  `selected_text() -> Expr`. Minted **only when consumed** (the
+  accessor marks them live): today any param write triggers
+  re-evaluation (no dependency graph), so an unused cursor param must
+  not write on every arrow key. When minted they are ordinary document
+  state; when not, cursor and selection keep the ephemeral
+  classification below.
 - **Ephemeral state** (instance fields, never serialized): the editing
-  buffer with cursor and selection, horizontal scroll offset, undo stack,
+  buffer with cursor and selection (unless their opt-in params are
+  minted, above), horizontal scroll offset, undo stack,
   IME composition, focus flag.
 - **`on_event`**: pointer down/drag → cursor placement and drag selection
   via shaped-line hit-testing; double/triple-click → word/all selection;
@@ -500,13 +642,14 @@ plot.mark(
   controlled-input contract: external param writes replace the buffer
   unless composing.
 - **`scene()`**: background + border rects (theme tokens; focus ring when
-  focused), selection highlight rects from shaped-run geometry, the text
+  focused), selection highlight rects from shaped-run geometry drawn
+  *behind* the text run, the text
   as a `Text` scene mark shaped by avenger-text (placeholder dimmed when
   empty), preedit underline, caret rule when focused — all clipped to the
   frame with the scroll offset applied. Caret blink is disabled for
   determinism (a static caret in baselines; blink can arrive later as
   runtime presentation policy, exempt from semantics).
-- **Sizing**: `FillAvailable` width (Fixed override) ×
+- **Sizing**: `Fill` width (Fixed override) ×
   `Content(line height + padding)`.
 - **avenger-text editing-support extensions** (the new engine surface this
   widget drives): single-line shaping with per-cluster metrics exposed,
@@ -519,9 +662,15 @@ plot.mark(
   the focused widget until focus is lost), IME event surfacing through
   avenger-eventstream (winit `Ime::{Enabled, Preedit, Commit, Disabled}`)
   plus `set_ime_allowed` / `set_ime_cursor_area` window plumbing driven by
-  the widget's reported IME rect, a clipboard service in
-  `NativeWidgetCtx` (arboard-style natively; the async, permission-gated
-  web Clipboard API on wasm), and the I-beam cursor via the existing
+  the widget's reported IME rect, the clipboard path (verified
+  2026-07-10: nothing clipboard-shaped exists anywhere in the stack) —
+  a clipboard service in `NativeWidgetCtx` **plus new semantic
+  `Cut`/`Copy`/`Paste(text)` events in avenger-eventstream**,
+  synthesized natively from key chords (`SceneKeyPressEvent` already
+  carries `key` + `ModifiersState`, scene.rs:156) + arboard, but
+  sourced from DOM `cut`/`copy`/`paste` events on wasm, where the
+  permission-gated async Clipboard API cannot be read synchronously on
+  a key-down — and the I-beam cursor via the existing
   cursor-kind param.
 - **Deliberate v1 limits**: single line only (no wrapping; Enter commits),
   no password masking yet, no drag-and-drop text, LTR-biased keybinding
@@ -529,6 +678,12 @@ plot.mark(
   binding table grows).
 
 ## Prior Art To Study Before Building `TextInput`
+
+> **Study complete (2026-07-10).** The answers to every question below,
+> the editing-layer architecture, and the exact avenger-text exposure
+> API live in `text-editing-layer.md` — the normative design for the
+> widget plan's W5 phases. The list below is preserved as the study's
+> original charter.
 
 The plan is explicitly to study how existing toolkits implement single-line
 editing before writing ours. Because the editing layer will be built fresh
@@ -549,9 +704,10 @@ each is for:
   state machine, click-to-cursor hit-testing against shaped text, and IME
   handling.
 - **egui `TextEdit`** — a complete, battle-tested editing model in a
-  different style. Study its `Undoer` (time/edit-distance batched undo is
-  worth copying outright), CCursor/PCursor duality, and IME composition
-  handling.
+  different style. Study its `Undoer` (time-batched undo — settle +
+  auto-save intervals, no edit-distance component (verified
+  2026-07-10) — worth copying outright), CCursor/PCursor duality, and
+  IME composition handling.
 - **Slint `TextInput`** — the exact architectural precedent for this
   design: a native runtime primitive beneath a language-composed widget
   library (`LineEdit` wraps it). Study its property surface (text,
@@ -570,7 +726,9 @@ keybinding table (macOS word-motion and Home/End conventions differ);
 double/triple-click selection conventions; scroll-to-keep-caret-visible
 behavior; selection rendering across shaped/bidi runs; what IME preedit
 rendering requires from the scene (underline segments, candidate window
-positioning via the IME rect).
+positioning via the IME rect); the write cadence for the opt-in
+cursor/selected-text params (per keystroke vs settled — study how egui
+and cosmic-text expose cursor/selection state to hosts).
 
 ## Interaction And Evaluation
 
@@ -592,23 +750,157 @@ positioning via the IME rect).
   (pressed/hover states) is deferred; when it arrives it should be runtime
   presentation policy, not document semantics.
 
+## Parameter-Change Reactions And Actions
+
+W6 adds a second serializable trigger surface parallel to event bindings.
+`ChartAction` is the shared ordered payload: parameter assignments, store
+assignments, selection assignments, and evaluation intent. Existing
+`ChartEventBinding` fluent methods remain source-compatible and delegate to
+that payload; serde accepts the old flattened representation and emits one
+canonical form. Arbitrary Rust callbacks do not enter compiled artifacts.
+
+`ChartParamChangeBinding::on(param)` names one registered shared source and
+owns filters plus a `ChartAction`. Its immutable typed row exposes
+`param_change::value()` and `previous_value()` with the source parameter's
+exact Arrow type. During evaluation, `source.expr()` is also the newly staged
+value and other parameter placeholders see the current staged snapshot.
+Initialization and equal assignments do not fire.
+
+All mutation origins—host `set_param`, chart events, resize, composed widgets,
+and native outcomes—enter one FIFO transaction coordinator. Direct changed
+parameters form wave zero; matching reactions evaluate once per initiating
+transaction; their outputs form successive immutable waves; then store/
+selection effects commit and one evaluation is requested. The compiled
+source→written-param graph rejects unknown names, non-shared scopes,
+self/transitive cycles, and multiple reactive writers for one parameter.
+Evaluation failure or same-transaction store/selection collision aborts the
+whole staged transaction with no published change or sink write.
+
+Observation reports one transaction id and ordered direct+derived
+`ParamChange`s through `ParamSetResult`, `param_changes_since`, and app
+outputs. The observation log never recursively triggers reactions. A batch API
+lets callers intentionally create one simultaneous initiating patch.
+
+Button's monotonic activation count is the initial consumer. This supports
+both `ChartParamChangeBinding::on(clear.activation_param())` and
+`clear.action(ChartAction::new().clear_selection(&selection))`; changed-value
+expressions can also copy or transform one parameter into another. A separate
+runtime-only host subscription may be added later, but no serialized
+`on_param_change` Rust closure is part of this contract.
+
 ## Theming And Testing
 
-- **Composed tier**: widget marks are marks — mark CSS applies. Public
-  part names (`box`, `check`, `dot`, `track`, `thumb`, `label`) get
-  `theme_part` provenance stamps so part selectors work
-  (`checkbox::part(box)`, `slider::part(thumb)`), reusing the
-  compound-mark part machinery.
-- **Native tier**: widgets receive resolved theme tokens through
-  `SceneCtx` — the guide path (axes and legends already consume
-  CSS-resolved values from Rust). Part-selector support for native
-  widgets means stamping their emitted scene marks with the same
-  `theme_part` provenance.
-- **Baselines**: both tiers render through the scenegraph, so
-  visual-regression baselines cover them with zero new harness — vector
-  everywhere, including the text input. Interaction tests drive synthetic
-  events through the existing event stream (set param → assert scene
-  delta), as tool tests do today.
+The initial language is the approved **Avenger hybrid**: Spectrum's compact
+32 px density and separate focus-ring clarity, Carbon's neutral layer
+structure, and Avenger's flat square-ish geometry and Okabe–Ito dark blue
+`#0072B2`. It does not ship Adobe/IBM fonts, icons, CSS, or code.
+
+| Role | Light | Dark |
+| --- | --- | --- |
+| main surface | `#FFFFFF` | `#1D1D1D` |
+| layer/control-group | `#F4F4F4` | `#2B2B2B` |
+| field surface | `#FFFFFF` | `#323232` |
+| text / strong / muted | `#202020` / `#101010` / `#5F5F5F` | `#EDEDED` / `#FFFFFF` / `#B8B8B8` |
+| border / grid | `#D7D7D7` / `#E5E5E5` | `#505050` / `#484848` |
+| unselected control | `#525252` | `#D1D1D1` |
+| accent / selection / focus | `#0072B2` | `#0072B2` |
+
+Standard geometry is 32 px control/row height, 14 px primary text, 12 px
+auxiliary text, 1 px default borders, 3 px field radius, 4 px Button radius,
+2 px choice radius, 8 px control-label/item gaps, and a separate 2 px focus
+ring with a 2 px gap. Button is at least 72 px wide with 14 px inline padding;
+choice controls are 14 px; slider is at least 80 px with a 2 px track and
+16 px handle; TextInput has an 11 px inline inset and 1 px caret. There are no
+shadows, decorative gradients, top accent stripes, or Spectrum pill Buttons.
+A bounded control-group has the same 1 px border on all four sides or none; a
+one-sided stroke is only a true divider. The Checkbox check is centered at
+50% x / 45% y and visibly inset on every edge.
+
+### Public CSS contract
+
+The default `:root` defines real semantic custom properties. The exhaustive v1
+families are:
+
+- foundation: `--widget-control-height`, `--widget-font-size`,
+  `--widget-aux-font-size`, `--widget-line-height`;
+- strokes/focus: `--widget-border-width`, `--widget-strong-border-width`,
+  `--widget-focus-width`, `--widget-focus-gap`, `--widget-focus-color`;
+- radii/spacing: `--widget-radius-small`, `--widget-radius-field`,
+  `--widget-radius-large`, `--widget-radius-pill`, `--widget-edge-padding`,
+  `--widget-control-label-gap`, `--widget-visual-label-gap`,
+  `--widget-item-gap`;
+- colors: `--widget-surface`, `--widget-app-surface`, `--widget-text`,
+  `--widget-text-strong`, `--widget-border`, `--widget-control`,
+  `--widget-track`, `--widget-accent`, `--widget-accent-hover`,
+  `--widget-accent-down`, `--widget-negative`, disabled surface/border/text,
+  and `--widget-selection`;
+- component geometry: `--widget-button-min-width`,
+  `--widget-button-inline-padding`, `--widget-button-line-height`,
+  `--widget-button-radius`, `--widget-button-border-width`,
+  `--widget-choice-control-size`, `--widget-radio-selected-border-width`,
+  `--widget-radio-center-size`, `--widget-slider-min-width`,
+  `--widget-slider-track-height`, `--widget-slider-handle-size`,
+  `--widget-slider-handle-border-width`,
+  `--widget-slider-handle-pressed-border-width`,
+  `--widget-slider-value-padding`, `--widget-input-inline-inset`,
+  `--widget-input-caret-width`, `--widget-input-placeholder-color`, and
+  `--widget-input-selection-opacity`.
+
+`WidgetStyleProperty` owns every advertised property name and expected typed
+`ThemeValue`. The closed table is: `fill`/`stroke` (color), `opacity`
+(finite number in 0…1), `font-family` (string), `font-size` (definite length),
+`font-weight` (number or supported keyword), `stroke-width`,
+`focus-ring-width`, `corner-radius`, `width`, `height`, `min-width`,
+`min-height`, `padding-inline`, `padding-block`, `control-label-gap`,
+`item-gap`, `focus-gap`, and each component extent above (definite length),
+plus `cursor` (supported cursor keyword). Unknown CSS
+declarations may parse for forward compatibility, but a custom property has no
+effect until a widget rule maps it to this closed consumer schema. Intrinsic
+geometry accepts only finite nonnegative definite lengths (`px`, `rem`, or
+reducible `calc()`); percentages, unresolved variables, cycles, and unsupported
+effects are structured widget-style errors.
+
+`WidgetPartManifest` publishes each stable part, scene-mark kind, supported
+properties/states, and hit participation. Decorative parts such as focus ring,
+selection, caret, and preedit are styleable but not targetable/hittable.
+Composed marks retain ordinary `mark[type=…]` identity and carry dedicated
+widget kind/id/part provenance. The selector parser and `CssElement` implement
+real `::part()` plus shadow-host traversal, enabling
+`checkbox#warning::part(box)` under normal specificity; attribute/class
+emulation is forbidden. Native parts use the same resolver, not a separate
+token lookup.
+
+Custom properties use selector-aware importance/specificity/source-order
+cascade and inherit through the widget shadow host and ordinary parent chain.
+`:root` is the default, while exact `--name` runtime params remain intentional
+environment-wide overrides. A variable in a nonmatching selector cannot leak
+to another widget instance. V1 state styling uses explicit host attributes:
+`variant`, `disabled`, `checked`/`selected`, `orientation`, `focus-visible`,
+`hover`, and `pressed`. Persistent attributes derive from staged params;
+ephemeral presentation state never mints public params. A state remains
+inactive until its runtime phase can know it; interactive pseudo-classes are
+not falsely claimed.
+
+### One style snapshot
+
+Each evaluation resolves one nonserialized `ResolvedWidgetStyleSet` from the
+theme, host/part provenance, CSS-variable params, color scheme, available
+frame, and presentation state. Its deterministic digest and typed host/part
+styles are shared by intrinsic measurement, text metrics, mark generation,
+focus construction, scene output, and hit geometry—none may re-query CSS.
+Measurement/native-scene keys include that digest, relevant dimensions/state,
+text config, data/revisions, and referenced variable params. CSS mutation,
+media/base-font changes, runtime overrides, or geometric state changes
+invalidate all affected consumers together; an x/y-only frame move remains
+reusable. `Theme` therefore gains a content fingerprint/revision as part of
+the W1 theming work.
+
+Both tiers render through the scenegraph. Baselines pair light/dark output and
+numeric geometry checks; interaction tests drive synthetic events through
+binding/state writes to scene deltas. Tests pin custom-property scope,
+id-isolation, direct `::part()` overrides, measurement/paint/hit consistency,
+direct-vs-bincode equivalence, vector PDF output, symmetric container borders,
+the inset check, and absence of a top stripe or superseded Spectrum constants.
 
 ## Crate Boundary
 
@@ -616,16 +908,18 @@ positioning via the IME rect).
   with per-cluster metrics, x↔cursor mapping, selection rect geometry,
   grapheme cursor arithmetic) — text-stack concerns, widget-agnostic.
 - `avenger-chart-core`: `PixelFrame` (sibling of `zero_d.rs`),
-  `ChartWidget` / `WidgetExpansion` / `WidgetSizeHints` /
-  `WidgetSizeContext`, `NativeWidget` + `WidgetEvent` /
-  `WidgetEventResponse` (sibling of `tools.rs`), frame-local event
-  helpers.
+  `ChartWidget`, `WidgetExpansion`, serializable measure/item/style contracts,
+  `NativeWidget` authoring specs, `ChartAction` and parameter-change binding
+  artifacts, plus frame-local event helpers.
 - `avenger-chart`: compile-pipeline registration of widget state
   (params/stores/selections/bindings, mark hosting, frame assignment),
-  `Plot::widget()` + `ChromePosition` (guide-slot integration),
-  `WidgetCell` in the concat system, content-sized tracks, the focus
-  service and IME/clipboard plumbing at the app layer.
-- `avenger-chart-widgets` (new): `Checkbox`, `CheckboxList`,
+  `Plot::widget()`/`Chart::widget()` + `ChromePosition` (guide-slot
+  integration), one mixed chrome solve, `WidgetCell`, explicit-frame
+  evaluation, native registry/store injection, and parameter transactions.
+- `avenger-eventstream` / `avenger-winit-wgpu` / app hosts: focus,
+  typed-text/IME/clipboard events, exact wake scheduling, host-command
+  coordinate conversion, and thin application of native outcomes.
+- `avenger-chart-widgets` (new): `Checkbox`, `Button`, `CheckboxList`,
   `RadioButtonList`, `Slider`, `TextInput`. Prelude re-exports.
 
 When the DSL arrives, `define widget` lowers onto the composed tier, and
@@ -636,34 +930,41 @@ compound marks.
 
 ## Implementation Phases
 
-1. **Contracts + Checkbox + chrome placement.** `PixelFrame`;
-   `ChartWidget`/`WidgetExpansion`; state registration in the compile
-   pipeline; guide-slot placement and stacking; `Checkbox`; baselines.
+1. **Contracts + Checkbox + Button + chrome placement.** `PixelFrame` and
+   its mark matrix; frozen composed/native serde schema; typed CSS,
+   context-aware variables, real parts, state registration and target
+   rebasing; one mixed guide-slot solve; `Checkbox` and activation-counter
+   `Button`; baselines.
    Exit criterion: the trend-line toggle example renders and round-trips
    interaction in `chart_avenger_app`.
 2. **Data-encoded widgets.** Widget data contexts (materialize + share
-   with sizing); `CheckboxList` (`SelectionUpdate::toggle_clause` and
-   `empty_selects_all` verified to exist — selection.rs:357/:734);
+   with sizing); `CheckboxList` (new predicate-aware equality membership and
+   toggle operations that preserve `empty_selects_all` filter semantics);
    `RadioButtonList`. Exit criterion: the
    region cross-filter example, checkbox list in a chrome slot.
 3. **Slider.** Frame-local coordinate helpers; drag bindings; step/format;
    throttle. Exit criterion: live range filtering of a scatter at
    interactive frame rates.
-4. **`WidgetCell` + content tracks.** Concat placement; the sidebar
-   control-panel example. This is also the integration point the dashboard
-   layer later builds on.
+4. **`WidgetCell` + content tracks.** Numeric hint plumbing, target/state
+   rebasing, explicit-frame evaluation, and the sidebar control-panel
+   example. The dashboard host remains deferred, but its frame contract lands.
 5. **`NativeWidget` + `TextInput`.** First the prior-art study pass
    (deliverable: notes answering the questions above, plus a design for
    the editing layer and the avenger-text editing-support API); then the
    shared infrastructure — focus service, IME through avenger-eventstream,
-   clipboard service, native-tier dirty loop; then the avenger-text
+   the clipboard service + `Cut`/`Copy`/`Paste` events (DOM-sourced on
+   wasm), native-tier dirty loop; then the avenger-text
    extensions and `TextInput` itself. Exit criterion: a search box
    filtering a chart, fully vector in PNG baselines and PDF export,
    IME-verified on macOS.
+6. **Parameter-change reactions + Button actions.** Extract `ChartAction`,
+   compile the acyclic shared-scope reaction graph, route every origin through
+   one FIFO transaction coordinator, publish direct+derived changes, add
+   `Button::action`, and ship the Button-clears-selection example.
 
-The `NativeWidget` trait itself is small and may land earlier
-opportunistically; phase 5's weight is the text-editing layer and its
-avenger-text extensions.
+The native authoring trait and frozen artifact schema land in phase 1; the
+factory, live-instance runtime, and TextInput land in phase 5. Phase 5's weight
+is the text-editing layer and cross-host services, not artifact design.
 
 ## Deliberately Out Of Scope
 
@@ -678,48 +979,29 @@ avenger-text extensions.
 - Multi-line text editing; password masking; drag-and-drop text.
 - General keyboard traversal (Tab order) and scenegraph-native AccessKit
   semantic nodes — the minimal focus service ships with `TextInput`; full
-  traversal and a11y remain future.
+  traversal and accessibility are deferred to
+  [accessibility-semantic-tree.md](accessibility-semantic-tree.md), explicitly
+  sequenced after widgets.
 - Per-facet widget instances and facet-scoped widget params.
 - Hover/pressed styling states and animated transitions (runtime
   presentation policy when they arrive, never document semantics).
 - Data-encoded *layout* repetition (a panel per row) — `mark subplot` is
   the designated precedent when demand appears.
 
-## Open Questions
+## Deferred Extension Questions
 
-- `PixelFrame` as a new coordinate system vs extending `ZeroDCoord` with
-  position channels vs interim `Cartesian`-with-identity-scales. (Leaning:
-  new type; the interim is acceptable scaffolding.)
-- Should `WidgetExpansion` embed `ToolExpansion<PixelFrame>` (with dead
-  `scale_edits`) or own its field set? (Leaning: embed first, split if it
-  chafes.)
-- Trait layering: do `ChartWidget` and `NativeWidget` want a shared
-  supertrait (id + size hints + state spec) so hosts hold one collection,
-  or does the host adapt composed widgets into the native lifecycle
-  internally?
-- Where in avenger-text does the editing layer live: inside the crate (a
-  `text_edit` module beside `text_line`) or a small sibling crate — and
-  how much of the needed metric surface already exists in the
-  Typst-derived layout structures vs needs exposing?
-- Slider drag ergonomics: is `commit: on_release` a per-widget property, a
-  binding-level policy, or deferred to the dashboard layer's form
-  semantics? (Same question for `TextInput`'s `OnChange` debounce
-  defaults.)
-- Do widget params want an access qualifier story (Slint's `in`/`in-out`)
-  when the dashboard layer starts aliasing them, or is whole-program write
-  analysis enough?
-- Item virtualization for long lists (`max_items_visible` as widget-chrome
-  scrolling) vs document growth — interacts with the dashboard layer's
-  no-panel-scroll law.
-- Where exactly does ephemeral native-widget state live relative to
-  `PlotSession` recreation (hot reload should preserve the text buffer?
-  or only the committed param)? Candidate: instances live at the app
-  layer keyed by widget id, surviving session rebuilds; params remain the
-  only *guaranteed* survivors.
-- Does `ChromePosition` support overlay positions inside the plot area
-  (Plotly-modebar style) in addition to guide slots?
-- `NativeWidget::state_spec` data requirements: share the composed tier's
-  widget data-context machinery (materialize once, hand a batch to
-  `scene()`), and what size ceiling keeps that honest?
-- Keybinding tables: hardcode per-platform defaults or expose a remapping
-  surface from day one?
+The v1 choices above are settled: real `PixelFrame`; embedded
+`ToolExpansion<PixelFrame>`; disjoint explicit composed/native constructors;
+`avenger-text::text_edit`; side-only chrome; host-owned native instances; and
+params as the only guaranteed serialized native state. These are extensions,
+not execution choices for the initial implementation:
+
+- slider release-only commit policy and generalized form transactions;
+- widget param access qualifiers for a future dashboard DSL;
+- virtualization/scrolling for very long item lists;
+- inside/overlay chrome positions;
+- native widgets with prepared data beyond param-only document state;
+- user-remappable keybinding tables;
+- responsive data-query defaults versus one-time initialization. A query
+  changes only when its declared dependencies change, but explicit initial-only
+  evaluation policy is deferred until real use cases require it.
