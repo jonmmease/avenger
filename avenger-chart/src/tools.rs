@@ -9,7 +9,7 @@ use avenger_chart_core::{
     Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
     CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
     DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, FormattingContext,
-    Param, RepeatContext, Scale, Selection, Store, TimeContext, resolve_repeat_placeholders,
+    Param, RepeatContext, Scale, Selection, TimeContext, resolve_repeat_placeholders,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -175,14 +175,6 @@ impl ToolCompileContext {
             .expect("tool compile state lock poisoned")
             .event_bindings
             .extend(bindings);
-        Ok(())
-    }
-
-    pub(crate) fn register_local_stores(&self, stores: &[Store]) -> Result<(), AvengerChartError> {
-        let mut state = self.state.lock().expect("tool compile state lock poisoned");
-        for store in stores {
-            state.register_store(store.compile()?, false)?;
-        }
         Ok(())
     }
 

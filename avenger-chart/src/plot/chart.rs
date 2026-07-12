@@ -1,16 +1,15 @@
 //! Root chart wrapper.
 //!
 //! [`Chart`] owns document-altitude authoring vocabulary while [`Plot`]
-//! remains the position-neutral unit embedded by subplot containers. During
-//! the facade phase the document fields still live on `Plot`; the methods here
-//! deliberately delegate one-for-one so callers can migrate before storage
-//! moves.
+//! remains the position-neutral unit embedded by subplot containers. Plot-local
+//! authoring methods are forwarded to the wrapped plot; root furnishings are
+//! retained here and supplied explicitly at compilation.
 
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    AvengerChartError, ChartTool, CoordinationScope, FormattingContext, IntoExpr, IntoPlotMark,
-    Param, Scale, Selection, Store, Theme, TimeContext,
+    AvengerChartError, ChartTool, CompiledParamSpec, CoordinationScope, FormattingContext,
+    IntoExpr, IntoPlotMark, Param, Scale, Selection, Store, Theme, TimeContext,
 };
 use avenger_chart_scales::ScaleSpec as ScaleTypeSpec;
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
@@ -23,7 +22,7 @@ use crate::{
     scales::Auto,
 };
 
-use super::{CompiledPlot, Plot, PlotSubtitle, PlotTitle};
+use super::{CompiledPlot, Plot, PlotSubtitle, PlotTitle, RootChartFurnishings};
 
 /// A root plot together with document-level furnishings.
 #[derive(Clone)]
@@ -32,6 +31,10 @@ pub struct Chart<C: CoordinateSystem> {
     theme: Option<Arc<Theme>>,
     time_context: TimeContext,
     formatting_context: FormattingContext,
+    param_specs: Vec<CompiledParamSpec>,
+    selections: Vec<Selection>,
+    stores: Vec<Store>,
+    cursor_params: Vec<String>,
 }
 
 impl<C: CoordinateSystem> Chart<C> {
@@ -42,6 +45,10 @@ impl<C: CoordinateSystem> Chart<C> {
             theme: None,
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
+            param_specs: Vec::new(),
+            selections: Vec::new(),
+            stores: Vec::new(),
+            cursor_params: Vec::new(),
         }
     }
 
@@ -52,6 +59,10 @@ impl<C: CoordinateSystem> Chart<C> {
             theme: None,
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
+            param_specs: Vec::new(),
+            selections: Vec::new(),
+            stores: Vec::new(),
+            cursor_params: Vec::new(),
         }
     }
 
@@ -255,43 +266,48 @@ impl<C: CoordinateSystem> Chart<C> {
 
     /// Declare one globally shared chart parameter.
     pub fn param(mut self, param: Param) -> Self {
-        self.plot = self.plot.add_param(param);
+        self.param_specs.push(CompiledParamSpec::shared(&param));
         self
     }
 
     /// Declare multiple globally shared chart parameters.
     pub fn params(mut self, params: impl IntoIterator<Item = Param>) -> Self {
-        self.plot = self.plot.add_params(params);
+        self.param_specs.extend(
+            params
+                .into_iter()
+                .map(|param| CompiledParamSpec::shared(&param)),
+        );
         self
     }
 
     /// Declare a chart parameter with an explicit sharing scope.
     pub fn param_with_sharing(mut self, param: Param, sharing: CoordinationScope) -> Self {
-        self.plot = self.plot.add_param_with_sharing(param, sharing);
+        self.param_specs
+            .push(CompiledParamSpec::new(&param, sharing));
         self
     }
 
     /// Declare a chart selection.
     pub fn selection(mut self, selection: Selection) -> Self {
-        self.plot = self.plot.add_selection(selection);
+        self.selections.push(selection);
         self
     }
 
     /// Declare one chart store.
     pub fn store(mut self, store: Store) -> Self {
-        self.plot = self.plot.add_store(store);
+        self.stores.push(store);
         self
     }
 
     /// Declare multiple chart stores.
     pub fn stores(mut self, stores: impl IntoIterator<Item = Store>) -> Self {
-        self.plot = self.plot.add_stores(stores);
+        self.stores.extend(stores);
         self
     }
 
     /// Mark a declared parameter as app cursor state.
     pub fn cursor_param(mut self, param: impl Into<String>) -> Self {
-        self.plot = self.plot.cursor_param(param);
+        self.cursor_params.push(param.into());
         self
     }
 
@@ -303,9 +319,15 @@ impl<C: CoordinateSystem> Chart<C> {
         self.plot
             .compile_root(
                 session_context,
-                self.theme,
-                self.time_context,
-                self.formatting_context,
+                RootChartFurnishings {
+                    theme: self.theme,
+                    time_context: self.time_context,
+                    formatting_context: self.formatting_context,
+                    param_specs: self.param_specs,
+                    selections: self.selections,
+                    stores: self.stores,
+                    cursor_params: self.cursor_params,
+                },
             )
             .await
     }
@@ -386,28 +408,27 @@ mod tests {
         assert_eq!(chart_bytes, plot_bytes);
     }
 
-    #[test]
-    fn canonical_state_methods_match_plot_storage() {
-        let plot = Plot::<Cartesian>::new()
-            .add_param(Param::new("shared", 1_i64))
-            .add_param_with_sharing(Param::new("local", 2_i64), CoordinationScope::Free)
-            .add_selection(Selection::new("picked"))
-            .add_store(Store::empty("rows"))
-            .cursor_param("cursor");
+    #[tokio::test]
+    async fn canonical_state_methods_compile_to_root_artifact() {
         let chart = Chart::<Cartesian>::new()
             .param(Param::new("shared", 1_i64))
             .param_with_sharing(Param::new("local", 2_i64), CoordinationScope::Free)
             .selection(Selection::new("picked"))
             .store(Store::empty("rows"))
             .cursor_param("cursor");
+        let compiled = chart.compile(&SessionContext::new()).await.unwrap();
 
         assert_eq!(
-            bincode::serialize(&chart.plot.param_specs).unwrap(),
-            bincode::serialize(&plot.param_specs).unwrap()
+            compiled.param_specs()["shared"].sharing,
+            CoordinationScope::Shared
         );
-        assert_eq!(chart.plot.selections.len(), plot.selections.len());
-        assert_eq!(chart.plot.stores.len(), plot.stores.len());
-        assert_eq!(chart.plot.cursor_params, plot.cursor_params);
+        assert_eq!(
+            compiled.param_specs()["local"].sharing,
+            CoordinationScope::Free
+        );
+        assert!(compiled.selection_specs().contains_key("picked"));
+        assert!(compiled.store_specs().contains_key("rows"));
+        assert_eq!(compiled.cursor_params(), &["cursor"]);
     }
 
     #[test]

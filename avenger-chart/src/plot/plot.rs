@@ -14,11 +14,11 @@ use avenger_chart_core::{
     AvengerChartError, Axis, AxisSpec, ChannelValue, ChartTool, ChildPlotFurnishings,
     CompileContext, CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec,
     CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem,
-    CoordinateSystemTransformCore, CoordinationScope, DataContext, DomainCoordination,
-    DomainCoordinationGroup, FormattingContext, IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind,
-    Mark, MarkDataMode, MarkState, Param, PlotMark, PlotMarkKind, RepeatContext, RepeatVariable,
-    ScaleInferenceHint, SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate,
-    Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    CoordinateSystemTransformCore, DataContext, DomainCoordination, DomainCoordinationGroup,
+    FormattingContext, IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode,
+    MarkState, PlotMark, PlotMarkKind, RepeatContext, RepeatVariable, ScaleInferenceHint,
+    SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate, Store,
+    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -66,23 +66,35 @@ pub struct Plot<C: CoordinateSystem> {
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
 
-    /// Parameters that can be used in expressions, with their sharing scope.
-    pub(crate) param_specs: Vec<CompiledParamSpec>,
-
     /// Plot-level event bindings that patch params in chart apps
     pub(crate) event_bindings: Vec<ChartEventBinding>,
 
-    /// Plot-level selections that event bindings can update and marks can read.
-    pub(crate) selections: Vec<Selection>,
-
-    /// Plot-level stores that event bindings can mutate and marks can read.
-    pub(crate) stores: Vec<Store>,
-
-    /// Param names whose values drive app cursor state instead of chart visuals.
-    pub(crate) cursor_params: Vec<String>,
-
     /// Authoring-time tools that expand during compilation.
     pub(crate) tools: Vec<Arc<dyn ChartTool<C>>>,
+}
+
+pub(crate) struct RootChartFurnishings {
+    pub(crate) theme: Option<Arc<Theme>>,
+    pub(crate) time_context: TimeContext,
+    pub(crate) formatting_context: FormattingContext,
+    pub(crate) param_specs: Vec<CompiledParamSpec>,
+    pub(crate) selections: Vec<Selection>,
+    pub(crate) stores: Vec<Store>,
+    pub(crate) cursor_params: Vec<String>,
+}
+
+impl Default for RootChartFurnishings {
+    fn default() -> Self {
+        Self {
+            theme: None,
+            time_context: TimeContext::default(),
+            formatting_context: FormattingContext::default(),
+            param_specs: Vec::new(),
+            selections: Vec::new(),
+            stores: Vec::new(),
+            cursor_params: Vec::new(),
+        }
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -108,7 +120,7 @@ where
         Ok(Arc::new(
             self.clone()
                 .with_child_furnishings(furnishings.clone())
-                .compile_with_tool_context(session_context, Some(&tool_context), false)
+                .compile_with_tool_context(session_context, Some(&tool_context), None)
                 .await?,
         ))
     }
@@ -130,7 +142,7 @@ where
         Ok(Arc::new(
             self.clone()
                 .with_child_furnishings(furnishings)
-                .compile_with_tool_context(session_context, tool_context, false)
+                .compile_with_tool_context(session_context, tool_context, None)
                 .await?,
         ))
     }
@@ -164,11 +176,7 @@ impl<C: CoordinateSystem> Plot<C> {
             title: None,
             subtitle: None,
             guide_config: None,
-            param_specs: Vec::new(),
             event_bindings: Vec::new(),
-            selections: Vec::new(),
-            stores: Vec::new(),
-            cursor_params: Vec::new(),
             tools: Vec::new(),
         }
     }
@@ -192,39 +200,40 @@ impl<C: CoordinateSystem> Plot<C> {
         self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        self.compile_root(
-            session_context,
-            None,
-            TimeContext::default(),
-            FormattingContext::default(),
-        )
-        .await
+        self.compile_root(session_context, RootChartFurnishings::default())
+            .await
     }
 
     pub(crate) async fn compile_root(
         self,
         session_context: &datafusion::prelude::SessionContext,
-        theme: Option<Arc<Theme>>,
-        time_context: TimeContext,
-        formatting_context: FormattingContext,
+        root_furnishings: RootChartFurnishings,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let root_tool_context = ToolCompileContext::root(theme, time_context, formatting_context);
-        Box::pin(self.compile_with_tool_context(session_context, Some(&root_tool_context), true))
-            .await
+        let root_tool_context = ToolCompileContext::root(
+            root_furnishings.theme.clone(),
+            root_furnishings.time_context.clone(),
+            root_furnishings.formatting_context.clone(),
+        );
+        Box::pin(self.compile_with_tool_context(
+            session_context,
+            Some(&root_tool_context),
+            Some(root_furnishings),
+        ))
+        .await
     }
 
     pub(crate) async fn compile_with_tool_context(
         self,
         session_context: &datafusion::prelude::SessionContext,
         inherited_tool_context: Option<&ToolCompileContext>,
-        is_root: bool,
+        root_furnishings: Option<RootChartFurnishings>,
     ) -> Result<CompiledPlot, AvengerChartError> {
         match try_lower_repeat_plot(self, session_context)? {
             MaybeLoweredRepeatPlot::Lowered(lowered) => {
                 return Box::pin(lowered.compile_with_tool_context(
                     session_context,
                     inherited_tool_context,
-                    is_root,
+                    root_furnishings,
                 ))
                 .await;
             }
@@ -232,7 +241,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 return Box::pin(plot.compile_without_repeat_lowering(
                     session_context,
                     inherited_tool_context,
-                    is_root,
+                    root_furnishings,
                 ))
                 .await;
             }
@@ -243,8 +252,19 @@ impl<C: CoordinateSystem> Plot<C> {
         self,
         session_context: &datafusion::prelude::SessionContext,
         inherited_tool_context: Option<&ToolCompileContext>,
-        is_root: bool,
+        root_furnishings: Option<RootChartFurnishings>,
     ) -> Result<CompiledPlot, AvengerChartError> {
+        let is_root = root_furnishings.is_some();
+        let (root_param_specs, root_selections, root_stores, root_cursor_params) =
+            match root_furnishings {
+                Some(root) => (
+                    root.param_specs,
+                    root.selections,
+                    root.stores,
+                    root.cursor_params,
+                ),
+                None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+            };
         let effective_time_context = inherited_tool_context
             .map(|context| context.time_context())
             .cloned()
@@ -323,14 +343,13 @@ impl<C: CoordinateSystem> Plot<C> {
             &tool_scale_targets,
             &tool_coordinate_metrics,
         )?;
-        tool_context.register_local_stores(&self.stores)?;
         if !is_root {
             tool_context.register_local_event_bindings(&self.event_bindings)?;
         }
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
         let mut selection_specs: IndexMap<String, CompiledSelectionSpec> =
-            compile_selections(&self.selections)?;
+            compile_selections(&root_selections)?;
 
         // Start with plot-level configurations
         let mut axis_specs: HashMap<String, AxisSpec> = HashMap::new();
@@ -484,11 +503,13 @@ impl<C: CoordinateSystem> Plot<C> {
             None => None,
         };
 
-        // Build param specs (preserving declaration order) and reject duplicate
-        // names regardless of whether they came from add_param or
-        // add_param_with_sharing.
-        let mut param_source_specs = self.param_specs.clone();
-        let mut store_source_specs = Vec::new();
+        // Build param specs in stable declaration order and reject duplicates
+        // across explicit root declarations and tool-generated state.
+        let mut param_source_specs = root_param_specs;
+        let mut store_source_specs = root_stores
+            .iter()
+            .map(Store::compile)
+            .collect::<Result<Vec<_>, _>>()?;
         let legend_colorbar_overlays = compile_colorbar_overlays(&legends, session_context).await?;
         for legend in legends.values_mut() {
             legend.colorbar_overlays.clear();
@@ -510,7 +531,7 @@ impl<C: CoordinateSystem> Plot<C> {
         if is_root {
             event_bindings.extend(legend_event_bindings);
         }
-        let cursor_params = self.cursor_params.clone();
+        let cursor_params = root_cursor_params;
         let mut tool_metadata = Vec::new();
         if is_root {
             let artifacts = tool_context.finalize_root()?;
@@ -644,34 +665,6 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Add a parameter that can be used in plot expressions.
-    ///
-    /// The parameter is globally shared (`CoordinationScope::Shared`): one
-    /// value across every facet cell. Use [`Plot::add_param_with_sharing`]
-    /// to register a parameter with a finer-grained facet sharing scope.
-    pub fn add_param(mut self, param: Param) -> Self {
-        self.param_specs.push(CompiledParamSpec::shared(&param));
-        self
-    }
-
-    /// Add multiple parameters at once, all globally shared.
-    pub fn add_params(mut self, params: impl IntoIterator<Item = Param>) -> Self {
-        self.param_specs
-            .extend(params.into_iter().map(|p| CompiledParamSpec::shared(&p)));
-        self
-    }
-
-    /// Add a parameter with an explicit facet sharing scope.
-    ///
-    /// `CoordinationScope::Free`/`Level(0)` gives one value per leaf coordinate scope,
-    /// `CoordinationScope::Level(N)` shares per logical ancestor `N` levels up, and
-    /// `CoordinationScope::Shared` keeps one global value.
-    pub fn add_param_with_sharing(mut self, param: Param, sharing: CoordinationScope) -> Self {
-        self.param_specs
-            .push(CompiledParamSpec::new(&param, sharing));
-        self
-    }
-
     /// Add a plot-level event binding that can patch one or more params in chart apps.
     pub fn event_binding(mut self, binding: ChartEventBinding) -> Self {
         self.event_bindings.push(binding);
@@ -681,33 +674,6 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Add multiple plot-level event bindings.
     pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         self.event_bindings.extend(bindings);
-        self
-    }
-
-    /// Register a plot-level selection.
-    pub fn add_selection(mut self, selection: Selection) -> Self {
-        self.selections.push(selection);
-        self
-    }
-
-    /// Register a plot-level mutable store.
-    pub fn add_store(mut self, store: Store) -> Self {
-        self.stores.push(store);
-        self
-    }
-
-    /// Register multiple plot-level mutable stores.
-    pub fn add_stores(mut self, stores: impl IntoIterator<Item = Store>) -> Self {
-        self.stores.extend(stores);
-        self
-    }
-
-    /// Mark a parameter as app cursor state.
-    ///
-    /// Event bindings may patch this param with `ev::cursor(...)`; chart apps
-    /// apply cursor-only patches without rebuilding the chart scene.
-    pub fn cursor_param(mut self, param: impl Into<String>) -> Self {
-        self.cursor_params.push(param.into());
         self
     }
 
@@ -835,14 +801,14 @@ impl LoweredRepeatPlot {
         self,
         session_context: &datafusion::prelude::SessionContext,
         inherited_tool_context: Option<&ToolCompileContext>,
-        is_root: bool,
+        root_furnishings: Option<RootChartFurnishings>,
     ) -> Result<CompiledPlot, AvengerChartError> {
         match self {
             Self::Columns(plot) => {
                 Box::pin(plot.compile_with_tool_context(
                     session_context,
                     inherited_tool_context,
-                    is_root,
+                    root_furnishings,
                 ))
                 .await
             }
@@ -850,7 +816,7 @@ impl LoweredRepeatPlot {
                 Box::pin(plot.compile_with_tool_context(
                     session_context,
                     inherited_tool_context,
-                    is_root,
+                    root_furnishings,
                 ))
                 .await
             }
@@ -858,7 +824,7 @@ impl LoweredRepeatPlot {
                 Box::pin(plot.compile_with_tool_context(
                     session_context,
                     inherited_tool_context,
-                    is_root,
+                    root_furnishings,
                 ))
                 .await
             }
@@ -866,7 +832,7 @@ impl LoweredRepeatPlot {
                 Box::pin(plot.compile_with_tool_context(
                     session_context,
                     inherited_tool_context,
-                    is_root,
+                    root_furnishings,
                 ))
                 .await
             }
@@ -938,11 +904,7 @@ struct RepeatPlotParts<C: CoordinateSystem> {
     layout_spec: LayoutSpec,
     title: Option<PlotTitle>,
     subtitle: Option<PlotSubtitle>,
-    param_specs: Vec<CompiledParamSpec>,
     event_bindings: Vec<ChartEventBinding>,
-    selections: Vec<Selection>,
-    stores: Vec<Store>,
-    cursor_params: Vec<String>,
     _phantom: std::marker::PhantomData<fn() -> C>,
 }
 
@@ -960,11 +922,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         title,
         subtitle,
         guide_config,
-        param_specs,
         event_bindings,
-        selections,
-        stores,
-        cursor_params,
         tools,
     } = plot;
 
@@ -991,11 +949,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         layout_spec,
         title,
         subtitle,
-        param_specs,
         event_bindings,
-        selections,
-        stores,
-        cursor_params,
         _phantom: std::marker::PhantomData,
     })
 }
@@ -1019,11 +973,7 @@ where
         title: parts.title,
         subtitle: parts.subtitle,
         guide_config: None,
-        param_specs: parts.param_specs,
         event_bindings: parts.event_bindings,
-        selections: parts.selections,
-        stores: parts.stores,
-        cursor_params: parts.cursor_params,
         tools: Vec::new(),
     }
 }
@@ -1883,10 +1833,10 @@ mod tests {
         CartesianAxis, CartesianRectPositionChannels, CartesianSymbolPositionChannels,
     };
     use avenger_chart_core::{
-        AxisGuideVisibilityPolicy, CompiledDataTransform, DataTransform,
+        AxisGuideVisibilityPolicy, CompiledDataTransform, CoordinationScope, DataTransform,
         DataTransformCompileContext, DataTransformExecutionContext, DataTransformResult,
         DefaultLogicalExprNodeExt, DomainCoordinationGroup, FormattingContext, IntoPlotMark,
-        MarkGroup, PlotMark, RepeatContext, RepeatDomainCoordination, RepeatVariable,
+        MarkGroup, Param, PlotMark, RepeatContext, RepeatDomainCoordination, RepeatVariable,
         ResolvedRepeatVariable, ResolvedSelectionClauseScope, ScaleChannelConfig,
         ScaleInferenceHint, ScaleTypePreference, SceneGeometryQuery, SceneQueryDatumField,
         Selection, SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionValue,
@@ -2781,9 +2731,13 @@ mod tests {
         let tool_context =
             ToolCompileContext::root(None, TimeContext::default(), FormattingContext::default())
                 .with_repeat_context(repeat_context);
-        plot.compile_with_tool_context(ctx, Some(&tool_context), true)
-            .await
-            .expect("plot compiles with repeat context")
+        plot.compile_with_tool_context(
+            ctx,
+            Some(&tool_context),
+            Some(RootChartFurnishings::default()),
+        )
+        .await
+        .expect("plot compiles with repeat context")
     }
 
     #[tokio::test]
@@ -3199,6 +3153,7 @@ mod tests {
     async fn repeat_grid_pan_scroll_zoom_expands_across_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<RepeatGrid>::new()
+            .param(Param::new("explicit_root", true))
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3223,6 +3178,7 @@ mod tests {
             ]
         );
         assert_eq!(compiled.tool_metadata().len(), 1);
+        assert!(compiled.param_specs().contains_key("explicit_root"));
 
         let drag_bindings = compiled
             .event_bindings()
@@ -3272,6 +3228,28 @@ mod tests {
                 .count(),
             4
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn explicit_root_state_coexists_with_ordinary_plot_tool_state()
+    -> Result<(), AvengerChartError> {
+        let ctx = SessionContext::new();
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .param(Param::new("explicit_root", true))
+            .mark(Symbol::new().x(lit(1.0)).y(lit(2.0)).size(64.0))
+            .tool(PanScrollZoom::cartesian())
+            .compile(&ctx)
+            .await?;
+
+        assert!(compiled.param_specs().contains_key("explicit_root"));
+        assert!(
+            compiled
+                .param_specs()
+                .keys()
+                .any(|name| name.starts_with("__tool_pan_scroll_zoom__"))
+        );
+        assert_eq!(compiled.tool_metadata().len(), 1);
         Ok(())
     }
 
