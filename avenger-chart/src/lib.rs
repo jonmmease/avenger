@@ -119,6 +119,7 @@ pub mod maybe;
 pub mod param;
 pub(crate) mod partition;
 pub mod physical_cache;
+pub mod pixel_frame;
 pub mod plot;
 pub mod polar;
 pub(crate) mod positioned_subplot;

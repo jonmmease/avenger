@@ -2272,6 +2272,51 @@ async fn schedule_view_materialization_transforms(
 }
 
 /// Apply a scale transformation to a channel expression.
+fn evaluate_channel_without_scale(
+    channel_value: &ChannelValue,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    match channel_value {
+        ChannelValue::Value { expr } | ChannelValue::Scaled { expr, .. } => expr.to_expr(ctx),
+        ChannelValue::Conditional {
+            conditions,
+            otherwise,
+            ..
+        } => {
+            let direct_expr = |value: &ConditionalValue| match value {
+                ConditionalValue::Scaled { expr } | ConditionalValue::Value { expr } => {
+                    expr.to_expr(ctx)
+                }
+            };
+            let first = conditions.first().ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "Conditional channel has no conditions".to_string(),
+                )
+            })?;
+            let mut case_expr = when(first.0.to_expr(ctx)?, direct_expr(&first.1)?);
+            for (condition, value) in &conditions[1..] {
+                case_expr = case_expr.when(condition.to_expr(ctx)?, direct_expr(value)?);
+            }
+            Ok(case_expr.otherwise(direct_expr(otherwise)?)?)
+        }
+    }
+}
+
+fn prepare_channel_expr(
+    channel_name: &str,
+    channel_value: &ChannelValue,
+    coord_transform: Option<&dyn avenger_chart_core::CoordinateSystemTransformCore>,
+    scales: &HashMap<String, ConfiguredScaleWithSpec>,
+    ctx: &SessionContext,
+) -> Result<Expr, AvengerChartError> {
+    if coord_transform.is_some_and(|transform| !transform.channel_uses_scale(channel_name)) {
+        evaluate_channel_without_scale(channel_value, ctx)
+    } else {
+        apply_channel_scale(channel_name, channel_value, scales, ctx)
+    }
+}
+
+/// Apply a scale transformation to a channel expression.
 pub(crate) fn apply_channel_scale(
     channel_name: &str,
     channel_value: &ChannelValue,
@@ -2458,9 +2503,10 @@ pub(crate) async fn prepare_mark_data(
     for channel_desc in &supported_channels {
         if let Some(channel_value) = channels.get(channel_desc.name) {
             prepared_channel_names.insert(channel_desc.name.to_string());
-            let scaled_expr = apply_channel_scale(
+            let scaled_expr = prepare_channel_expr(
                 channel_desc.name,
                 channel_value,
+                request.coord_transform,
                 request.scales,
                 ctx,
             )
@@ -2488,16 +2534,20 @@ pub(crate) async fn prepare_mark_data(
             if prepared_channel_names.contains(channel_name) {
                 continue;
             }
-            if !coord_transform.channel_uses_scale(channel_name) {
-                continue;
-            }
             let base_channel = strip_trailing_numbers(channel_name);
             if !coord_transform.is_position_scale_channel(base_channel) {
                 continue;
             }
             prepared_channel_names.insert(channel_name.to_string());
             let scaled_expr =
-                apply_channel_scale(channel_name, channel_value, request.scales, ctx).map_err(
+                prepare_channel_expr(
+                    channel_name,
+                    channel_value,
+                    request.coord_transform,
+                    request.scales,
+                    ctx,
+                )
+                .map_err(
                     |err| {
                         let (facet_path, available_scales) = scale_error_context();
                         AvengerChartError::InternalError(format!(

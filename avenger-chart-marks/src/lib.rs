@@ -4,12 +4,14 @@
 //! sibling crates such as `avenger-chart-marks-statistical`.
 
 pub mod area;
+pub mod compiled;
 pub mod compiled_data_context;
 pub mod data_context;
 pub mod facet_data_scope;
 pub mod image;
 pub mod line;
 pub mod path;
+pub mod pixel_frame;
 pub mod rect;
 pub mod rule;
 pub mod state;
@@ -22,12 +24,19 @@ pub mod zero_d;
 
 pub use area::{Area, AreaPartitionKey, area_channel_defaults};
 pub use avenger_chart_core::{RasterDim, dim};
+pub use compiled::{CompiledRect, CompiledRule, CompiledSymbol, CompiledText};
 pub use compiled_data_context::CompiledDataContext;
 pub use data_context::DataContext;
 pub use facet_data_scope::FacetDataScope;
 pub use image::{Image, image_channel_defaults};
 pub use line::{Line, PartitionKey, ensure_dictionary_array, line_channel_defaults};
 pub use path::{PathMark, path_channel_defaults};
+pub use pixel_frame::{
+    CompiledPixelFrameRect, CompiledPixelFrameRule, CompiledPixelFrameSymbol,
+    CompiledPixelFrameText, PixelFramePositionConfig, PixelFrameRectPositionChannels,
+    PixelFrameRulePositionChannels, PixelFrameSymbolPositionChannels,
+    PixelFrameTextPositionChannels,
+};
 pub use rect::{Rect, rect_channel_defaults};
 pub use rule::{Rule, rule_channel_defaults};
 pub use state::{CompiledMarkState, MarkState};
