@@ -29,6 +29,9 @@ use super::{CompiledPlot, Plot, PlotSubtitle, PlotTitle};
 #[derive(Clone)]
 pub struct Chart<C: CoordinateSystem> {
     plot: Plot<C>,
+    theme: Option<Arc<Theme>>,
+    time_context: TimeContext,
+    formatting_context: FormattingContext,
 }
 
 impl<C: CoordinateSystem> Chart<C> {
@@ -36,12 +39,20 @@ impl<C: CoordinateSystem> Chart<C> {
     pub fn with_coord(coord_system: C) -> Self {
         Self {
             plot: Plot::with_coord(coord_system),
+            theme: None,
+            time_context: TimeContext::default(),
+            formatting_context: FormattingContext::default(),
         }
     }
 
     /// Promote an already-authored position-neutral plot to a root chart.
     pub fn from_plot(plot: Plot<C>) -> Self {
-        Self { plot }
+        Self {
+            plot,
+            theme: None,
+            time_context: TimeContext::default(),
+            formatting_context: FormattingContext::default(),
+        }
     }
 
     /// Apply plot-level configuration without adding another forwarding method.
@@ -211,32 +222,34 @@ impl<C: CoordinateSystem> Chart<C> {
 
     /// Set an explicit chart theme.
     pub fn theme(mut self, theme: Theme) -> Self {
-        self.plot = self.plot.theme(theme);
+        self.theme = Some(Arc::new(theme));
         self
     }
 
     /// Supply an inherited theme only when no explicit theme is present.
     pub fn theme_if_unset(mut self, theme: Arc<Theme>) -> Self {
-        if self.plot.theme.is_none() {
-            self.plot.theme = Some(theme);
+        if self.theme.is_none() {
+            self.theme = Some(theme);
         }
         self
     }
 
     /// Access the effective configured theme.
     pub fn get_theme(&self) -> Arc<Theme> {
-        self.plot.get_theme()
+        self.theme
+            .clone()
+            .unwrap_or_else(|| Arc::new(Theme::light()))
     }
 
     /// Set chart-wide temporal defaults.
     pub fn time_context(mut self, time_context: TimeContext) -> Self {
-        self.plot = self.plot.time_context(time_context);
+        self.time_context = time_context;
         self
     }
 
     /// Set chart-wide formatting defaults.
     pub fn formatting_context(mut self, formatting_context: FormattingContext) -> Self {
-        self.plot = self.plot.formatting_context(formatting_context);
+        self.formatting_context = formatting_context;
         self
     }
 
@@ -287,7 +300,14 @@ impl<C: CoordinateSystem> Chart<C> {
         self,
         session_context: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        self.plot.compile(session_context).await
+        self.plot
+            .compile_root(
+                session_context,
+                self.theme,
+                self.time_context,
+                self.formatting_context,
+            )
+            .await
     }
 }
 
@@ -395,18 +415,73 @@ mod tests {
         let inherited = Arc::new(Theme::dark());
         let filled = Chart::<Cartesian>::new().theme_if_unset(inherited.clone());
         assert!(Arc::ptr_eq(
-            filled.plot.theme.as_ref().expect("inherited theme"),
+            filled.theme.as_ref().expect("inherited theme"),
             &inherited
         ));
 
         let explicit = Chart::<Cartesian>::new().theme(Theme::light());
-        let explicit_theme = explicit.plot.theme.clone().expect("explicit theme");
+        let explicit_theme = explicit.theme.clone().expect("explicit theme");
         let explicit = explicit.theme_if_unset(inherited);
         assert!(Arc::ptr_eq(
-            explicit.plot.theme.as_ref().expect("preserved theme"),
+            explicit.theme.as_ref().expect("preserved theme"),
             &explicit_theme
         ));
-        assert!(Chart::<Cartesian>::new().plot.theme.is_none());
+        assert!(Chart::<Cartesian>::new().theme.is_none());
+    }
+
+    #[tokio::test]
+    async fn root_context_reaches_concat_repeat_grandchild_without_baking_fallback_theme() {
+        fn repeated_child() -> Plot<RepeatGrid> {
+            Plot::<RepeatGrid>::new().configure_coord(|repeat| {
+                repeat
+                    .rows([RepeatVariable::new("row", lit(1_i64))])
+                    .columns([RepeatVariable::new("column", lit(2_i64))])
+                    .cell(Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#0072b2").size(20.0)))
+            })
+        }
+
+        let ctx = SessionContext::new();
+        let time = TimeContext::new()
+            .timezone("America/New_York")
+            .week_start(avenger_chart_core::WeekStart::Monday);
+        let formatting = FormattingContext::new()
+            .number_locale("test-number")
+            .datetime_locale("test-datetime")
+            .datetime_timezone("America/New_York");
+        let themed = Chart::<HConcat>::new()
+            .theme(Theme::dark())
+            .time_context(time.clone())
+            .formatting_context(formatting.clone())
+            .mark(Subplot::new(repeated_child()))
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let repeat = child_plot(&themed, 0);
+        let grandchild = child_plot(repeat, 0);
+        let root_theme = themed.theme.as_ref().expect("root theme");
+        assert!(Arc::ptr_eq(
+            root_theme,
+            repeat.theme.as_ref().expect("repeat theme")
+        ));
+        assert!(Arc::ptr_eq(
+            root_theme,
+            grandchild.theme.as_ref().expect("grandchild theme")
+        ));
+        assert_eq!(repeat.time_context, time);
+        assert_eq!(grandchild.time_context, time);
+        assert_eq!(repeat.formatting_context, formatting);
+        assert_eq!(grandchild.formatting_context, formatting);
+
+        let unthemed = Chart::<HConcat>::new()
+            .mark(Subplot::new(repeated_child()))
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let unthemed_repeat = child_plot(&unthemed, 0);
+        let unthemed_grandchild = child_plot(unthemed_repeat, 0);
+        assert!(unthemed.theme.is_none());
+        assert!(unthemed_repeat.theme.is_none());
+        assert!(unthemed_grandchild.theme.is_none());
     }
 
     #[test]

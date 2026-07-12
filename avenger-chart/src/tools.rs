@@ -29,18 +29,24 @@ pub use avenger_chart_tools::{
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
     coord_node_path: Vec<usize>,
+    theme: Option<Arc<avenger_chart_core::Theme>>,
     time_context: TimeContext,
     formatting_context: FormattingContext,
     repeat_context: Option<RepeatContext>,
 }
 
 impl ToolCompileContext {
-    pub(crate) fn root(time_context: TimeContext) -> Self {
+    pub(crate) fn root(
+        theme: Option<Arc<avenger_chart_core::Theme>>,
+        time_context: TimeContext,
+        formatting_context: FormattingContext,
+    ) -> Self {
         Self {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
             coord_node_path: Vec::new(),
+            theme,
             time_context,
-            formatting_context: FormattingContext::default(),
+            formatting_context,
             repeat_context: None,
         }
     }
@@ -53,6 +59,7 @@ impl ToolCompileContext {
             coord_node_path: parent
                 .map(|ctx| ctx.coord_node_path.clone())
                 .unwrap_or_default(),
+            theme: parent.and_then(|ctx| ctx.theme.clone()),
             time_context: parent
                 .map(|ctx| ctx.time_context.clone())
                 .unwrap_or_default(),
@@ -63,14 +70,8 @@ impl ToolCompileContext {
         }
     }
 
-    pub(crate) fn with_time_context(mut self, time_context: TimeContext) -> Self {
-        self.time_context = time_context;
-        self
-    }
-
-    pub(crate) fn with_formatting_context(mut self, formatting_context: FormattingContext) -> Self {
-        self.formatting_context = formatting_context;
-        self
+    pub(crate) fn theme(&self) -> Option<&Arc<avenger_chart_core::Theme>> {
+        self.theme.as_ref()
     }
 
     pub(crate) fn time_context(&self) -> &TimeContext {
@@ -97,6 +98,7 @@ impl ToolCompileContext {
         Self {
             state: self.state.clone(),
             coord_node_path,
+            theme: self.theme.clone(),
             time_context: self.time_context.clone(),
             formatting_context: self.formatting_context.clone(),
             repeat_context: self.repeat_context.clone(),

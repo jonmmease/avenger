@@ -63,15 +63,6 @@ pub struct Plot<C: CoordinateSystem> {
     /// Optional plot subtitle rendered by the layout system
     pub(crate) subtitle: Option<PlotSubtitle>,
 
-    /// Theme for visual styling
-    pub(crate) theme: Option<Arc<Theme>>,
-
-    /// Time handling defaults for temporal transforms, scales, and guides.
-    pub(crate) time_context: TimeContext,
-
-    /// Formatting defaults for scales, guides, and retained markup labels.
-    pub(crate) formatting_context: FormattingContext,
-
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
 
@@ -172,9 +163,6 @@ impl<C: CoordinateSystem> Plot<C> {
             layout_spec: LayoutSpec::default(),
             title: None,
             subtitle: None,
-            theme: None,
-            time_context: TimeContext::default(),
-            formatting_context: FormattingContext::default(),
             guide_config: None,
             param_specs: Vec::new(),
             event_bindings: Vec::new(),
@@ -204,7 +192,23 @@ impl<C: CoordinateSystem> Plot<C> {
         self,
         session_context: &datafusion::prelude::SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let root_tool_context = ToolCompileContext::root(self.time_context.clone());
+        self.compile_root(
+            session_context,
+            None,
+            TimeContext::default(),
+            FormattingContext::default(),
+        )
+        .await
+    }
+
+    pub(crate) async fn compile_root(
+        self,
+        session_context: &datafusion::prelude::SessionContext,
+        theme: Option<Arc<Theme>>,
+        time_context: TimeContext,
+        formatting_context: FormattingContext,
+    ) -> Result<CompiledPlot, AvengerChartError> {
+        let root_tool_context = ToolCompileContext::root(theme, time_context, formatting_context);
         Box::pin(self.compile_with_tool_context(session_context, Some(&root_tool_context), true))
             .await
     }
@@ -241,23 +245,15 @@ impl<C: CoordinateSystem> Plot<C> {
         inherited_tool_context: Option<&ToolCompileContext>,
         is_root: bool,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let inherited_time_context = inherited_tool_context
+        let effective_time_context = inherited_tool_context
             .map(|context| context.time_context())
             .cloned()
             .unwrap_or_default();
-        let effective_time_context = self
-            .time_context
-            .resolved_with_parent(&inherited_time_context);
-        let inherited_formatting_context = inherited_tool_context
+        let effective_formatting_context = inherited_tool_context
             .map(|context| context.formatting_context())
             .cloned()
             .unwrap_or_default();
-        let effective_formatting_context = self
-            .formatting_context
-            .resolved_with_parent(&inherited_formatting_context);
-        let tool_context = ToolCompileContext::from_parent(inherited_tool_context)
-            .with_time_context(effective_time_context.clone())
-            .with_formatting_context(effective_formatting_context.clone());
+        let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
         let coord_system = if let Some(repeat_context) = tool_context.repeat_context() {
             self.coord_system.resolve_repeat(repeat_context)?
         } else {
@@ -590,7 +586,7 @@ impl<C: CoordinateSystem> Plot<C> {
             layout_spec: self.layout_spec,
             title: self.title,
             subtitle: self.subtitle,
-            theme: self.theme,
+            theme: tool_context.theme().cloned(),
             time_context: effective_time_context,
             formatting_context: effective_formatting_context,
             scale_to_coord_channel,
@@ -808,24 +804,6 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Set the theme for the plot
-    pub fn theme(mut self, theme: Theme) -> Self {
-        self.theme = Some(Arc::new(theme));
-        self
-    }
-
-    /// Set time handling defaults for temporal transforms, scales, and guides.
-    pub fn time_context(mut self, time_context: TimeContext) -> Self {
-        self.time_context = time_context;
-        self
-    }
-
-    /// Set formatting defaults for scales, guides, and retained markup labels.
-    pub fn formatting_context(mut self, formatting_context: FormattingContext) -> Self {
-        self.formatting_context = formatting_context;
-        self
-    }
-
     /// Configure the guide (coordinate system visual elements like axes and background)
     pub fn configure_guide(mut self, guide: C::Guide) -> Self {
         self.guide_config = match self.guide_config {
@@ -837,13 +815,6 @@ impl<C: CoordinateSystem> Plot<C> {
             None => Some(guide),
         };
         self
-    }
-
-    /// Access the configured theme (or default if not set)
-    pub fn get_theme(&self) -> Arc<Theme> {
-        self.theme
-            .clone()
-            .unwrap_or_else(|| Arc::new(Theme::light()))
     }
 }
 
@@ -967,9 +938,6 @@ struct RepeatPlotParts<C: CoordinateSystem> {
     layout_spec: LayoutSpec,
     title: Option<PlotTitle>,
     subtitle: Option<PlotSubtitle>,
-    theme: Option<Arc<Theme>>,
-    time_context: TimeContext,
-    formatting_context: FormattingContext,
     param_specs: Vec<CompiledParamSpec>,
     event_bindings: Vec<ChartEventBinding>,
     selections: Vec<Selection>,
@@ -991,9 +959,6 @@ fn split_repeat_plot<C: CoordinateSystem>(
         layout_spec,
         title,
         subtitle,
-        theme,
-        time_context,
-        formatting_context,
         guide_config,
         param_specs,
         event_bindings,
@@ -1026,9 +991,6 @@ fn split_repeat_plot<C: CoordinateSystem>(
         layout_spec,
         title,
         subtitle,
-        theme,
-        time_context,
-        formatting_context,
         param_specs,
         event_bindings,
         selections,
@@ -1056,9 +1018,6 @@ where
         layout_spec: parts.layout_spec,
         title: parts.title,
         subtitle: parts.subtitle,
-        theme: parts.theme,
-        time_context: parts.time_context,
-        formatting_context: parts.formatting_context,
         guide_config: None,
         param_specs: parts.param_specs,
         event_bindings: parts.event_bindings,
@@ -2820,7 +2779,8 @@ mod tests {
         repeat_context: RepeatContext,
     ) -> CompiledPlot {
         let tool_context =
-            ToolCompileContext::root(TimeContext::default()).with_repeat_context(repeat_context);
+            ToolCompileContext::root(None, TimeContext::default(), FormattingContext::default())
+                .with_repeat_context(repeat_context);
         plot.compile_with_tool_context(ctx, Some(&tool_context), true)
             .await
             .expect("plot compiles with repeat context")
