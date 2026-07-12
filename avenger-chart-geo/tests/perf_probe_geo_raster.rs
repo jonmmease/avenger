@@ -190,8 +190,8 @@ fn geo_plot_with_children(
     df: datafusion::dataframe::DataFrame,
     coord: Geo,
     categorical: bool,
-) -> Plot<Geo> {
-    Plot::with_coord(coord)
+) -> Chart<Geo> {
+    Chart::with_coord(coord)
         .title("probe")
         .canvas_size(960.0, 720.0)
         .mark(
@@ -228,7 +228,7 @@ fn geo_plot_with_children(
         .tool(GeoPanZoom::new().viewport_id("nyc"))
 }
 
-fn geo_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
+fn geo_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Chart<Geo> {
     geo_plot_with_children(df, coord, false)
 }
 

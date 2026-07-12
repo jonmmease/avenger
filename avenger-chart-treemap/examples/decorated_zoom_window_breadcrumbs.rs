@@ -1,6 +1,6 @@
 mod common;
 
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_treemap::{
     TreeHeader, TreeLabel, TreeRect, Treemap, TreemapGuide, TreemapHeaderBars,
 };
@@ -9,7 +9,7 @@ use datafusion::{functions_aggregate::expr_fn::sum, logical_expr::col, prelude::
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))

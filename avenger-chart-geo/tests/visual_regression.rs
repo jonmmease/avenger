@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_core::CoordinateSystem;
 use avenger_chart_geo::{Geo, GraticuleStyle, SphereStyle};
 use avenger_common::canvas::CanvasDimensions;
@@ -26,8 +26,8 @@ fn furnished(geo: Geo) -> Geo {
         .graticule(GraticuleStyle::default())
 }
 
-fn world_plot(geo: Geo) -> Plot<Geo> {
-    Plot::with_coord(furnished(geo)).plot_size(520.0, 320.0)
+fn world_plot(geo: Geo) -> Chart<Geo> {
+    Chart::with_coord(furnished(geo)).plot_size(520.0, 320.0)
 }
 
 #[tokio::test]
@@ -70,7 +70,7 @@ async fn graticule_sphere_equirectangular() {
 async fn graticule_sphere_mercator() {
     // Mercator world: the auto world-square clip bounds the poles.
     assert_visual_match(
-        Plot::with_coord(furnished(Geo::mercator())).plot_size(360.0, 360.0),
+        Chart::with_coord(furnished(Geo::mercator())).plot_size(360.0, 360.0),
         "graticule_sphere_mercator",
     )
     .await;
@@ -85,7 +85,7 @@ async fn graticule_albers_conus() {
         .center_projected(0.0031, 0.6410)
         .zoom(3.4);
     assert_visual_match(
-        Plot::with_coord(furnished(geo)).plot_size(520.0, 360.0),
+        Chart::with_coord(furnished(geo)).plot_size(520.0, 360.0),
         "graticule_albers_conus",
     )
     .await;
@@ -98,7 +98,7 @@ async fn graticule_conic_conformal_europe() {
         .center_projected(-0.0408, 1.0053)
         .zoom(6.5);
     assert_visual_match(
-        Plot::with_coord(furnished(geo)).plot_size(460.0, 400.0),
+        Chart::with_coord(furnished(geo)).plot_size(460.0, 400.0),
         "graticule_conic_conformal_europe",
     )
     .await;
@@ -119,7 +119,7 @@ async fn graticule_rotated_equal_earth() {
 // Harness (treemap pattern; research/baseline-harness.md §5)
 // ---------------------------------------------------------------------------
 
-async fn assert_visual_match<C>(plot: Plot<C>, baseline_name: &str)
+async fn assert_visual_match<C>(plot: Chart<C>, baseline_name: &str)
 where
     C: CoordinateSystem,
 {
@@ -259,7 +259,7 @@ mod phase3 {
         let ctx = SessionContext::new();
         let df = conus_airports(&ctx).await;
         let geo = Geo::albers_usa_conus().graticule(GraticuleStyle::default());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(520.0, 360.0)
             .data(df)
             .mark(
@@ -281,7 +281,7 @@ mod phase3 {
             .await
             .expect("read airports");
         let geo = furnished(Geo::equal_earth());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(520.0, 320.0)
             .data(df)
             .mark(
@@ -302,7 +302,7 @@ mod phase3 {
         // World view: great-circle arcs bulge poleward beyond their
         // endpoints' bbox, so fit-to-data would crop them.
         let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(520.0, 320.0)
             .data(df.clone())
             .mark(
@@ -327,7 +327,7 @@ mod phase3 {
         let ctx = SessionContext::new();
         let df = sfo_syd(&ctx).await;
         let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(520.0, 320.0)
             .data(df)
             .mark(
@@ -359,7 +359,7 @@ mod phase3 {
             .center_projected(0.0031, 0.6410)
             .zoom(3.4)
             .graticule(GraticuleStyle::default());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(520.0, 360.0)
             .data(df)
             .mark(
@@ -392,7 +392,7 @@ mod phase3 {
 
 /// Like assert_visual_match but with a caller-provided SessionContext (for
 /// plots whose DataFrames were built on it).
-async fn assert_visual_match_ctx<C>(ctx: &SessionContext, plot: Plot<C>, baseline_name: &str)
+async fn assert_visual_match_ctx<C>(ctx: &SessionContext, plot: Chart<C>, baseline_name: &str)
 where
     C: CoordinateSystem,
 {
@@ -455,7 +455,7 @@ mod phase4 {
             .await
             .expect("register us states");
         let geo = Geo::albers_usa_conus().graticule(GraticuleStyle::default());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 380.0)
             .title("Population density")
             .data(df)
@@ -487,7 +487,7 @@ mod phase4 {
             )
             .expect("filter conus");
         let geo = Geo::albers_usa_conus();
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 360.0)
             .data(df)
             .mark(
@@ -513,7 +513,7 @@ mod phase4 {
         .await
         .expect("register countries");
         let geo = furnished(Geo::equal_earth());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 340.0)
             .data(df)
             .mark(
@@ -539,7 +539,7 @@ mod phase4 {
         .await
         .expect("register countries");
         let geo = furnished(Geo::winkel_tripel());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 340.0)
             .data(df)
             .mark(
@@ -567,7 +567,7 @@ mod phase4 {
         .expect("filter antarctica");
         // World view so the whole cap and map edge are visible.
         let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 340.0)
             .data(df)
             .mark(
@@ -604,7 +604,7 @@ mod phase4 {
                 .center_projected(0.0, 0.0)
                 .zoom(0.95),
         );
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 300.0)
             .data(df)
             .mark(
@@ -636,7 +636,7 @@ mod phase4 {
             .await
             .expect("routes");
         let geo = furnished(Geo::equal_earth().center_projected(0.0, 0.0).zoom(0.95));
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 340.0)
             .mark(
                 GeoShape::new()
@@ -695,14 +695,14 @@ mod phase5 {
         ]
     }
 
-    async fn choropleth_plot(ctx: &SessionContext, table: &str) -> (Plot<Geo>, Geo) {
+    async fn choropleth_plot(ctx: &SessionContext, table: &str) -> (Chart<Geo>, Geo) {
         let df = register_geojson(ctx, table, geo_data("us-states.json"))
             .await
             .expect("register us states");
         let geo = Geo::albers_usa_conus()
             .viewport_id("map")
             .graticule(GraticuleStyle::default());
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 380.0)
             .data(df)
             .mark(
@@ -772,7 +772,7 @@ mod phase5 {
         let geo = furnished(Geo::equal_earth().viewport_id("world"))
             .center_projected(0.0, 0.0)
             .zoom(0.95);
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 340.0)
             .data(df)
             .mark(
@@ -818,7 +818,7 @@ mod phase5 {
 /// Param-override variant of the visual assertion.
 async fn assert_visual_match_params<C>(
     ctx: &SessionContext,
-    plot: Plot<C>,
+    plot: Chart<C>,
     params: Option<indexmap::IndexMap<String, datafusion::common::ScalarValue>>,
     baseline_name: &str,
 ) where
@@ -871,7 +871,7 @@ mod phase5b {
                 force_t: Some(t),
                 ..Default::default()
             });
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 380.0)
             .data(df)
             .mark(
@@ -1520,8 +1520,8 @@ mod phase6 {
             })
     }
 
-    fn capstone_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Plot<Geo> {
-        Plot::with_coord(coord).canvas_size(620.0, 400.0).mark(
+    fn capstone_plot(df: datafusion::dataframe::DataFrame, coord: Geo) -> Chart<Geo> {
+        Chart::with_coord(coord).canvas_size(620.0, 400.0).mark(
             MarkGroup::<Geo>::new().data(df).view(
                 View::cartesian()
                     .id("pickups")
@@ -1744,7 +1744,7 @@ mod phase6 {
         );
     }
 
-    async fn resolved_scene_graph<C>(ctx: &SessionContext, plot: Plot<C>) -> SceneGraph
+    async fn resolved_scene_graph<C>(ctx: &SessionContext, plot: Chart<C>) -> SceneGraph
     where
         C: CoordinateSystem,
     {
@@ -1759,7 +1759,7 @@ mod phase6 {
 
     async fn assert_visual_match_resolved<C>(
         ctx: &SessionContext,
-        plot: Plot<C>,
+        plot: Chart<C>,
         baseline_name: &str,
     ) where
         C: CoordinateSystem,
@@ -1774,8 +1774,8 @@ mod phase6 {
         compare_image(&baseline_path, baseline_name, &image, DEFAULT_THRESHOLD);
     }
 
-    fn albers_tiles_plot(geo: Geo, ctx_df: datafusion::dataframe::DataFrame) -> Plot<Geo> {
-        Plot::with_coord(geo.clone())
+    fn albers_tiles_plot(geo: Geo, ctx_df: datafusion::dataframe::DataFrame) -> Chart<Geo> {
+        Chart::with_coord(geo.clone())
             .plot_size(560.0, 380.0)
             .title("Density over warped tiles")
             .data(ctx_df)
@@ -1847,7 +1847,7 @@ mod phase6 {
             .sphere(SphereStyle::default())
             .graticule(GraticuleStyle::default())
             .tiles(carto_layer(1));
-        let plot = Plot::with_coord(geo)
+        let plot = Chart::with_coord(geo)
             .plot_size(560.0, 340.0)
             .title("Equal Earth tiles");
         assert_visual_match_resolved(&ctx, plot, "tiles_equal_earth_world").await;
@@ -1865,7 +1865,7 @@ mod phase6 {
             .center_lon_lat(0.0, 30.0)
             .zoom(1.0)
             .tiles(carto_layer(1));
-        let plot = Plot::with_coord(geo)
+        let plot = Chart::with_coord(geo)
             .plot_size(512.0, 256.0)
             .title("Identity parity");
         assert_visual_match_resolved(&ctx, plot, "tiles_mercator_identity").await;
@@ -1965,7 +1965,7 @@ mod phase6 {
             .center_lon_lat(-96.0, 37.5)
             .zoom(3.0)
             .tiles(carto_layer(4));
-        let plot = Plot::with_coord(geo)
+        let plot = Chart::with_coord(geo)
             .plot_size(560.0, 340.0)
             .title("Synthetic density raster")
             .data(df)
@@ -1985,7 +1985,7 @@ mod phase6 {
         let geo = Geo::albers_usa_conus()
             .graticule(GraticuleStyle::default())
             .tiles(carto_layer(4));
-        let plot = Plot::with_coord(geo)
+        let plot = Chart::with_coord(geo)
             .plot_size(560.0, 380.0)
             .title("Warped density raster")
             .data(df)
@@ -2013,7 +2013,7 @@ mod phase6 {
                 force_t: Some(0.5),
             })
             .tiles(carto_layer(4));
-        let plot = Plot::with_coord(geo)
+        let plot = Chart::with_coord(geo)
             .plot_size(560.0, 340.0)
             .title("Mid-blend density raster")
             .data(df)
@@ -2174,7 +2174,7 @@ mod phase6 {
         let geo = Geo::equal_earth()
             .sphere(SphereStyle::default())
             .graticule(GraticuleStyle::default());
-        let plot = Plot::with_coord(geo)
+        let plot = Chart::with_coord(geo)
             .plot_size(560.0, 340.0)
             .title("4326 grid on Equal Earth")
             .data(df)
@@ -2194,7 +2194,7 @@ mod phase6 {
             let df = ctx
                 .read_batch(synthetic_pickup_batch())
                 .expect("read synthetic batch");
-            let plot = Plot::with_coord(geo)
+            let plot = Chart::with_coord(geo)
                 .plot_size(560.0, 340.0)
                 .data(df)
                 .mark(synthetic_density_raster_mark());
@@ -2235,7 +2235,7 @@ mod phase6 {
         let geo = Geo::albers_usa_conus().tiles(carto_layer(4));
         // No title/graticule: keep the comparison about tile warping, not
         // text rasterization differences between backends.
-        let plot = Plot::with_coord(geo.clone())
+        let plot = Chart::with_coord(geo.clone())
             .plot_size(560.0, 380.0)
             .data(df)
             .mark(

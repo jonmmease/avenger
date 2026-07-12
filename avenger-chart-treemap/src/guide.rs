@@ -700,7 +700,7 @@ mod tests {
         record_batch::RecordBatch,
     };
     use avenger_chart::{
-        plot::Plot,
+        plot::Chart,
         prelude::{ChartEventBinding, ChartEventType, Param},
     };
     use datafusion::{
@@ -751,7 +751,7 @@ mod tests {
     async fn guide_renders_headers_separators_and_breadcrumbs_from_measurement() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
                 .value(sum(col("sales"))),
@@ -816,7 +816,7 @@ mod tests {
     async fn guide_headers_use_reserved_header_rects_for_hit_geometry() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
                 .value(sum(col("sales")))
@@ -852,7 +852,7 @@ mod tests {
     async fn guide_event_datum_rows_retain_header_and_breadcrumb_metadata() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
                 .value(sum(col("sales"))),
@@ -942,7 +942,7 @@ mod tests {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
         let root = Param::new("treemap_root", ScalarValue::Utf8(None));
-        let compiled = Plot::with_coord(
+        let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
                 .value(sum(col("sales")))
@@ -950,7 +950,7 @@ mod tests {
         )
         .data(df)
         .plot_size(200.0, 100.0)
-        .add_param(root.clone())
+        .param(root.clone())
         .configure_guide(TreemapGuide::new().headers(true).breadcrumbs(true))
         .mark(TreeRect::new().stroke_width(0.0))
         .event_binding(
@@ -1015,7 +1015,7 @@ mod tests {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
         let root = Param::new("treemap_root", ScalarValue::Utf8(None));
-        let compiled = Plot::with_coord(
+        let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
                 .value(sum(col("sales")))
@@ -1024,7 +1024,7 @@ mod tests {
         )
         .data(df)
         .plot_size(200.0, 100.0)
-        .add_param(root.clone())
+        .param(root.clone())
         .configure_guide(TreemapGuide::new().breadcrumbs(true))
         .mark(TreeRect::new().stroke_width(0.0))
         .event_binding(

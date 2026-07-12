@@ -1,6 +1,6 @@
 //! Behavior tests for the Geo coordinate system (scratch/geo phase 2).
 
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_core::{
     CoordinateDomainCellKey, CoordinateDomainCellRequest, CoordinateDomainGroupRequest,
     CoordinateDomainMaterialization, CoordinateDomainNode, CoordinateDomainProvider,
@@ -43,7 +43,7 @@ fn scene_mark_names(marks: &[avenger_scenegraph::marks::mark::SceneMark]) -> Vec
 #[tokio::test]
 async fn empty_geo_plot_renders_guide_marks() {
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Geo::equal_earth()
             .sphere(SphereStyle::default())
             .graticule(GraticuleStyle::default()),
@@ -324,7 +324,7 @@ async fn geo_param_preview_retargets_cached_data_marks() {
         .sql("SELECT * FROM (VALUES (1.4, 0.4), (1.5, 0.5), (1.6, 0.6)) AS t(x, y)")
         .await
         .expect("raw-unit point data");
-    let plot = avenger_chart::plot::Plot::with_coord(geo.clone())
+    let plot = avenger_chart::plot::Chart::with_coord(geo.clone())
         .plot_size(200.0, 200.0)
         .data(df)
         .mark(
@@ -409,7 +409,7 @@ async fn view_params_resolve_on_geo_marks() {
         .await
         .expect("raw-unit point data");
 
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .plot_size(100.0, 100.0)
         .data(df)
         .mark(
@@ -493,7 +493,7 @@ async fn debug_guide_geometry() {
     use avenger_geo::streamable::Sphere;
 
     let ctx = SessionContext::new();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Geo::equal_earth()
             .sphere(SphereStyle::default())
             .graticule(GraticuleStyle::default()),
@@ -682,7 +682,7 @@ async fn debug_route_plot_scene() {
     let geo = Geo::equal_earth()
         .sphere(SphereStyle::default())
         .graticule(GraticuleStyle::default());
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .plot_size(520.0, 320.0)
         .data(df)
         .mark(

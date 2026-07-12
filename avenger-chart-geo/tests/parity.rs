@@ -6,7 +6,7 @@
 //! so expected values come from `Projection::project_raw_units` and
 //! tolerances are scaled accordingly.
 
-use avenger_chart::prelude::Plot;
+use avenger_chart::prelude::{Chart, Plot};
 use avenger_chart::render::{EvaluatedInteractionScope, InteractionScopeKind};
 use avenger_chart_geo::Geo;
 
@@ -150,7 +150,7 @@ mod container {
                 .lon_lat(&geo, repeat::column(), repeat::column())
                 .size(100.0),
         );
-        let evaluated = Plot::<RepeatGrid>::new()
+        let evaluated = Chart::<RepeatGrid>::new()
             .plot_size(180.0, 140.0)
             .data(df)
             .configure_coord(|c| {
@@ -209,7 +209,7 @@ mod container {
                     .size(100.0),
             )
         };
-        let plot = Plot::<HConcat>::new()
+        let plot = Chart::<HConcat>::new()
             .plot_size(260.0, 180.0)
             .mark(Subplot::new(child()).name("left"))
             .mark(Subplot::new(child()).name("right"));
@@ -265,7 +265,7 @@ mod container {
                 )
                 .size(100.0),
         );
-        Plot::<FacetColumn>::new()
+        Chart::<FacetColumn>::new()
             .plot_size(260.0, 180.0)
             .data(df)
             .mark(Subplot::new(child).column(col("panel")))
@@ -334,7 +334,7 @@ mod symbol {
         let projected = project(-73.9857, 40.7484);
 
         let geo = Geo::mercator();
-        let plot = Plot::with_coord(geo.clone()).data(df).mark(
+        let plot = Chart::with_coord(geo.clone()).data(df).mark(
             Symbol::new()
                 .lon_lat(&geo, col("lon"), col("lat"))
                 .size(100.0),
@@ -381,7 +381,7 @@ mod symbol {
             .await
             .expect("dataframe");
         let geo = Geo::mercator();
-        let evaluated = Plot::with_coord(geo.clone())
+        let evaluated = Chart::with_coord(geo.clone())
             .data(df)
             .plot_size(400.0, 400.0)
             .mark(
@@ -458,7 +458,7 @@ mod symbol {
             .await
             .expect("dataframe");
         let geo = Geo::mercator().center_projected(0.0, 0.0).zoom(2.0);
-        let evaluated = Plot::with_coord(geo.clone())
+        let evaluated = Chart::with_coord(geo.clone())
             .plot_size(300.0, 300.0)
             .data(df)
             .mark(
@@ -495,7 +495,7 @@ mod symbol {
             .sql("SELECT 0.5 AS px, -0.25 AS py UNION ALL SELECT 1.5 AS px, 0.75 AS py")
             .await
             .expect("dataframe");
-        let evaluated = Plot::with_coord(Geo::mercator())
+        let evaluated = Chart::with_coord(Geo::mercator())
             .data(df)
             .plot_size(200.0, 200.0)
             .mark(
@@ -527,7 +527,7 @@ mod symbol {
         mark: Symbol<Geo>,
     ) -> avenger_chart::render::EvaluatedPlot {
         let ctx = SessionContext::new();
-        Plot::with_coord(Geo::mercator().center_projected(0.0, 0.0).zoom(2.0))
+        Chart::with_coord(Geo::mercator().center_projected(0.0, 0.0).zoom(2.0))
             .plot_size(300.0, 300.0)
             .mark(mark)
             .compile(&ctx)
@@ -627,7 +627,7 @@ mod tile_guide {
                 .max_zoom(0),
         );
 
-        let evaluated = Plot::with_coord(coord)
+        let evaluated = Chart::with_coord(coord)
             .canvas_size(300.0, 260.0)
             .margins(Margins::uniform(20.0))
             .compile(&ctx)
@@ -763,7 +763,7 @@ mod tile_guide {
                 .attribution("Example tiles"),
         );
 
-        Plot::with_coord(coord)
+        Chart::with_coord(coord)
             .compile(&ctx)
             .await
             .expect("compile")
@@ -790,7 +790,7 @@ mod tile_guide {
                 }),
         );
 
-        Plot::with_coord(coord)
+        Chart::with_coord(coord)
             .plot_size(256.0, 256.0)
             .compile(&ctx)
             .await
@@ -886,7 +886,7 @@ mod tool {
     #[tokio::test]
     async fn pan_zoom_tool_registers_viewport_params_and_bindings() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(Geo::mercator().viewport_id("main"))
+        let compiled = Chart::with_coord(Geo::mercator().viewport_id("main"))
             .tool(GeoPanZoom::new().viewport_id("main"))
             .compile(&ctx)
             .await
@@ -915,7 +915,7 @@ mod tool {
     #[tokio::test]
     async fn viewport_params_drive_evaluated_domains() {
         let ctx = SessionContext::new();
-        let compiled = Plot::with_coord(Geo::mercator().viewport_id("main"))
+        let compiled = Chart::with_coord(Geo::mercator().viewport_id("main"))
             .tool(GeoPanZoom::new().viewport_id("main"))
             .compile(&ctx)
             .await
@@ -1547,7 +1547,7 @@ mod tool_app {
         coord: Geo,
     ) -> (AvengerApp<ChartAppState>, ChartAppState) {
         let ctx = Arc::new(SessionContext::new());
-        let compiled = Plot::with_coord(coord)
+        let compiled = Chart::with_coord(coord)
             .plot_size(400.0, 200.0)
             .tool(GeoPanZoom::new().viewport_id(VIEWPORT_ID))
             .compile(ctx.as_ref())
@@ -1565,7 +1565,7 @@ mod tool_app {
         resources: ChartRuntimeResources,
     ) -> (AvengerApp<ChartAppState>, ChartAppState) {
         let ctx = Arc::new(SessionContext::new());
-        let compiled = Plot::with_coord(coord)
+        let compiled = Chart::with_coord(coord)
             .plot_size(400.0, 200.0)
             .tool(GeoPanZoom::new().viewport_id(VIEWPORT_ID))
             .compile(ctx.as_ref())
@@ -1943,7 +1943,7 @@ mod benchmark {
         taxi_like_points(&ctx);
         let geo = Geo::mercator().viewport_id("bench");
         let build_start = StdInstant::now();
-        let compiled = Plot::with_coord(geo.clone())
+        let compiled = Chart::with_coord(geo.clone())
             .plot_size(400.0, 400.0)
             .data(ctx.table("points").await.expect("points table"))
             .mark(

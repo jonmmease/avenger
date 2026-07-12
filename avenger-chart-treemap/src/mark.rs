@@ -2467,7 +2467,7 @@ mod tests {
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     };
-    use avenger_chart::plot::Plot;
+    use avenger_chart::plot::Chart;
     use avenger_chart::prelude::{ChartEventBinding, ChartEventType, Param};
     use avenger_chart_core::{
         SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryDatumField, Selection,
@@ -2557,7 +2557,7 @@ mod tests {
     async fn tree_rect_renders_visible_leaf_cells_from_measurement() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -2588,7 +2588,7 @@ mod tests {
     async fn tree_rect_depth_mode_renders_internal_nodes() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -2620,7 +2620,7 @@ mod tests {
     async fn tree_rect_all_visible_mode_renders_internal_and_leaf_nodes() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -2645,7 +2645,7 @@ mod tests {
     async fn tree_label_defaults_to_visible_leaf_node_labels() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -2704,7 +2704,7 @@ mod tests {
     async fn tree_label_text_channel_joins_mark_data_by_path() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -2732,7 +2732,7 @@ mod tests {
     async fn tree_header_renders_header_rects_and_matching_event_rows() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales")))
@@ -2893,7 +2893,7 @@ mod tests {
     async fn tree_rect_maps_local_unit_geometry_into_solved_cells() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -2935,7 +2935,7 @@ mod tests {
     async fn tree_rect_layers_reuse_coordinate_layout_geometry() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -3020,7 +3020,7 @@ mod tests {
     async fn tree_rect_uses_mark_data_style_columns_for_solved_cells() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(color_source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -3060,7 +3060,7 @@ mod tests {
             .unwrap()
             .filter(col("region").eq(lit("West")))
             .unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -3129,7 +3129,7 @@ mod tests {
     async fn tree_rect_uses_data_driven_local_geometry_for_segments() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(stacked_segment_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -3172,7 +3172,7 @@ mod tests {
     async fn tree_rect_generated_event_rows_include_path_hierarchy_and_geometry_metadata() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -3271,7 +3271,7 @@ mod tests {
             .unwrap()
             .filter(col("region").eq(lit("West")))
             .unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
@@ -3330,14 +3330,14 @@ mod tests {
     async fn tree_rect_click_selection_can_use_generated_leaf_datums() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
         )
         .data(df)
         .plot_size(200.0, 100.0)
-        .add_selection(Selection::new("picked").empty_selects_nothing())
+        .selection(Selection::new("picked").empty_selects_nothing())
         .mark(TreeRect::new().id("cells").stroke_width(0.0))
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click)
@@ -3389,14 +3389,14 @@ mod tests {
     async fn tree_rect_scene_query_selection_can_target_leaf_rect_datums() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(source_batch()).unwrap();
-        let compiled = Plot::with_coord(
+        let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),
         )
         .data(df)
         .plot_size(200.0, 100.0)
-        .add_selection(Selection::new("picked").empty_selects_nothing())
+        .selection(Selection::new("picked").empty_selects_nothing())
         .mark(TreeRect::new().id("cells").stroke_width(0.0))
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click).set_selection(
@@ -3463,7 +3463,7 @@ mod tests {
         .unwrap();
         let df = ctx.read_batch(batch).unwrap();
         let root = Param::new("treemap_root", ScalarValue::Utf8(None));
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product", "sku"])
                 .value(sum(col("sales")))
@@ -3472,7 +3472,7 @@ mod tests {
         )
         .data(df)
         .plot_size(200.0, 100.0)
-        .add_param(root.clone())
+        .param(root.clone())
         .mark(TreeRect::new().id("collapsed").stroke_width(0.0))
         .event_binding(
             ChartEventBinding::on(ChartEventType::Click)
@@ -3526,7 +3526,7 @@ mod tests {
         )
         .unwrap();
         let df = ctx.read_batch(batch).unwrap();
-        let plot = Plot::with_coord(
+        let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product"])
                 .value(sum(col("sales"))),

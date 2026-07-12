@@ -5,7 +5,7 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_treemap::{TreeRect, Treemap};
 use datafusion::{functions_aggregate::expr_fn::sum, logical_expr::col, prelude::SessionContext};
 
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let df = ctx.read_batch(data)?;
 
-    let evaluated = Plot::with_coord(
+    let evaluated = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),

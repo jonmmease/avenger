@@ -374,8 +374,8 @@ mod tests {
     async fn test_handle() -> AvengerPlotHandle {
         let ctx = SessionContext::new();
         let width = chart::Param::new("width", scalar_f64(640.0));
-        let compiled = chart::Plot::<chart::Cartesian>::new()
-            .add_param(width)
+        let compiled = chart::Chart::<chart::Cartesian>::new()
+            .param(width)
             .compile(&ctx)
             .await
             .expect("compile egui test plot");
@@ -436,8 +436,8 @@ mod tests {
     async fn from_app_preserves_param_access() {
         let ctx = Arc::new(SessionContext::new());
         let width = chart::Param::new("width", scalar_f64(640.0));
-        let compiled = chart::Plot::<chart::Cartesian>::new()
-            .add_param(width.clone())
+        let compiled = chart::Chart::<chart::Cartesian>::new()
+            .param(width.clone())
             .canvas_constraint(chart::CanvasConstraint::width(width.expr()))
             .compile(ctx.as_ref())
             .await
@@ -484,8 +484,8 @@ mod tests {
     async fn chart_wrapper_dispatches_routed_resize_events() {
         let ctx = Arc::new(SessionContext::new());
         let width = chart::Param::new("width", scalar_f64(640.0));
-        let compiled = chart::Plot::<chart::Cartesian>::new()
-            .add_param(width.clone())
+        let compiled = chart::Chart::<chart::Cartesian>::new()
+            .param(width.clone())
             .canvas_constraint(chart::CanvasConstraint::width(width.expr()))
             .compile(ctx.as_ref())
             .await

@@ -5,7 +5,7 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_treemap::Treemap;
 use datafusion::prelude::SessionContext;
 
@@ -69,10 +69,10 @@ pub fn deep_data() -> RecordBatch {
 
 pub async fn evaluate_and_print(
     ctx: &SessionContext,
-    plot: Plot<Treemap>,
+    chart: Chart<Treemap>,
     name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let evaluated = plot.compile(ctx).await?.evaluate(ctx, None).await?;
+    let evaluated = chart.compile(ctx).await?.evaluate(ctx, None).await?;
     println!(
         "{name} evaluated with {} top-level scene marks",
         evaluated.scene_graph.marks.len()

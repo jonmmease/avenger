@@ -5,7 +5,7 @@ use arrow::{
     datatypes::{DataType, Field, Schema},
     record_batch::RecordBatch,
 };
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart_core::ChannelValue;
 use avenger_chart_treemap::{TreeRect, Treemap};
 use datafusion::{
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .read_batch(sales_data())?
         .filter(col("division").eq(lit("International")))?;
 
-    let evaluated = Plot::with_coord(
+    let evaluated = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),

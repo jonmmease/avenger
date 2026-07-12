@@ -12,7 +12,7 @@ use arrow::{
 use avenger_chart::channel::LegendableChannel;
 use avenger_chart::facet::coord::FacetColumn;
 use avenger_chart::facet::marks::FacetColumnSubplotChannels;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::{Chart, Plot};
 use avenger_chart::prelude::Subplot;
 use avenger_chart_core::{ChannelValue, CoordinateSystem};
 use avenger_chart_treemap::{
@@ -38,7 +38,7 @@ const DEFAULT_THRESHOLD: f64 = 0.9999;
 async fn treemap_sum_value_full() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(sales_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),
@@ -59,7 +59,7 @@ async fn treemap_selected_overlay_same_layout() {
         .unwrap()
         .filter(col("division").eq(lit("International")))
         .unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),
@@ -83,7 +83,7 @@ async fn treemap_selected_overlay_same_layout() {
 async fn treemap_stacked_cell_segments() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(segment_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),
@@ -106,7 +106,7 @@ async fn treemap_stacked_cell_segments() {
 async fn treemap_group_headers() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -129,7 +129,7 @@ async fn treemap_group_headers() {
 async fn treemap_strict_area_overlay_headers() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -152,7 +152,7 @@ async fn treemap_strict_area_overlay_headers() {
 async fn treemap_leaf_labels_basic() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(sales_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),
@@ -169,7 +169,7 @@ async fn treemap_leaf_labels_basic() {
 async fn treemap_leaf_labels_elide() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(label_elide_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales"))),
@@ -191,7 +191,7 @@ async fn treemap_leaf_labels_zoom_window() {
         .unwrap()
         .filter(col("division").eq(lit("Enterprise")))
         .unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -215,7 +215,7 @@ async fn treemap_leaf_labels_zoom_window() {
 async fn treemap_reserved_header_space() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -239,7 +239,7 @@ async fn treemap_reserved_header_space() {
 async fn treemap_header_geometry_small_groups() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(tiny_group_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales")))
@@ -267,7 +267,7 @@ async fn treemap_header_geometry_small_groups() {
 async fn treemap_group_header_bars() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -292,7 +292,7 @@ async fn treemap_group_header_bars() {
 async fn treemap_group_header_bars_long_labels() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(long_label_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -317,7 +317,7 @@ async fn treemap_group_header_bars_long_labels() {
 async fn treemap_group_header_bars_color_legend() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -344,7 +344,7 @@ async fn treemap_group_header_bars_color_legend() {
 async fn treemap_depth_gaps_show_hierarchy() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -363,7 +363,7 @@ async fn treemap_depth_gaps_show_hierarchy() {
 async fn treemap_multi_level_headers_depth_limited() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -395,7 +395,7 @@ async fn treemap_multi_level_headers_depth_limited() {
 async fn treemap_tiny_groups_hide_headers_and_labels() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(tiny_group_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "product"])
             .value(sum(col("sales")))
@@ -428,7 +428,7 @@ async fn treemap_zoom_window_breadcrumbs() {
         .unwrap()
         .filter(col("division").eq(lit("Enterprise")))
         .unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -457,7 +457,7 @@ async fn treemap_zoom_window_breadcrumbs() {
 async fn treemap_internal_node_depth_mode() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(deep_data()).unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales"))),
@@ -478,7 +478,7 @@ async fn treemap_internal_node_depth_mode() {
 async fn treemap_faceted_independent_layout_scope() {
     let ctx = SessionContext::new();
     let df = ctx.read_batch(facet_data()).unwrap();
-    let plot = Plot::<FacetColumn>::new()
+    let plot = Chart::<FacetColumn>::new()
         .data(df)
         .canvas_size(640.0, 320.0)
         .mark(
@@ -518,7 +518,7 @@ async fn treemap_long_labels_headers_breadcrumbs() {
         .unwrap()
         .filter(col("division").eq(lit("International growth markets")))
         .unwrap();
-    let plot = Plot::with_coord(
+    let plot = Chart::with_coord(
         Treemap::new()
             .path_columns(["division", "region", "team", "product"])
             .value(sum(col("sales")))
@@ -543,12 +543,12 @@ async fn treemap_long_labels_headers_breadcrumbs() {
     assert_visual_match(plot, "treemap_long_labels_headers_breadcrumbs").await;
 }
 
-async fn assert_visual_match<C>(plot: Plot<C>, baseline_name: &str)
+async fn assert_visual_match<C>(chart: Chart<C>, baseline_name: &str)
 where
     C: CoordinateSystem,
 {
     let ctx = SessionContext::new();
-    let compiled = plot.compile(&ctx).await.expect("compile treemap plot");
+    let compiled = chart.compile(&ctx).await.expect("compile treemap plot");
     let evaluated = compiled
         .evaluate(&ctx, None)
         .await

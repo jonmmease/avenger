@@ -236,12 +236,12 @@ async fn build_app() -> AvengerApp<ChartAppState> {
         .read_batch(make_points_batch(POINT_COUNT))
         .expect("read generated points");
 
-    let plot = avenger_chart::prelude::Plot::<Cartesian>::new()
+    let plot = avenger_chart::prelude::Chart::<Cartesian>::new()
         .canvas_size(width.expr(), height.expr())
-        .add_param(width)
-        .add_param(height)
-        .add_param(point_size.clone())
-        .add_param(show_points)
+        .param(width)
+        .param(height)
+        .param(point_size.clone())
+        .param(show_points)
         .data(df)
         .mark(
             Symbol::new()

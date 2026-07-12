@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .max_zoom(0)
             .attribution("Example inline tile"),
     );
-    let plot = Plot::with_coord(coord.clone())
+    let plot = Chart::with_coord(coord.clone())
         .canvas_size(640.0, 420.0)
         .data(data)
         .mark(
