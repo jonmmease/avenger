@@ -1,5 +1,6 @@
 //! Convenient re-exports for widget authors.
 
+pub use crate::style::BuiltinWidgetKind;
 pub use avenger_chart::pixel_frame::{
     PixelFrame, PixelFramePositionConfig, PixelFrameRectPositionChannels,
     PixelFrameRulePositionChannels, PixelFrameSymbolPositionChannels,

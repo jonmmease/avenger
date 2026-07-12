@@ -47,7 +47,7 @@ pub use avenger_chart_core::{
     WidgetExpansion, WidgetExpansionContext, WidgetItemRow, WidgetItemValidation, WidgetItems,
     WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
     WidgetPresentationState, WidgetSource, WidgetStyleProperty, WidgetStyleValueType,
-    WidgetTextMeasureAxis,
+    WidgetTextMeasureAxis, is_decorative_widget_part,
 };
 pub use avenger_chart_core::{
     NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,

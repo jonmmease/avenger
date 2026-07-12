@@ -168,6 +168,34 @@ impl ToolCompileContext {
         expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
     ) -> Result<(), AvengerChartError> {
         let mut expansion = expansion.clone();
+        let mut all_targets = HashSet::new();
+        let mut interactive_targets = Vec::new();
+        for mark in &expansion.marks {
+            let Some(part) = mark.state().id.as_deref() else {
+                continue;
+            };
+            let target = format!("{id}.{part}");
+            all_targets.insert(target.clone());
+            if !avenger_chart_core::is_decorative_widget_part(part) {
+                interactive_targets.push(target);
+            }
+        }
+        for binding in &mut expansion.event_bindings {
+            validate_widget_binding_targets(binding.mark_ids(), &all_targets, id)?;
+            if binding.between.is_none() && binding.mark_ids().is_empty() {
+                *binding = binding.clone().marks(interactive_targets.clone());
+            }
+            if let Some(between) = &mut binding.between {
+                validate_widget_binding_targets(between.start.mark_ids(), &all_targets, id)?;
+                validate_widget_binding_targets(between.end.mark_ids(), &all_targets, id)?;
+                if between.start.mark_ids().is_empty() {
+                    between.start = between.start.clone().marks(interactive_targets.clone());
+                }
+                if between.end.mark_ids().is_empty() {
+                    between.end = between.end.clone().marks(interactive_targets.clone());
+                }
+            }
+        }
         self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
         self.state
             .lock()
@@ -645,6 +673,32 @@ fn validate_tool_id(id: &str) -> Result<(), AvengerChartError> {
         return Err(AvengerChartError::InvalidArgument(format!(
             "Invalid chart tool id '{id}'; ids must be non-empty ASCII identifiers without periods"
         )));
+    }
+    Ok(())
+}
+
+fn validate_widget_binding_targets(
+    targets: &[String],
+    all_targets: &HashSet<String>,
+    widget_id: &str,
+) -> Result<(), AvengerChartError> {
+    let prefix = format!("{widget_id}.");
+    for target in targets {
+        if !all_targets.contains(target) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget '{widget_id}' event binding targets unknown part '{target}'"
+            )));
+        }
+        let part = target.strip_prefix(&prefix).ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "Widget '{widget_id}' event target '{target}' must use the '{widget_id}.<part>' form"
+            ))
+        })?;
+        if avenger_chart_core::is_decorative_widget_part(part) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget '{widget_id}' event binding cannot target decorative part '{part}'"
+            )));
+        }
     }
     Ok(())
 }

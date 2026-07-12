@@ -3889,10 +3889,22 @@ fn event_stream_config_for_binding(
 ) -> Result<EventStreamConfig, AvengerAppError> {
     let mut config = EventStreamConfig {
         types: vec![scene_event_type_from_chart(binding.event_type)],
+        mark_paths: binding.resolved_mark_paths().map(ToOwned::to_owned),
         throttle: binding.throttle_ms,
         consume: binding.consume,
         ..Default::default()
     };
+    if binding.resolved_mark_paths().is_none() && !binding.mark_ids().is_empty() {
+        let mark_ids = Arc::new(binding.mark_ids().iter().cloned().collect::<HashSet<_>>());
+        config.filter = Some(vec![EventStreamFilter::context(
+            move |_event, context, _rtree| {
+                context
+                    .mark_instance
+                    .as_ref()
+                    .is_some_and(|instance| mark_ids.contains(&instance.name))
+            },
+        )]);
+    }
     if let Some(between) = &binding.between {
         config.emit_between_end_event = between.emit_end_event;
         config.between = Some((
@@ -4739,6 +4751,22 @@ mod tests {
             .expect("stream config");
 
         assert_eq!(config.mark_paths, Some(vec![vec![0], vec![1]]));
+        assert!(
+            config.filter.is_none(),
+            "resolved mark paths should not also install a mark-name filter"
+        );
+    }
+
+    #[test]
+    fn binding_config_uses_resolved_mark_paths_without_name_filter() {
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .mark("contract.box")
+            .with_resolved_mark_paths(vec![vec![0, 0]]);
+        let config = event_stream_config_for_binding(&binding, &ctx, &IndexMap::new())
+            .expect("binding config");
+
+        assert_eq!(config.mark_paths, Some(vec![vec![0, 0]]));
         assert!(
             config.filter.is_none(),
             "resolved mark paths should not also install a mark-name filter"

@@ -247,6 +247,16 @@ pub struct WidgetPartManifest {
     pub interactive: bool,
 }
 
+/// Returns whether a conventional widget part is visual-only and must not be
+/// used as an event target.
+///
+/// Built-in widgets use these names consistently so omitted event targets can
+/// expand to the complete interactive surface without making focus and text
+/// editing decorations independently clickable.
+pub fn is_decorative_widget_part(name: &str) -> bool {
+    matches!(name, "focus-ring" | "selection" | "caret" | "preedit")
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WidgetThemeProvenance {
     pub widget_kind: String,

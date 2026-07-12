@@ -73,10 +73,19 @@ impl ChartWidget for ContractWidget {
                         .y(12.0)
                         .text("Contract"),
                 )
+                .mark(
+                    Rect::<PixelFrame>::new()
+                        .id("focus-ring")
+                        .x(0.0)
+                        .x2(80.0)
+                        .y(0.0)
+                        .y2(24.0),
+                )
                 .event_binding(ChartEventBinding::on_between_end(
                     ChartEventStream::on(ChartEventType::MouseDown).mark("contract.box"),
                     ChartEventStream::on(ChartEventType::MouseUp).mark("contract.box"),
-                )),
+                ))
+                .event_binding(ChartEventBinding::on(ChartEventType::Click)),
             items: Some(WidgetItems::Static(vec![
                 WidgetItemRow::new(vec![(
                     "value".to_string(),
@@ -105,6 +114,42 @@ impl ChartWidget for ContractWidget {
                 },
                 height: WidgetAxisMeasureSpec::Fixed { px: 24.0 },
             },
+        })
+    }
+}
+
+#[derive(Clone)]
+struct DecorativeTargetWidget;
+
+impl ChartWidget for DecorativeTargetWidget {
+    fn id(&self) -> &str {
+        "decorative-target"
+    }
+
+    fn kind(&self) -> &'static str {
+        "decorative-target-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new()
+                .mark(
+                    Rect::<PixelFrame>::new()
+                        .id("focus-ring")
+                        .x(0.0)
+                        .x2(24.0)
+                        .y(0.0)
+                        .y2(24.0),
+                )
+                .event_binding(
+                    ChartEventBinding::on(ChartEventType::Click)
+                        .mark("decorative-target.focus-ring"),
+                ),
+            items: None,
+            measure: WidgetMeasureSpec::fixed(24.0, 24.0),
         })
     }
 }
@@ -202,7 +247,7 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     };
     assert_eq!(widget.id, "contract");
     assert_eq!(widget.kind, "contract-widget");
-    assert_eq!(widget.marks.len(), 2);
+    assert_eq!(widget.marks.len(), 3);
     assert_eq!(
         widget.marks[0]
             .state()
@@ -216,6 +261,10 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     assert_eq!(
         widget.relative_target_paths["contract.label"],
         vec![vec![1]]
+    );
+    assert_eq!(
+        widget.relative_target_paths["contract.focus-ring"],
+        vec![vec![2]]
     );
     let items = widget.items.as_ref().expect("compiled item plan");
     assert_eq!(items.order_column, "__order");
@@ -240,8 +289,13 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
             .iter()
             .any(|mark| matches!(mark, SceneMark::Text(text) if text.name == "label"))
     );
-    let binding = decoded.event_bindings().first().expect("widget binding");
-    let resolved = binding
+    let drag_binding = decoded
+        .event_bindings()
+        .iter()
+        .find(|binding| binding.between.is_some())
+        .expect("widget drag binding");
+    assert!(drag_binding.mark_ids().is_empty());
+    let resolved = drag_binding
         .between
         .as_ref()
         .unwrap()
@@ -251,6 +305,34 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     assert_eq!(resolved, &[vec![0, 0]]);
     let box_path = find_rect_path(&evaluated.scene_graph.marks, "box", &mut Vec::new()).unwrap();
     assert!(box_path.ends_with(&resolved[0]));
+
+    let click_binding = decoded
+        .event_bindings()
+        .iter()
+        .find(|binding| binding.event_type == ChartEventType::Click)
+        .expect("widget click binding");
+    assert_eq!(
+        click_binding.mark_ids(),
+        &["contract.box".to_string(), "contract.label".to_string()]
+    );
+    assert_eq!(
+        click_binding.resolved_mark_paths().unwrap(),
+        &[vec![0, 0], vec![0, 1]]
+    );
+}
+
+#[tokio::test]
+async fn composed_widget_rejects_decorative_event_targets() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let result = Chart::<Cartesian>::new()
+        .widget(DecorativeTargetWidget.position(ChromePosition::Right))
+        .compile(&ctx)
+        .await;
+    assert!(matches!(
+        result,
+        Err(AvengerChartError::InvalidArgument(message))
+            if message.contains("cannot target decorative part 'focus-ring'")
+    ));
 }
 
 #[tokio::test]

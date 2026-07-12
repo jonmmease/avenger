@@ -383,6 +383,10 @@ pub struct ChartEventBinding {
     pub scope_target: Option<ChartEventScopeTarget>,
     #[serde(default)]
     pub surface_target: Option<ChartEventSurfaceTarget>,
+    #[serde(default)]
+    mark_ids: Vec<String>,
+    #[serde(default)]
+    resolved_mark_paths: Option<Vec<Vec<usize>>>,
 }
 
 impl ChartEventBinding {
@@ -401,6 +405,8 @@ impl ChartEventBinding {
             settle_exact: false,
             scope_target: None,
             surface_target: None,
+            mark_ids: Vec::new(),
+            resolved_mark_paths: None,
         }
     }
 
@@ -426,7 +432,38 @@ impl ChartEventBinding {
             settle_exact: false,
             scope_target: None,
             surface_target: None,
+            mark_ids: Vec::new(),
+            resolved_mark_paths: None,
         }
+    }
+
+    pub fn mark(mut self, id: impl Into<String>) -> Self {
+        self.mark_ids = vec![id.into()];
+        self
+    }
+
+    pub fn marks<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.mark_ids = ids.into_iter().map(Into::into).collect();
+        self
+    }
+
+    pub fn mark_ids(&self) -> &[String] {
+        &self.mark_ids
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_mark_paths(&self) -> Option<&[Vec<usize>]> {
+        self.resolved_mark_paths.as_deref()
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
+        self.resolved_mark_paths = Some(paths);
+        self
     }
 
     pub fn filter(mut self, expr: impl IntoExpr) -> Self {
@@ -680,6 +717,9 @@ impl ChartEventBinding {
         }
         if let Some(target) = &self.surface_target {
             target.validate()?;
+        }
+        for id in &self.mark_ids {
+            validate_mark_target_path("mark", id)?;
         }
         if let Some(between) = &self.between {
             between.start.validate()?;

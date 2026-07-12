@@ -1389,6 +1389,10 @@ fn resolve_event_binding_mark_targets(
     mut binding: ChartEventBinding,
     registry: &MarkTargetRegistry,
 ) -> Result<ChartEventBinding, AvengerChartError> {
+    let paths = resolve_mark_target_paths(binding.mark_ids(), registry)?;
+    if !paths.is_empty() {
+        binding = binding.with_resolved_mark_paths(paths);
+    }
     if let Some(mut between) = binding.between.take() {
         between.start = resolve_event_stream_mark_targets(between.start, registry)?;
         between.end = resolve_event_stream_mark_targets(between.end, registry)?;
