@@ -50,49 +50,48 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let picked = PointSelection::new("picked").field("category");
     let selected = picked.predicate();
 
-    let bars = Plot::<Cartesian>::new()
-        .data(df.clone())
-        .title("Click bars")
-        .tool(picked)
-        .mark(
-            Rect::new()
-                .x_with(col("category"), |c| {
-                    c.scale_with::<Band>(|s| s.padding_inner(0.18))
-                })
-                .x2_with(col(":x"), |c| c.band(1.0))
-                .y(lit(0.0))
-                .y2(sum(col("amount")))
-                .fill_with(lit("#c8cdd7"), |c| {
-                    c.no_scale()
-                        .when_value(selected.clone(), lit("#2563eb"))
-                        .no_legend()
-                })
-                .stroke("#ffffff")
-                .stroke_width(1.0),
-        );
+    let bars = Plot::<Cartesian>::new().data(df.clone()).tool(picked).mark(
+        Rect::new()
+            .x_with(col("category"), |c| {
+                c.scale_with::<Band>(|s| s.padding_inner(0.18))
+            })
+            .x2_with(col(":x"), |c| c.band(1.0))
+            .y(lit(0.0))
+            .y2(sum(col("amount")))
+            .fill_with(lit("#c8cdd7"), |c| {
+                c.no_scale()
+                    .when_value(selected.clone(), lit("#2563eb"))
+                    .no_legend()
+            })
+            .stroke("#ffffff")
+            .stroke_width(1.0),
+    );
 
-    let scatter = Plot::<Cartesian>::new()
-        .data(df)
-        .title("Sibling scatter")
-        .mark(
-            Symbol::new()
-                .x(col("x_value"))
-                .y(col("y_value"))
-                .fill_with(lit("#b8beca"), |c| {
-                    c.no_scale()
-                        .when_value(selected, lit("#2563eb"))
-                        .no_legend()
-                })
-                .stroke("#ffffff")
-                .stroke_width(0.75)
-                .size(150.0),
-        );
+    let scatter = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("x_value"))
+            .y(col("y_value"))
+            .fill_with(lit("#b8beca"), |c| {
+                c.no_scale()
+                    .when_value(selected, lit("#2563eb"))
+                    .no_legend()
+            })
+            .stroke("#ffffff")
+            .stroke_width(0.75)
+            .size(150.0),
+    );
 
     let plot = Chart::<HConcat>::new()
         .canvas_size(1040.0, 470.0)
-        .mark(Subplot::new(bars).name("bars").label("Bar selection"))
+        .mark(
+            Subplot::new(bars)
+                .caption("Click bars")
+                .name("bars")
+                .label("Bar selection"),
+        )
         .mark(
             Subplot::new(scatter)
+                .caption("Sibling scatter")
                 .name("scatter")
                 .label("Cross-highlight"),
         );

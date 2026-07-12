@@ -58,7 +58,7 @@ async fn concat_facet_alignment_data(ctx: &SessionContext) -> DataFrame {
 }
 
 fn sepal_child() -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().title("Sepal").mark(
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x(col("sepal_length"))
             .y(col("sepal_width"))
@@ -69,7 +69,7 @@ fn sepal_child() -> Plot<Cartesian> {
 }
 
 fn petal_child() -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().title("Petal").mark(
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x(col("petal_length"))
             .y(col("petal_width"))
@@ -82,7 +82,7 @@ fn petal_child() -> Plot<Cartesian> {
 }
 
 fn numeric_cartesian_child() -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().title("Cartesian").mark(
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x(col("x"))
             .y(col("y"))
@@ -94,7 +94,7 @@ fn numeric_cartesian_child() -> Plot<Cartesian> {
 }
 
 fn numeric_cartesian_child_alt() -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().title("Alternate Axes").mark(
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x(col("x2"))
             .y(col("y2"))
@@ -106,8 +106,8 @@ fn numeric_cartesian_child_alt() -> Plot<Cartesian> {
     )
 }
 
-fn shared_x_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().data(data).title(title).mark(
+fn shared_x_child(data: DataFrame) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).mark(
         Symbol::<Cartesian>::new()
             .x_with(col("x"), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
@@ -138,8 +138,8 @@ fn shared_x_child_no_title(data: DataFrame) -> Plot<Cartesian> {
     )
 }
 
-fn shared_y_child(data: DataFrame, title: &str) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().data(data).title(title).mark(
+fn shared_y_child(data: DataFrame) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).mark(
         Symbol::<Cartesian>::new()
             .x_with(col("x"), |c| c.axis(|a| a.title("x")))
             .y_with(col("y"), |c| {
@@ -206,8 +206,8 @@ fn grid_splom_child(x: &'static str, y: &'static str) -> Plot<Cartesian> {
     )
 }
 
-fn grid_span_child(x: &'static str, y: &'static str, title: &str, fill: &str) -> Plot<Cartesian> {
-    let plot = Plot::<Cartesian>::new().mark(
+fn grid_span_child(x: &'static str, y: &'static str, fill: &str) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x_with(col(x), |c| {
                 c.scale_with::<Linear>(|s| s.nice(false).zero(false))
@@ -222,12 +222,7 @@ fn grid_span_child(x: &'static str, y: &'static str, title: &str, fill: &str) ->
             .stroke("#ffffff")
             .stroke_width(0.75)
             .size(72.0),
-    );
-    if title.is_empty() {
-        plot
-    } else {
-        plot.title(title)
-    }
+    )
 }
 
 fn alignment_grid_cell(x: &'static str, y: &'static str, fill: &str) -> Plot<Cartesian> {
@@ -337,8 +332,8 @@ fn facet_column_alignment_cell(x: &'static str, y: &'static str, fill: &str) -> 
     Plot::<FacetColumn>::new().mark(Subplot::new(child).column(col("group_name")))
 }
 
-fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().data(data).title(title).mark(
+fn shared_color_child(data: DataFrame, position: LegendPosition) -> Plot<Cartesian> {
+    Plot::<Cartesian>::new().data(data).mark(
         Symbol::<Cartesian>::new()
             .x(col("x"))
             .y(col("y"))
@@ -355,10 +350,9 @@ fn shared_color_child(data: DataFrame, title: &str, position: LegendPosition) ->
 fn local_right_legend_child(
     x: &'static str,
     y: &'static str,
-    title: &str,
     y_title: &'static str,
 ) -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().title(title).mark(
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x_with(col(x), |c| c.axis(|a| a.title(x)))
             .y_with(col(y), |c| c.axis(|a| a.title(y_title)))
@@ -387,7 +381,7 @@ fn level1_shared_x_child(data: DataFrame) -> Plot<Cartesian> {
 }
 
 fn numeric_polar_child() -> Plot<Polar> {
-    Plot::<Polar>::new().title("Polar").mark(
+    Plot::<Polar>::new().mark(
         Symbol::<Polar>::new()
             .r_with(col("radius"), |c| {
                 c.scale_with::<Linear>(|s| s.domain((0.0, 110.0)))
@@ -420,8 +414,16 @@ async fn hconcat_shared_x_domains() {
     let plot = Chart::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat x domain")
-        .mark(Subplot::new(shared_x_child(left, "Local low x")).name("low"))
-        .mark(Subplot::new(shared_x_child(right, "Local high x")).name("high"));
+        .mark(
+            Subplot::new(shared_x_child(left))
+                .caption("Local low x")
+                .name("low"),
+        )
+        .mark(
+            Subplot::new(shared_x_child(right))
+                .caption("Local high x")
+                .name("high"),
+        );
 
     let compiled = plot
         .compile(&ctx)
@@ -450,8 +452,16 @@ async fn hconcat_shared_y_axis() {
     let plot = Chart::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat y axis")
-        .mark(Subplot::new(shared_y_child(left, "Local low y")).name("low"))
-        .mark(Subplot::new(shared_y_child(right, "Local high y")).name("high"));
+        .mark(
+            Subplot::new(shared_y_child(left))
+                .caption("Local low y")
+                .name("low"),
+        )
+        .mark(
+            Subplot::new(shared_y_child(right))
+                .caption("Local high y")
+                .name("high"),
+        );
 
     let compiled = plot
         .compile(&ctx)
@@ -510,9 +520,15 @@ async fn hconcat_shared_color_legend_right() {
     let plot = Chart::<HConcat>::new()
         .canvas_size(780.0, 320.0)
         .title("Shared concat legend")
-        .mark(Subplot::new(shared_color_child(left, "Left", LegendPosition::Right)).name("left"))
         .mark(
-            Subplot::new(shared_color_child(right, "Right", LegendPosition::Right)).name("right"),
+            Subplot::new(shared_color_child(left, LegendPosition::Right))
+                .caption("Left")
+                .name("left"),
+        )
+        .mark(
+            Subplot::new(shared_color_child(right, LegendPosition::Right))
+                .caption("Right")
+                .name("right"),
         );
 
     let compiled = plot
@@ -537,19 +553,16 @@ async fn grid_concat_local_right_legends_coordinated_chrome() {
         .data(concat_facet_alignment_data(&ctx).await)
         .title("Local right legends")
         .mark(
-            Subplot::new(local_right_legend_child("x", "y", "Small y labels", "y"))
+            Subplot::new(local_right_legend_child("x", "y", "y"))
+                .caption("Small y labels")
                 .at(0, 0)
                 .name("small-y"),
         )
         .mark(
-            Subplot::new(local_right_legend_child(
-                "x2",
-                "y2",
-                "Large y labels",
-                "wide y",
-            ))
-            .at(0, 1)
-            .name("large-y"),
+            Subplot::new(local_right_legend_child("x2", "y2", "wide y"))
+                .caption("Large y labels")
+                .at(0, 1)
+                .name("large-y"),
         );
 
     let compiled = plot
@@ -586,9 +599,14 @@ async fn vconcat_shared_color_legend_bottom() {
     let plot = Chart::<VConcat>::new()
         .canvas_size(560.0, 620.0)
         .title("Shared concat legend")
-        .mark(Subplot::new(shared_color_child(top, "Top", LegendPosition::Bottom)).name("top"))
         .mark(
-            Subplot::new(shared_color_child(bottom, "Bottom", LegendPosition::Bottom))
+            Subplot::new(shared_color_child(top, LegendPosition::Bottom))
+                .caption("Top")
+                .name("top"),
+        )
+        .mark(
+            Subplot::new(shared_color_child(bottom, LegendPosition::Bottom))
+                .caption("Bottom")
                 .name("bottom"),
         );
 
@@ -828,23 +846,27 @@ async fn grid_concat_span_basic() {
                 .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
         })
         .mark(
-            Subplot::new(grid_span_child("x", "y", "Spans 2 x 2", "#2f7ed8"))
+            Subplot::new(grid_span_child("x", "y", "#2f7ed8"))
+                .caption("Spans 2 x 2")
                 .at(0, 0)
                 .span(2, 2)
                 .name("span"),
         )
         .mark(
-            Subplot::new(grid_span_child("x2", "y", "Top right", "#8bbc21"))
+            Subplot::new(grid_span_child("x2", "y", "#8bbc21"))
+                .caption("Top right")
                 .at(0, 2)
                 .name("top_right"),
         )
         .mark(
-            Subplot::new(grid_span_child("x", "y2", "Bottom left", "#f28f43"))
+            Subplot::new(grid_span_child("x", "y2", "#f28f43"))
+                .caption("Bottom left")
                 .at(2, 0)
                 .name("bottom_left"),
         )
         .mark(
-            Subplot::new(grid_span_child("x2", "y2", "Bottom right", "#910000"))
+            Subplot::new(grid_span_child("x2", "y2", "#910000"))
+                .caption("Bottom right")
                 .at(2, 2)
                 .name("bottom_right"),
         );
@@ -870,36 +892,36 @@ async fn grid_concat_span_chrome() {
         })
         .mark(
             Subplot::new(
-                Plot::<Cartesian>::new()
-                    .title("Spanning plot with longer chrome")
-                    .mark(
-                        Symbol::<Cartesian>::new()
-                            .x_with(col("x"), |c| {
-                                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                                    .axis(|a| a.title("Long x axis title on spanning child"))
-                            })
-                            .y_with(col("y2"), |c| {
-                                c.scale_with::<Linear>(|s| s.nice(false).zero(false))
-                                    .axis(|a| a.title("Long y axis title on spanning child"))
-                            })
-                            .fill("#2f7ed8")
-                            .opacity(0.78)
-                            .stroke("#ffffff")
-                            .stroke_width(0.75)
-                            .size(78.0),
-                    ),
+                Plot::<Cartesian>::new().mark(
+                    Symbol::<Cartesian>::new()
+                        .x_with(col("x"), |c| {
+                            c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                .axis(|a| a.title("Long x axis title on spanning child"))
+                        })
+                        .y_with(col("y2"), |c| {
+                            c.scale_with::<Linear>(|s| s.nice(false).zero(false))
+                                .axis(|a| a.title("Long y axis title on spanning child"))
+                        })
+                        .fill("#2f7ed8")
+                        .opacity(0.78)
+                        .stroke("#ffffff")
+                        .stroke_width(0.75)
+                        .size(78.0),
+                ),
             )
+            .caption("Spanning plot with longer chrome")
             .at(0, 0)
             .span(2, 2)
             .name("span_chrome"),
         )
         .mark(
-            Subplot::new(grid_span_child("x2", "y", "Top neighbor", "#8bbc21"))
+            Subplot::new(grid_span_child("x2", "y", "#8bbc21"))
+                .caption("Top neighbor")
                 .at(0, 2)
                 .name("top_neighbor"),
         )
         .mark(
-            Subplot::new(grid_span_child("x2", "y2", "", "#f28f43"))
+            Subplot::new(grid_span_child("x2", "y2", "#f28f43"))
                 .at(1, 2)
                 .name("bottom_neighbor"),
         );
@@ -924,18 +946,21 @@ async fn grid_concat_span_holes() {
                 .axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
         })
         .mark(
-            Subplot::new(grid_span_child("x", "y", "Top-left edge", "#2f7ed8"))
+            Subplot::new(grid_span_child("x", "y", "#2f7ed8"))
+                .caption("Top-left edge")
                 .at(0, 0)
                 .name("top_left"),
         )
         .mark(
-            Subplot::new(grid_span_child("x2", "y2", "Spans holes", "#8bbc21"))
+            Subplot::new(grid_span_child("x2", "y2", "#8bbc21"))
+                .caption("Spans holes")
                 .at(0, 1)
                 .span(2, 2)
                 .name("span_holes"),
         )
         .mark(
-            Subplot::new(grid_span_child("x", "y2", "Bottom middle", "#f28f43"))
+            Subplot::new(grid_span_child("x", "y2", "#f28f43"))
+                .caption("Bottom middle")
                 .at(2, 1)
                 .name("bottom_middle"),
         );
@@ -1342,8 +1367,18 @@ async fn hconcat_two_cartesian() {
         .canvas_size(820.0, 360.0)
         .data(df)
         .title("Horizontal concat")
-        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
+        .mark(
+            Subplot::new(sepal_child())
+                .caption("Sepal")
+                .name("sepal")
+                .label("Sepal"),
+        )
+        .mark(
+            Subplot::new(petal_child())
+                .caption("Petal")
+                .name("petal")
+                .label("Petal"),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("compile hconcat chart");
     assert_visual_match_default(&compiled, &ctx, None, "concat", "hconcat_two_cartesian").await;
@@ -1357,8 +1392,18 @@ async fn vconcat_two_cartesian() {
         .canvas_size(560.0, 720.0)
         .data(df)
         .title("Vertical concat")
-        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
+        .mark(
+            Subplot::new(sepal_child())
+                .caption("Sepal")
+                .name("sepal")
+                .label("Sepal"),
+        )
+        .mark(
+            Subplot::new(petal_child())
+                .caption("Petal")
+                .name("petal")
+                .label("Petal"),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("compile vconcat chart");
     assert_visual_match_default(&compiled, &ctx, None, "concat", "vconcat_two_cartesian").await;
@@ -1372,8 +1417,18 @@ async fn hconcat_plot_size_two_cartesian() {
         .plot_size(620.0, 240.0)
         .data(df)
         .title("Plot-size concat")
-        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
+        .mark(
+            Subplot::new(sepal_child())
+                .caption("Sepal")
+                .name("sepal")
+                .label("Sepal"),
+        )
+        .mark(
+            Subplot::new(petal_child())
+                .caption("Petal")
+                .name("petal")
+                .label("Petal"),
+        );
 
     let compiled = plot
         .compile(&ctx)
@@ -1397,8 +1452,8 @@ async fn hconcat_no_key_no_label() {
         .canvas_size(820.0, 360.0)
         .data(df)
         .title("Bare subplot concat")
-        .mark(Subplot::new(sepal_child()))
-        .mark(Subplot::new(petal_child()));
+        .mark(Subplot::new(sepal_child()).caption("Sepal"))
+        .mark(Subplot::new(petal_child()).caption("Petal"));
 
     let compiled = plot
         .compile(&ctx)
@@ -1417,11 +1472,13 @@ async fn hconcat_cartesian_polar() {
         .title("Mixed coordinate concat")
         .mark(
             Subplot::new(numeric_cartesian_child())
+                .caption("Cartesian")
                 .name("cartesian")
                 .label("Cartesian"),
         )
         .mark(
             Subplot::new(numeric_polar_child())
+                .caption("Polar")
                 .name("polar")
                 .label("Polar"),
         );
@@ -1438,8 +1495,8 @@ async fn nested_concat_grid() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let top_row = Plot::<HConcat>::new()
-        .mark(Subplot::new(sepal_child()).name("sepal"))
-        .mark(Subplot::new(petal_child()).name("petal"));
+        .mark(Subplot::new(sepal_child()).caption("Sepal").name("sepal"))
+        .mark(Subplot::new(petal_child()).caption("Petal").name("petal"));
     let plot = Chart::<VConcat>::new()
         .canvas_size(820.0, 640.0)
         .data(df)
@@ -1447,7 +1504,7 @@ async fn nested_concat_grid() {
         .mark(Subplot::new(top_row).name("top-row").label("Top Row"))
         .mark(
             Subplot::new(
-                Plot::<Cartesian>::new().title("Combined").mark(
+                Plot::<Cartesian>::new().mark(
                     Symbol::<Cartesian>::new()
                         .x(col("sepal_length"))
                         .y(col("petal_length"))
@@ -1455,6 +1512,7 @@ async fn nested_concat_grid() {
                         .size(80.0),
                 ),
             )
+            .caption("Combined")
             .name("combined")
             .label("Combined"),
         );
@@ -1471,8 +1529,18 @@ async fn facet_row_hconcat_shared_data() {
     let ctx = SessionContext::new();
     let df = iris_with_petal_width_bin(&ctx).await;
     let subplot = Plot::<HConcat>::new()
-        .mark(Subplot::new(sepal_child()).name("sepal").label("Sepal"))
-        .mark(Subplot::new(petal_child()).name("petal").label("Petal"));
+        .mark(
+            Subplot::new(sepal_child())
+                .caption("Sepal")
+                .name("sepal")
+                .label("Sepal"),
+        )
+        .mark(
+            Subplot::new(petal_child())
+                .caption("Petal")
+                .name("petal")
+                .label("Petal"),
+        );
     let plot = Chart::<FacetRow>::new()
         .canvas_size(860.0, 760.0)
         .data(df)
@@ -1502,11 +1570,13 @@ async fn hconcat_components_debug() {
         .title("Debug concat")
         .mark(
             Subplot::new(numeric_cartesian_child())
+                .caption("Cartesian")
                 .name("cartesian")
                 .label("Cartesian"),
         )
         .mark(
             Subplot::new(numeric_cartesian_child_alt())
+                .caption("Alternate Axes")
                 .name("alternate")
                 .label("Alternate"),
         );
@@ -1546,9 +1616,21 @@ async fn hconcat_widths_flex_split() {
             ])
         })
         .title("hconcat widths: Px(140) | Flex(2) | Flex(1)")
-        .mark(Subplot::new(numeric_cartesian_child()).name("fixed"))
-        .mark(Subplot::new(numeric_cartesian_child_alt()).name("wide"))
-        .mark(Subplot::new(numeric_cartesian_child()).name("narrow"));
+        .mark(
+            Subplot::new(numeric_cartesian_child())
+                .caption("Cartesian")
+                .name("fixed"),
+        )
+        .mark(
+            Subplot::new(numeric_cartesian_child_alt())
+                .caption("Alternate Axes")
+                .name("wide"),
+        )
+        .mark(
+            Subplot::new(numeric_cartesian_child())
+                .caption("Cartesian")
+                .name("narrow"),
+        );
 
     let compiled = plot
         .compile(&ctx)
@@ -1566,8 +1648,16 @@ async fn vconcat_heights_px_rows() {
         .canvas_size(420.0, 560.0)
         .configure_coord(|c| c.heights([TrackSizing::Px(120.0), TrackSizing::Flex(1.0)]))
         .title("vconcat heights: Px(120) | Flex(1)")
-        .mark(Subplot::new(numeric_cartesian_child()).name("pinned"))
-        .mark(Subplot::new(numeric_cartesian_child_alt()).name("flex"));
+        .mark(
+            Subplot::new(numeric_cartesian_child())
+                .caption("Cartesian")
+                .name("pinned"),
+        )
+        .mark(
+            Subplot::new(numeric_cartesian_child_alt())
+                .caption("Alternate Axes")
+                .name("flex"),
+        );
 
     let compiled = plot
         .compile(&ctx)

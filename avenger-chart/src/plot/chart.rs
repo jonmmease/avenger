@@ -32,6 +32,8 @@ pub struct Chart<C: CoordinateSystem> {
     time_context: TimeContext,
     formatting_context: FormattingContext,
     layout_spec: LayoutSpec,
+    title: Option<PlotTitle>,
+    subtitle: Option<PlotSubtitle>,
     param_specs: Vec<CompiledParamSpec>,
     selections: Vec<Selection>,
     stores: Vec<Store>,
@@ -47,6 +49,8 @@ impl<C: CoordinateSystem> Chart<C> {
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
             layout_spec: LayoutSpec::default(),
+            title: None,
+            subtitle: None,
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
@@ -62,6 +66,8 @@ impl<C: CoordinateSystem> Chart<C> {
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
             layout_spec: LayoutSpec::default(),
+            title: None,
+            subtitle: None,
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
@@ -161,7 +167,7 @@ impl<C: CoordinateSystem> Chart<C> {
 
     /// Set a chart title.
     pub fn title(mut self, text: impl IntoExpr) -> Self {
-        self.plot = self.plot.title(text);
+        self.title = Some(PlotTitle::new(text));
         self
     }
 
@@ -170,13 +176,13 @@ impl<C: CoordinateSystem> Chart<C> {
     where
         F: FnOnce(PlotTitle) -> PlotTitle,
     {
-        self.plot = self.plot.configure_title(text, f);
+        self.title = Some(f(PlotTitle::new(text)));
         self
     }
 
     /// Set a chart subtitle.
     pub fn subtitle(mut self, text: impl IntoExpr) -> Self {
-        self.plot = self.plot.subtitle(text);
+        self.subtitle = Some(PlotSubtitle::new(text));
         self
     }
 
@@ -185,18 +191,18 @@ impl<C: CoordinateSystem> Chart<C> {
     where
         F: FnOnce(PlotSubtitle) -> PlotSubtitle,
     {
-        self.plot = self.plot.configure_subtitle(text, f);
+        self.subtitle = Some(f(PlotSubtitle::new(text)));
         self
     }
 
     /// Access the configured title.
     pub fn get_title(&self) -> Option<&PlotTitle> {
-        self.plot.get_title()
+        self.title.as_ref()
     }
 
     /// Access the configured subtitle.
     pub fn get_subtitle(&self) -> Option<&PlotSubtitle> {
-        self.plot.get_subtitle()
+        self.subtitle.as_ref()
     }
 
     /// Set fixed canvas dimensions.
@@ -353,6 +359,8 @@ impl<C: CoordinateSystem> Chart<C> {
                     time_context: self.time_context,
                     formatting_context: self.formatting_context,
                     layout_spec: self.layout_spec,
+                    title: self.title,
+                    subtitle: self.subtitle,
                     param_specs: self.param_specs,
                     selections: self.selections,
                     stores: self.stores,
@@ -424,8 +432,9 @@ mod tests {
     #[tokio::test]
     async fn chart_facade_compiles_identically_from_new_or_promoted_plot() {
         let session_context = SessionContext::new();
-        let promoted = Chart::from_plot(Plot::<Cartesian>::new().title("Facade parity"))
-            .canvas_size(320.0, 200.0);
+        let promoted = Chart::from_plot(Plot::<Cartesian>::new())
+            .canvas_size(320.0, 200.0)
+            .title("Facade parity");
         let chart = Chart::<Cartesian>::new()
             .canvas_size(320.0, 200.0)
             .title("Facade parity");
@@ -571,6 +580,39 @@ mod tests {
             constrained.get_layout_spec().plot_area,
             SizeMode::Height(_)
         ));
+    }
+
+    #[tokio::test]
+    async fn configured_root_title_and_subtitle_compile_from_chart_storage() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .configure_title("Root title", |title| title.font_size(24.0).typst())
+            .configure_subtitle("Root subtitle", |subtitle| subtitle.font_size(14.0))
+            .compile(&ctx)
+            .await
+            .unwrap();
+
+        let title = compiled.get_title().expect("root title");
+        assert_eq!(title.text.to_default_expr(&ctx).unwrap(), lit("Root title"));
+        assert_eq!(
+            title
+                .font_size
+                .as_option()
+                .and_then(|font_size| font_size.as_ref())
+                .expect("title font size")
+                .to_default_expr(&ctx)
+                .unwrap(),
+            lit(24.0)
+        );
+        assert_eq!(
+            title.syntax_mode,
+            avenger_text::types::TextSyntaxMode::TypstMarkup
+        );
+        let subtitle = compiled.get_subtitle().expect("root subtitle");
+        assert_eq!(
+            subtitle.text.to_default_expr(&ctx).unwrap(),
+            lit("Root subtitle")
+        );
     }
 
     #[tokio::test]

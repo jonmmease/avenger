@@ -99,12 +99,7 @@ fn lumped_bar_plot(df: DataFrame, title: &str, lump: Lump, fill: &str) -> Chart<
         .mark(lumped_bar_mark(lump, fill))
 }
 
-fn faceted_lump_plot(
-    df: DataFrame,
-    scope: CoordinationScope,
-    title: &str,
-    fill: &str,
-) -> Plot<FacetColumn> {
+fn faceted_lump_plot(df: DataFrame, scope: CoordinationScope, fill: &str) -> Plot<FacetColumn> {
     let leaf = Plot::<Cartesian>::new().mark(
         Rect::new().transform_with_scope(
             scope,
@@ -125,7 +120,6 @@ fn faceted_lump_plot(
 
     Plot::<FacetColumn>::new()
         .data(df)
-        .title(title)
         .mark(Subplot::new(leaf).col_with(col("facet"), |c| c.guide(|g| g.title("Facet"))))
 }
 
@@ -327,19 +321,15 @@ async fn lump_faceted_free_vs_shared() {
             Subplot::new(faceted_lump_plot(
                 df.clone(),
                 CoordinationScope::Free,
-                "Free: local top category",
                 "#2563eb",
             ))
+            .caption("Free: local top category")
             .name("free"),
         )
         .mark(
-            Subplot::new(faceted_lump_plot(
-                df,
-                CoordinationScope::Shared,
-                "Shared: global top category",
-                "#ea580c",
-            ))
-            .name("shared"),
+            Subplot::new(faceted_lump_plot(df, CoordinationScope::Shared, "#ea580c"))
+                .caption("Shared: global top category")
+                .name("shared"),
         );
 
     let compiled = plot.compile(&ctx).await.expect("compile faceted lump");

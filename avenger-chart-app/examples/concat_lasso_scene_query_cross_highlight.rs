@@ -57,7 +57,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let source = Plot::<Cartesian>::new()
         .data(df.clone())
-        .title("Lasso source")
         .mark(selection_points(
             "source_points",
             col("source_x"),
@@ -70,16 +69,13 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .event_binding(lasso_drag_binding(&cursor))
         .event_binding(lasso_clear_binding());
 
-    let sibling = Plot::<Cartesian>::new()
-        .data(df)
-        .title("Sibling view")
-        .mark(selection_points(
-            "sibling_points",
-            col("sibling_x"),
-            col("sibling_y"),
-            selected,
-            "#d97706",
-        ));
+    let sibling = Plot::<Cartesian>::new().data(df).mark(selection_points(
+        "sibling_points",
+        col("sibling_x"),
+        col("sibling_y"),
+        selected,
+        "#d97706",
+    ));
 
     let plot = Chart::<HConcat>::new()
         .canvas_size(1080.0, 480.0)
@@ -92,6 +88,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .cursor_param(cursor.name.clone())
         .mark(
             Subplot::new(source)
+                .caption("Lasso source")
                 .size(LEFT_WIDTH, PLOT_HEIGHT)
                 .id("source")
                 .name("source")
@@ -99,6 +96,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         )
         .mark(
             Subplot::new(sibling)
+                .caption("Sibling view")
                 .size(RIGHT_WIDTH, PLOT_HEIGHT)
                 .id("sibling")
                 .name("sibling")

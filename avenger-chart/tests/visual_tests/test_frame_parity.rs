@@ -15,7 +15,7 @@ use datafusion::prelude::*;
 use image::RgbaImage;
 
 fn parity_child() -> Plot<Cartesian> {
-    Plot::<Cartesian>::new().title("Sole Child").mark(
+    Plot::<Cartesian>::new().mark(
         Symbol::<Cartesian>::new()
             .x(col("x"))
             .y(col("y"))
@@ -89,10 +89,12 @@ async fn standalone_chart_matches_single_child_hconcat_fixed_canvas() {
     let data = parity_data(&ctx).await;
 
     assert_parity(
-        Chart::from_plot(parity_child().data(data.clone())).canvas_size(400.0, 300.0),
+        Chart::from_plot(parity_child().data(data.clone()))
+            .canvas_size(400.0, 300.0)
+            .title("Sole Child"),
         Chart::<HConcat>::new()
             .canvas_size(400.0, 300.0)
-            .mark(Subplot::new(parity_child().data(data.clone()))),
+            .mark(Subplot::new(parity_child().data(data.clone())).caption("Sole Child")),
         "fixed canvas",
     )
     .await;
@@ -104,8 +106,9 @@ async fn standalone_chart_matches_single_child_hconcat_auto_sizing() {
     let data = parity_data(&ctx).await;
 
     assert_parity(
-        Chart::from_plot(parity_child().data(data.clone())),
-        Chart::<HConcat>::new().mark(Subplot::new(parity_child().data(data.clone()))),
+        Chart::from_plot(parity_child().data(data.clone())).title("Sole Child"),
+        Chart::<HConcat>::new()
+            .mark(Subplot::new(parity_child().data(data.clone())).caption("Sole Child")),
         "auto sizing",
     )
     .await;

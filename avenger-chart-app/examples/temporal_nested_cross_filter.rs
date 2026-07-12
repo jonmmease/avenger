@@ -57,22 +57,30 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let source_plot = Plot::<Cartesian>::new()
         .data(df.clone())
-        .title("Click a nested month")
         .mark(nested_month_bars())
         .event_binding(select_period_binding())
         .event_binding(clear_selection_binding());
 
     let detail_plot = Plot::<Cartesian>::new()
         .data(df)
-        .title("Filtered monthly detail")
         .mark(month_detail_background())
         .mark(month_detail_overlay(selected));
 
     let plot = Chart::<HConcat>::new()
         .canvas_size(SIZE[0], SIZE[1])
         .selection(picked)
-        .mark(Subplot::new(source_plot).size(410.0, 270.0).name("nested"))
-        .mark(Subplot::new(detail_plot).size(310.0, 270.0).name("detail"));
+        .mark(
+            Subplot::new(source_plot)
+                .caption("Click a nested month")
+                .size(410.0, 270.0)
+                .name("nested"),
+        )
+        .mark(
+            Subplot::new(detail_plot)
+                .caption("Filtered monthly detail")
+                .size(310.0, 270.0)
+                .name("detail"),
+        );
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(

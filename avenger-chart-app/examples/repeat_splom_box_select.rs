@@ -74,27 +74,29 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .matrix_axes()
         });
 
-    let sibling = Plot::<Cartesian>::new()
-        .data(df)
-        .title("Selected rows")
-        .mark(
-            Symbol::new()
-                .x(col("bill_length_mm"))
-                .y(col("body_mass_g"))
-                .fill_with(lit("#b8beca"), |c| {
-                    c.no_scale()
-                        .when_value(selected, lit("#2563eb"))
-                        .no_legend()
-                })
-                .stroke("#ffffff")
-                .stroke_width(0.6)
-                .size(42.0),
-        );
+    let sibling = Plot::<Cartesian>::new().data(df).mark(
+        Symbol::new()
+            .x(col("bill_length_mm"))
+            .y(col("body_mass_g"))
+            .fill_with(lit("#b8beca"), |c| {
+                c.no_scale()
+                    .when_value(selected, lit("#2563eb"))
+                    .no_legend()
+            })
+            .stroke("#ffffff")
+            .stroke_width(0.6)
+            .size(42.0),
+    );
 
     let plot = Chart::<HConcat>::new()
         .canvas_size(1180.0, 720.0)
         .mark(Subplot::new(splom).id("splom").name("splom"))
-        .mark(Subplot::new(sibling).id("sibling").name("sibling"));
+        .mark(
+            Subplot::new(sibling)
+                .caption("Selected rows")
+                .id("sibling")
+                .name("sibling"),
+        );
 
     chart_avenger_app(
         plot.compile(&ctx).await.expect("compile plot"),

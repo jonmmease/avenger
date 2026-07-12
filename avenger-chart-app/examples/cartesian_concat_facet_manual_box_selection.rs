@@ -78,7 +78,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let all_points = Plot::<Cartesian>::new()
         .data(df)
-        .title("Sibling view")
         .mark(selection_points(selected, 115.0));
 
     let plot = Chart::<HConcat>::new()
@@ -88,7 +87,12 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .param(cursor.clone())
         .cursor_param(cursor.name.clone())
         .mark(Subplot::new(faceted).name("faceted").label("Faceted"))
-        .mark(Subplot::new(all_points).name("all").label("All rows"))
+        .mark(
+            Subplot::new(all_points)
+                .caption("Sibling view")
+                .name("all")
+                .label("All rows"),
+        )
         .event_binding(cursor_binding(&cursor))
         .event_binding(selection_drag_binding(&cursor))
         .event_binding(selection_release_binding())

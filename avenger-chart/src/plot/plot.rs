@@ -53,12 +53,6 @@ pub struct Plot<C: CoordinateSystem> {
     /// Plot-level legend configurations (set via .legend())
     pub(crate) legends: IndexMap<String, Legend>,
 
-    /// Optional plot title rendered by the layout system
-    pub(crate) title: Option<PlotTitle>,
-
-    /// Optional plot subtitle rendered by the layout system
-    pub(crate) subtitle: Option<PlotSubtitle>,
-
     /// Guide configuration
     pub(crate) guide_config: Option<C::Guide>,
 
@@ -74,6 +68,8 @@ pub(crate) struct RootChartFurnishings {
     pub(crate) time_context: TimeContext,
     pub(crate) formatting_context: FormattingContext,
     pub(crate) layout_spec: LayoutSpec,
+    pub(crate) title: Option<PlotTitle>,
+    pub(crate) subtitle: Option<PlotSubtitle>,
     pub(crate) param_specs: Vec<CompiledParamSpec>,
     pub(crate) selections: Vec<Selection>,
     pub(crate) stores: Vec<Store>,
@@ -87,6 +83,8 @@ impl Default for RootChartFurnishings {
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
             layout_spec: LayoutSpec::default(),
+            title: None,
+            subtitle: None,
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
@@ -171,8 +169,6 @@ impl<C: CoordinateSystem> Plot<C> {
             data: None,
             scale_specs: HashMap::new(),
             legends: IndexMap::new(),
-            title: None,
-            subtitle: None,
             guide_config: None,
             event_bindings: Vec::new(),
             tools: Vec::new(),
@@ -258,24 +254,34 @@ impl<C: CoordinateSystem> Plot<C> {
         child_furnishings: ChildPlotFurnishings,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let is_root = root_furnishings.is_some();
-        let (root_param_specs, root_selections, root_stores, root_cursor_params, layout_spec) =
-            match root_furnishings {
-                Some(root) => (
-                    root.param_specs,
-                    root.selections,
-                    root.stores,
-                    root.cursor_params,
-                    root.layout_spec,
-                ),
-                None => (
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                    Vec::new(),
-                    child_layout_spec(&child_furnishings),
-                ),
-            };
-        let title = child_furnishings.caption.or(self.title);
+        let (
+            root_param_specs,
+            root_selections,
+            root_stores,
+            root_cursor_params,
+            layout_spec,
+            title,
+            subtitle,
+        ) = match root_furnishings {
+            Some(root) => (
+                root.param_specs,
+                root.selections,
+                root.stores,
+                root.cursor_params,
+                root.layout_spec,
+                root.title,
+                root.subtitle,
+            ),
+            None => (
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                child_layout_spec(&child_furnishings),
+                child_furnishings.caption,
+                None,
+            ),
+        };
         let effective_time_context = inherited_tool_context
             .map(|context| context.time_context())
             .cloned()
@@ -617,7 +623,7 @@ impl<C: CoordinateSystem> Plot<C> {
             legend_colorbar_overlays,
             layout_spec,
             title,
-            subtitle: self.subtitle,
+            subtitle,
             theme: tool_context.theme().cloned(),
             time_context: effective_time_context,
             formatting_context: effective_formatting_context,
@@ -840,8 +846,6 @@ struct RepeatPlotParts<C: CoordinateSystem> {
     data: Option<DataFrame>,
     scale_specs: HashMap<String, ScaleSpec>,
     legends: IndexMap<String, Legend>,
-    title: Option<PlotTitle>,
-    subtitle: Option<PlotSubtitle>,
     event_bindings: Vec<ChartEventBinding>,
     _phantom: std::marker::PhantomData<fn() -> C>,
 }
@@ -856,8 +860,6 @@ fn split_repeat_plot<C: CoordinateSystem>(
         data,
         scale_specs,
         legends,
-        title,
-        subtitle,
         guide_config,
         event_bindings,
         tools,
@@ -883,8 +885,6 @@ fn split_repeat_plot<C: CoordinateSystem>(
         data,
         scale_specs,
         legends,
-        title,
-        subtitle,
         event_bindings,
         _phantom: std::marker::PhantomData,
     })
@@ -905,8 +905,6 @@ where
         data: parts.data,
         scale_specs: parts.scale_specs,
         legends: parts.legends,
-        title: parts.title,
-        subtitle: parts.subtitle,
         guide_config: None,
         event_bindings: parts.event_bindings,
         tools: Vec::new(),
