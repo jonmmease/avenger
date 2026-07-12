@@ -236,6 +236,7 @@ impl<'i, 'a> QualifiedRuleParser<'i> for ChartStyleParser<'a> {
                     source_order: 0, // Will be set later
                     declarations: declaration_parser.declarations.clone(),
                     media_condition: None, // No media query for now (will be added in parse_stylesheet)
+                    is_root_rule: selector_str == ":root",
                 }
             })
             .collect();

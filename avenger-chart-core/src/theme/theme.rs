@@ -366,6 +366,9 @@ impl Theme {
 
     /// Extract CSS variables from a rule
     fn extract_variables(rule: &CompiledRule, variables: &mut IndexMap<String, ThemeValue>) {
+        if !rule.is_root_rule {
+            return;
+        }
         for (key, declaration) in &rule.declarations {
             if key.starts_with("--") {
                 variables.insert(key.clone(), declaration.value.clone());
@@ -421,42 +424,45 @@ impl Theme {
     fn resolve_theme_value(
         &self,
         value: ThemeValue,
-        params: &IndexMap<String, datafusion_common::ScalarValue>,
-        depth: usize,
+        context: &ThemeContext,
+        base_font_size: f32,
+        resolving_variables: &mut Vec<String>,
     ) -> ThemeValue {
-        // Prevent infinite recursion
-        const MAX_DEPTH: usize = 10;
-        if depth >= MAX_DEPTH {
-            return value;
-        }
-
         match value {
             ThemeValue::Variable(var_name) => {
-                // Variable resolution priority:
-                // 1. Check params (with -- prefix to make it clear it's a CSS variable)
-                // 2. Fall back to theme.variables
-
-                // Try params first (keep -- prefix)
-                if let Some(param_value) = params.get(&var_name)
+                if resolving_variables.contains(&var_name) {
+                    return ThemeValue::Variable(var_name);
+                }
+                resolving_variables.push(var_name.clone());
+                let resolved = if let Some(param_value) = context.params.get(&var_name)
                     && let Some(theme_val) = Self::scalar_to_theme_value(param_value)
                 {
-                    // Recursively resolve in case param contains another reference
-                    return self.resolve_theme_value(theme_val, params, depth + 1);
-                }
-
-                // Fall back to theme variables
-                if let Some(var_value) = self.variables.get(&var_name) {
-                    // Recursively resolve in case variable contains another reference
-                    return self.resolve_theme_value(var_value.clone(), params, depth + 1);
-                }
-
-                // Unresolved - return as-is
-                ThemeValue::Variable(var_name)
+                    self.resolve_theme_value(
+                        theme_val,
+                        context,
+                        base_font_size,
+                        resolving_variables,
+                    )
+                } else if let Some(var_value) =
+                    self.find_custom_property(context, &var_name, base_font_size)
+                {
+                    self.resolve_theme_value(
+                        var_value,
+                        context,
+                        base_font_size,
+                        resolving_variables,
+                    )
+                } else {
+                    ThemeValue::Variable(var_name)
+                };
+                resolving_variables.pop();
+                resolved
             }
 
             ThemeValue::LightDark(light, dark) => {
                 // Check color-scheme param, fall back to theme's default
-                let scheme = params
+                let scheme = context
+                    .params
                     .get("color-scheme")
                     .and_then(|v| match v {
                         datafusion_common::ScalarValue::Utf8(Some(s)) => Some(s.as_str()),
@@ -468,14 +474,16 @@ impl Theme {
                 let chosen = if scheme == "dark" { *dark } else { *light };
 
                 // Recursively resolve the chosen branch
-                self.resolve_theme_value(chosen, params, depth + 1)
+                self.resolve_theme_value(chosen, context, base_font_size, resolving_variables)
             }
 
             // For List values, recursively resolve each element
             ThemeValue::List(values) => ThemeValue::List(
                 values
                     .into_iter()
-                    .map(|v| self.resolve_theme_value(v, params, depth + 1))
+                    .map(|v| {
+                        self.resolve_theme_value(v, context, base_font_size, resolving_variables)
+                    })
                     .collect(),
             ),
 
@@ -483,7 +491,17 @@ impl Theme {
             ThemeValue::Object(values) => ThemeValue::Object(
                 values
                     .into_iter()
-                    .map(|(key, value)| (key, self.resolve_theme_value(value, params, depth + 1)))
+                    .map(|(key, value)| {
+                        (
+                            key,
+                            self.resolve_theme_value(
+                                value,
+                                context,
+                                base_font_size,
+                                resolving_variables,
+                            ),
+                        )
+                    })
                     .collect(),
             ),
 
@@ -491,7 +509,9 @@ impl Theme {
             ThemeValue::Array(values) => ThemeValue::Array(
                 values
                     .into_iter()
-                    .map(|v| self.resolve_theme_value(v, params, depth + 1))
+                    .map(|v| {
+                        self.resolve_theme_value(v, context, base_font_size, resolving_variables)
+                    })
                     .collect(),
             ),
 
@@ -499,7 +519,9 @@ impl Theme {
             ThemeValue::Function(name, args) => ThemeValue::Function(
                 name,
                 args.into_iter()
-                    .map(|v| self.resolve_theme_value(v, params, depth + 1))
+                    .map(|v| {
+                        self.resolve_theme_value(v, context, base_font_size, resolving_variables)
+                    })
                     .collect(),
             ),
 
@@ -521,6 +543,77 @@ impl Theme {
     /// # Returns
     /// Resolved ThemeValue if a matching rule is found, None otherwise
     pub fn query(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
+        let base_font_size = if context.element_type == ":root" && property == "font-size" {
+            DEFAULT_BASE_FONT_SIZE
+        } else {
+            self.get_base_font_size(&context.params)
+        };
+        let value = if property.starts_with("--") {
+            self.find_custom_property(context, property, base_font_size)
+        } else {
+            self.find_cascaded_declaration(context, property, base_font_size, RootRules::Include)
+                .or_else(|| {
+                    if self.inherited_properties.contains(property) {
+                        context
+                            .parent
+                            .as_deref()
+                            .and_then(|parent| self.query(parent, property))
+                    } else {
+                        None
+                    }
+                })
+        }?;
+        Some(self.resolve_theme_value(value, context, base_font_size, &mut Vec::new()))
+    }
+
+    fn find_custom_property(
+        &self,
+        context: &ThemeContext,
+        property: &str,
+        base_font_size: f32,
+    ) -> Option<ThemeValue> {
+        self.find_cascaded_declaration(context, property, base_font_size, RootRules::Exclude)
+            .or_else(|| {
+                context.shadow_host.as_deref().and_then(|host| {
+                    self.find_custom_property_inherited(host, property, base_font_size)
+                })
+            })
+            .or_else(|| {
+                context.parent.as_deref().and_then(|parent| {
+                    self.find_custom_property_inherited(parent, property, base_font_size)
+                })
+            })
+            .or_else(|| {
+                self.find_cascaded_declaration(context, property, base_font_size, RootRules::Only)
+            })
+    }
+
+    fn find_custom_property_inherited(
+        &self,
+        context: &ThemeContext,
+        property: &str,
+        base_font_size: f32,
+    ) -> Option<ThemeValue> {
+        self.find_cascaded_declaration(context, property, base_font_size, RootRules::Exclude)
+            .or_else(|| {
+                context.shadow_host.as_deref().and_then(|host| {
+                    self.find_custom_property_inherited(host, property, base_font_size)
+                })
+            })
+            .or_else(|| {
+                context.parent.as_deref().and_then(|parent| {
+                    self.find_custom_property_inherited(parent, property, base_font_size)
+                })
+            })
+    }
+
+    fn find_cascaded_declaration(
+        &self,
+        context: &ThemeContext,
+        property: &str,
+        base_font_size: f32,
+        root_rules: RootRules,
+    ) -> Option<ThemeValue> {
         use crate::theme::element::CssElement;
 
         // Convert ThemeContext to CssElement for selector matching
@@ -537,20 +630,12 @@ impl Theme {
             selectors::context::MatchingForInvalidation::No,
         );
 
-        // Determine base font size for rem conversion and media query evaluation
-        // Bootstrap case: When querying :root { font-size } itself, use default to avoid recursion
-        // Normal case: Query :root { font-size } with full cascade (including media queries)
-        let base_font_size = if context.element_type == ":root" && property == "font-size" {
-            // Bootstrap: Use constant to avoid infinite recursion
-            DEFAULT_BASE_FONT_SIZE
-        } else {
-            // Normal: Get base font size from :root with media query support
-            self.get_base_font_size(&context.params)
-        };
-
         // Find matching rules
         let mut matches = Vec::new();
         for rule in &self.rules {
+            if !root_rules.accepts(rule.is_root_rule) {
+                continue;
+            }
             // Check media query condition first (if present)
             if let Some(media_cond) = &rule.media_condition
                 && !media_cond.evaluate(&context.params, base_font_size)
@@ -580,12 +665,7 @@ impl Theme {
             if let Some(declaration) = rule.declarations.get(property)
                 && declaration.important
             {
-                // Resolve the value with params from context
-                return Some(self.resolve_theme_value(
-                    declaration.value.clone(),
-                    &context.params,
-                    0,
-                ));
+                return Some(declaration.value.clone());
             }
         }
 
@@ -594,25 +674,10 @@ impl Theme {
             if let Some(declaration) = rule.declarations.get(property)
                 && !declaration.important
             {
-                // Resolve the value with params from context
-                return Some(self.resolve_theme_value(
-                    declaration.value.clone(),
-                    &context.params,
-                    0,
-                ));
+                return Some(declaration.value.clone());
             }
         }
 
-        // Check if property is inherited and try to get it from parent
-        if self.inherited_properties.contains(property) {
-            // Try to get the value from the parent element
-            if let Some(parent) = &context.parent {
-                // Recursively query the parent for this property
-                return self.query(parent, property);
-            }
-        }
-
-        // No CSS rule found
         None
     }
 
@@ -1427,6 +1492,24 @@ pub(crate) struct CompiledRule {
     pub(crate) source_order: usize,
     pub(crate) declarations: IndexMap<String, Declaration>,
     pub(crate) media_condition: Option<crate::theme::media_query::MediaCondition>,
+    pub(crate) is_root_rule: bool,
+}
+
+#[derive(Clone, Copy)]
+enum RootRules {
+    Include,
+    Exclude,
+    Only,
+}
+
+impl RootRules {
+    fn accepts(self, is_root: bool) -> bool {
+        match self {
+            Self::Include => true,
+            Self::Exclude => !is_root,
+            Self::Only => is_root,
+        }
+    }
 }
 
 // ============================================================================
@@ -1436,6 +1519,94 @@ pub(crate) struct CompiledRule {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn widget_part_context(
+        kind: &str,
+        id: &str,
+        part: &str,
+        params: IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> ThemeContext {
+        let host = ThemeContext::new(kind, params.clone()).with_id(id);
+        ThemeContext::new("mark", params)
+            .with_subtype("rect")
+            .with_part(part, host)
+    }
+
+    fn assert_color(value: Option<ThemeValue>, expected: (u8, u8, u8)) {
+        let Some(ThemeValue::Color(color)) = value else {
+            panic!("expected resolved color, got {value:?}");
+        };
+        assert_eq!((color.red, color.green, color.blue), expected);
+    }
+
+    #[test]
+    fn custom_properties_cascade_and_inherit_through_widget_host() {
+        let theme = Theme::from_css(
+            r#"
+                :root { --accent: #0072b2; }
+                button#warning { --accent: #cc0000; }
+                button::part(box) { fill: var(--accent); }
+            "#,
+        )
+        .unwrap();
+
+        assert_color(
+            theme.query_widget_part(
+                &widget_part_context("button", "warning", "box", IndexMap::new()),
+                "fill",
+            ),
+            (204, 0, 0),
+        );
+        assert_color(
+            theme.query_widget_part(
+                &widget_part_context("button", "ordinary", "box", IndexMap::new()),
+                "fill",
+            ),
+            (0, 114, 178),
+        );
+    }
+
+    #[test]
+    fn custom_properties_honor_local_importance_and_runtime_override() {
+        let theme = Theme::from_css(
+            r#"
+                :root { --accent: #0072b2; }
+                button#warning { --accent: #cc0000 !important; }
+                button#warning { --accent: #00cc00; }
+                button::part(box) { fill: var(--accent); }
+            "#,
+        )
+        .unwrap();
+        let context = widget_part_context("button", "warning", "box", IndexMap::new());
+        assert_color(theme.query_widget_part(&context, "fill"), (204, 0, 0));
+
+        let mut params = IndexMap::new();
+        params.insert(
+            "--accent".to_string(),
+            datafusion_common::ScalarValue::Utf8(Some("#ff00ff".to_string())),
+        );
+        let context = widget_part_context("button", "warning", "box", params);
+        assert_color(theme.query_widget_part(&context, "fill"), (255, 0, 255));
+    }
+
+    #[test]
+    fn custom_properties_inherit_through_ordinary_parent_and_detect_cycles() {
+        let theme = Theme::from_css(
+            r#"
+                panel { --accent: #123456; }
+                child { fill: var(--accent); stroke: var(--cycle-a); }
+                :root { --cycle-a: var(--cycle-b); --cycle-b: var(--cycle-a); }
+            "#,
+        )
+        .unwrap();
+        let parent = ThemeContext::new("panel", IndexMap::new());
+        let child = parent.child("child");
+        assert_color(theme.query(&child, "fill"), (0x12, 0x34, 0x56));
+        assert!(matches!(
+            theme.query(&child, "stroke"),
+            Some(ThemeValue::Variable(name)) if name == "--cycle-a"
+        ));
+    }
 
     #[test]
     fn test_css_theme_serialization() {
