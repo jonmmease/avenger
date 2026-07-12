@@ -38,6 +38,7 @@ still useful.
 | [layout.md](layout.md) | Concat covers some composition needs; arbitrary dashboard composition remains a separate design spike. |
 | [map-tiles.md](map-tiles.md) | Implemented and relocated: `avenger-chart-webmercator` was retired into `Geo::mercator()`; tiles live in `avenger-chart-geo` (XYZ grid, warped/identity rendering, attribution, fallback policies, prefetch scheduling, persistent GPU tile textures). The crate-structure sections of the note are stale. |
 | [hierarchical-coords.md](hierarchical-coords.md) | `avenger-chart-treemap` exists; sunburst/icicle and shared hierarchy abstractions remain future work. |
+| [rust-authoring-wrappers.md](rust-authoring-wrappers.md) | Implemented in two campaigns: coordinate forwarding removed in `d35c6a199`; `Chart<C>`, canonical `Subplot` placement, rich child captions/sizes, root furnishing ownership, workspace migration, and crate-private `Plot::compile` landed from `ab44f069b` through `a415faf48`. Artifact/runtime renames remain deferred. |
 
 ## Not Yet Implemented
 

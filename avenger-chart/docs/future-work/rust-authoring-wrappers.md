@@ -2,9 +2,14 @@
 
 ## Status
 
-Active implementation design, 2026-07-09. Campaign 1 (coordinate-forwarding
-removal) was implemented in `d35c6a199` on 2026-07-11; Campaign 2 remains
-planned. The Rust API change implied by the naming law
+Implemented design, 2026-07-09. Campaign 1 (coordinate-forwarding removal)
+was implemented in `d35c6a199` on 2026-07-11. Campaign 2 was implemented from
+`ab44f069b` through `a415faf48` on 2026-07-11: the root `Chart<C>` facade,
+canonical state vocabulary and `Subplot` placement, root-call-site migration,
+neutral rich child furnishings, all document-furnishing field moves off
+`Plot`, cell caption/size migration, and the `Plot::compile` visibility flip.
+Artifact/runtime renames remain explicitly deferred. The Rust API change
+implied by the naming law
 in `chart-dsl.md` ("Charts, Plots, And Subplots"): **`Plot<C>` becomes a
 pure construct with zero position-dependent fields, and every position
 furnishes it through a wrapper** — `Chart<C>` (document), `Subplot`
@@ -286,8 +291,8 @@ Campaign 2's sweep (campaign 1's migration is item 3 above):
   `.title`/`.plot_size` — move to rich `Subplot::caption`/`::size` or the
   equivalent `RepeatCell` furnishings; `.key(...)` → `.name(...)`.
   `Subplot::label` retains its current band/facet metadata semantics.
-- `Plot::compile` remains during the migration and then becomes
-  `pub(crate)`; there is no deprecated public compatibility shim.
+- `Plot::compile` is `pub(crate)`; there is no deprecated public
+  compatibility shim. `Chart::compile` is the public root entry point.
 - `CompiledPlot`/`PlotSession` remain the artifact/runtime names in this
   campaign; their possible rename is a separate project.
   `chart_avenger_app` / `ChartApp` keep their names and finally match.
