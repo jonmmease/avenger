@@ -44,7 +44,7 @@ let quarter_team = named_struct(vec![
     lit("team"), col("team"),
 ]);
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .legend("fill", |legend| legend.title("Team"))
     .mark(
@@ -89,7 +89,7 @@ let cylinders_make = named_struct(vec![
     lit("manufacturer"), col("manufacturer"),
 ]);
 
-let plot = Plot::<Cartesian>::new().data(df).mark(
+let plot = Chart::<Cartesian>::new().data(df).mark(
     Rect::new()
         .x_with(cylinders_make, |x| {
             x.axis(|axis| {
@@ -119,7 +119,7 @@ needs the span of an ancestor level.
 # use datafusion::prelude::{col, lit, named_struct};
 # fn example(df: datafusion::prelude::DataFrame) {
 # let region_item = named_struct(vec![lit("region"), col("region"), lit("item"), col("item")]);
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -158,7 +158,7 @@ let nested_y = named_struct(vec![
     lit("quarter"), col("quarter"),
 ]);
 
-let plot = Plot::<Cartesian>::new().data(df).mark(
+let plot = Chart::<Cartesian>::new().data(df).mark(
     Rect::new()
         .x_with(nested_x, |x| {
             x.level(0, |level| level.padding_inner_px(10.0))
@@ -208,7 +208,7 @@ let leaf = Plot::<Cartesian>::new().mark(
         .y2(col("value")),
 );
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(Subplot::new(leaf).column(col("market")));
 # let _ = plot;

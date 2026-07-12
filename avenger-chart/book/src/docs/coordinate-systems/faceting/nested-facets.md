@@ -38,7 +38,7 @@ let df = iris
 
 // Outer facet: Column by species (3 columns)
 // Inner facet: Row by petal_width_bin (variable rows per column)
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
@@ -148,7 +148,7 @@ let df = iris
             .unwrap(),
     )?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
@@ -203,7 +203,7 @@ let df = iris
             .unwrap(),
     )?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
@@ -262,7 +262,7 @@ let df = iris
             .unwrap(),
     )?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
@@ -323,7 +323,7 @@ let df = iris
     )?;
 
 // Note: FacetRow as outer, FacetColumn as inner (inverted from previous)
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(
@@ -379,7 +379,7 @@ std::thread::Builder::new()
 
         rt.block_on(async {
             // Your nested facet code here
-            let plot = Plot::<FacetColumn>::new()
+            let plot = Chart::<FacetColumn>::new()
                 .data(df)
                 .mark(
                     Subplot::new(

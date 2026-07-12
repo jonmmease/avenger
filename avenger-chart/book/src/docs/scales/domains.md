@@ -91,7 +91,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Literal domain: Fixed 0-100 range
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Literal Domain (0-100)")
     .mark(
@@ -130,7 +130,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Automatic domain: Inferred from data with padding
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Automatic Domain (Data-Driven)")
     .mark(
@@ -233,7 +233,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Automatic Domain Inference")
     .mark(
@@ -280,7 +280,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Categorical Domain: Data Order Preserved")
     .mark(
@@ -346,7 +346,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Without nice() - Precise Domain")
     .mark(
@@ -382,7 +382,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("With nice() - Round Tick Values")
     .mark(
@@ -434,7 +434,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Without zero() - Data Range Only")
     .mark(
@@ -469,7 +469,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("With zero() - Includes Baseline")
     .mark(
@@ -534,7 +534,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Automatic Padding (Symbols Fully Visible)")
     .mark(
@@ -572,7 +572,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Automatic Padding Prevents Stroke Clipping")
     .mark(
@@ -644,7 +644,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Combined: nice + zero + padding")
     .mark(

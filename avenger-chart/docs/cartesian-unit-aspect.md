@@ -17,7 +17,7 @@ should not be distorted by the plot-area aspect.
 use avenger_chart::prelude::*;
 use datafusion::prelude::*;
 
-let plot = Plot::with_coord(Cartesian::new().equal_units())
+let chart = Chart::with_coord(Cartesian::new().equal_units())
     .plot_size(600.0, 300.0)
     .mark(
         Line::new()

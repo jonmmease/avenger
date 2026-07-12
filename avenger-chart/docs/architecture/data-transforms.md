@@ -208,7 +208,7 @@ per-facet scalars by construction.
 `TimeContext` is plot-level temporal configuration carried by
 `EvaluationContext` and `DataTransformExecutionContext`.
 
-`Plot::time_context(...)` sets defaults for a compiled plot and its descendant
+`Chart::time_context(...)` sets defaults for a compiled plot and its descendant
 child plots. Transform-local `TimeUnit::time_context(...)` is a partial
 override: unset fields inherit from the plot context.
 

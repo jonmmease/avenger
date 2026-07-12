@@ -20,7 +20,7 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -54,7 +54,7 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -99,7 +99,7 @@ let df = iris
     )
     .unwrap();
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(800, 600)
     .mark(

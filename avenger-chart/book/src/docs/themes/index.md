@@ -19,7 +19,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(Theme::light())
     .data(df)
     .title("Light Theme (Default)")
@@ -54,7 +54,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(Theme::dark())
     .data(df)
     .title("Dark Theme")
@@ -107,7 +107,7 @@ theme.append_css(
     "#,
 )?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Extended Theme with Custom CSS")
@@ -186,7 +186,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Custom Theme from CSS")
@@ -337,7 +337,7 @@ theme.append_css(
     "#,
 )?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Modern Color Functions")
@@ -394,7 +394,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .canvas_size(800.0, 400.0)

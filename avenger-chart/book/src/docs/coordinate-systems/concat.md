@@ -33,7 +33,7 @@ let right = Plot::<Cartesian>::new().mark(
         .y2(count()),
 );
 
-let plot = Plot::<HConcat>::new()
+let plot = Chart::<HConcat>::new()
     .data(df)
     .mark(Subplot::new(left).key("scatter").label("Scatter"))
     .mark(Subplot::new(right).key("counts").label("Counts"));
@@ -46,7 +46,7 @@ Use `VConcat` the same way when the plots should stack vertically.
 `GridConcat` places children at explicit grid cells:
 
 ```rust,ignore
-let plot = Plot::<GridConcat>::new()
+let plot = Chart::<GridConcat>::new()
     .data(df)
     .configure_coord(|c| c.rows(2).columns(2))
     .mark(Subplot::new(top_left).grid_cell(0, 0))
@@ -66,7 +66,7 @@ before you reach for the repeat convenience API.
 `WrapConcat` lays children out row-major:
 
 ```rust,ignore
-let plot = Plot::<WrapConcat>::new()
+let plot = Chart::<WrapConcat>::new()
     .data(df)
     .configure_coord(|c| c.columns(3))
     .mark(Subplot::new(plot_a).key("a"))
@@ -79,7 +79,7 @@ Use `responsive_columns(width)` when the chart has a canvas-constrained width
 and should choose a column count from an approximate target cell width:
 
 ```rust,ignore
-let plot = Plot::<WrapConcat>::new()
+let plot = Chart::<WrapConcat>::new()
     .canvas_constraint(CanvasConstraint::width(width_param.expr()))
     .plot_constraint(PlotConstraint::height(160.0))
     .configure_coord(|c| c.responsive_columns(180.0))
@@ -117,7 +117,7 @@ domains even though the visual axis names differ.
 `GridConcat` and `WrapConcat` can compact child axes:
 
 ```rust,ignore
-let plot = Plot::<GridConcat>::new()
+let plot = Chart::<GridConcat>::new()
     .configure_coord(|c| {
         c.axis_guide_visibility(AxisGuideVisibilityPolicy::OuterEdges)
     });
@@ -127,7 +127,7 @@ let plot = Plot::<GridConcat>::new()
 axes only when aligned cells use equivalent domain coordination targets:
 
 ```rust,ignore
-let plot = Plot::<GridConcat>::new()
+let plot = Chart::<GridConcat>::new()
     .configure_coord(|c| {
         c.axis_guide_visibility(AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups)
     });

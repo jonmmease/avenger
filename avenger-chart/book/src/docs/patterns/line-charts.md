@@ -28,7 +28,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(Line::new().x(col("x")).y(col("y")));
 
@@ -54,7 +54,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -109,7 +109,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -144,7 +144,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .title("Line with markers")
     .mark(
         Line::new()
@@ -182,7 +182,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -231,7 +231,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -258,7 +258,7 @@ use datafusion::prelude::*;
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 # let ctx = SessionContext::new();
 # let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -304,7 +304,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()
@@ -339,7 +339,7 @@ let smoothed_df = ctx.sql("
     FROM data
 ").await?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(smoothed_df)
     .mark(
         Line::new()
@@ -367,7 +367,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Line::new()

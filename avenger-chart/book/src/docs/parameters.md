@@ -43,10 +43,10 @@ let status = when(col("value").gt(threshold.expr()), lit("high"))
     ?;
 
 // Build the plot with the parameter
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Threshold Parameter Demo")
-    .add_param(threshold)
+    .param(threshold)
     .mark(
         Rect::new()
             .x_with(col("category"), |c| {
@@ -134,10 +134,10 @@ let status = when(col("y").gt(threshold.expr()), lit("above"))
     .otherwise(lit("below"))
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Color Encoding with Parameters")
-    .add_param(threshold)
+    .param(threshold)
     .mark(
         Symbol::new()
             .x(col("x"))
@@ -183,10 +183,10 @@ let ctx = SessionContext::new();
 #
 let offset = Param::new("offset", ScalarValue::from(0.0));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Position Offset with Parameters")
-    .add_param(offset.clone())
+    .param(offset.clone())
     .mark(
         Symbol::new()
             .x_with(col("x") + offset.expr(), |c| c.scale_with::<Linear>(|s| s.domain_interval(lit(0.0), lit(6.0))))
@@ -236,10 +236,10 @@ let threshold = Param::new("threshold", ScalarValue::from(50.0));
 let filtered = df.filter(col("value").gt(threshold.expr()))?;
 
 // Compile plot with default parameter
-let compiled = Plot::<Cartesian>::new()
+let compiled = Chart::<Cartesian>::new()
     .data(filtered)
     .title("Binding Parameter Values")
-    .add_param(threshold.clone())
+    .param(threshold.clone())
     .mark(
         Symbol::new()
             .x_with(col("x"), |c| c.scale_with::<Linear>(|s| s.domain_interval(lit(1.0), lit(11.0))))
@@ -297,11 +297,11 @@ let fill_color = when(
 .otherwise(lit("below"))
 ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Multiple Parameters")
-    .add_param(threshold)   // Add all parameters to plot
-    .add_param(highlight_category)
+    .param(threshold)   // Add all parameters to plot
+    .param(highlight_category)
     .mark(
         Symbol::new()
             .x(col("x"))
@@ -351,11 +351,11 @@ let ctx = SessionContext::new();
 let scale_factor = Param::new("scale", ScalarValue::from(1.0));
 let offset = Param::new("offset", ScalarValue::from(0.0));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Scale and Offset Parameters")
-    .add_param(scale_factor.clone())
-    .add_param(offset.clone())
+    .param(scale_factor.clone())
+    .param(offset.clone())
     .mark(
         Symbol::new()
             .x(col("x"))
@@ -403,7 +403,7 @@ let filtered = df.filter(col("value").gt(threshold.expr()))?;
 
 Plot::<Cartesian>::new()
     .data(filtered)
-    .add_param(threshold)  // Add parameter to plot
+    .param(threshold)  // Add parameter to plot
     .mark(Symbol::new().x(col("x")).y(col("y")));
 # Ok(())
 # }
@@ -453,11 +453,11 @@ let status = when(col("price").gt(threshold.expr()), lit("above"))
     .otherwise(lit("within"))
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(aapl)
     .canvas_size(800.0, 500.0)
     .title("AAPL Price Threshold")
-    .add_param(threshold)
+    .param(threshold)
     .mark(
         Symbol::new()
             .x_with(col("date"), |c| c.scale_with::<Time>(|s| s).axis(|a| a.title("Date")))
@@ -512,9 +512,9 @@ let ctx = SessionContext::new();
 let height = Param::new("height", ScalarValue::from(250.0));
 let show_grid = Param::new("show_grid", ScalarValue::from(true));
 
-let plot = Plot::<Cartesian>::new()
-    .add_param(height.clone())
-    .add_param(show_grid.clone())
+let plot = Chart::<Cartesian>::new()
+    .param(height.clone())
+    .param(show_grid.clone())
     .canvas_size(400.0, height.expr())
     .title("Responsive Scatter with Grid Toggle")
     .data(df)
@@ -575,10 +575,10 @@ theme.append_css(
     "#,
 )?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Parameter-Driven CSS Theme")
-    .add_param(accent)
+    .param(accent)
     .theme(theme)
     .mark(Symbol::new().x(col("x")).y(col("y")).size(200.0));
 

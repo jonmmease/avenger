@@ -30,7 +30,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -60,7 +60,7 @@ Additional position channels exist for specific mark types:
 Create a Cartesian plot using the type parameter:
 
 ```rust
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("a")).y(col("b")));
 ```
@@ -204,7 +204,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df.clone())
     .mark(
         Line::new()

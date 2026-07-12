@@ -35,7 +35,7 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -76,7 +76,7 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -121,7 +121,7 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -168,7 +168,7 @@ let df = ctx
     .read_parquet(iris_path, ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -232,7 +232,7 @@ let data = iris
 // Outer facet: rows by species
 // Inner facet: columns by size group
 // Level(1) means share within each species (inner facets share)
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(data)
     .mark(
         Subplot::new(

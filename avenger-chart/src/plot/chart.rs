@@ -352,7 +352,7 @@ impl<C: CoordinateSystem> Chart<C> {
         session_context: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         self.plot
-            .compile_root(
+            .compile(
                 session_context,
                 RootChartFurnishings {
                     theme: self.theme,

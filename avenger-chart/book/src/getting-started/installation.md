@@ -40,7 +40,7 @@ use datafusion::prelude::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 
-    let plot = Plot::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
+    let plot = Chart::<Cartesian>::new().mark(Symbol::new().x(lit(0.0)).y(lit(0.0)));
 
     let compiled = plot.compile(&ctx).await?;
     let renderer = WgpuRenderer::new();

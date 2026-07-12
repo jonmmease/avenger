@@ -69,7 +69,7 @@ axis defaults. Metadata placeholders return ordinary DataFusion expressions.
 `RepeatGrid` repeats over row and column variables:
 
 ```rust,ignore
-let plot = Plot::<RepeatGrid>::new()
+let plot = Chart::<RepeatGrid>::new()
     .data(df)
     .configure_coord(|c| {
         c.rows(variables.clone())
@@ -89,7 +89,7 @@ Use `matrix_domains_with_scope(scope)` when the matrix is nested inside facets
 and should coordinate domains at a particular logical level:
 
 ```rust,ignore
-let plot = Plot::<RepeatGrid>::new()
+let plot = Chart::<RepeatGrid>::new()
     .configure_coord(|c| {
         c.rows(variables.clone())
             .columns(variables)
@@ -123,7 +123,7 @@ let histogram = Plot::<Cartesian>::new().mark(
     }),
 );
 
-let plot = Plot::<RepeatGrid>::new()
+let plot = Chart::<RepeatGrid>::new()
     .data(df)
     .configure_coord(|c| {
         c.rows(variables.clone())
@@ -143,7 +143,7 @@ diagonal cell's x variable.
 Use `RepeatWrap` when there is one list of variables and the layout should wrap:
 
 ```rust,ignore
-let plot = Plot::<RepeatWrap>::new()
+let plot = Chart::<RepeatWrap>::new()
     .data(df)
     .configure_coord(|c| {
         c.items(variables)
@@ -163,7 +163,7 @@ let plot = Plot::<RepeatWrap>::new()
 For canvas-width-driven workflows, use `responsive_columns(approx_width)`:
 
 ```rust,ignore
-let plot = Plot::<RepeatWrap>::new()
+let plot = Chart::<RepeatWrap>::new()
     .canvas_constraint(CanvasConstraint::width(width_param.expr()))
     .plot_constraint(PlotConstraint::height(160.0))
     .configure_coord(|c| {
@@ -190,7 +190,7 @@ let cell = Plot::<Cartesian>::new()
             .size(36.0),
     );
 
-let plot = Plot::<RepeatGrid>::new()
+let plot = Chart::<RepeatGrid>::new()
     .data(df)
     .configure_coord(|c| {
         c.rows(variables.clone())

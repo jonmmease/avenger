@@ -37,7 +37,7 @@ Avenger-Chart's workflow involves three distinct types:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Plot (not serializable)                                    │
-│  .mark(...).data(...).add_param(...)                        │
+│  .mark(...).data(...).param(...)                        │
 └────────────┬────────────────────────────────────────────────┘
              │
              ▼
@@ -134,7 +134,7 @@ For a single chart, the two stages are simple:
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
 
@@ -160,9 +160,9 @@ The real benefit appears when rendering multiple times:
 # use indexmap::indexmap;
 # async fn example(ctx: &SessionContext, df: DataFrame, threshold: Param) -> Result<(), Box<dyn std::error::Error>> {
 // Compile once
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
-    .add_param(threshold)
+    .param(threshold)
     .mark(Symbol::new().x(col("x")).y(col("y")));
 
 let compiled = plot.compile(&ctx).await?;  // 5ms
@@ -217,9 +217,9 @@ You **do not** need to recompile when:
 // Setup - compile once
 let color_param = Param::new("highlight_color", ScalarValue::Utf8(Some("#ff0000".into())));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
-    .add_param(color_param.clone())
+    .param(color_param.clone())
     .mark(Symbol::new().x(col("x")).y(col("y")).fill(color_param.expr()));
 
 let compiled = plot.compile(&ctx).await?;
@@ -253,9 +253,9 @@ loop {
 // Compile once with time parameter
 let time_param = Param::new("current_time", ScalarValue::from(0.0));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
-    .add_param(time_param.clone())
+    .param(time_param.clone())
     .mark(
         Symbol::new()
             .x(col("x"))
@@ -295,9 +295,9 @@ for frame in 0..100 {
 // Generate charts for multiple regions
 let region_param = Param::new("selected_region", ScalarValue::Utf8(Some("North".into())));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
-    .add_param(region_param.clone())
+    .param(region_param.clone())
     .mark(
         Rect::new()
             // Filter data by region parameter
@@ -332,7 +332,7 @@ for region in ["North", "South", "East", "West"] {
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 # let renderer = WgpuRenderer::new();
 // Simple case - no reuse needed
-let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("x")).y(col("y")));
+let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("x")).y(col("y")));
 let compiled = plot.compile(&ctx).await?;
 let evaluated = compiled.evaluate(&ctx, None).await?;
 renderer.write_png(&compiled, &ctx, None, "chart.png").await?;
@@ -368,7 +368,7 @@ for param_value in values {
 # async fn example(ctx: &SessionContext, datasets: Vec<DataFrame>) -> Result<(), Box<dyn std::error::Error>> {
 // Same schema, different data - recompile needed
 for dataset in datasets {
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(dataset)  // Different data each time
         .mark(Symbol::new().x(col("x")).y(col("y")));
 
@@ -393,7 +393,7 @@ Both `CompiledPlot` and `EvaluatedPlot` are fully serializable, enabling powerfu
 # use datafusion::prelude::*;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 // Create and compile a plot
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
 

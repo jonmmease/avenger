@@ -28,7 +28,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -58,7 +58,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -88,7 +88,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()

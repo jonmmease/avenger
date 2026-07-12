@@ -33,7 +33,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Use sum() in a channel - automatic aggregation by category!
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -86,7 +86,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -130,7 +130,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -169,7 +169,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -221,7 +221,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Height from sum(sales), color from avg(profit)
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -294,7 +294,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Groups by BOTH region AND product
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .canvas_size(500.0, 300.0)
     .data(df)
     .mark(
@@ -343,7 +343,7 @@ let df = ctx.read_batch(batch)?;
 let df = df.with_column("label", lit("Total")).unwrap();
 
 // Single bar showing total
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -382,7 +382,7 @@ let df = df
     )
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -500,7 +500,7 @@ let aggregated = df
     .filter(col("count").gt(lit(2)))
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(aggregated)
     .mark(
         Rect::new()

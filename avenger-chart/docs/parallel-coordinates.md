@@ -13,7 +13,7 @@ let coord = Parallel::new()
     .dimension_with("efficiency", |d| d.axis(|axis| axis.title("Efficiency")))
     .dimension_with("segment", |d| d.axis(|axis| axis.title("Segment")));
 
-let plot = Plot::with_coord(coord)
+let chart = Chart::with_coord(coord)
     .data(df)
     .mark(
         ParallelLine::new()

@@ -2,7 +2,7 @@
 
 The chart runtime has two public chart stages plus a reusable app-session path:
 
-- `Plot<C>::compile` consumes the authoring plot and returns `CompiledPlot`.
+- `Chart<C>::compile` consumes the root chart and returns `CompiledPlot`.
 - `CompiledPlot::evaluate` or `CompiledPlot::evaluate_with_options` returns an
   `EvaluatedPlot` with a scenegraph and spatial index.
 - `Arc<CompiledPlot>::instantiate` creates a reusable `PlotSession` for apps
@@ -16,6 +16,7 @@ plot and hand the scenegraph to the lower-level renderer.
 ```mermaid
 sequenceDiagram
     participant User as User code
+    participant Chart as Chart<C>
     participant Plot as Plot<C>
     participant Compiled as CompiledPlot
     participant Session as PlotSession
@@ -23,13 +24,14 @@ sequenceDiagram
     participant Layout as Layout/runtime
     participant Render as Scenegraph renderer
 
-    User->>Plot: mark(), data(), scale(), legend(), layout()
-    User->>Plot: compile(SessionContext)
+    User->>Chart: root furnishings + forwarded plot authoring
+    Chart->>Plot: compile root plot + RootChartFurnishings
     Plot->>Plot: lower Repeat* plots to concat-family containers
     Plot->>Plot: extract channel axis/scale/legend configs
     Plot->>Plot: compile marks into CompiledMark
     Plot->>Plot: build coordinate guide and transform
-    Plot-->>User: CompiledPlot
+    Plot-->>Chart: CompiledPlot
+    Chart-->>User: CompiledPlot
     User->>Compiled: evaluate(SessionContext, params)
     Compiled->>Session: temporary session caches
     User->>Session: evaluate(EvaluationRequest)
@@ -45,11 +47,13 @@ sequenceDiagram
 
 ## Compile Stage
 
-`Plot<C>` stores authoring state: marks, plot-level data, scale specs, legend
-configs, layout spec, title/subtitle, theme, guide config, params, stores,
-selections, tools, and event bindings.
+`Chart<C>` stores root furnishings: layout, title/subtitle, theme,
+time/formatting contexts, params, stores, selections, and cursor params. Its
+wrapped `Plot<C>` stores position-neutral authoring state: marks, plot-level
+data, scale specs, legend and guide configs, tools, and event bindings.
 
-`Plot<C>::compile` performs these steps:
+`Chart<C>::compile` supplies root furnishings and invokes the internal plot
+compiler, which performs these steps:
 
 - lowers repeat coordinate plots to generated concat-family plots when `C` is
   `RepeatColumns`, `RepeatRows`, `RepeatGrid`, or `RepeatWrap`,
@@ -62,7 +66,7 @@ selections, tools, and event bindings.
   functions,
 - builds a coordinate guide from `C::Guide`,
 - stores the coordinate transform returned by `CoordinateSystem::create_transform`,
-- serializes plot-level data and params into `CompiledPlot`.
+- serializes plot-level data plus merged root/tool state into `CompiledPlot`.
 
 `CompiledPlot` does not store a persistent `ScaleBuilder`; it remains the
 serializable program. Reusable runtime artifacts are owned by `PlotSession` or

@@ -10,7 +10,7 @@ The most common bar chart orientation with categories on the x-axis:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -33,7 +33,7 @@ Horizontal bars are useful when category names are long or when you have many ca
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -56,7 +56,7 @@ Customize bar appearance with fill colors, strokes, and other visual properties:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -82,7 +82,7 @@ Control the spacing between bars using band scale padding:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -107,7 +107,7 @@ Use different colors for each category to enhance visual distinction:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -154,7 +154,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Product Revenue")
     .mark(
@@ -179,7 +179,7 @@ Add rounded corners for a softer appearance:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -218,7 +218,7 @@ let nested_x = named_struct(vec![
     lit("series"), col("series"),
 ]);
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .legend("fill", |legend| legend.title("Series"))
     .mark(
@@ -265,7 +265,7 @@ let stacked_df = ctx.sql("
     FROM data
 ").await?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(stacked_df)
     .mark(
         Rect::new()
@@ -308,7 +308,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Quarterly Profit/Loss")
     .mark(

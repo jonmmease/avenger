@@ -15,8 +15,9 @@ whose child plots carry a resolved `RepeatContext`.
 - `RepeatWrap`: row-major wrapped repetition, lowered to `WrapConcat`.
 
 Each repeat coordinate type implements `CoordinateSystemCore` and
-`CoordinateSystem`, but `Plot::<Repeat*>` is intercepted during
-`Plot::compile`. The repeat plot is split into repeat metadata, generated
+`CoordinateSystem`, but a root or embedded `Plot::<Repeat*>` is intercepted by
+the internal plot compiler reached through `Chart::compile` or a subplot
+adapter. The repeat plot is split into repeat metadata, generated
 `Subplot` marks, and the matching concat coordinate plot.
 
 ```mermaid
@@ -85,7 +86,7 @@ This is how scatterplot matrices use scatter marks off diagonal and a
 histogram or density plot on diagonal:
 
 ```rust
-Plot::with_coord(
+Chart::with_coord(
     RepeatGrid::new()
         .rows(vars.clone())
         .columns(vars)

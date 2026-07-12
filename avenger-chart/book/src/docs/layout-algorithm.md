@@ -74,7 +74,7 @@ let df = ctx
     .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Iris Dataset Analysis")
     .subtitle("Sepal measurements with species classification")
@@ -148,7 +148,7 @@ let df = ctx
     .read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default())
     .await?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Colorbar Auto-Expansion Demo")
     .mark(

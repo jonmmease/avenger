@@ -44,7 +44,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Iris Dataset")
     .mark(

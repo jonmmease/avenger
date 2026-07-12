@@ -10,7 +10,7 @@ cache handles for a single call. Reusable applications should instantiate a
 session:
 
 ```rust
-let compiled = plot.compile(&ctx).await?;
+let compiled = chart.compile(&ctx).await?;
 let mut session = std::sync::Arc::new(compiled).instantiate(std::sync::Arc::new(ctx));
 let evaluated = session.evaluate(EvaluationRequest::new().exact()).await?;
 ```

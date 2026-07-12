@@ -53,7 +53,7 @@ let df = ctx
     .await?;
 
 // Create a row facet plot
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -92,7 +92,7 @@ let df = ctx
     .await?;
 
 // Create a column facet plot
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -151,7 +151,7 @@ let df = ctx
     .await?;
 
 // Create a column facet with a title
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -193,7 +193,7 @@ let df = ctx
     .await?;
 
 // Create a column facet. The gap between panels is measured automatically.
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(

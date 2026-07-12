@@ -28,7 +28,7 @@ let df = ctx
     .read_csv("data.csv", CsvReadOptions::default())
     .await?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")));
@@ -562,7 +562,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Cardinality-Based Palette: 4 Categories → 5-Color Palette")
@@ -821,7 +821,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("ggplot2-Style Evenly Spaced Hues")
@@ -891,12 +891,12 @@ Override variables at runtime with parameters. Parameters can be set on the `Plo
 let theme = Theme::from_css(css)?;
 
 // Step 1: Define plot with default parameter values
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")))
-    .add_param(Param::new("--primary-color", ScalarValue::from("#0072B2")))
-    .add_param(Param::new("--base-font-size", ScalarValue::from("12px")));
+    .param(Param::new("--primary-color", ScalarValue::from("#0072B2")))
+    .param(Param::new("--base-font-size", ScalarValue::from("12px")));
 
 // Step 2: Compile the plot
 let compiled = plot.compile(&ctx).await?;
@@ -945,11 +945,11 @@ Set the color scheme at runtime:
 # let ctx = datafusion::execution::context::SessionContext::new();
 # let df = ctx.read_csv("data.csv", CsvReadOptions::default()).await?;
 # let theme = Theme::light();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")))
-    .add_param(Param::new("color-scheme", ScalarValue::from("dark")));  // Switch to dark mode
+    .param(Param::new("color-scheme", ScalarValue::from("dark")));  // Switch to dark mode
 # Ok(())
 # }
 ```
@@ -1106,7 +1106,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Stock Prices - Dark Professional Theme")
@@ -1234,7 +1234,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Iris Dataset - Light Minimalist Theme")
@@ -1372,7 +1372,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(aggregated)
     .title("Movie Revenue by Rating - High Contrast Theme")
@@ -1522,7 +1522,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(monthly.clone())
     .title("Monthly Temperature in Seattle")
@@ -1666,7 +1666,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .title("Iris Dataset - Dashboard Theme")
@@ -1810,7 +1810,7 @@ let css = r#"
 
 let theme = Theme::from_css(css)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(datasets::categorical_bars(&ctx))
     .title("CSS Variables & color-mix() - Maintainable Theme")
@@ -1973,11 +1973,11 @@ let theme = Theme::from_css(css)?;
 let width = Param::new("width", ScalarValue::from(600.0));
 let height = Param::new("height", ScalarValue::from(300.0));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
-    .add_param(width.clone())
-    .add_param(height.clone())
+    .param(width.clone())
+    .param(height.clone())
     .canvas_size(&width, &height)
     .title("Responsive Theme - Height-Based Styling")
     .subtitle("Font sizes, spacing, and legend position adapt to canvas height")

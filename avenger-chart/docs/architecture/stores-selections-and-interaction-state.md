@@ -49,7 +49,7 @@ selection marks. Drawable interaction geometry is ordinary mark data backed by
 ## Store Specs
 
 Authoring code declares stores with `Store` and registers them with
-`Plot::add_store(...)` or through `ToolExpansion`.
+`Chart::store(...)` or through `ToolExpansion`.
 
 ```rust
 let brush_boxes = Store::empty("brush_boxes")
@@ -310,9 +310,9 @@ let brush = Selection::new("brush")
     .combine(SelectionCombine::Union)
     .empty_selects_nothing();
 
-Plot::<Cartesian>::new()
-    .add_store(brush_boxes)
-    .add_selection(brush.clone())
+Chart::<Cartesian>::new()
+    .store(brush_boxes)
+    .selection(brush.clone())
     .event_binding(draw_or_update_store_rows_and_selection_clauses)
     .mark(points.fill_when(brush.predicate(), selected_color))
     .mark(

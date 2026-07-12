@@ -39,7 +39,7 @@ use avenger_chart::prelude::*;
 use avenger_chart_geo::{Geo, GeoPositionChannels, Symbol};
 
 let geo = Geo::albers_usa_conus();
-let plot = Plot::with_coord(geo.clone())
+let chart = Chart::with_coord(geo.clone())
     .mark(
         Symbol::new()
             .lon_lat(&geo, col("lon"), col("lat"))

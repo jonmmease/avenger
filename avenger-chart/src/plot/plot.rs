@@ -189,16 +189,7 @@ impl<C: CoordinateSystem + Default> Plot<C> {
 }
 
 impl<C: CoordinateSystem> Plot<C> {
-    /// Compile this plot into a renderable form (consuming self)
-    pub async fn compile(
-        self,
-        session_context: &datafusion::prelude::SessionContext,
-    ) -> Result<CompiledPlot, AvengerChartError> {
-        self.compile_root(session_context, RootChartFurnishings::default())
-            .await
-    }
-
-    pub(crate) async fn compile_root(
+    pub(crate) async fn compile(
         self,
         session_context: &datafusion::prelude::SessionContext,
         root_furnishings: RootChartFurnishings,

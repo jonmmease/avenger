@@ -36,7 +36,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -105,7 +105,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -219,7 +219,7 @@ Here's a concrete example showing the difference:
 // Scenario: Y-axis ranges from 0 to 100 in data space,
 // and maps to 0-400 pixels in visual space
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -251,7 +251,7 @@ When you need to bypass scaling for an expression, use `.no_scale()`:
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -390,7 +390,7 @@ let highlight = when(col("status").eq(lit("error")), lit(true))
     .unwrap();
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -644,7 +644,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Using channel references for bar positioning
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -710,7 +710,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -778,7 +778,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -826,7 +826,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -880,7 +880,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -948,7 +948,7 @@ let status = when(col("value").gt(lit(100.0)), lit("high"))
     .unwrap();
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()

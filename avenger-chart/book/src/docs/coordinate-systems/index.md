@@ -66,7 +66,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Same data, Cartesian coordinates
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()

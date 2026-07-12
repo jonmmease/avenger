@@ -31,7 +31,7 @@ async fn expression_adjustment(
     ctx: &SessionContext,
     df: DataFrame,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Symbol::new()
@@ -67,7 +67,7 @@ async fn transform_adjustment(
     ctx: &SessionContext,
     df: DataFrame,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Symbol::new()
@@ -145,7 +145,7 @@ async fn derived_labels(
     ctx: &SessionContext,
     df: DataFrame,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             Symbol::new()
@@ -185,7 +185,7 @@ async fn box_plot_outlier_effect(
     ctx: &SessionContext,
     df: DataFrame,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .mark(
             BoxPlot::new()

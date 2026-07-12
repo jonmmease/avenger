@@ -47,7 +47,7 @@ When you rely on defaults (e.g., `.x(col("value"))`), Avenger records the chosen
 let ctx = SessionContext::new();
 let df = ctx.read_parquet("iris.parquet", ParquetReadOptions::default()).await?;
 
-let compiled = Plot::<Cartesian>::new()
+let compiled = Chart::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")))
     .compile(&ctx)

@@ -30,7 +30,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -75,7 +75,7 @@ Rect marks are the foundation of bar charts, using categorical and quantitative 
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -100,7 +100,7 @@ Swap x and y coordinates for horizontal orientation:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -123,7 +123,7 @@ Ok(evaluated)
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -145,7 +145,7 @@ Ok(evaluated)
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -171,7 +171,7 @@ Use band scales for categorical axes with padding between bars:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -200,7 +200,7 @@ Create bars that are 70% of the full band width, centered:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -246,7 +246,7 @@ Encode categories with color using ordinal scales:
 use avenger_chart::prelude::*;
 
 let ctx = SessionContext::new();
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(datasets::categorical_bars(&ctx))
     .mark(
         Rect::new()
@@ -302,7 +302,7 @@ let aggregated = df
     .aggregate(vec![col("category")], vec![sum(col("amount")).alias("total")])
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(aggregated)
     .mark(
         Rect::new()
@@ -330,7 +330,7 @@ let sorted = datasets::categorical_bars(&ctx)
     .sort(vec![col("value").sort(false, false)])
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(sorted)
     .mark(
         Rect::new()
@@ -379,7 +379,7 @@ let status = when(col("change").gt(lit(0.0)), lit("positive"))
     .otherwise(lit("negative"))
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -458,7 +458,7 @@ let sorted = filtered
     .sort(vec![col("total_gross").sort(false, false)])
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(sorted)
     .mark(
         Rect::new()

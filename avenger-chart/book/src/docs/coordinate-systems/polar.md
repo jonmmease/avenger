@@ -32,7 +32,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Polar>::new()
+let plot = Chart::<Polar>::new()
     .data(df)
     .mark(
         Symbol::<Polar>::new()
@@ -65,7 +65,7 @@ Angular values are measured in radians:
 Create a Polar plot using the type parameter:
 
 ```rust
-let plot = Plot::<Polar>::new()
+let plot = Chart::<Polar>::new()
     .data(df)
     .mark(Symbol::<Polar>::new().r(col("distance")).theta(col("direction")));
 ```

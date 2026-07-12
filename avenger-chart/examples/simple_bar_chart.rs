@@ -5,7 +5,7 @@
 
 use avenger_chart::cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart::marks::rect::Rect;
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::Chart;
 use avenger_chart::render::CanvasExt;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{CanvasConfig, PngCanvas};
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let df = ctx.read_batch(batch)?;
 
     // Create bar chart using avenger-chart API
-    let plot = Plot::<Cartesian>::new()
+    let chart = Chart::<Cartesian>::new()
         .data(df.clone())
         // Add bar mark
         .mark(
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Render the plot to the canvas
     println!("Rendering plot to canvas...");
-    let compiled = plot.compile(&ctx).await.unwrap();
+    let compiled = chart.compile(&ctx).await.unwrap();
     canvas.render_plot(&compiled, &ctx, None).await?;
 
     // Render to PNG image

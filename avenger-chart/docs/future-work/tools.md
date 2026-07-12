@@ -5,7 +5,7 @@
 Avenger has a chart tool subsystem for packaging reusable interactions as
 ordinary chart primitives. The contracts needed to implement tools live in
 `avenger-chart-core`; built-in tool implementations live in
-`avenger-chart-tools`. Tools expand during `Plot::compile` into generated
+`avenger-chart-tools`. Tools expand during chart compilation into generated
 params, scale edits, event bindings, and app-facing metadata. `CompiledPlot`
 stores only the expanded result, so `avenger-chart-app` continues to execute the
 same event-binding and `PlotSession` evaluation path used by hand-authored

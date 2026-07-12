@@ -38,7 +38,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -99,7 +99,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -163,7 +163,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -228,7 +228,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<FacetRow>::new()
+let plot = Chart::<FacetRow>::new()
     .data(df)
     .mark(
         Subplot::new(
@@ -340,7 +340,7 @@ let df = iris
     .unwrap();
 
 // FREE facet domain (default) - each column shows only species present in that bin
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(700, 450)
     .mark(
@@ -399,7 +399,7 @@ let df = iris
     .unwrap();
 
 // SHARED facet domain - all columns show all species (grid-like)
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .canvas_size(700, 450)
     .mark(
@@ -486,7 +486,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<FacetColumn>::new()
+let plot = Chart::<FacetColumn>::new()
     .data(df)
     .mark(
         Subplot::new(

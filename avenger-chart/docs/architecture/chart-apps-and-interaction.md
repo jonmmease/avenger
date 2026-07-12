@@ -55,16 +55,16 @@ throttling, and invokes event handlers.
 ```mermaid
 sequenceDiagram
     participant User as App example
-    participant Plot as Plot
+    participant Chart as Chart
     participant Compiled as CompiledPlot
     participant ChartApp as avenger-chart-app
     participant Session as PlotSession
     participant App as AvengerApp
     participant Winit as WinitWgpuAvengerApp
 
-    User->>Plot: build chart with params and constraints
-    User->>Plot: compile(SessionContext)
-    Plot-->>Compiled: CompiledPlot
+    User->>Chart: build chart with params and constraints
+    User->>Chart: compile(SessionContext)
+    Chart-->>Compiled: CompiledPlot
     User->>ChartApp: chart_avenger_app(compiled, ctx, options)
     ChartApp->>Compiled: Arc<CompiledPlot>::instantiate(ctx)
     Compiled-->>Session: PlotSession

@@ -17,7 +17,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 
@@ -41,7 +41,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -74,7 +74,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -110,7 +110,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Iris Sepal Measurements")
     .mark(
@@ -140,7 +140,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -174,7 +174,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -204,7 +204,7 @@ use datafusion::prelude::*;
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 # let ctx = SessionContext::new();
 # let df = ctx.read_csv("data.csv", CsvReadOptions::new()).await?;
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()

@@ -29,7 +29,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<ZeroDCoord>::new()
+let plot = Chart::<ZeroDCoord>::new()
     .title("Revenue by Business Unit")
     .data(df)
     .mark(
@@ -62,7 +62,7 @@ Create a Zero-Dimensional plot using the type parameter:
 ```rust
 use avenger_chart::zerod::ZeroDCoord;
 
-let plot = Plot::<ZeroDCoord>::new()
+let plot = Chart::<ZeroDCoord>::new()
     .data(df)
     .mark(Symbol::new().size(col("value")).fill(col("category")));
 ```

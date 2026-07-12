@@ -32,7 +32,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df.clone())
     .mark(
         Line::new()
@@ -112,7 +112,7 @@ let trend_batch = RecordBatch::try_from_iter(vec![
 
 let trend = ctx.read_batch(trend_batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .mark(
         Symbol::new()
             .data(points)

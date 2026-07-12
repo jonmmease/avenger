@@ -52,7 +52,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Combine line and points for emphasis
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .title("Combined Line and Points")
     .mark(
         Line::new()

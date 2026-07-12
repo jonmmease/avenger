@@ -69,7 +69,7 @@ col("enabled").eq(lit(true)).not()         // NOT
 # use datafusion::prelude::*;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 // Map profit margin (computed from revenue and cost) to color
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -145,7 +145,7 @@ let df = ctx.read_batch(batch)?;
 // Use sqrt() to compute Euclidean distance, map to size
 let distance = sqrt(col("x") * col("x") + col("y") * col("y"));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -195,7 +195,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Normalize category names to lowercase for consistent grouping
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -287,7 +287,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Handle missing temperature data by using 0.0 as fallback
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -322,7 +322,7 @@ Aggregation functions summarize data by grouping. Avenger Chart automatically de
 # use datafusion::prelude::*;
 # use datafusion::functions_aggregate::expr_fn::sum;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -546,7 +546,7 @@ let double_udf = ScalarUDF::new_from_impl(DoubleUDF::new());
 ctx1.register_udf(double_udf.clone());
 
 // Use the UDF in a plot - double the y values
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -615,7 +615,7 @@ Compute derived columns for visualization:
 # use datafusion::prelude::*;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 // Visualize velocity (distance / time)
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -637,7 +637,7 @@ Ensure visualizations handle missing data gracefully:
 # use datafusion::functions::expr_fn::coalesce;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 // Use coalesce to provide defaults for null values
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -659,7 +659,7 @@ Normalize text for consistent encoding:
 # use datafusion::functions::expr_fn::lower;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 // Group by normalized category names
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -682,7 +682,7 @@ Extract parts of dates for temporal grouping:
 # use datafusion::functions::expr_fn::date_part;
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 // Group sales by month
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()

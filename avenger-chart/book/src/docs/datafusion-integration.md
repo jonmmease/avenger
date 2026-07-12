@@ -31,7 +31,7 @@ The `SessionContext` is DataFusion's execution environment and is required for b
 # use avenger_chart::prelude::*;
 # use datafusion::prelude::*;
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-# let plot = Plot::<Cartesian>::new();
+# let plot = Chart::<Cartesian>::new();
 let ctx = SessionContext::new();
 
 // Compile requires SessionContext to:
@@ -281,7 +281,7 @@ let double_udf = ScalarUDF::new_from_impl(DoubleUDF::new());
 ctx1.register_udf(double_udf.clone());
 
 // Use the UDF in a plot - double the y values
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()

@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .await?;
 
     // Create a scatter plot
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .data(df)
         .title("Iris Dataset")
         .mark(
@@ -79,7 +79,7 @@ use datafusion::prelude::*;
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")))
     .canvas_size(800.0, 600.0);
@@ -131,7 +131,7 @@ Canvas size is set on the plot itself:
 ```rust,no_run
 # use avenger_chart::prelude::*;
 # fn example() {
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .canvas_size(1200.0, 800.0);  // Width × Height in logical pixels
 # }
 ```
@@ -150,7 +150,7 @@ use avenger_chart::render::WgpuRenderer;
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
+# let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = WgpuRenderer::new();
 let image = renderer.render(&compiled, &ctx, None).await?;
@@ -188,7 +188,7 @@ use avenger_chart::render::SvgRenderer;
 # use datafusion::prelude::*;
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
+# let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = SvgRenderer::new();
 renderer.write_svg(&compiled, &ctx, None, "output.svg").await?;
@@ -211,7 +211,7 @@ use avenger_chart::render::PdfRenderer;
 # use datafusion::prelude::*;
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
+# let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = PdfRenderer::new();
 renderer.write_pdf(&compiled, &ctx, None, "output.pdf").await?;
@@ -238,7 +238,7 @@ use avenger_chart::render::CpuRenderer;
 # use datafusion::prelude::*;
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
+# let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 let renderer = CpuRenderer::new().with_scale(2.0);
 renderer.write_png(&compiled, &ctx, None, "output.png").await?;
@@ -322,7 +322,7 @@ This separation allows you to:
 # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
+# let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 let compiled = plot.compile(&ctx).await?;
 
 // Standard resolution
@@ -349,7 +349,7 @@ WgpuRenderer::new().with_scale(3.0)
 # async fn example(has_gpu: bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 # let ctx = SessionContext::new();
 # let df = ctx.read_parquet(avenger_sample_data::iris_path(), ParquetReadOptions::default()).await?;
-# let plot = Plot::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
+# let plot = Chart::<Cartesian>::new().data(df).mark(Symbol::new().x(col("sepal_length")).y(col("sepal_width")));
 # let compiled = plot.compile(&ctx).await?;
 if has_gpu {
     // Fast GPU rendering

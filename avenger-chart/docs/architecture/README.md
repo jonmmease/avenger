@@ -92,7 +92,7 @@ flowchart TD
 - [extension-contracts.md](extension-contracts.md): custom marks, scales,
   legend renderers, coordinate systems, and positioned subplot support.
 - [compile-evaluate-render-pipeline.md](compile-evaluate-render-pipeline.md):
-  the runtime path from `Plot` to `EvaluatedPlot`.
+  the runtime path from root `Chart` through `CompiledPlot` to `EvaluatedPlot`.
 - [plot-sessions-and-fast-evaluation.md](plot-sessions-and-fast-evaluation.md):
   reusable `PlotSession` evaluation, cache families, Preview optimization,
   raw-domain interaction retargeting, and metrics.

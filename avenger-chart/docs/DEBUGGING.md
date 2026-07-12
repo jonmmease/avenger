@@ -112,7 +112,7 @@ The crate provides structured logging for various operations:
 
 ```rust
 use tracing_subscriber;
-use avenger_chart::plot::Plot;
+use avenger_chart::prelude::*;
 
 fn main() {
     // Enable debug logging for layout module
@@ -121,13 +121,13 @@ fn main() {
         .init();
 
     // Create a plot - debug output will show layout calculations
-    let plot = Plot::new(Cartesian)
+    let chart = Chart::<Cartesian>::new()
         .title("My Chart")
-        .legend_fill(|l| l.position(LegendPosition::Right))
+        .legend("fill", |l| l.position(LegendPosition::Right))
         .mark(/* ... */);
 
-    // Render will produce debug output about layout
-    plot.render(/* ... */);
+    // Compile/evaluate/render will produce debug output about layout
+    let _ = chart;
 }
 ```
 

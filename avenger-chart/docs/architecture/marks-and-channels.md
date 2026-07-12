@@ -65,7 +65,7 @@ Channel configs implement `ChannelConfig`. Scale-bearing configs also get
 
 ## Channel Extraction
 
-`Plot::compile` calls `plot::channel::extract_channel_configs` for each mark.
+Chart compilation calls `plot::channel::extract_channel_configs` for each mark.
 That function:
 
 - merges axis configs into `axis_specs`,

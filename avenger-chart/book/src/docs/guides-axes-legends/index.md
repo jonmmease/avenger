@@ -110,7 +110,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .title("Cartesian: x/y axes + fill legend")
     .data(df)
     .mark(
@@ -162,7 +162,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Polar>::new()
+let plot = Chart::<Polar>::new()
     .title("Polar: r/theta axes + fill legend")
     .data(df)
     .mark(
@@ -212,7 +212,7 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<ZeroDCoord>::new()
+let plot = Chart::<ZeroDCoord>::new()
     .title("Zero-D: No axes, legends only")
     .data(df)
     .mark(
@@ -245,7 +245,7 @@ Planned geographic coordinate systems will demonstrate the architectural advanta
 
 ```rust
 // Future API (not yet implemented)
-let plot = Plot::<Geographic>::new()
+let plot = Chart::<Geographic>::new()
     .guide(|g| g
         .projection(Projection::Mercator)
         .show_countries(true)

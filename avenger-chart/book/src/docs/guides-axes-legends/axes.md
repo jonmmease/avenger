@@ -19,7 +19,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -53,7 +53,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Iris Dataset Analysis")
     .mark(
@@ -88,7 +88,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Symbol::new()
@@ -124,7 +124,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .mark(
         Rect::new()
@@ -164,7 +164,7 @@ let df = ctx
     .await
     ?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Minimal Axes")
     .mark(
@@ -204,7 +204,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Right Y-Axis")
     .mark(
@@ -244,7 +244,7 @@ let batch = RecordBatch::try_from_iter(vec![
 ])?;
 let df = ctx.read_batch(batch)?;
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .data(df)
     .title("Top X-Axis and Right Y-Axis")
     .mark(
@@ -316,11 +316,11 @@ let x_axis_title = when(unit_param.expr().eq(lit("meters")), lit("Distance (m)")
     .otherwise(lit("Distance"))
     .unwrap();
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
     .title("Dynamic Unit Conversion")
     .data(df)
-    .add_param(unit_param.clone())
+    .param(unit_param.clone())
     .mark(
         Symbol::new()
             .x_with(x_expr, |c| c.axis(|a| a.grid(true).title(x_axis_title)))
@@ -385,10 +385,10 @@ let df = ctx.read_batch(batch)?;
 // Parameter to control grid visibility
 let show_grid_param = Param::new("show_grid", ScalarValue::Boolean(Some(true)));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
     .data(df)
-    .add_param(show_grid_param.clone())
+    .param(show_grid_param.clone())
     .mark(
         Symbol::new()
             .x_with(col("x"), |c| {
@@ -443,10 +443,10 @@ let position_expr = when(axis_pos_param.expr().eq(lit("top")), lit("top"))
     .otherwise(lit("bottom"))
     .unwrap();
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
     .data(df)
-    .add_param(axis_pos_param.clone())
+    .param(axis_pos_param.clone())
     .mark(
         Symbol::new()
             .x_with(col("x"), |c| {
@@ -495,10 +495,10 @@ let df = ctx.read_batch(batch)?;
 // Parameter to control axis visibility
 let show_axis_param = Param::new("show_x_axis", ScalarValue::Boolean(Some(true)));
 
-let plot = Plot::<Cartesian>::new()
+let plot = Chart::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
     .data(df)
-    .add_param(show_axis_param.clone())
+    .param(show_axis_param.clone())
     .mark(
         Symbol::new()
             .x_with(col("x"), |c| {
