@@ -43,7 +43,7 @@ async fn alignment_data(ctx: &SessionContext) -> DataFrame {
 
 fn facet_child(y_column: &str) -> Plot<FacetColumn> {
     let y_column = y_column.to_string();
-    Plot::<FacetColumn>::new().plot_size(120.0, 90.0).mark(
+    Plot::<FacetColumn>::new().mark(
         Subplot::new(
             Plot::<Cartesian>::new().mark(
                 Line::new()
@@ -69,11 +69,13 @@ async fn concat_grid_facet_track_alignment() {
         .configure_coord(|c| c.rows(1).columns(2))
         .mark(
             Subplot::new(facet_child("y_small"))
+                .size(120.0, 90.0)
                 .at(0, 0)
                 .name("metric_small"),
         )
         .mark(
             Subplot::new(facet_child("y_large"))
+                .size(120.0, 90.0)
                 .at(0, 1)
                 .name("metric_large"),
         );

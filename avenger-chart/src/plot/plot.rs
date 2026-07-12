@@ -15,10 +15,10 @@ use avenger_chart_core::{
     CompileContext, CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec,
     CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem,
     CoordinateSystemTransformCore, DataContext, DomainCoordination, DomainCoordinationGroup,
-    FormattingContext, IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode,
-    MarkState, PlotMark, PlotMarkKind, RepeatContext, RepeatVariable, ScaleInferenceHint,
-    SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate, Store,
-    SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
+    FormattingContext, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState,
+    PlotMark, PlotMarkKind, RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget,
+    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
+    TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -26,10 +26,9 @@ use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPla
 use crate::{
     concat::{ConcatOrigin, GridConcat, HConcat, VConcat, WrapConcat},
     event::{ChartEventBinding, ChartEventStream, rewrite_reserved_event_binding_local_datums},
-    layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint, SizeMode},
+    layout::{LayoutSpec, SizeMode},
     legend::ColorbarOverlay,
     repeat::{RepeatColumns, RepeatGrid, RepeatResolvedChildPlotSpec, RepeatRows, RepeatWrap},
-    serialization::serializable_expr_from_expr,
     tools::{ToolCompileContext, discover_tool_scale_targets},
 };
 
@@ -54,9 +53,6 @@ pub struct Plot<C: CoordinateSystem> {
     /// Plot-level legend configurations (set via .legend())
     pub(crate) legends: IndexMap<String, Legend>,
 
-    /// Layout specification for sizing and margins
-    pub(crate) layout_spec: LayoutSpec,
-
     /// Optional plot title rendered by the layout system
     pub(crate) title: Option<PlotTitle>,
 
@@ -77,6 +73,7 @@ pub(crate) struct RootChartFurnishings {
     pub(crate) theme: Option<Arc<Theme>>,
     pub(crate) time_context: TimeContext,
     pub(crate) formatting_context: FormattingContext,
+    pub(crate) layout_spec: LayoutSpec,
     pub(crate) param_specs: Vec<CompiledParamSpec>,
     pub(crate) selections: Vec<Selection>,
     pub(crate) stores: Vec<Store>,
@@ -89,12 +86,27 @@ impl Default for RootChartFurnishings {
             theme: None,
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
+            layout_spec: LayoutSpec::default(),
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
             cursor_params: Vec::new(),
         }
     }
+}
+
+fn child_layout_spec(furnishings: &ChildPlotFurnishings) -> LayoutSpec {
+    let mut layout = LayoutSpec::default();
+    layout.plot_area = match (&furnishings.size.width, &furnishings.size.height) {
+        (Some(width), Some(height)) => SizeMode::Fixed {
+            width: width.clone().into(),
+            height: height.clone().into(),
+        },
+        (Some(width), None) => SizeMode::Width(width.clone().into()),
+        (None, Some(height)) => SizeMode::Height(height.clone().into()),
+        (None, None) => SizeMode::Auto,
+    };
+    layout
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -119,8 +131,12 @@ where
         let tool_context = ToolCompileContext::from_parent(None);
         Ok(Arc::new(
             self.clone()
-                .with_child_furnishings(furnishings.clone())
-                .compile_with_tool_context(session_context, Some(&tool_context), None)
+                .compile_with_tool_context(
+                    session_context,
+                    Some(&tool_context),
+                    None,
+                    furnishings.clone(),
+                )
                 .await?,
         ))
     }
@@ -141,30 +157,13 @@ where
         };
         Ok(Arc::new(
             self.clone()
-                .with_child_furnishings(furnishings)
-                .compile_with_tool_context(session_context, tool_context, None)
+                .compile_with_tool_context(session_context, tool_context, None, furnishings)
                 .await?,
         ))
     }
 }
 
 impl<C: CoordinateSystem> Plot<C> {
-    fn with_child_furnishings(mut self, furnishings: ChildPlotFurnishings) -> Self {
-        if let Some(caption) = furnishings.caption {
-            self.title = Some(caption);
-        }
-        self.layout_spec.plot_area = match (furnishings.size.width, furnishings.size.height) {
-            (Some(width), Some(height)) => SizeMode::Fixed {
-                width: width.into(),
-                height: height.into(),
-            },
-            (Some(width), None) => SizeMode::Width(width.into()),
-            (None, Some(height)) => SizeMode::Height(height.into()),
-            (None, None) => self.layout_spec.plot_area,
-        };
-        self
-    }
-
     pub fn with_coord(coord_system: C) -> Self {
         Plot {
             coord_system,
@@ -172,7 +171,6 @@ impl<C: CoordinateSystem> Plot<C> {
             data: None,
             scale_specs: HashMap::new(),
             legends: IndexMap::new(),
-            layout_spec: LayoutSpec::default(),
             title: None,
             subtitle: None,
             guide_config: None,
@@ -218,6 +216,7 @@ impl<C: CoordinateSystem> Plot<C> {
             session_context,
             Some(&root_tool_context),
             Some(root_furnishings),
+            ChildPlotFurnishings::default(),
         ))
         .await
     }
@@ -227,6 +226,7 @@ impl<C: CoordinateSystem> Plot<C> {
         session_context: &datafusion::prelude::SessionContext,
         inherited_tool_context: Option<&ToolCompileContext>,
         root_furnishings: Option<RootChartFurnishings>,
+        child_furnishings: ChildPlotFurnishings,
     ) -> Result<CompiledPlot, AvengerChartError> {
         match try_lower_repeat_plot(self, session_context)? {
             MaybeLoweredRepeatPlot::Lowered(lowered) => {
@@ -234,6 +234,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     session_context,
                     inherited_tool_context,
                     root_furnishings,
+                    child_furnishings,
                 ))
                 .await;
             }
@@ -242,6 +243,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     session_context,
                     inherited_tool_context,
                     root_furnishings,
+                    child_furnishings,
                 ))
                 .await;
             }
@@ -253,18 +255,27 @@ impl<C: CoordinateSystem> Plot<C> {
         session_context: &datafusion::prelude::SessionContext,
         inherited_tool_context: Option<&ToolCompileContext>,
         root_furnishings: Option<RootChartFurnishings>,
+        child_furnishings: ChildPlotFurnishings,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let is_root = root_furnishings.is_some();
-        let (root_param_specs, root_selections, root_stores, root_cursor_params) =
+        let (root_param_specs, root_selections, root_stores, root_cursor_params, layout_spec) =
             match root_furnishings {
                 Some(root) => (
                     root.param_specs,
                     root.selections,
                     root.stores,
                     root.cursor_params,
+                    root.layout_spec,
                 ),
-                None => (Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+                None => (
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    child_layout_spec(&child_furnishings),
+                ),
             };
+        let title = child_furnishings.caption.or(self.title);
         let effective_time_context = inherited_tool_context
             .map(|context| context.time_context())
             .cloned()
@@ -604,8 +615,8 @@ impl<C: CoordinateSystem> Plot<C> {
             axis_specs,
             legends,
             legend_colorbar_overlays,
-            layout_spec: self.layout_spec,
-            title: self.title,
+            layout_spec,
+            title,
             subtitle: self.subtitle,
             theme: tool_context.theme().cloned(),
             time_context: effective_time_context,
@@ -693,83 +704,6 @@ impl<C: CoordinateSystem> Plot<C> {
         self
     }
 
-    /// Get the layout specification
-    pub fn get_layout_spec(&self) -> &LayoutSpec {
-        &self.layout_spec
-    }
-
-    // ====== Layout API ======
-
-    /// Set fixed canvas dimensions (traditional mode).
-    ///
-    /// For faceted charts, this selects canvas-fit facet sizing.
-    /// The plot area is solved to fit within the provided canvas.
-    ///
-    /// Accepts numeric literals (e.g., `800.0`), `Expr` values, or column references via `col()`
-    pub fn canvas_size<W, H>(mut self, width: W, height: H) -> Self
-    where
-        W: IntoExpr,
-        H: IntoExpr,
-    {
-        let width_expr = width.into_expr();
-        let height_expr = height.into_expr();
-
-        self.layout_spec.canvas = SizeMode::Fixed {
-            width: serializable_expr_from_expr(width_expr, "canvas width"),
-            height: serializable_expr_from_expr(height_expr, "canvas height"),
-        };
-        self
-    }
-
-    /// Set canvas sizing constraint for responsive layouts
-    pub fn canvas_constraint(mut self, constraint: CanvasConstraint) -> Self {
-        self.layout_spec.canvas = constraint.into();
-        self
-    }
-
-    /// Set fixed plot area dimensions (data-first mode).
-    ///
-    /// For non-facet charts, this fixes the top-level plot area.
-    /// For top-level faceted charts, this selects plot-area-sized sizing where
-    /// `width`/`height` are interpreted as per-leaf-subplot plot-area dimensions and
-    /// the root canvas grows to fit the facet tree.
-    ///
-    /// Accepts numeric literals (e.g., `400.0`), `Expr` values, or column references via `col()`
-    pub fn plot_size<W, H>(mut self, width: W, height: H) -> Self
-    where
-        W: IntoExpr,
-        H: IntoExpr,
-    {
-        let width_expr = width.into_expr();
-        let height_expr = height.into_expr();
-
-        self.layout_spec.plot_area = SizeMode::Fixed {
-            width: serializable_expr_from_expr(width_expr, "plot width"),
-            height: serializable_expr_from_expr(height_expr, "plot height"),
-        };
-        self
-    }
-
-    /// Set plot area sizing constraint for responsive layouts
-    pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
-        self.layout_spec.plot_area = match constraint {
-            PlotConstraint::Auto => SizeMode::Auto,
-            PlotConstraint::Width(w) => {
-                SizeMode::Width(serializable_expr_from_expr(w, "plot width constraint"))
-            }
-            PlotConstraint::Height(h) => {
-                SizeMode::Height(serializable_expr_from_expr(h, "plot height constraint"))
-            }
-        };
-        self
-    }
-
-    /// Set margins
-    pub fn margins(mut self, margins: Margins) -> Self {
-        self.layout_spec.margins = margins;
-        self
-    }
-
     /// Configure the guide (coordinate system visual elements like axes and background)
     pub fn configure_guide(mut self, guide: C::Guide) -> Self {
         self.guide_config = match self.guide_config {
@@ -802,6 +736,7 @@ impl LoweredRepeatPlot {
         session_context: &datafusion::prelude::SessionContext,
         inherited_tool_context: Option<&ToolCompileContext>,
         root_furnishings: Option<RootChartFurnishings>,
+        child_furnishings: ChildPlotFurnishings,
     ) -> Result<CompiledPlot, AvengerChartError> {
         match self {
             Self::Columns(plot) => {
@@ -809,6 +744,7 @@ impl LoweredRepeatPlot {
                     session_context,
                     inherited_tool_context,
                     root_furnishings,
+                    child_furnishings,
                 ))
                 .await
             }
@@ -817,6 +753,7 @@ impl LoweredRepeatPlot {
                     session_context,
                     inherited_tool_context,
                     root_furnishings,
+                    child_furnishings,
                 ))
                 .await
             }
@@ -825,6 +762,7 @@ impl LoweredRepeatPlot {
                     session_context,
                     inherited_tool_context,
                     root_furnishings,
+                    child_furnishings,
                 ))
                 .await
             }
@@ -833,6 +771,7 @@ impl LoweredRepeatPlot {
                     session_context,
                     inherited_tool_context,
                     root_furnishings,
+                    child_furnishings,
                 ))
                 .await
             }
@@ -901,7 +840,6 @@ struct RepeatPlotParts<C: CoordinateSystem> {
     data: Option<DataFrame>,
     scale_specs: HashMap<String, ScaleSpec>,
     legends: IndexMap<String, Legend>,
-    layout_spec: LayoutSpec,
     title: Option<PlotTitle>,
     subtitle: Option<PlotSubtitle>,
     event_bindings: Vec<ChartEventBinding>,
@@ -918,7 +856,6 @@ fn split_repeat_plot<C: CoordinateSystem>(
         data,
         scale_specs,
         legends,
-        layout_spec,
         title,
         subtitle,
         guide_config,
@@ -946,7 +883,6 @@ fn split_repeat_plot<C: CoordinateSystem>(
         data,
         scale_specs,
         legends,
-        layout_spec,
         title,
         subtitle,
         event_bindings,
@@ -969,7 +905,6 @@ where
         data: parts.data,
         scale_specs: parts.scale_specs,
         legends: parts.legends,
-        layout_spec: parts.layout_spec,
         title: parts.title,
         subtitle: parts.subtitle,
         guide_config: None,
@@ -2735,6 +2670,7 @@ mod tests {
             ctx,
             Some(&tool_context),
             Some(RootChartFurnishings::default()),
+            ChildPlotFurnishings::default(),
         )
         .await
         .expect("plot compiles with repeat context")

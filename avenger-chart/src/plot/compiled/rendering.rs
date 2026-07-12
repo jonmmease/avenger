@@ -10869,9 +10869,9 @@ mod tests {
             .mark(
                 Subplot::new(
                     crate::plot::Plot::<Cartesian>::new()
-                        .plot_size(80.0, 60.0)
                         .mark(Symbol::new().x(col("value")).y(col("value")).size(24.0)),
                 )
+                .size(80.0, 60.0)
                 .column(col("outer_group")),
             );
 

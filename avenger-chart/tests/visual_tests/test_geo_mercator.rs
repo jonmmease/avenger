@@ -75,9 +75,7 @@ fn landmark_symbols(geo: &Geo) -> Symbol<Geo> {
 
 fn geo_child(coord: Geo) -> Plot<Geo> {
     let symbols = landmark_symbols(&coord);
-    Plot::with_coord(coord)
-        .plot_size(260.0, 220.0)
-        .mark(symbols)
+    Plot::with_coord(coord).mark(symbols)
 }
 
 fn osm_tile_layer() -> avenger_chart_geo::RasterTileLayer {
@@ -182,10 +180,16 @@ async fn symbol_wide_vs_tall_same_zoom() {
         .data(landmarks(&ctx).await)
         .mark(
             Subplot::new(geo_child(coord.clone()))
+                .size(260.0, 220.0)
                 .name("wide")
                 .label("Wide"),
         )
-        .mark(Subplot::new(geo_child(coord)).name("tall").label("Tall"));
+        .mark(
+            Subplot::new(geo_child(coord))
+                .size(260.0, 220.0)
+                .name("tall")
+                .label("Tall"),
+        );
 
     let compiled = plot
         .compile(&ctx)
@@ -259,7 +263,7 @@ async fn facet_free_viewports() {
 async fn repeat_shared_fit() {
     let ctx = SessionContext::new();
     let geo = Geo::mercator();
-    let cell = Plot::with_coord(geo.clone()).plot_size(190.0, 150.0).mark(
+    let cell = Plot::with_coord(geo.clone()).mark(
         Symbol::new()
             .lon_lat(&geo, repeat::column(), repeat::row())
             .size(150.0)
@@ -281,7 +285,7 @@ async fn repeat_shared_fit() {
                 RepeatVariable::new("far_lon", col("far_lon")).title("Far"),
             ])
             .matrix_domains()
-            .cell(cell)
+            .cell(RepeatCell::new(cell).size(190.0, 150.0))
         });
 
     let compiled = plot

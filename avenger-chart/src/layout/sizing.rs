@@ -8,7 +8,7 @@
 //! fills the available space after accounting for margins, axes, and legends.
 //!
 //! ```ignore
-//! Plot::new()
+//! Chart::new()
 //!     .canvas_size(800.0, 600.0)
 //!     .margins(Margins::uniform(20.0))
 //! ```
@@ -22,7 +22,7 @@
 //! plot-area size, and the root plot area/canvas are synthesized from the facet tree.
 //!
 //! ```ignore
-//! Plot::new()
+//! Chart::new()
 //!     .plot_size(400.0, 300.0)
 //!     .margins(Margins::uniform(10.0))
 //! ```
@@ -32,7 +32,7 @@
 //! constraints like fixed width with flexible height, fixed height with flexible width, etc.
 //!
 //! ```ignore
-//! Plot::new()
+//! Chart::new()
 //!     .canvas_constraint(CanvasConstraint::Width(600.0))  // Fixed width, height adjusts
 //!     .plot_constraint(PlotConstraint::Width(400.0))      // Fixed plot width
 //! ```

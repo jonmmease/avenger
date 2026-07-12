@@ -57,7 +57,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let source = Plot::<Cartesian>::new()
         .data(df.clone())
-        .plot_size(LEFT_WIDTH, PLOT_HEIGHT)
         .title("Lasso source")
         .mark(selection_points(
             "source_points",
@@ -73,7 +72,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let sibling = Plot::<Cartesian>::new()
         .data(df)
-        .plot_size(RIGHT_WIDTH, PLOT_HEIGHT)
         .title("Sibling view")
         .mark(selection_points(
             "sibling_points",
@@ -94,12 +92,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .cursor_param(cursor.name.clone())
         .mark(
             Subplot::new(source)
+                .size(LEFT_WIDTH, PLOT_HEIGHT)
                 .id("source")
                 .name("source")
                 .label("Query rendered marks"),
         )
         .mark(
             Subplot::new(sibling)
+                .size(RIGHT_WIDTH, PLOT_HEIGHT)
                 .id("sibling")
                 .name("sibling")
                 .label("Same semantic selection"),

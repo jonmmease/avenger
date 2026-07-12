@@ -31,6 +31,7 @@ pub struct Chart<C: CoordinateSystem> {
     theme: Option<Arc<Theme>>,
     time_context: TimeContext,
     formatting_context: FormattingContext,
+    layout_spec: LayoutSpec,
     param_specs: Vec<CompiledParamSpec>,
     selections: Vec<Selection>,
     stores: Vec<Store>,
@@ -45,6 +46,7 @@ impl<C: CoordinateSystem> Chart<C> {
             theme: None,
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
+            layout_spec: LayoutSpec::default(),
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
@@ -59,6 +61,7 @@ impl<C: CoordinateSystem> Chart<C> {
             theme: None,
             time_context: TimeContext::default(),
             formatting_context: FormattingContext::default(),
+            layout_spec: LayoutSpec::default(),
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
@@ -198,37 +201,63 @@ impl<C: CoordinateSystem> Chart<C> {
 
     /// Set fixed canvas dimensions.
     pub fn canvas_size<W: IntoExpr, H: IntoExpr>(mut self, width: W, height: H) -> Self {
-        self.plot = self.plot.canvas_size(width, height);
+        self.layout_spec.canvas = crate::layout::SizeMode::Fixed {
+            width: crate::serialization::serializable_expr_from_expr(
+                width.into_expr(),
+                "canvas width",
+            ),
+            height: crate::serialization::serializable_expr_from_expr(
+                height.into_expr(),
+                "canvas height",
+            ),
+        };
         self
     }
 
     /// Set responsive canvas sizing.
     pub fn canvas_constraint(mut self, constraint: CanvasConstraint) -> Self {
-        self.plot = self.plot.canvas_constraint(constraint);
+        self.layout_spec.canvas = constraint.into();
         self
     }
 
     /// Set fixed root plot-area dimensions.
     pub fn plot_size<W: IntoExpr, H: IntoExpr>(mut self, width: W, height: H) -> Self {
-        self.plot = self.plot.plot_size(width, height);
+        self.layout_spec.plot_area = crate::layout::SizeMode::Fixed {
+            width: crate::serialization::serializable_expr_from_expr(
+                width.into_expr(),
+                "plot width",
+            ),
+            height: crate::serialization::serializable_expr_from_expr(
+                height.into_expr(),
+                "plot height",
+            ),
+        };
         self
     }
 
     /// Set responsive root plot-area sizing.
     pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
-        self.plot = self.plot.plot_constraint(constraint);
+        self.layout_spec.plot_area = match constraint {
+            PlotConstraint::Auto => crate::layout::SizeMode::Auto,
+            PlotConstraint::Width(width) => crate::layout::SizeMode::Width(
+                crate::serialization::serializable_expr_from_expr(width, "plot width constraint"),
+            ),
+            PlotConstraint::Height(height) => crate::layout::SizeMode::Height(
+                crate::serialization::serializable_expr_from_expr(height, "plot height constraint"),
+            ),
+        };
         self
     }
 
     /// Set chart margins.
     pub fn margins(mut self, margins: Margins) -> Self {
-        self.plot = self.plot.margins(margins);
+        self.layout_spec.margins = margins;
         self
     }
 
     /// Access the chart layout specification.
     pub fn get_layout_spec(&self) -> &LayoutSpec {
-        self.plot.get_layout_spec()
+        &self.layout_spec
     }
 
     /// Set an explicit chart theme.
@@ -323,6 +352,7 @@ impl<C: CoordinateSystem> Chart<C> {
                     theme: self.theme,
                     time_context: self.time_context,
                     formatting_context: self.formatting_context,
+                    layout_spec: self.layout_spec,
                     param_specs: self.param_specs,
                     selections: self.selections,
                     stores: self.stores,
@@ -392,20 +422,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn chart_facade_compiles_identically_to_plot() {
+    async fn chart_facade_compiles_identically_from_new_or_promoted_plot() {
         let session_context = SessionContext::new();
-        let plot = Plot::<Cartesian>::new()
-            .canvas_size(320.0, 200.0)
-            .title("Facade parity");
+        let promoted = Chart::from_plot(Plot::<Cartesian>::new().title("Facade parity"))
+            .canvas_size(320.0, 200.0);
         let chart = Chart::<Cartesian>::new()
             .canvas_size(320.0, 200.0)
             .title("Facade parity");
 
-        let plot_bytes =
-            bincode::serialize(&plot.compile(&session_context).await.unwrap()).unwrap();
+        let promoted_bytes =
+            bincode::serialize(&promoted.compile(&session_context).await.unwrap()).unwrap();
         let chart_bytes =
             bincode::serialize(&chart.compile(&session_context).await.unwrap()).unwrap();
-        assert_eq!(chart_bytes, plot_bytes);
+        assert_eq!(chart_bytes, promoted_bytes);
     }
 
     #[tokio::test]
@@ -506,14 +535,42 @@ mod tests {
     }
 
     #[test]
-    fn facade_forwards_layout_and_escape_hatch() {
+    fn root_layout_is_independent_of_plot_escape_hatch() {
         let chart = Chart::<Cartesian>::new()
             .margins(Margins::uniform(12.0))
-            .configure_plot(|plot| plot.canvas_size(400.0, 240.0));
+            .canvas_size(400.0, 240.0)
+            .configure_plot(|plot| plot);
+        assert_eq!(chart.get_layout_spec().margins, Margins::uniform(12.0));
+    }
+
+    #[test]
+    fn root_layout_builders_retain_fixed_expression_and_constraint_modes() {
+        let width = Param::new("root_width", 320.0_f64);
+        let fixed = Chart::<Cartesian>::new().plot_size(width.expr(), 200.0);
+        let SizeMode::Fixed {
+            width: fixed_width,
+            height: _,
+        } = &fixed.get_layout_spec().plot_area
+        else {
+            panic!("expected fixed root plot size");
+        };
+        let fixed_width: LogicalExprNode = fixed_width.clone().into();
         assert_eq!(
-            chart.plot().get_layout_spec().margins,
-            Margins::uniform(12.0)
+            fixed_width.to_default_expr(&SessionContext::new()).unwrap(),
+            width.expr()
         );
+
+        let constrained = Chart::<Cartesian>::new()
+            .canvas_constraint(CanvasConstraint::width(640.0))
+            .plot_constraint(PlotConstraint::height(180.0));
+        assert!(matches!(
+            constrained.get_layout_spec().canvas,
+            SizeMode::Width(_)
+        ));
+        assert!(matches!(
+            constrained.get_layout_spec().plot_area,
+            SizeMode::Height(_)
+        ));
     }
 
     #[tokio::test]

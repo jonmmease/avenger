@@ -10104,19 +10104,17 @@ mod tests {
             .exact();
         let source_plot = Plot::<Cartesian>::new()
             .data(df.clone())
-            .plot_size(300.0, 260.0)
             .mark(nested_source)
             .event_binding(binding);
         let detail_plot = Plot::<Cartesian>::new()
             .data(df)
-            .plot_size(240.0, 260.0)
             .mark(detail_background)
             .mark(detail_overlay);
         let compiled = Chart::<HConcat>::new()
             .canvas_size(720.0, 380.0)
             .selection(picked)
-            .mark(Subplot::new(source_plot).name("source"))
-            .mark(Subplot::new(detail_plot).name("detail"))
+            .mark(Subplot::new(source_plot).size(300.0, 260.0).name("source"))
+            .mark(Subplot::new(detail_plot).size(240.0, 260.0).name("detail"))
             .compile(&ctx)
             .await
             .expect("compile temporal nested cross-filter plot");
