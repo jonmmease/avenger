@@ -291,6 +291,9 @@ impl<C: CoordinateSystem> Plot<C> {
             .cloned()
             .unwrap_or_default();
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
+        if is_root {
+            tool_context.register_root_stores(&root_stores)?;
+        }
         let coord_system = if let Some(repeat_context) = tool_context.repeat_context() {
             self.coord_system.resolve_repeat(repeat_context)?
         } else {
@@ -523,10 +526,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Build param specs in stable declaration order and reject duplicates
         // across explicit root declarations and tool-generated state.
         let mut param_source_specs = root_param_specs;
-        let mut store_source_specs = root_stores
-            .iter()
-            .map(Store::compile)
-            .collect::<Result<Vec<_>, _>>()?;
+        let mut store_source_specs = Vec::new();
         let legend_colorbar_overlays = compile_colorbar_overlays(&legends, session_context).await?;
         for legend in legends.values_mut() {
             legend.colorbar_overlays.clear();
