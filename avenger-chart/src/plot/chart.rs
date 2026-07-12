@@ -8,8 +8,9 @@
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    AvengerChartError, ChartTool, CompiledParamSpec, CoordinationScope, FormattingContext,
-    IntoExpr, IntoPlotMark, Param, Scale, Selection, Store, Theme, TimeContext,
+    AvengerChartError, ChartTool, ChartWidget, CompiledParamSpec, CoordinationScope,
+    FormattingContext, IntoExpr, IntoPlotMark, NativeWidget, Param, PixelFrame,
+    PositionedChartWidget, PositionedNativeWidget, Scale, Selection, Store, Theme, TimeContext,
 };
 use avenger_chart_scales::ScaleSpec as ScaleTypeSpec;
 use datafusion::{dataframe::DataFrame, prelude::SessionContext};
@@ -128,6 +129,18 @@ impl<C: CoordinateSystem> Chart<C> {
     /// Add authoring-time chart tools of one concrete type.
     pub fn tools<T: ChartTool<C>>(mut self, tools: impl IntoIterator<Item = T>) -> Self {
         self.plot = self.plot.tools(tools);
+        self
+    }
+
+    /// Attach a composed widget to a chart chrome side.
+    pub fn widget<W: ChartWidget>(mut self, widget: PositionedChartWidget<W>) -> Self {
+        self.plot = self.plot.widget(widget);
+        self
+    }
+
+    /// Attach a native widget to a chart chrome side.
+    pub fn native_widget<N: NativeWidget>(mut self, widget: PositionedNativeWidget<N>) -> Self {
+        self.plot = self.plot.native_widget(widget);
         self
     }
 
@@ -368,6 +381,20 @@ impl<C: CoordinateSystem> Chart<C> {
                 },
             )
             .await
+    }
+}
+
+impl Chart<PixelFrame> {
+    /// Attach a composed widget whose frame is supplied at evaluation time.
+    pub fn host_widget<W: ChartWidget>(mut self, widget: W) -> Self {
+        self.plot = self.plot.host_widget(widget);
+        self
+    }
+
+    /// Attach a native widget whose frame is supplied at evaluation time.
+    pub fn host_native_widget<N: NativeWidget>(mut self, widget: N) -> Self {
+        self.plot = self.plot.host_native_widget(widget);
+        self
     }
 }
 

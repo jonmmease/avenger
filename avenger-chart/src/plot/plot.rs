@@ -6,19 +6,31 @@ use std::{
     sync::Arc,
 };
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::lit};
+use datafusion::{
+    arrow::{
+        array::{ArrayRef, RecordBatch, UInt64Array},
+        datatypes::{Field, Schema},
+    },
+    common::ScalarValue,
+    dataframe::DataFrame,
+    functions_window::expr_fn::row_number,
+    prelude::{col, lit},
+};
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, Axis, AxisSpec, ChannelValue, ChartTool, ChildPlotFurnishings,
-    CompileContext, CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem,
-    CoordinateSystemTransformCore, DataContext, DomainCoordination, DomainCoordinationGroup,
-    FormattingContext, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState,
-    PlotMark, PlotMarkKind, RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget,
-    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
-    TimeContext, compile_selections, validate_structural_id,
+    AvengerChartError, Axis, AxisSpec, CanonicalJson, ChannelValue, ChartTool, ChartWidget,
+    ChildPlotFurnishings, CompileContext, CompiledComposedWidget, CompiledDataContext,
+    CompiledMark, CompiledMarkState, CompiledNativeWidgetSpec, CompiledParamSpec,
+    CompiledSelectionSpec, CompiledSubplotChildPlot, CompiledWidget, CompiledWidgetAttachment,
+    CompiledWidgetItemPlan, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
+    DataContext, DomainCoordination, DomainCoordinationGroup, FormattingContext, IntoPlotMark,
+    Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, NativeWidget, PixelFrame, PlotMark,
+    PlotMarkKind, PositionedChartWidget, PositionedNativeWidget, RepeatContext, RepeatVariable,
+    ScaleInferenceHint, SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate,
+    Store, SubplotChildPlotSpec, Theme, TimeContext, WidgetAttachment, WidgetExpansionContext,
+    WidgetItemValidation, WidgetItems, WidgetPlacement, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -61,6 +73,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Authoring-time tools that expand during compilation.
     pub(crate) tools: Vec<Arc<dyn ChartTool<C>>>,
+
+    /// Authoring-time widgets and their host placement.
+    pub(crate) widgets: Vec<WidgetAttachment>,
 }
 
 pub(crate) struct RootChartFurnishings {
@@ -105,6 +120,113 @@ fn child_layout_spec(furnishings: &ChildPlotFurnishings) -> LayoutSpec {
         (None, None) => SizeMode::Auto,
     };
     layout
+}
+
+fn compile_widget_items(
+    widget_id: &str,
+    items: WidgetItems,
+    session_context: &datafusion::prelude::SessionContext,
+) -> Result<CompiledWidgetItemPlan, AvengerChartError> {
+    const ORDER: &str = "__order";
+    const INDEX: &str = "__idx";
+
+    let (data, validations) = match items {
+        WidgetItems::Static(rows) => {
+            let names = rows
+                .first()
+                .map(|row| row.values.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            if names.iter().any(|name| name == ORDER || name == INDEX) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Widget '{widget_id}' static items use reserved column '{ORDER}' or '{INDEX}'"
+                )));
+            }
+            for row in &rows {
+                if row.values.keys().ne(names.iter()) {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Widget '{widget_id}' static item rows must have identical ordered fields"
+                    )));
+                }
+            }
+
+            let mut fields = Vec::new();
+            let mut arrays: Vec<ArrayRef> = Vec::new();
+            for name in &names {
+                let array =
+                    ScalarValue::iter_to_array(rows.iter().map(|row| row.values[name].clone()))?;
+                fields.push(Field::new(name, array.data_type().clone(), true));
+                arrays.push(array);
+            }
+            let order = Arc::new(UInt64Array::from_iter_values(0..rows.len() as u64)) as ArrayRef;
+            fields.push(Field::new(ORDER, order.data_type().clone(), false));
+            arrays.push(order.clone());
+            fields.push(Field::new(INDEX, order.data_type().clone(), false));
+            arrays.push(order);
+            let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
+            let dataframe = session_context.read_batch(batch)?;
+            (
+                CompiledDataContext::new(Some(dataframe), Vec::new(), IndexMap::new()),
+                vec![WidgetItemValidation::NonNullUnique {
+                    columns: vec![ORDER.to_string()],
+                    role: "static declaration order".to_string(),
+                }],
+            )
+        }
+        WidgetItems::DataFrame {
+            mut data,
+            order_key,
+        } => {
+            if order_key.is_empty() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Widget '{widget_id}' DataFrame items require a nonempty total order key"
+                )));
+            }
+            for reserved in [ORDER, INDEX] {
+                if data.schema().field_with_unqualified_name(reserved).is_ok() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Widget '{widget_id}' DataFrame items contain reserved column '{reserved}'"
+                    )));
+                }
+            }
+            let mut key_columns = Vec::with_capacity(order_key.len());
+            for (index, expr) in order_key.into_iter().enumerate() {
+                let name = format!("__widget_order_key_{index}");
+                if data.schema().field_with_unqualified_name(&name).is_ok() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Widget '{widget_id}' DataFrame items contain reserved column '{name}'"
+                    )));
+                }
+                data = data.with_column(&name, expr)?;
+                key_columns.push(name);
+            }
+            let mut row_number_expr = row_number();
+            let datafusion::logical_expr::Expr::WindowFunction(window) = &mut row_number_expr
+            else {
+                return Err(AvengerChartError::InternalError(
+                    "DataFusion row_number did not produce a window expression".to_string(),
+                ));
+            };
+            window.params.order_by = key_columns
+                .iter()
+                .map(|name| col(name).sort(true, false))
+                .collect();
+            data = data.with_column(ORDER, row_number_expr)?;
+            data = data.with_column(INDEX, col(ORDER) - lit(1_u64))?;
+            (
+                CompiledDataContext::new(Some(data), Vec::new(), IndexMap::new()),
+                vec![WidgetItemValidation::NonNullUnique {
+                    columns: key_columns,
+                    role: "DataFrame total order key".to_string(),
+                }],
+            )
+        }
+    };
+
+    Ok(CompiledWidgetItemPlan {
+        data,
+        order_column: ORDER.to_string(),
+        validations,
+    })
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -172,7 +294,26 @@ impl<C: CoordinateSystem> Plot<C> {
             guide_config: None,
             event_bindings: Vec::new(),
             tools: Vec::new(),
+            widgets: Vec::new(),
         }
+    }
+}
+
+impl Plot<PixelFrame> {
+    pub fn host_widget<W: ChartWidget>(mut self, widget: W) -> Self {
+        self.widgets.push(WidgetAttachment {
+            source: avenger_chart_core::WidgetSource::composed(widget),
+            placement: WidgetPlacement::ExplicitFrame,
+        });
+        self
+    }
+
+    pub fn host_native_widget<N: NativeWidget>(mut self, widget: N) -> Self {
+        self.widgets.push(WidgetAttachment {
+            source: avenger_chart_core::WidgetSource::native(widget),
+            placement: WidgetPlacement::ExplicitFrame,
+        });
+        self
     }
 }
 
@@ -354,6 +495,89 @@ impl<C: CoordinateSystem> Plot<C> {
             &tool_scale_targets,
             &tool_coordinate_metrics,
         )?;
+        let mut widget_ids = HashSet::new();
+        for attachment in &self.widgets {
+            let (id, kind) = if let Some(widget) = attachment.source.composed_widget() {
+                (widget.id(), widget.kind())
+            } else if let Some(widget) = attachment.source.native_widget() {
+                (widget.id(), widget.kind())
+            } else {
+                return Err(AvengerChartError::InternalError(
+                    "Widget source has no authoring variant".to_string(),
+                ));
+            };
+            validate_structural_id("widget", id)?;
+            validate_structural_id("widget kind", kind)?;
+            if !widget_ids.insert(id.to_string()) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Duplicate widget id '{id}'"
+                )));
+            }
+        }
+        let mut compiled_widgets = Vec::with_capacity(self.widgets.len());
+        let mut native_widget_param_specs = Vec::new();
+        for (declaration_order, attachment) in self.widgets.iter().enumerate() {
+            let compiled_widget = if let Some(widget) = attachment.source.composed_widget() {
+                let id = widget.id().to_string();
+                validate_structural_id("widget", &id)?;
+                let expansion = widget.expand(WidgetExpansionContext::new(&id))?;
+                let identity = widget as *const dyn ChartWidget as *const () as usize;
+                tool_context.register_widget_expansion(&id, identity, &expansion.expansion)?;
+                let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
+                let mut relative_target_paths = std::collections::BTreeMap::new();
+                for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
+                    let public_target_path =
+                        mark.state().id.as_ref().map(|part| format!("{id}.{part}"));
+                    if let Some(path) = &public_target_path {
+                        relative_target_paths
+                            .entry(path.clone())
+                            .or_insert_with(Vec::new)
+                            .push(vec![mark_index]);
+                    }
+                    let state = CompiledMarkState::from_mark_state(
+                        mark.state(),
+                        mark.state().data.dataframe().cloned(),
+                    )
+                    .with_mark_index(mark_index)
+                    .with_public_target_path(public_target_path);
+                    compiled_marks.push(mark.compile(state, session_context).await?);
+                }
+                let items = expansion
+                    .items
+                    .map(|items| compile_widget_items(&id, items, session_context))
+                    .transpose()?;
+                CompiledWidget::Composed(CompiledComposedWidget {
+                    id,
+                    kind: widget.kind().to_string(),
+                    marks: compiled_marks,
+                    relative_target_paths,
+                    measure: expansion.measure,
+                    items,
+                })
+            } else if let Some(widget) = attachment.source.native_widget() {
+                let id = widget.id().to_string();
+                validate_structural_id("widget", &id)?;
+                let state = widget.state();
+                native_widget_param_specs.extend(state.params().iter().cloned());
+                CompiledWidget::Native(CompiledNativeWidgetSpec {
+                    id,
+                    kind: widget.kind().to_string(),
+                    schema_version: widget.schema_version(),
+                    payload: CanonicalJson::from_value(widget.payload())?,
+                    measure: widget.measure(),
+                    state,
+                })
+            } else {
+                return Err(AvengerChartError::InternalError(
+                    "Widget source has no authoring variant".to_string(),
+                ));
+            };
+            compiled_widgets.push(CompiledWidgetAttachment {
+                widget: compiled_widget,
+                placement: attachment.placement,
+                declaration_order: declaration_order as u64,
+            });
+        }
         if !is_root {
             tool_context.register_local_event_bindings(&self.event_bindings)?;
         }
@@ -517,6 +741,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // Build param specs in stable declaration order and reject duplicates
         // across explicit root declarations and tool-generated state.
         let mut param_source_specs = root_param_specs;
+        param_source_specs.extend(native_widget_param_specs);
         let mut store_source_specs = Vec::new();
         let legend_colorbar_overlays = compile_colorbar_overlays(&legends, session_context).await?;
         for legend in legends.values_mut() {
@@ -630,6 +855,7 @@ impl<C: CoordinateSystem> Plot<C> {
             selection_specs,
             cursor_params,
             tool_metadata,
+            widgets: compiled_widgets,
             baked_tables: Vec::new(),
             bake_report: None,
         };
@@ -698,6 +924,16 @@ impl<C: CoordinateSystem> Plot<C> {
                 .into_iter()
                 .map(|tool| Arc::new(tool) as Arc<dyn ChartTool<C>>),
         );
+        self
+    }
+
+    pub fn widget<W: ChartWidget>(mut self, widget: PositionedChartWidget<W>) -> Self {
+        self.widgets.push(WidgetAttachment::composed(widget));
+        self
+    }
+
+    pub fn native_widget<N: NativeWidget>(mut self, widget: PositionedNativeWidget<N>) -> Self {
+        self.widgets.push(WidgetAttachment::native(widget));
         self
     }
 
@@ -854,6 +1090,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         guide_config,
         event_bindings,
         tools,
+        widgets,
     } = plot;
 
     if !marks.is_empty() {
@@ -869,6 +1106,11 @@ fn split_repeat_plot<C: CoordinateSystem>(
     if !tools.is_empty() {
         return Err(AvengerChartError::InvalidArgument(format!(
             "{kind} does not support root-level tools in this repeat stage; attach tools to the repeated cell plot"
+        )));
+    }
+    if !widgets.is_empty() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "{kind} does not support root-level widgets in this repeat stage; attach widgets outside the repeated template"
         )));
     }
 
@@ -899,6 +1141,7 @@ where
         guide_config: None,
         event_bindings: parts.event_bindings,
         tools: Vec::new(),
+        widgets: Vec::new(),
     }
 }
 

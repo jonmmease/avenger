@@ -6275,6 +6275,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
+        self.validate_native_widget_runtime_available()?;
         let (
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,

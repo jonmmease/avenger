@@ -39,6 +39,17 @@ pub use avenger_chart_core::{
     View, ViewAsyncPolicy, ViewRef, ViewStalePolicy, WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{
+    CanonicalJson, ChartWidget, ChartWidgetPlacementExt, ChromePosition, CompiledComposedWidget,
+    CompiledNativeWidgetSpec, CompiledParamSpec, CompiledWidget, CompiledWidgetAttachment,
+    CompiledWidgetItemPlan, NativeWidget, NativeWidgetMeasureSpec, NativeWidgetPlacementExt,
+    NativeWidgetStateSpec, PositionedChartWidget, PositionedNativeWidget, ResolvedWidgetAxisSize,
+    ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAttachment, WidgetAxisMeasureSpec,
+    WidgetExpansion, WidgetExpansionContext, WidgetItemRow, WidgetItemValidation, WidgetItems,
+    WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
+    WidgetPresentationState, WidgetSource, WidgetStyleProperty, WidgetStyleValueType,
+    WidgetTextMeasureAxis,
+};
+pub use avenger_chart_core::{
     NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,
 };
 pub use avenger_chart_core::{

@@ -67,6 +67,23 @@ pub enum AvengerChartError {
     #[error("Coordinate system error: `{0}`")]
     CoordinateSystemError(String),
 
+    #[error("Native widget runtime is unavailable for '{widget_id}' (kind '{kind}')")]
+    NativeWidgetRuntimeUnavailable { widget_id: String, kind: String },
+
+    #[error("Malformed native widget payload for '{widget_id}' (kind '{kind}'): {message}")]
+    MalformedNativeWidgetPayload {
+        widget_id: String,
+        kind: String,
+        message: String,
+    },
+
+    #[error("Invalid widget style '{property}' for '{widget_id}': {message}")]
+    InvalidWidgetStyle {
+        widget_id: String,
+        property: String,
+        message: String,
+    },
+
     #[error("Channel resolution error: `{0}`")]
     ChannelResolutionError(#[from] ChannelResolutionError),
 

@@ -284,6 +284,10 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) tool_metadata: Vec<ToolMetadata>,
 
+    /// Positionless compiled widgets paired with their host placement.
+    #[serde(default)]
+    pub(crate) widgets: Vec<avenger_chart_core::CompiledWidgetAttachment>,
+
     /// Baked in-memory tables registered before decoding baked residual plans.
     ///
     /// No `skip_serializing_if` here: `CompiledPlot` round-trips through
@@ -326,6 +330,7 @@ impl Clone for CompiledPlot {
             selection_specs: self.selection_specs.clone(),
             cursor_params: self.cursor_params.clone(),
             tool_metadata: self.tool_metadata.clone(),
+            widgets: self.widgets.clone(),
             baked_tables: self.baked_tables.clone(),
             bake_report: self.bake_report.clone(),
         }
@@ -333,6 +338,29 @@ impl Clone for CompiledPlot {
 }
 
 impl CompiledPlot {
+    pub fn widgets(&self) -> &[avenger_chart_core::CompiledWidgetAttachment] {
+        &self.widgets
+    }
+
+    pub(crate) fn validate_native_widget_runtime_available(&self) -> Result<(), AvengerChartError> {
+        if let Some(avenger_chart_core::CompiledWidgetAttachment {
+            widget: avenger_chart_core::CompiledWidget::Native(widget),
+            ..
+        }) = self.widgets.iter().find(|attachment| {
+            matches!(
+                attachment.widget,
+                avenger_chart_core::CompiledWidget::Native(_)
+            )
+        }) {
+            widget.payload.parse_for(&widget.id, &widget.kind)?;
+            return Err(AvengerChartError::NativeWidgetRuntimeUnavailable {
+                widget_id: widget.id.clone(),
+                kind: widget.kind.clone(),
+            });
+        }
+        Ok(())
+    }
+
     fn mark_group_data_cache_key(
         &self,
         group_index: usize,

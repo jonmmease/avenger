@@ -95,6 +95,7 @@ pub mod tools;
 pub mod transform;
 pub mod unit_aspect;
 pub mod view;
+pub mod widget;
 pub mod zero_d;
 
 #[doc(hidden)]
@@ -363,4 +364,5 @@ pub use view::{
     CartesianView, CompiledCartesianViewSpec, CompiledViewScope, CompiledViewSpec, View,
     ViewAsyncPolicy, ViewRef, ViewScopeState, ViewSpec, ViewStalePolicy,
 };
+pub use widget::*;
 pub use zero_d::ZeroDCoord;

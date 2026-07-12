@@ -1918,6 +1918,7 @@ impl PlotSession {
         &mut self,
         request: EvaluationRequest,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
+        self.program.validate_native_widget_runtime_available()?;
         // Physical result cache: snapshot metrics for the per-evaluation
         // delta, and hold preview-mode evaluations to observe-only —
         // mid-interaction previews should serve hits without churning

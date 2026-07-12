@@ -5,3 +5,11 @@ pub use avenger_chart::pixel_frame::{
     PixelFrameRulePositionChannels, PixelFrameSymbolPositionChannels,
     PixelFrameTextPositionChannels,
 };
+pub use avenger_chart::prelude::{
+    CanonicalJson, ChartWidget, ChartWidgetPlacementExt, ChromePosition, NativeWidget,
+    NativeWidgetMeasureSpec, NativeWidgetPlacementExt, NativeWidgetStateSpec,
+    ResolvedWidgetAxisSize, ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAxisMeasureSpec,
+    WidgetExpansion, WidgetExpansionContext, WidgetItemRow, WidgetItemValidation, WidgetItems,
+    WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
+    WidgetPresentationState, WidgetStyleProperty, WidgetStyleValueType, WidgetTextMeasureAxis,
+};

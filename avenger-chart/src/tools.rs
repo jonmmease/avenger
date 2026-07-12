@@ -161,6 +161,20 @@ impl ToolCompileContext {
         Ok(())
     }
 
+    pub(crate) fn register_widget_expansion(
+        &self,
+        id: &str,
+        identity: usize,
+        expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
+    ) -> Result<(), AvengerChartError> {
+        let mut expansion = expansion.clone();
+        self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
+        self.state
+            .lock()
+            .expect("tool compile state lock poisoned")
+            .register_expansion(id, identity, &expansion)
+    }
+
     pub(crate) fn register_local_legend_event_bindings(
         &self,
         bindings: &[ChartEventBinding],

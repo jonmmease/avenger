@@ -1403,6 +1403,7 @@ fn build_physical_wrap_subplot(
         event_coord_fields: compiled_subplot.event_coord_fields.clone(),
         selection_specs: Default::default(),
         cursor_params: Vec::new(),
+        widgets: Vec::new(),
         tool_metadata: Vec::new(),
         baked_tables: Vec::new(),
         bake_report: None,
