@@ -36,6 +36,7 @@ members = [
     "avenger-chart-geo",
     "avenger-chart-treemap",
     "avenger-chart",
+    "avenger-chart-widgets",
     "avenger-chart-app",
     "avenger-egui",
     "avenger-chart-egui",

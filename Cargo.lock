@@ -993,6 +993,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-widgets"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart",
+ "avenger-chart-core",
+ "avenger-chart-marks",
+ "avenger-chart-transforms",
+ "avenger-common",
+ "avenger-format-number",
+ "avenger-scenegraph",
+ "avenger-wgpu",
+ "bincode",
+ "datafusion",
+ "image",
+ "image-compare",
+ "indexmap 2.14.0",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-color"
 version = "0.1.0"
 dependencies = [
