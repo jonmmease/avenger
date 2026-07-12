@@ -8,7 +8,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use avenger_chart_core::{
     DefaultLogicalExprNodeExt, PointGeometry, PositionedSubplotMarkCore,
-    coerce_numeric_channel_with_renderer, scalar_total_cmp,
+    coerce_numeric_channel_with_renderer, evaluate_f32_expr, scalar_total_cmp,
 };
 use avenger_chart_scales::DomainExtent;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
@@ -560,6 +560,37 @@ struct PreparedPositionedSubplot<'a> {
     subplot: &'a dyn PositionedSubplotMarkCore,
     child_plots: PreparedPositionedChildPlots<'a>,
     child_specs: Vec<PositionedChildSpec>,
+    child_plot_width: f32,
+    child_plot_height: f32,
+}
+
+async fn evaluate_positioned_child_size(
+    subplot: &dyn PositionedSubplotMarkCore,
+    eval_ctx: &EvaluationContext,
+) -> Result<(f32, f32), AvengerChartError> {
+    let session_context = eval_ctx.session_context.as_ref();
+    let size = subplot.child_plot_size();
+    let width = if let Some(width) = &size.width {
+        evaluate_f32_expr(
+            &width.to_default_expr(session_context)?,
+            session_context,
+            eval_ctx.params(),
+        )
+        .await?
+    } else {
+        subplot.spec().default_plot_width
+    };
+    let height = if let Some(height) = &size.height {
+        evaluate_f32_expr(
+            &height.to_default_expr(session_context)?,
+            session_context,
+            eval_ctx.params(),
+        )
+        .await?
+    } else {
+        subplot.spec().default_plot_height
+    };
+    Ok((width.max(1.0), height.max(1.0)))
 }
 
 impl<'a> PreparedPositionedSubplot<'a> {
@@ -604,6 +635,8 @@ async fn prepare_partitioned_positioned_subplot<'a>(
     next_child_index: &mut usize,
 ) -> Result<Option<PreparedPositionedSubplot<'a>>, AvengerChartError> {
     let ctx = eval_ctx.session_context.as_ref();
+    let (child_plot_width, child_plot_height) =
+        evaluate_positioned_child_size(subplot, eval_ctx).await?;
     let parent_data = data.ok_or_else(|| {
         AvengerChartError::InvalidArgument(format!(
             "Partitioned {} subplots require parent plot data",
@@ -720,6 +753,8 @@ async fn prepare_partitioned_positioned_subplot<'a>(
         subplot,
         child_plots: PreparedPositionedChildPlots::PerChild(child_plots),
         child_specs,
+        child_plot_width,
+        child_plot_height,
     }))
 }
 
@@ -749,6 +784,8 @@ async fn prepare_positioned_subplot<'a>(
         ))
         .await;
     }
+    let (child_plot_width, child_plot_height) =
+        evaluate_positioned_child_size(subplot, eval_ctx).await?;
 
     let prepared_mark = Box::pin(prepare_mark_data_runtime(MarkDataRequest {
         mark: subplot.as_compiled_mark(),
@@ -845,16 +882,19 @@ async fn prepare_positioned_subplot<'a>(
         subplot,
         child_plots: PreparedPositionedChildPlots::Shared(child_plot),
         child_specs,
+        child_plot_width,
+        child_plot_height,
     }))
 }
 
 fn positioned_render_origin(
     spec: &PositionedChildSpec,
-    subplot: &dyn PositionedSubplotMarkCore,
+    child_plot_width: f32,
+    child_plot_height: f32,
 ) -> [f32; 2] {
     [
-        spec.x - subplot.plot_width() / 2.0,
-        spec.y - subplot.plot_height() / 2.0,
+        spec.x - child_plot_width / 2.0,
+        spec.y - child_plot_height / 2.0,
     ]
 }
 
@@ -870,10 +910,8 @@ async fn measure_positioned_child(
     facet_scoped_domain_extents: &HashMap<String, DomainExtent>,
 ) -> Result<PositionedChildMeasurement, AvengerChartError> {
     let runtime = ChildFrameRuntime::new();
-    let child_layout_spec = runtime.fixed_plot_area_layout_spec(
-        prepared.subplot.plot_width(),
-        prepared.subplot.plot_height(),
-    );
+    let child_layout_spec =
+        runtime.fixed_plot_area_layout_spec(prepared.child_plot_width, prepared.child_plot_height);
     let sharing_level = positioned_child_sharing_level(
         spec.child_index,
         total_child_count,
@@ -999,7 +1037,11 @@ pub(crate) async fn measure_positioned_subplots(
             );
             placements.push(PositionedChildPlacement::new(
                 spec.child_index,
-                positioned_render_origin(spec, prepared.subplot),
+                positioned_render_origin(
+                    spec,
+                    prepared.child_plot_width,
+                    prepared.child_plot_height,
+                ),
             ));
             domain_index += 1;
         }

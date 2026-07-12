@@ -6,43 +6,102 @@
 use std::sync::Arc;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CompileContext,
-    CompiledSubplotChildPlot, CoordinateSystem, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinationScope, DefaultLogicalExprNodeExt, FacetWrapColumnMode, IntoExpr,
-    RepeatContext as CoreRepeatContext, RepeatVariable as CoreRepeatVariable, SubplotChildPlotSpec,
+    AvengerChartError, AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChildPlotFurnishings,
+    ChildPlotSizeSpec, CompileContext, CompiledSubplotChildPlot, CoordinateSystem,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope, DefaultLogicalExprNodeExt,
+    FacetWrapColumnMode, IntoExpr, RepeatContext as CoreRepeatContext,
+    RepeatVariable as CoreRepeatVariable, SubplotChildPlotSpec, TitleSpec,
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{
     concat::{ConcatGuide, ConcatOrigin, GridConcat, HConcat, VConcat, WrapConcat},
+    plot::Plot,
     tools::ToolCompileContext,
 };
 
 pub use avenger_chart_core::repeat::*;
 
+/// A repeated child Plot together with its position-aware furnishings.
+#[derive(Clone)]
+pub struct RepeatCell<C: CoordinateSystem> {
+    plot: Plot<C>,
+    furnishings: ChildPlotFurnishings,
+}
+
+impl<C: CoordinateSystem> RepeatCell<C> {
+    pub fn new(plot: Plot<C>) -> Self {
+        Self {
+            plot,
+            furnishings: ChildPlotFurnishings::default(),
+        }
+    }
+
+    pub fn caption(mut self, text: impl IntoExpr) -> Self {
+        self.furnishings.caption = Some(TitleSpec::new(text));
+        self
+    }
+
+    pub fn configure_caption<F>(mut self, text: impl IntoExpr, f: F) -> Self
+    where
+        F: FnOnce(TitleSpec) -> TitleSpec,
+    {
+        self.furnishings.caption = Some(f(TitleSpec::new(text)));
+        self
+    }
+
+    pub fn size(mut self, width: impl IntoExpr, height: impl IntoExpr) -> Self {
+        self.furnishings.size = ChildPlotSizeSpec::default().width(width).height(height);
+        self
+    }
+
+    pub fn configure_size<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(ChildPlotSizeSpec) -> ChildPlotSizeSpec,
+    {
+        self.furnishings.size = f(std::mem::take(&mut self.furnishings.size));
+        self
+    }
+
+    fn into_erased(self) -> ErasedRepeatCell {
+        ErasedRepeatCell {
+            plot: Box::new(self.plot),
+            furnishings: self.furnishings,
+        }
+    }
+}
+
+impl<C: CoordinateSystem> From<Plot<C>> for RepeatCell<C> {
+    fn from(plot: Plot<C>) -> Self {
+        Self::new(plot)
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct ErasedRepeatCell {
+    pub(crate) plot: Box<dyn SubplotChildPlotSpec>,
+    pub(crate) furnishings: ChildPlotFurnishings,
+}
+
 #[derive(Clone)]
 pub(crate) struct RepeatCellBranch {
     predicate: LogicalExprNode,
-    cell: Box<dyn SubplotChildPlotSpec>,
+    cell: ErasedRepeatCell,
 }
 
 #[derive(Clone, Default)]
 pub(crate) struct RepeatCellTemplates {
-    default: Option<Box<dyn SubplotChildPlotSpec>>,
+    default: Option<ErasedRepeatCell>,
     branches: Vec<RepeatCellBranch>,
 }
 
 impl RepeatCellTemplates {
-    pub(crate) fn set_default(&mut self, cell: Box<dyn SubplotChildPlotSpec>) {
+    fn set_default(&mut self, cell: ErasedRepeatCell) {
         self.default = Some(cell);
     }
 
-    pub(crate) fn add_branch(
-        &mut self,
-        predicate: impl IntoExpr,
-        cell: Box<dyn SubplotChildPlotSpec>,
-    ) {
+    pub(crate) fn add_branch(&mut self, predicate: impl IntoExpr, cell: ErasedRepeatCell) {
         let predicate = LogicalExprNode::from_default_expr(predicate.into_expr())
             .expect("Failed to serialize repeat cell branch predicate");
         self.branches.push(RepeatCellBranch { predicate, cell });
@@ -54,7 +113,7 @@ impl RepeatCellTemplates {
         cell_key: &str,
         repeat_context: &CoreRepeatContext,
         session_context: &SessionContext,
-    ) -> Result<Box<dyn SubplotChildPlotSpec>, AvengerChartError> {
+    ) -> Result<ErasedRepeatCell, AvengerChartError> {
         let Some(default) = self.default.as_ref() else {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "{kind} requires a default repeated child plot via `.cell(...)`"
@@ -95,19 +154,21 @@ impl RepeatColumns {
         self
     }
 
-    pub fn cell<P>(mut self, cell: P) -> Self
+    pub fn cell<C, P>(mut self, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.set_default(Box::new(cell));
+        self.cells.set_default(cell.into().into_erased());
         self
     }
 
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    pub fn cell_when<C, P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.add_branch(predicate, Box::new(cell));
+        self.cells.add_branch(predicate, cell.into().into_erased());
         self
     }
 
@@ -146,19 +207,21 @@ impl RepeatRows {
         self
     }
 
-    pub fn cell<P>(mut self, cell: P) -> Self
+    pub fn cell<C, P>(mut self, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.set_default(Box::new(cell));
+        self.cells.set_default(cell.into().into_erased());
         self
     }
 
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    pub fn cell_when<C, P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.add_branch(predicate, Box::new(cell));
+        self.cells.add_branch(predicate, cell.into().into_erased());
         self
     }
 
@@ -205,19 +268,21 @@ impl RepeatGrid {
         self
     }
 
-    pub fn cell<P>(mut self, cell: P) -> Self
+    pub fn cell<C, P>(mut self, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.set_default(Box::new(cell));
+        self.cells.set_default(cell.into().into_erased());
         self
     }
 
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    pub fn cell_when<C, P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.add_branch(predicate, Box::new(cell));
+        self.cells.add_branch(predicate, cell.into().into_erased());
         self
     }
 
@@ -320,19 +385,21 @@ impl RepeatWrap {
         self
     }
 
-    pub fn cell<P>(mut self, cell: P) -> Self
+    pub fn cell<C, P>(mut self, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.set_default(Box::new(cell));
+        self.cells.set_default(cell.into().into_erased());
         self
     }
 
-    pub fn cell_when<P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
+    pub fn cell_when<C, P>(mut self, predicate: impl IntoExpr, cell: P) -> Self
     where
-        P: SubplotChildPlotSpec + 'static,
+        C: CoordinateSystem,
+        P: Into<RepeatCell<C>>,
     {
-        self.cells.add_branch(predicate, Box::new(cell));
+        self.cells.add_branch(predicate, cell.into().into_erased());
         self
     }
 
@@ -467,17 +534,23 @@ impl SubplotChildPlotSpec for RepeatResolvedChildPlotSpec {
     async fn compile_boxed(
         &self,
         session_context: &SessionContext,
+        furnishings: &ChildPlotFurnishings,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         let tool_context =
             ToolCompileContext::from_parent(None).with_repeat_context(self.repeat_context.clone());
-        self.compile_boxed_with_context(session_context, Some(&tool_context as CompileContext<'_>))
-            .await
+        self.compile_boxed_with_context(
+            session_context,
+            Some(&tool_context as CompileContext<'_>),
+            furnishings,
+        )
+        .await
     }
 
     async fn compile_boxed_with_context(
         &self,
         session_context: &SessionContext,
         compile_context: Option<CompileContext<'_>>,
+        furnishings: &ChildPlotFurnishings,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         let repeat_tool_context;
         let compile_context =
@@ -492,7 +565,7 @@ impl SubplotChildPlotSpec for RepeatResolvedChildPlotSpec {
                 Some(&repeat_tool_context as CompileContext<'_>)
             };
         self.inner
-            .compile_boxed_with_context(session_context, compile_context)
+            .compile_boxed_with_context(session_context, compile_context, furnishings)
             .await
     }
 }

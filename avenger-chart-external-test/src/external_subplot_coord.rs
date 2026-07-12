@@ -48,8 +48,8 @@ impl ExternalSubplotPositionChannels for Subplot<ExternalSubplotCoord> {
     }
 
     fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.set_plot_width_config(Some(width));
-        self.set_plot_height_config(Some(height));
+        self.set_plot_width_config(width);
+        self.set_plot_height_config(height);
         self
     }
 }

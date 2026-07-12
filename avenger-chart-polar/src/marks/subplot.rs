@@ -40,13 +40,16 @@ pub trait PolarSubplotPositionChannels: Sized {
         F: FnOnce(PolarPositionConfig) -> PolarPositionConfig;
 
     /// Set the child plot-area width used for each positioned child frame.
-    fn plot_width(self, width: f32) -> Self;
+    fn plot_width<W: avenger_chart_core::IntoExpr>(self, width: W) -> Self;
 
     /// Set the child plot-area height used for each positioned child frame.
-    fn plot_height(self, height: f32) -> Self;
+    fn plot_height<H: avenger_chart_core::IntoExpr>(self, height: H) -> Self;
 
     /// Set both child plot-area dimensions used for each positioned child frame.
-    fn plot_size(self, width: f32, height: f32) -> Self;
+    fn plot_size<W, H>(self, width: W, height: H) -> Self
+    where
+        W: avenger_chart_core::IntoExpr,
+        H: avenger_chart_core::IntoExpr;
 }
 
 impl PolarSubplotPositionChannels for Subplot<Polar> {
@@ -78,19 +81,23 @@ impl PolarSubplotPositionChannels for Subplot<Polar> {
         with_position_config(self, "theta", value.into(), f)
     }
 
-    fn plot_width(mut self, width: f32) -> Self {
-        self.set_plot_width_config(Some(width));
+    fn plot_width<W: avenger_chart_core::IntoExpr>(mut self, width: W) -> Self {
+        self.set_plot_width_config(width);
         self
     }
 
-    fn plot_height(mut self, height: f32) -> Self {
-        self.set_plot_height_config(Some(height));
+    fn plot_height<H: avenger_chart_core::IntoExpr>(mut self, height: H) -> Self {
+        self.set_plot_height_config(height);
         self
     }
 
-    fn plot_size(mut self, width: f32, height: f32) -> Self {
-        self.set_plot_width_config(Some(width));
-        self.set_plot_height_config(Some(height));
+    fn plot_size<W, H>(mut self, width: W, height: H) -> Self
+    where
+        W: avenger_chart_core::IntoExpr,
+        H: avenger_chart_core::IntoExpr,
+    {
+        self.set_plot_width_config(width);
+        self.set_plot_height_config(height);
         self
     }
 }

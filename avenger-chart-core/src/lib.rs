@@ -345,7 +345,7 @@ pub use theme::{AngleUnit, CssRgba, LengthUnit, Theme, ThemeValue};
 pub use theme_context::ThemeContext;
 pub use time_context::{TimeContext, WeekStart};
 pub use time_expr as time;
-pub use title_spec::{TitleAlign, TitleSpan};
+pub use title_spec::{ChildPlotFurnishings, ChildPlotSizeSpec, TitleAlign, TitleSpan, TitleSpec};
 pub use tools::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit, ToolScaleTarget,

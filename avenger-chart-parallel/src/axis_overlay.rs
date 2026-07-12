@@ -153,7 +153,11 @@ async fn compile_parallel_axis_overlay(
     };
     let compiled_subplot = overlay
         .subplot
-        .compile_boxed_with_context(session_context, compile_context)
+        .compile_boxed_with_context(
+            session_context,
+            compile_context,
+            &avenger_chart_core::ChildPlotFurnishings::default(),
+        )
         .await?;
     let payload = CompiledSubplotPayload::new(
         compiled_state,
@@ -329,6 +333,7 @@ mod tests {
         async fn compile_boxed(
             &self,
             _session_context: &SessionContext,
+            _furnishings: &avenger_chart_core::ChildPlotFurnishings,
         ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
             Ok(Arc::new(FakeCompiledChildPlot))
         }

@@ -11,14 +11,14 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, Axis, AxisSpec, ChannelValue, ChartTool, CompileContext,
-    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec, CompiledSelectionSpec,
-    CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
-    CoordinationScope, DataContext, DomainCoordination, DomainCoordinationGroup, FormattingContext,
-    IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, Param,
-    PlotMark, PlotMarkKind, RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget,
-    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
-    TimeContext, compile_selections, validate_structural_id,
+    AvengerChartError, Axis, AxisSpec, ChannelValue, ChartTool, ChildPlotFurnishings,
+    CompileContext, CompiledDataContext, CompiledMark, CompiledMarkState, CompiledParamSpec,
+    CompiledSelectionSpec, CompiledSubplotChildPlot, CoordinateGuide, CoordinateSystem,
+    CoordinateSystemTransformCore, CoordinationScope, DataContext, DomainCoordination,
+    DomainCoordinationGroup, FormattingContext, IntoExpr, IntoPlotMark, Legend, LegendSurfaceKind,
+    Mark, MarkDataMode, MarkState, Param, PlotMark, PlotMarkKind, RepeatContext, RepeatVariable,
+    ScaleInferenceHint, SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate,
+    Store, SubplotChildPlotSpec, Theme, TimeContext, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -111,18 +111,34 @@ where
     async fn compile_boxed(
         &self,
         session_context: &datafusion::prelude::SessionContext,
+        furnishings: &ChildPlotFurnishings,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
-        Ok(Arc::new(self.clone().compile(session_context).await?))
+        let tool_context = ToolCompileContext::from_parent(None);
+        Ok(Arc::new(
+            self.clone()
+                .with_child_furnishings(furnishings.clone())
+                .compile_with_tool_context(session_context, Some(&tool_context), false)
+                .await?,
+        ))
     }
 
     async fn compile_boxed_with_context(
         &self,
         session_context: &datafusion::prelude::SessionContext,
         compile_context: Option<CompileContext<'_>>,
+        furnishings: &ChildPlotFurnishings,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         let tool_context = compile_context.and_then(ToolCompileContext::downcast);
+        let furnishings = if let Some(repeat_context) =
+            tool_context.and_then(ToolCompileContext::repeat_context)
+        {
+            furnishings.resolve_repeat(repeat_context)?
+        } else {
+            furnishings.clone()
+        };
         Ok(Arc::new(
             self.clone()
+                .with_child_furnishings(furnishings)
                 .compile_with_tool_context(session_context, tool_context, false)
                 .await?,
         ))
@@ -130,6 +146,22 @@ where
 }
 
 impl<C: CoordinateSystem> Plot<C> {
+    fn with_child_furnishings(mut self, furnishings: ChildPlotFurnishings) -> Self {
+        if let Some(caption) = furnishings.caption {
+            self.title = Some(caption);
+        }
+        self.layout_spec.plot_area = match (furnishings.size.width, furnishings.size.height) {
+            (Some(width), Some(height)) => SizeMode::Fixed {
+                width: width.into(),
+                height: height.into(),
+            },
+            (Some(width), None) => SizeMode::Width(width.into()),
+            (None, Some(height)) => SizeMode::Height(height.into()),
+            (None, None) => self.layout_spec.plot_area,
+        };
+        self
+    }
+
     pub fn with_coord(coord_system: C) -> Self {
         Plot {
             coord_system,
@@ -1472,10 +1504,14 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
                 session_context,
             )?;
             Ok(Arc::new(
-                Subplot::<HConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .name(key)
-                    .id(id)
-                    .label(label),
+                Subplot::<HConcat>::new(RepeatResolvedChildPlotSpec::new(
+                    cell.plot,
+                    repeat_context,
+                ))
+                .with_furnishings(cell.furnishings)
+                .name(key)
+                .id(id)
+                .label(label),
             ) as Arc<dyn Mark<HConcat>>)
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
@@ -1512,10 +1548,14 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
                 session_context,
             )?;
             Ok(Arc::new(
-                Subplot::<VConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .name(key)
-                    .id(id)
-                    .label(label),
+                Subplot::<VConcat>::new(RepeatResolvedChildPlotSpec::new(
+                    cell.plot,
+                    repeat_context,
+                ))
+                .with_furnishings(cell.furnishings)
+                .name(key)
+                .id(id)
+                .label(label),
             ) as Arc<dyn Mark<VConcat>>)
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
@@ -1559,10 +1599,14 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
                 session_context,
             )?;
             marks.push(Arc::new(
-                Subplot::<GridConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .name(key)
-                    .id(id)
-                    .at(row_index, column_index),
+                Subplot::<GridConcat>::new(RepeatResolvedChildPlotSpec::new(
+                    cell.plot,
+                    repeat_context,
+                ))
+                .with_furnishings(cell.furnishings)
+                .name(key)
+                .id(id)
+                .at(row_index, column_index),
             ) as Arc<dyn Mark<GridConcat>>);
         }
     }
@@ -1607,10 +1651,14 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
                 session_context,
             )?;
             Ok(Arc::new(
-                Subplot::<WrapConcat>::new(RepeatResolvedChildPlotSpec::new(cell, repeat_context))
-                    .name(key)
-                    .id(id)
-                    .label(label),
+                Subplot::<WrapConcat>::new(RepeatResolvedChildPlotSpec::new(
+                    cell.plot,
+                    repeat_context,
+                ))
+                .with_furnishings(cell.furnishings)
+                .name(key)
+                .id(id)
+                .label(label),
             ) as Arc<dyn Mark<WrapConcat>>)
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;

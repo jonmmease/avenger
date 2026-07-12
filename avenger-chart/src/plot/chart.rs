@@ -307,7 +307,47 @@ impl<C: CoordinateSystem + Default> Default for Chart<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{cartesian::Cartesian, layout::Margins};
+    use avenger_chart_cartesian::CartesianSubplotPositionChannels;
+    use avenger_chart_core::{DefaultLogicalExprNodeExt, RepeatVariable, ZeroDCoord};
+    use avenger_chart_marks::{Subplot, Symbol};
+    use avenger_scenegraph::marks::{group::SceneGroup, mark::SceneMark};
+    use datafusion::common::ScalarValue;
+    use datafusion::prelude::lit;
+    use datafusion_proto::protobuf::LogicalExprNode;
+
+    use crate::{
+        cartesian::Cartesian,
+        concat::{GridConcat, HConcat, compiled_subplot},
+        layout::{Margins, SizeMode},
+        repeat::{RepeatCell, RepeatGrid},
+    };
+
+    fn child_plot(compiled: &CompiledPlot, index: usize) -> &CompiledPlot {
+        compiled_subplot(compiled.marks()[index].as_ref())
+            .expect("compiled child subplot")
+            .compiled_subplot()
+    }
+
+    fn width_expr(plot: &CompiledPlot) -> LogicalExprNode {
+        match &plot.layout_spec.plot_area {
+            SizeMode::Width(width) => width.clone().into(),
+            other => panic!("expected width-only child size, got {other:?}"),
+        }
+    }
+
+    fn find_group<'a>(marks: &'a [SceneMark], prefix: &str) -> Option<&'a SceneGroup> {
+        for mark in marks {
+            if let SceneMark::Group(group) = mark {
+                if group.name.starts_with(prefix) {
+                    return Some(group);
+                }
+                if let Some(found) = find_group(&group.marks, prefix) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
 
     #[tokio::test]
     async fn chart_facade_compiles_identically_to_plot() {
@@ -378,5 +418,113 @@ mod tests {
             chart.plot().get_layout_spec().margins,
             Margins::uniform(12.0)
         );
+    }
+
+    #[tokio::test]
+    async fn subplot_caption_and_label_keep_independent_semantics() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<HConcat>::new()
+            .mark(
+                Subplot::new(
+                    Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#0072b2").size(20.0)),
+                )
+                .label("Band metadata")
+                .configure_caption("Child caption", |caption| caption.typst())
+                .configure_size(|size| size.width(240.0)),
+            )
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let subplot = compiled_subplot(compiled.marks()[0].as_ref()).unwrap();
+        assert_eq!(subplot.label(), Some("Band metadata"));
+        let child = subplot.compiled_subplot();
+        let caption = child.get_title().expect("child caption");
+        assert_eq!(
+            caption.syntax_mode,
+            avenger_text::types::TextSyntaxMode::TypstMarkup
+        );
+        assert_eq!(
+            caption.text.to_default_expr(&ctx).unwrap(),
+            lit("Child caption")
+        );
+        assert_eq!(width_expr(child).to_default_expr(&ctx).unwrap(), lit(240.0));
+    }
+
+    #[tokio::test]
+    async fn repeat_cell_resolves_caption_and_one_axis_size_like_subplot() {
+        let ctx = SessionContext::new();
+        let ordinary = Chart::<HConcat>::new()
+            .mark(
+                Subplot::new(Plot::<ZeroDCoord>::new())
+                    .caption("Row title")
+                    .configure_size(|size| size.width(240_i64)),
+            )
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let repeated = Chart::<RepeatGrid>::new()
+            .configure_coord(|repeat| {
+                repeat
+                    .rows([RepeatVariable::new("row", lit(1_i64)).title("Row title")])
+                    .columns([RepeatVariable::new("column", lit(240_i64))])
+                    .cell(
+                        RepeatCell::from(Plot::<ZeroDCoord>::new())
+                            .caption(crate::repeat::row_title())
+                            .configure_size(|size| {
+                                size.width(crate::repeat::column().into_data_expr())
+                            }),
+                    )
+            })
+            .compile(&ctx)
+            .await
+            .unwrap();
+        assert!(repeated.coord_transform.as_any().is::<GridConcat>());
+        let ordinary_child = child_plot(&ordinary, 0);
+        let repeated_child = child_plot(&repeated, 0);
+        assert_eq!(
+            bincode::serialize(&ordinary_child.get_title()).unwrap(),
+            bincode::serialize(&repeated_child.get_title()).unwrap()
+        );
+        assert_eq!(
+            width_expr(ordinary_child).to_default_expr(&ctx).unwrap(),
+            width_expr(repeated_child).to_default_expr(&ctx).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn positioned_subplot_size_expression_evaluates_from_params() {
+        let ctx = SessionContext::new();
+        let width = Param::new("child_width", ScalarValue::Float64(Some(80.0)));
+        let compiled = Chart::<Cartesian>::new()
+            .plot_size(320.0, 200.0)
+            .param(width.clone())
+            .mark(
+                Subplot::new(
+                    Plot::<ZeroDCoord>::new().mark(Symbol::new().fill("#0072b2").size(20.0)),
+                )
+                .id("mini")
+                .subplot_x(avenger_chart_core::ChannelValue::from(lit(0.0)).no_scale())
+                .subplot_y(avenger_chart_core::ChannelValue::from(lit(0.0)).no_scale())
+                .plot_width(width.expr())
+                .plot_height(40.0),
+            )
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let params = indexmap::indexmap! {
+            "child_width".to_string() => ScalarValue::Float64(Some(123.0)),
+        };
+        let evaluated = compiled.evaluate(&ctx, Some(params)).await.unwrap();
+        let positioned = find_group(&evaluated.scene_graph.marks, "cartesian_subplot_")
+            .expect("positioned child scene group");
+        let SceneMark::Group(data_marks) = &positioned.marks[0] else {
+            panic!("positioned child should start with its data-marks group");
+        };
+        let frame = data_marks
+            .pattern_reference_frame
+            .as_ref()
+            .expect("child plot-area reference frame");
+        assert_eq!(frame.width, 123.0);
+        assert_eq!(frame.height, 40.0);
     }
 }

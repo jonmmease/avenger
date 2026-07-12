@@ -4,20 +4,18 @@ use datafusion::prelude::SessionContext;
 use datafusion_proto::protobuf::LogicalExprNode;
 
 use avenger_chart_core::{
-    AvengerChartError, AxisGuideVisibilityConfig, ChannelValue, ColumnDimensionConfig,
-    CompileContext, CompiledMark, CompiledMarkState, CompiledSubplotChildPlot,
-    CoordinateSystemCore, CoordinationScope, DataContext, FacetDataScope, FacetDimensionConfig,
-    FacetEmptyCellPolicy, FacetWrapColumnMode, IntoPlotMark, Mark, MarkDataMode, MarkState,
-    PlotMark, RowDimensionConfig, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
-    SubplotMarkCore,
+    AvengerChartError, AxisGuideVisibilityConfig, ChannelValue, ChildPlotFurnishings,
+    ChildPlotSizeSpec, ColumnDimensionConfig, CompileContext, CompiledMark, CompiledMarkState,
+    CompiledSubplotChildPlot, CoordinateSystemCore, CoordinationScope, DataContext, FacetDataScope,
+    FacetDimensionConfig, FacetEmptyCellPolicy, FacetWrapColumnMode, IntoPlotMark, Mark,
+    MarkDataMode, MarkState, PlotMark, RowDimensionConfig, SubplotChildPlotSpec,
+    SubplotContainerCoordinateSystem, SubplotMarkCore,
 };
 
 #[derive(Clone)]
 pub(crate) struct SubplotConfig {
     pub(crate) label: Option<String>,
     pub(crate) key: Option<String>,
-    pub(crate) plot_width: Option<f32>,
-    pub(crate) plot_height: Option<f32>,
     pub(crate) facet_row_title: Option<String>,
     pub(crate) facet_col_title: Option<String>,
     pub(crate) facet_row_slot_sharing: Option<CoordinationScope>,
@@ -54,8 +52,6 @@ impl Default for SubplotConfig {
         Self {
             label: None,
             key: None,
-            plot_width: None,
-            plot_height: None,
             facet_row_title: None,
             facet_col_title: None,
             facet_row_slot_sharing: None,
@@ -100,6 +96,7 @@ pub struct Subplot<OuterC: CoordinateSystemCore> {
     state: MarkState,
     subplot: Box<dyn SubplotChildPlotSpec>,
     config: SubplotConfig,
+    furnishings: ChildPlotFurnishings,
     _outer: PhantomData<fn() -> OuterC>,
 }
 
@@ -124,6 +121,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
             },
             subplot: Box::new(subplot),
             config: SubplotConfig::default(),
+            furnishings: ChildPlotFurnishings::default(),
             _outer: PhantomData,
         }
     }
@@ -149,6 +147,51 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.config.label = Some(label.into());
         self
+    }
+
+    /// Set the rich heading rendered inside this child plot's frame.
+    pub fn caption(mut self, text: impl avenger_chart_core::IntoExpr) -> Self {
+        self.furnishings.caption = Some(avenger_chart_core::TitleSpec::new(text));
+        self
+    }
+
+    /// Configure the rich heading rendered inside this child plot's frame.
+    pub fn configure_caption<F>(mut self, text: impl avenger_chart_core::IntoExpr, f: F) -> Self
+    where
+        F: FnOnce(avenger_chart_core::TitleSpec) -> avenger_chart_core::TitleSpec,
+    {
+        self.furnishings.caption = Some(f(avenger_chart_core::TitleSpec::new(text)));
+        self
+    }
+
+    /// Set both child plot-area dimensions.
+    pub fn size(
+        mut self,
+        width: impl avenger_chart_core::IntoExpr,
+        height: impl avenger_chart_core::IntoExpr,
+    ) -> Self {
+        self.furnishings.size = ChildPlotSizeSpec::default().width(width).height(height);
+        self
+    }
+
+    /// Configure the independently optional child plot-area dimensions.
+    pub fn configure_size<F>(mut self, f: F) -> Self
+    where
+        F: FnOnce(ChildPlotSizeSpec) -> ChildPlotSizeSpec,
+    {
+        self.furnishings.size = f(std::mem::take(&mut self.furnishings.size));
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_furnishings(mut self, furnishings: ChildPlotFurnishings) -> Self {
+        self.furnishings = furnishings;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn furnishings_config(&self) -> &ChildPlotFurnishings {
+        &self.furnishings
     }
 
     /// Set the stable container name used by concat/facet child identity.
@@ -219,23 +262,13 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
     }
 
     #[doc(hidden)]
-    pub fn plot_width_config(&self) -> Option<f32> {
-        self.config.plot_width
+    pub fn set_plot_width_config(&mut self, width: impl avenger_chart_core::IntoExpr) {
+        self.furnishings.size = std::mem::take(&mut self.furnishings.size).width(width);
     }
 
     #[doc(hidden)]
-    pub fn plot_height_config(&self) -> Option<f32> {
-        self.config.plot_height
-    }
-
-    #[doc(hidden)]
-    pub fn set_plot_width_config(&mut self, width: Option<f32>) {
-        self.config.plot_width = width;
-    }
-
-    #[doc(hidden)]
-    pub fn set_plot_height_config(&mut self, height: Option<f32>) {
-        self.config.plot_height = height;
+    pub fn set_plot_height_config(&mut self, height: impl avenger_chart_core::IntoExpr) {
+        self.furnishings.size = std::mem::take(&mut self.furnishings.size).height(height);
     }
 
     #[doc(hidden)]
@@ -442,7 +475,9 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         &self,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
-        self.subplot.compile_boxed(session_context).await
+        self.subplot
+            .compile_boxed(session_context, &self.furnishings)
+            .await
     }
 
     pub async fn compile_child_plot_with_context(
@@ -451,7 +486,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         compile_context: Option<CompileContext<'_>>,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         self.subplot
-            .compile_boxed_with_context(session_context, compile_context)
+            .compile_boxed_with_context(session_context, compile_context, &self.furnishings)
             .await
     }
 
@@ -509,12 +544,8 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         self.config.grid_column_span
     }
 
-    fn plot_width_config(&self) -> Option<f32> {
-        self.config.plot_width
-    }
-
-    fn plot_height_config(&self) -> Option<f32> {
-        self.config.plot_height
+    fn child_plot_size_config(&self) -> ChildPlotSizeSpec {
+        self.furnishings.size.clone()
     }
 
     fn facet_row_title_config(&self) -> Option<&str> {
@@ -625,7 +656,9 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         &self,
         session_context: &SessionContext,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
-        self.subplot.compile_boxed(session_context).await
+        self.subplot
+            .compile_boxed(session_context, &self.furnishings)
+            .await
     }
 
     async fn compile_child_plot_with_context(
@@ -634,7 +667,7 @@ impl<OuterC: CoordinateSystemCore> SubplotMarkCore for Subplot<OuterC> {
         compile_context: Option<CompileContext<'_>>,
     ) -> Result<Arc<dyn CompiledSubplotChildPlot>, AvengerChartError> {
         self.subplot
-            .compile_boxed_with_context(session_context, compile_context)
+            .compile_boxed_with_context(session_context, compile_context, &self.furnishings)
             .await
     }
 }

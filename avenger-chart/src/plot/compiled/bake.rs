@@ -766,8 +766,7 @@ fn rebuild_subplot_mark_with_child(
         return Ok(Arc::new(CompiledPositionedSubplot::new(
             payload,
             subplot.spec().clone(),
-            subplot.plot_width(),
-            subplot.plot_height(),
+            subplot.child_plot_size().clone(),
             subplot.partition_expr().cloned(),
         )));
     }
