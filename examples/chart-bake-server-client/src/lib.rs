@@ -36,12 +36,12 @@ pub const MIN_SWEEP_MAX: f64 = 100_000.0;
 /// serializes with the plot, so the baked chart stays interactive in a
 /// session that has never seen the data: move the cursor across the chart
 /// to sweep the threshold.
-pub fn daily_totals_chart(data: DataFrame) -> Plot<Cartesian> {
+pub fn daily_totals_chart(data: DataFrame) -> Chart<Cartesian> {
     let min = Param::new("min", ScalarValue::Float64(Some(0.0)));
-    Plot::<Cartesian>::new()
+    Chart::<Cartesian>::new()
         .canvas_size(860.0, 520.0)
         .title("Baked daily totals — move the cursor to sweep the $min threshold")
-        .add_params([min])
+        .params([min])
         .data(data)
         .mark(
             Symbol::new()

@@ -89,7 +89,7 @@ async fn build_app() -> avenger_chart_app::ChartAppBundle {
         .zoom(13.0)
         .tiles(tiles);
 
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(920.0, 620.0)
         .configure_title("Mercator tiles: $z = 13$", |title| title.typst())
         .data(landmarks)

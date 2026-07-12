@@ -66,7 +66,7 @@ async fn build_app() -> avenger_chart_app::ChartAppBundle {
         .read_batch(make_points_batch())
         .expect("read generated 1M points");
 
-    let plot = Plot::<Cartesian>::new()
+    let plot = Chart::<Cartesian>::new()
         .canvas_size(960.0, 640.0)
         .configure_title("Instanced scatter stress: $n = 1,000,000$", |title| {
             title.typst()

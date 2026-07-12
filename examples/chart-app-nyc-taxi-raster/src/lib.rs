@@ -102,7 +102,7 @@ async fn build_app() -> avenger_chart_app::ChartAppBundle {
         .zoom(11.0)
         .tiles(tiles);
 
-    let plot = Plot::with_coord(geo.clone())
+    let plot = Chart::with_coord(geo.clone())
         .canvas_size(960.0, 720.0)
         .configure_title(
             "NYC taxi density: live rasterization ($n = 1,000,000$)",
