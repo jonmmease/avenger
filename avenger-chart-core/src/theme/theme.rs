@@ -1195,15 +1195,26 @@ impl Theme {
         channel: &str,
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<datafusion_common::ScalarValue> {
-        use crate::theme::eval::{EvalContext, TargetType, get_channel_type};
-
-        // Query CSS theme for mark defaults
         let context = ThemeContext::new("mark", params.clone()).with_subtype(mark_type);
+        self.mark_default_in_context(&context, channel, params)
+    }
+
+    pub fn mark_default_in_context(
+        &self,
+        context: &ThemeContext,
+        channel: &str,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> Option<datafusion_common::ScalarValue> {
+        use crate::theme::eval::{EvalContext, TargetType, get_channel_type};
 
         // Convert underscore to hyphen for CSS property name
         let css_property = channel.replace('_', "-");
 
-        let theme_value = self.query(&context, &css_property)?;
+        let theme_value = if context.part.is_some() {
+            self.query_widget_part(context, &css_property)?
+        } else {
+            self.query(context, &css_property)?
+        };
 
         // Determine expected type from channel name
         let channel_type = get_channel_type(&css_property)?;
@@ -1273,6 +1284,18 @@ impl Theme {
                 )))
             }
         }
+    }
+
+    /// Query a widget part with component rules forming a cascade tier above
+    /// ordinary mark rules. Within each tier normal CSS specificity and source
+    /// order apply; the generic mark tier is consulted only when no `::part()`
+    /// rule supplies the property.
+    pub fn query_widget_part(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
+        let mut part_only = context.clone();
+        part_only.element_type = "widget-part".to_string();
+        part_only.subtype = None;
+        self.query(&part_only, property)
+            .or_else(|| self.query(context, property))
     }
 
     /// Create a ScaleRange from parsed values
@@ -1440,6 +1463,8 @@ mod tests {
             id: None,
             attributes: std::collections::HashMap::new(),
             parent: None,
+            part: None,
+            shadow_host: None,
             params: IndexMap::new(),
         };
 
@@ -1468,6 +1493,8 @@ mod tests {
             id: None,
             attributes: std::collections::HashMap::new(),
             parent: None,
+            part: None,
+            shadow_host: None,
             params: IndexMap::new(),
         };
 
@@ -1555,6 +1582,8 @@ mod tests {
             id: None,
             attributes: std::collections::HashMap::new(),
             parent: None,
+            part: None,
+            shadow_host: None,
             params: IndexMap::new(),
         };
 
@@ -1613,6 +1642,8 @@ mod tests {
             id: None,
             attributes: std::collections::HashMap::new(),
             parent: None,
+            part: None,
+            shadow_host: None,
             params: IndexMap::new(),
         };
 

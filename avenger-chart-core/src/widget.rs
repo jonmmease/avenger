@@ -1,6 +1,10 @@
 //! Shared authoring and serialized contracts for chart widgets.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    hash::{Hash, Hasher},
+    sync::Arc,
+};
 
 use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::Expr};
 use indexmap::IndexMap;
@@ -229,6 +233,13 @@ pub struct WidgetPartManifest {
     pub interactive: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WidgetThemeProvenance {
+    pub widget_kind: String,
+    pub widget_id: String,
+    pub part: String,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WidgetPresentationState {
     pub variant: Option<String>,
@@ -241,6 +252,29 @@ pub struct WidgetPresentationState {
     pub pressed: bool,
 }
 
+impl WidgetPresentationState {
+    pub fn apply_to_host(&self, mut host: crate::ThemeContext) -> crate::ThemeContext {
+        if let Some(variant) = &self.variant {
+            host = host.with_attribute("variant", variant);
+        }
+        host = host
+            .with_attribute("disabled", self.disabled.to_string())
+            .with_attribute("focus-visible", self.focus_visible.to_string())
+            .with_attribute("hover", self.hover.to_string())
+            .with_attribute("pressed", self.pressed.to_string());
+        if let Some(checked) = self.checked {
+            host = host.with_attribute("checked", checked.to_string());
+        }
+        if let Some(selected) = self.selected {
+            host = host.with_attribute("selected", selected.to_string());
+        }
+        if let Some(orientation) = &self.orientation {
+            host = host.with_attribute("orientation", orientation);
+        }
+        host
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ResolvedWidgetPartStyle {
     pub values: IndexMap<WidgetStyleProperty, ThemeValue>,
@@ -251,6 +285,147 @@ pub struct ResolvedWidgetStyleSet {
     pub host: ResolvedWidgetPartStyle,
     pub parts: IndexMap<String, ResolvedWidgetPartStyle>,
     pub digest: u64,
+}
+
+pub fn resolve_widget_style_set(
+    theme: &crate::Theme,
+    widget_kind: &str,
+    widget_id: &str,
+    parts: &[WidgetPartManifest],
+    presentation: &WidgetPresentationState,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<ResolvedWidgetStyleSet, AvengerChartError> {
+    let host = presentation
+        .apply_to_host(crate::ThemeContext::new(widget_kind, params.clone()).with_id(widget_id));
+    let mut resolved = ResolvedWidgetStyleSet::default();
+    for property in WidgetStyleProperty::ALL
+        .iter()
+        .copied()
+        .filter(|property| property.applies_to_host())
+    {
+        if let Some(value) = theme.query(&host, property.name()) {
+            validate_widget_style_value(theme, widget_id, property, &value, params)?;
+            resolved.host.values.insert(property, value);
+        }
+    }
+    for part in parts {
+        let context = crate::ThemeContext::new("mark", params.clone())
+            .with_subtype(&part.scene_mark_kind)
+            .with_part(&part.name, host.clone());
+        let mut style = ResolvedWidgetPartStyle::default();
+        for property in &part.style_properties {
+            if let Some(value) = theme.query_widget_part(&context, property.name()) {
+                validate_widget_style_value(theme, widget_id, *property, &value, params)?;
+                style.values.insert(*property, value);
+            }
+        }
+        resolved.parts.insert(part.name.clone(), style);
+    }
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    widget_kind.hash(&mut hasher);
+    widget_id.hash(&mut hasher);
+    for (property, value) in &resolved.host.values {
+        property.hash(&mut hasher);
+        serde_json::to_string(value)
+            .map_err(|error| AvengerChartError::SerializationError(error.to_string()))?
+            .hash(&mut hasher);
+    }
+    for (part, style) in &resolved.parts {
+        part.hash(&mut hasher);
+        for (property, value) in &style.values {
+            property.hash(&mut hasher);
+            serde_json::to_string(value)
+                .map_err(|error| AvengerChartError::SerializationError(error.to_string()))?
+                .hash(&mut hasher);
+        }
+    }
+    resolved.digest = hasher.finish();
+    Ok(resolved)
+}
+
+fn validate_widget_style_value(
+    theme: &crate::Theme,
+    widget_id: &str,
+    property: WidgetStyleProperty,
+    value: &ThemeValue,
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<(), AvengerChartError> {
+    use crate::theme::eval::EvalContext;
+
+    let eval = EvalContext::new(params, theme.get_base_font_size(params));
+    let invalid = |message: String| AvengerChartError::InvalidWidgetStyle {
+        widget_id: widget_id.to_string(),
+        property: property.name().to_string(),
+        message,
+    };
+    match property.value_type() {
+        WidgetStyleValueType::Color => value
+            .eval_as_color(&eval)
+            .map(|_| ())
+            .map_err(|error| invalid(error.to_string())),
+        WidgetStyleValueType::Number => {
+            let number = value
+                .eval_as_number(&eval)
+                .map_err(|error| invalid(error.to_string()))?;
+            if !number.is_finite()
+                || (matches!(
+                    property,
+                    WidgetStyleProperty::Opacity | WidgetStyleProperty::InputSelectionOpacity
+                ) && !(0.0..=1.0).contains(&number))
+            {
+                return Err(invalid(format!("resolved to invalid number {number}")));
+            }
+            Ok(())
+        }
+        WidgetStyleValueType::Length => {
+            let length = value
+                .eval_as_length(&eval)
+                .map_err(|error| invalid(error.to_string()))?;
+            if !length.is_finite() || length < 0.0 {
+                return Err(invalid(format!(
+                    "resolved to non-finite or negative length {length}"
+                )));
+            }
+            Ok(())
+        }
+        WidgetStyleValueType::String => value
+            .eval_as_string(&eval)
+            .map(|_| ())
+            .map_err(|error| invalid(error.to_string())),
+        WidgetStyleValueType::FontWeight => {
+            if value.eval_as_number(&eval).is_ok() || value.eval_as_string(&eval).is_ok() {
+                Ok(())
+            } else {
+                Err(invalid(
+                    "expected a numeric or keyword font weight".to_string(),
+                ))
+            }
+        }
+        WidgetStyleValueType::Cursor => {
+            let cursor = value
+                .eval_as_string(&eval)
+                .map_err(|error| invalid(error.to_string()))?;
+            if matches!(
+                cursor.as_str(),
+                "default"
+                    | "pointer"
+                    | "text"
+                    | "not-allowed"
+                    | "crosshair"
+                    | "grab"
+                    | "grabbing"
+                    | "ew-resize"
+                    | "ns-resize"
+                    | "nwse-resize"
+                    | "nesw-resize"
+            ) {
+                Ok(())
+            } else {
+                Err(invalid(format!("unsupported cursor keyword '{cursor}'")))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -583,5 +758,73 @@ mod tests {
             assert!(names.insert(property.name()));
             let _ = property.value_type();
         }
+    }
+
+    #[test]
+    fn widget_part_selector_uses_shadow_host_and_beats_mark_fallback() {
+        let mut theme = crate::Theme::light();
+        theme
+            .append_css(
+                r#"
+                mark[type="rect"] { fill: #cc0000; }
+                checkbox::part(box) { fill: #0072B2; }
+                "#,
+            )
+            .unwrap();
+        let host = crate::ThemeContext::new("checkbox", IndexMap::new()).with_id("choice");
+        let part = crate::ThemeContext::new("mark", IndexMap::new())
+            .with_subtype("rect")
+            .with_part("box", host);
+        let fill = theme.query_widget_part(&part, "fill").unwrap();
+        assert!(
+            matches!(fill, ThemeValue::Color(color) if color.blue == 178),
+            "unexpected part fill: {fill:?}"
+        );
+    }
+
+    #[test]
+    fn resolved_style_uses_host_state_and_rejects_intrinsic_percentage() {
+        let manifest = WidgetPartManifest {
+            name: "box".to_string(),
+            scene_mark_kind: "rect".to_string(),
+            style_properties: vec![WidgetStyleProperty::Width],
+            states: vec!["checked".to_string()],
+            interactive: true,
+        };
+        let mut theme = crate::Theme::light();
+        theme
+            .append_css("checkbox[checked=true]::part(box) { width: 32px; }")
+            .unwrap();
+        let styles = resolve_widget_style_set(
+            &theme,
+            "checkbox",
+            "choice",
+            std::slice::from_ref(&manifest),
+            &WidgetPresentationState {
+                checked: Some(true),
+                ..Default::default()
+            },
+            &IndexMap::new(),
+        )
+        .unwrap();
+        assert!(matches!(
+            styles.parts["box"].values[&WidgetStyleProperty::Width],
+            ThemeValue::Length(32.0, _)
+        ));
+
+        theme
+            .append_css("checkbox::part(box) { width: 50%; }")
+            .unwrap();
+        assert!(matches!(
+            resolve_widget_style_set(
+                &theme,
+                "checkbox",
+                "choice",
+                &[manifest],
+                &WidgetPresentationState::default(),
+                &IndexMap::new(),
+            ),
+            Err(AvengerChartError::InvalidWidgetStyle { property, .. }) if property == "width"
+        ));
     }
 }

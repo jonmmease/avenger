@@ -526,20 +526,34 @@ impl<C: CoordinateSystem> Plot<C> {
                 let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
                 let mut relative_target_paths = std::collections::BTreeMap::new();
                 for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
-                    let public_target_path =
-                        mark.state().id.as_ref().map(|part| format!("{id}.{part}"));
-                    if let Some(path) = &public_target_path {
-                        relative_target_paths
-                            .entry(path.clone())
-                            .or_insert_with(Vec::new)
-                            .push(vec![mark_index]);
+                    let part = mark.state().id.as_ref().ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Widget '{id}' marks must declare stable part ids"
+                        ))
+                    })?;
+                    validate_structural_id("widget part", part)?;
+                    let public_target_path = format!("{id}.{part}");
+                    if relative_target_paths
+                        .insert(public_target_path.clone(), vec![vec![mark_index]])
+                        .is_some()
+                    {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Widget '{id}' declares duplicate part '{part}'"
+                        )));
                     }
                     let state = CompiledMarkState::from_mark_state(
                         mark.state(),
                         mark.state().data.dataframe().cloned(),
                     )
                     .with_mark_index(mark_index)
-                    .with_public_target_path(public_target_path);
+                    .with_public_target_path(Some(public_target_path))
+                    .with_widget_theme(
+                        avenger_chart_core::WidgetThemeProvenance {
+                            widget_kind: widget.kind().to_string(),
+                            widget_id: id.clone(),
+                            part: part.clone(),
+                        },
+                    );
                     compiled_marks.push(mark.compile(state, session_context).await?);
                 }
                 let items = expansion

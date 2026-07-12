@@ -30,6 +30,12 @@ pub struct ThemeContext {
     /// Parent context for hierarchical CSS selectors
     pub parent: Option<Arc<ThemeContext>>,
 
+    /// CSS shadow-part name when this context represents a widget part.
+    pub part: Option<String>,
+
+    /// Widget host for `::part()` selector traversal.
+    pub shadow_host: Option<Arc<ThemeContext>>,
+
     /// Parameter values for CSS variable resolution
     /// These params can override CSS variables defined in the theme
     pub params: IndexMap<String, ScalarValue>,
@@ -48,6 +54,8 @@ impl ThemeContext {
             id: None,
             attributes: HashMap::new(),
             parent: None,
+            part: None,
+            shadow_host: None,
             params,
         }
     }
@@ -61,6 +69,8 @@ impl ThemeContext {
             id: None,
             attributes: HashMap::new(),
             parent: Some(Arc::new(self.clone())),
+            part: None,
+            shadow_host: None,
             params: self.params.clone(), // Inherit params from parent
         }
     }
@@ -107,6 +117,12 @@ impl ThemeContext {
     /// ```
     pub fn with_attribute(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.attributes.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_part(mut self, part: impl Into<String>, shadow_host: ThemeContext) -> Self {
+        self.part = Some(part.into());
+        self.shadow_host = Some(Arc::new(shadow_host));
         self
     }
 }

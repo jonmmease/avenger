@@ -115,6 +115,10 @@ pub struct CompiledMarkState {
     #[serde(default)]
     pub geometry_space: Option<GeometrySpace>,
 
+    /// Widget shadow-host/part identity for context-aware CSS resolution.
+    #[serde(default)]
+    pub widget_theme: Option<crate::WidgetThemeProvenance>,
+
     // Store axis configurations from channels
     pub axis_configs: HashMap<String, Arc<dyn Axis>>,
 }
@@ -153,6 +157,7 @@ impl CompiledMarkState {
             details: state.details.clone(),
             zindex: state.zindex,
             geometry_space: state.geometry_space,
+            widget_theme: None,
             axis_configs: state.axis_configs.clone(),
         }
     }
@@ -174,6 +179,11 @@ impl CompiledMarkState {
     #[doc(hidden)]
     pub fn with_public_target_path(mut self, public_target_path: Option<String>) -> Self {
         self.public_target_path = public_target_path;
+        self
+    }
+
+    pub fn with_widget_theme(mut self, widget_theme: crate::WidgetThemeProvenance) -> Self {
+        self.widget_theme = Some(widget_theme);
         self
     }
 }
@@ -238,6 +248,7 @@ mod tests {
             details: None,
             zindex: None,
             geometry_space: Some(GeometrySpace::Display),
+            widget_theme: None,
             axis_configs: HashMap::new(),
         };
 

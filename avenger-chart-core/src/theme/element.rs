@@ -32,6 +32,8 @@ pub struct CssElement {
     /// is converted to CssElement lazily in parent_element() only when selector
     /// matching needs to traverse up the tree.
     pub parent: Option<Arc<ThemeContext>>,
+    pub part: Option<ChartString>,
+    pub shadow_host: Option<Arc<ThemeContext>>,
 }
 
 impl From<&ThemeContext> for CssElement {
@@ -52,6 +54,11 @@ impl From<&ThemeContext> for CssElement {
             classes,
             attributes: context.attributes.clone(),
             parent: context.parent.clone(),
+            part: context
+                .part
+                .as_ref()
+                .map(|part| ChartString::from(part.as_str())),
+            shadow_host: context.shadow_host.clone(),
         }
     }
 }
@@ -72,11 +79,13 @@ impl Element for CssElement {
     }
 
     fn parent_node_is_shadow_root(&self) -> bool {
-        false
+        self.part.is_some() && self.shadow_host.is_some()
     }
 
     fn containing_shadow_host(&self) -> Option<Self> {
-        None
+        self.shadow_host
+            .as_ref()
+            .map(|host| CssElement::from(host.as_ref()))
     }
 
     fn is_pseudo_element(&self) -> bool {
@@ -167,8 +176,8 @@ impl Element for CssElement {
         false
     }
 
-    fn is_part(&self, _name: &ChartString) -> bool {
-        false
+    fn is_part(&self, name: &ChartString) -> bool {
+        self.part.as_ref() == Some(name)
     }
 
     fn imported_part(&self, _name: &ChartString) -> Option<ChartString> {

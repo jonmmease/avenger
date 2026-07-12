@@ -18,7 +18,8 @@ use crate::{
     CompiledDataContext, CompiledMarkState, CompiledSubplotPayload, CoordinateSystemTransformCore,
     EvaluationContext, EventDatumFieldSpec, LegendRendererSelection, MarkRenderContext,
     MarkRuntimeContext, PositionedSubplotMarkCore, RadiusExpression, ResolvedDomain, ScaleRange,
-    ScaleTypePreference, Theme, default_scale_type_for_data_type, is_continuous_scale,
+    ScaleTypePreference, Theme, ThemeContext, default_scale_type_for_data_type,
+    is_continuous_scale,
 };
 
 /// Implements [`CompiledMarkCore::with_data_context`] for a `Clone` mark
@@ -368,7 +369,19 @@ pub fn default_channel_value_for_eval<M: CompiledMarkCore + ?Sized>(
     channel: &str,
     eval_ctx: &EvaluationContext,
 ) -> Option<ScalarValue> {
-    if let Some(default) = eval_ctx.mark_default(mark.mark_type(), channel) {
+    let theme_default = if let Some(provenance) = mark.state().widget_theme.as_ref() {
+        let host = ThemeContext::new(&provenance.widget_kind, eval_ctx.params().clone())
+            .with_id(&provenance.widget_id);
+        let part = ThemeContext::new("mark", eval_ctx.params().clone())
+            .with_subtype(mark.mark_type())
+            .with_part(&provenance.part, host);
+        eval_ctx
+            .theme()
+            .mark_default_in_context(&part, channel, eval_ctx.params())
+    } else {
+        eval_ctx.mark_default(mark.mark_type(), channel)
+    };
+    if let Some(default) = theme_default {
         return Some(default);
     }
 

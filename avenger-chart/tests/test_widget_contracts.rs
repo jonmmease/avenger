@@ -154,7 +154,7 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     assert_eq!(bytes, bincode::serialize(&decoded).unwrap());
     let attachment = decoded.widgets().first().unwrap();
     let artifact_json = serde_json::to_string(&attachment.widget).unwrap();
-    for runtime_only in ["resolved_style", "presentation_state", "theme"] {
+    for runtime_only in ["resolved_style", "presentation_state", "css_sources"] {
         assert!(!artifact_json.contains(runtime_only));
     }
     assert_eq!(attachment.declaration_order, 0);
@@ -168,6 +168,15 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     assert_eq!(widget.id, "contract");
     assert_eq!(widget.kind, "contract-widget");
     assert_eq!(widget.marks.len(), 2);
+    assert_eq!(
+        widget.marks[0]
+            .state()
+            .widget_theme
+            .as_ref()
+            .expect("widget theme provenance")
+            .part,
+        "box"
+    );
     assert_eq!(widget.relative_target_paths["contract.box"], vec![vec![0]]);
     assert_eq!(
         widget.relative_target_paths["contract.label"],

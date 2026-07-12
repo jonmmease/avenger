@@ -1158,6 +1158,10 @@ impl<'i> SelectorParser<'i> for ChartSelectorParser {
     type Impl = ChartSelectors;
     type Error = selectors::parser::SelectorParseErrorKind<'i>;
 
+    fn parse_part(&self) -> bool {
+        true
+    }
+
     fn parse_non_ts_pseudo_class(
         &self,
         location: cssparser::SourceLocation,
