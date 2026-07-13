@@ -61,6 +61,8 @@ const TAXI_BATCH_ROWS: usize = 8192;
 const POINT_BUDGET: i64 = 10_000;
 /// Dark-blue endpoint of the raster ramp (#08519c), shared with the scatter
 /// points so the raster-to-scatter transition is less jarring.
+// The green channel happens to round near 1/π; this is a literal sRGB color.
+#[allow(clippy::approx_constant)]
 const SCATTER_BLUE: Srgba = Srgba::new(0.031, 0.318, 0.612, 1.0);
 /// Density normalization for the fill domain: the domain's upper end is
 /// roughly `in-view count / this`, so the full 1M-point extent tops out

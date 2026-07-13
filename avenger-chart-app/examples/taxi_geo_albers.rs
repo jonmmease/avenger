@@ -58,6 +58,9 @@ const TAXI_Y_MAX: f64 = 4_983_000.0;
 /// Static raster resolution over the taxi bbox (~31 m cells).
 const RASTER_X_BINS: i64 = 512;
 const RASTER_Y_BINS: i64 = 480;
+// The green channel happens to round near 1/π; this is a literal sRGB color.
+#[allow(clippy::approx_constant)]
+const SCATTER_BLUE: Srgba = Srgba::new(0.031, 0.318, 0.612, 1.0);
 
 fn main() {
     init_diagnostics();
@@ -157,7 +160,7 @@ async fn build_app(
                                         .domain((0.0, 150.0))
                                         .range_colors(vec![
                                             Srgba::new(0.87, 0.92, 0.97, 1.0),
-                                            Srgba::new(0.031, 0.318, 0.612, 1.0),
+                                            SCATTER_BLUE,
                                         ])
                                         .nice(false)
                                         .zero(false)

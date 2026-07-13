@@ -17,7 +17,10 @@
 //! cargo run --release -p avenger-chart-app --example climate_grid_equal_earth --features winit-wgpu
 //! ```
 
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use avenger_chart::prelude::*;
 use avenger_chart_app::{
@@ -185,7 +188,7 @@ fn generate_fixture(path: &PathBuf) {
 }
 
 /// Read the long-form grid back in fixture row order (lat-major).
-async fn load_grid_values(ctx: &SessionContext, path: &PathBuf) -> Vec<f64> {
+async fn load_grid_values(ctx: &SessionContext, path: &Path) -> Vec<f64> {
     let batches = ctx
         .read_parquet(
             path.to_str().expect("fixture path utf-8"),

@@ -62,16 +62,16 @@ use indexmap::IndexMap;
 
 use crate::ChartAppState;
 
+type CompiledEventStream = (
+    EventStreamConfig,
+    Arc<dyn EventStreamHandler<ChartAppState>>,
+);
+type CompiledEventStreams = Vec<CompiledEventStream>;
+
 pub(crate) fn event_streams_for_plot_bindings(
     compiled_plot: &CompiledPlot,
     ctx: &SessionContext,
-) -> Result<
-    Vec<(
-        EventStreamConfig,
-        Arc<dyn EventStreamHandler<ChartAppState>>,
-    )>,
-    AvengerAppError,
-> {
+) -> Result<CompiledEventStreams, AvengerAppError> {
     let event_datum_types = compiled_plot.event_datum_types();
     let event_coord_types = compiled_plot
         .event_coord_types(ctx)
@@ -96,13 +96,7 @@ pub(crate) fn event_streams_for_bindings(
     store_specs: &IndexMap<String, CompiledStoreSpec>,
     cursor_params: &[String],
     event_datum_types: &IndexMap<String, DataType>,
-) -> Result<
-    Vec<(
-        EventStreamConfig,
-        Arc<dyn EventStreamHandler<ChartAppState>>,
-    )>,
-    AvengerAppError,
-> {
+) -> Result<CompiledEventStreams, AvengerAppError> {
     event_streams_for_bindings_with_coord_types(
         bindings,
         ctx,
@@ -115,6 +109,9 @@ pub(crate) fn event_streams_for_bindings(
     )
 }
 
+// Binding compilation consumes independent registries whose identities matter
+// to diagnostics; bundling them would only move this validation surface.
+#[allow(clippy::too_many_arguments)]
 fn event_streams_for_bindings_with_coord_types(
     bindings: &[ChartEventBinding],
     ctx: &SessionContext,
@@ -124,13 +121,7 @@ fn event_streams_for_bindings_with_coord_types(
     cursor_params: &[String],
     event_datum_types: &IndexMap<String, DataType>,
     event_coord_types: &IndexMap<String, DataType>,
-) -> Result<
-    Vec<(
-        EventStreamConfig,
-        Arc<dyn EventStreamHandler<ChartAppState>>,
-    )>,
-    AvengerAppError,
-> {
+) -> Result<CompiledEventStreams, AvengerAppError> {
     let mut streams = Vec::new();
     for (binding_index, binding) in bindings.iter().enumerate() {
         let runtime = Arc::new(CompiledChartEventBinding::compile_with_event_coord_types(
@@ -530,6 +521,7 @@ enum SceneQueryClauseIdExpression {
 
 impl CompiledChartEventBinding {
     #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
     fn compile(
         binding_index: usize,
         binding: &ChartEventBinding,
@@ -553,6 +545,7 @@ impl CompiledChartEventBinding {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compile_with_event_coord_types(
         binding_index: usize,
         binding: &ChartEventBinding,
@@ -2354,7 +2347,6 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             rerender: true,
             rebuild_geometry: self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact,
             cursor,
-            ..Default::default()
         }
     }
 }
@@ -2712,6 +2704,9 @@ fn compiled_selection_update_is_scene_query(update: &CompiledSelectionUpdate) ->
     )
 }
 
+// Scene-query selection lowering needs both query inputs and resolved runtime
+// scope/index state in one transactional operation.
+#[allow(clippy::too_many_arguments)]
 fn scene_query_selection_state_update_from_values(
     update: &CompiledSelectionUpdate,
     spec: &CompiledSelectionSpec,
@@ -3244,11 +3239,10 @@ fn selection_facet_context_values(
     spec.facet_context
         .iter()
         .zip(owner_path.iter())
-        .filter_map(|(facet, value)| {
-            (!value.is_null()).then(|| SelectionFacetContextValue {
-                id: facet.id.clone(),
-                value: value.clone(),
-            })
+        .filter(|(_, value)| !value.is_null())
+        .map(|(facet, value)| SelectionFacetContextValue {
+            id: facet.id.clone(),
+            value: value.clone(),
         })
         .collect()
 }
@@ -3358,16 +3352,13 @@ fn assignment_owner_path_for_surface(
     if level == u8::MAX {
         return Some(Vec::new());
     }
-    match scope {
-        Some(scope) => Some(
-            scope
-                .sharing_owner_paths
-                .get(&level)
-                .cloned()
-                .unwrap_or_default(),
-        ),
-        None => None,
-    }
+    scope.map(|scope| {
+        scope
+            .sharing_owner_paths
+            .get(&level)
+            .cloned()
+            .unwrap_or_default()
+    })
 }
 
 /// Invert a scene-space point through a scope's coordinate transform.
@@ -5505,9 +5496,9 @@ mod tests {
             .event_bindings()
             .iter()
             .enumerate()
-            .filter_map(|(binding_index, binding)| {
-                (binding.event_type == event_type)
-                    .then(|| compile_handler_for_binding_index(compiled, ctx, binding_index))
+            .filter(|(_, binding)| binding.event_type == event_type)
+            .map(|(binding_index, _)| {
+                compile_handler_for_binding_index(compiled, ctx, binding_index)
             })
             .collect::<Vec<_>>();
         assert!(

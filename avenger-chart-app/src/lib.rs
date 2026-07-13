@@ -467,10 +467,9 @@ impl ChartAppState {
         let result = self.set_param_inner(name.into(), value.into_chart_param_value());
         if result.changed
             && let Ok(mut runtime) = self.runtime.try_lock()
+            && self.drain_pending_params_into_runtime(&mut runtime)
         {
-            if self.drain_pending_params_into_runtime(&mut runtime) {
-                runtime.next_evaluation_mode = EvaluationMode::Exact;
-            }
+            runtime.next_evaluation_mode = EvaluationMode::Exact;
         }
         result
     }
@@ -1204,12 +1203,12 @@ fn warn_about_ignored_bindings(policy: ChartResizePolicy, binding: &ChartResizeB
 }
 
 fn warn_about_ignored_axis(axis: &str, policy: ChartResizeAxisPolicy, param: Option<&str>) {
-    if let Some(param) = param {
-        if !policy.is_canvas_constrained() {
-            log::warn!(
-                "chart resize binding for {axis} param '{param}' will be ignored because the {axis} axis policy is {policy:?}"
-            );
-        }
+    if let Some(param) = param
+        && !policy.is_canvas_constrained()
+    {
+        log::warn!(
+            "chart resize binding for {axis} param '{param}' will be ignored because the {axis} axis policy is {policy:?}"
+        );
     }
 }
 
