@@ -607,6 +607,7 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-geo",
  "avenger-chart-treemap",
+ "avenger-chart-widgets",
  "avenger-color",
  "avenger-common",
  "avenger-eventstream",

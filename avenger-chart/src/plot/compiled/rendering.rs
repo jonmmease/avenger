@@ -296,6 +296,23 @@ fn set_scene_mark_name(mark: &mut SceneMark, name: &str) {
     }
 }
 
+fn set_scene_mark_interactive(mark: &mut SceneMark, interactive: bool) {
+    match mark {
+        SceneMark::Arc(mark) => mark.interactive = interactive,
+        SceneMark::Area(mark) => mark.interactive = interactive,
+        SceneMark::Path(mark) => mark.interactive = interactive,
+        SceneMark::Symbol(mark) => mark.interactive = interactive,
+        SceneMark::Line(mark) => mark.interactive = interactive,
+        SceneMark::Trail(mark) => mark.interactive = interactive,
+        SceneMark::Rect(mark) => mark.interactive = interactive,
+        SceneMark::Rule(mark) => mark.interactive = interactive,
+        SceneMark::Text(mark) => Arc::make_mut(mark).interactive = interactive,
+        SceneMark::Image(mark) => Arc::make_mut(mark).interactive = interactive,
+        SceneMark::WarpedImage(mark) => Arc::make_mut(mark).interactive = interactive,
+        SceneMark::Group(mark) => mark.interactive = interactive,
+    }
+}
+
 fn collect_widget_text_extents(
     mark: &SceneMark,
     part: &str,
@@ -2546,6 +2563,10 @@ impl CompiledPlot {
                     })?;
                 for mut scene_mark in output.marks {
                     set_scene_mark_name(&mut scene_mark, part);
+                    set_scene_mark_interactive(
+                        &mut scene_mark,
+                        !avenger_chart_core::is_decorative_widget_part(part),
+                    );
                     parts.push(scene_mark);
                 }
             }

@@ -833,11 +833,16 @@ impl<C: CoordinateSystem> Plot<C> {
         if is_root {
             event_bindings.extend(legend_event_bindings);
         }
-        let cursor_params = root_cursor_params;
+        let mut cursor_params = root_cursor_params;
         let mut tool_metadata = Vec::new();
         if is_root {
             let artifacts = tool_context.finalize_root()?;
             param_source_specs.extend(artifacts.param_specs);
+            for cursor_param in artifacts.cursor_params {
+                if !cursor_params.contains(&cursor_param) {
+                    cursor_params.push(cursor_param);
+                }
+            }
             store_source_specs.extend(artifacts.store_specs);
             for spec in artifacts.selection_specs {
                 if selection_specs.contains_key(&spec.id) {

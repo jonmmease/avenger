@@ -395,6 +395,7 @@ pub(crate) struct ActiveToolExpansion<C: CoordinateSystemCore> {
 struct ToolCompileState {
     tool_ids: HashMap<String, usize>,
     params: IndexMap<String, GeneratedParamState>,
+    cursor_params: Vec<String>,
     stores: IndexMap<String, CompiledStoreSpec>,
     selections: IndexMap<String, CompiledSelectionSpec>,
     event_bindings: Vec<ChartEventBinding>,
@@ -439,6 +440,16 @@ impl ToolCompileState {
 
         for param in &expansion.params {
             self.register_param(param)?;
+        }
+        for cursor_param in &expansion.cursor_params {
+            if !self.params.contains_key(cursor_param) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Cursor parameter '{cursor_param}' was not registered by expansion '{id}'"
+                )));
+            }
+            if !self.cursor_params.contains(cursor_param) {
+                self.cursor_params.push(cursor_param.clone());
+            }
         }
         for store in &expansion.stores {
             self.register_store(store.compile()?, !first_registration)?;
@@ -643,6 +654,7 @@ impl ToolCompileState {
         }
         Ok(ToolArtifacts {
             param_specs,
+            cursor_params: self.cursor_params.clone(),
             store_specs: self.stores.values().cloned().collect(),
             selection_specs: self.selections.values().cloned().collect(),
             event_bindings: self.event_bindings.clone(),
@@ -662,6 +674,7 @@ struct GeneratedParamState {
 
 pub(crate) struct ToolArtifacts {
     pub param_specs: Vec<CompiledParamSpec>,
+    pub cursor_params: Vec<String>,
     pub store_specs: Vec<CompiledStoreSpec>,
     pub selection_specs: Vec<CompiledSelectionSpec>,
     pub event_bindings: Vec<ChartEventBinding>,

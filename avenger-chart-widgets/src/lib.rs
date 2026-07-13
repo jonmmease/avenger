@@ -13,3 +13,5 @@ pub mod prelude;
 pub mod slider;
 pub mod style;
 pub mod text_input;
+
+pub use checkbox::Checkbox;

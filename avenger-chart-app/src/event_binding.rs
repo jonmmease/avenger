@@ -4582,6 +4582,7 @@ mod tests {
         TreemapPadding,
         event::{self as treemap_event, HIERARCHY_PATH_ID_FIELD},
     };
+    use avenger_chart_widgets::Checkbox;
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -8307,6 +8308,63 @@ mod tests {
         assert_eq!(
             state.params().await.get("cursor"),
             Some(&ScalarValue::Utf8(Some("crosshair".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn checkbox_click_flips_param_and_rebuilds_checked_scene() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .widget(Checkbox::new("regions", "Regions", false).position(ChromePosition::Left))
+            .compile(&ctx)
+            .await
+            .expect("compile checkbox chart");
+        let click_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| binding.event_type == ChartEventType::Click)
+            .expect("checkbox click binding");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, click_index);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial checkbox scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        assert!(
+            rtree
+                .iter()
+                .all(|geometry| geometry.mark_instance.name != "check")
+        );
+        let origin = rtree
+            .named_group_origin("regions")
+            .expect("checkbox group origin");
+        let position = [origin[0] + 7.0, origin[1] + 16.0];
+        let box_instance = rtree
+            .pick_top_mark_at_point(&position)
+            .cloned()
+            .expect("checkbox box hit");
+        assert_eq!(box_instance.name, "box");
+
+        let status = click_mark(&mut state, &handler, Some(box_instance), position, false).await;
+        assert!(status.rerender);
+        assert_eq!(
+            state.params().await.get("regions__checked"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+
+        let checked_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("checked checkbox scene");
+        let checked_rtree = SceneGraphRTree::from_scene_graph(&checked_scene);
+        assert!(
+            checked_rtree
+                .iter()
+                .any(|geometry| geometry.mark_instance.name == "check")
         );
     }
 

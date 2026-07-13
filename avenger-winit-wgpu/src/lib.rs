@@ -1458,6 +1458,7 @@ fn logical_to_physical(value: f32, scale: f32) -> u32 {
 fn cursor_style_to_winit(style: CursorStyle) -> CursorIcon {
     match style {
         CursorStyle::Default => CursorIcon::Default,
+        CursorStyle::Pointer => CursorIcon::Pointer,
         CursorStyle::Crosshair => CursorIcon::Crosshair,
         CursorStyle::Grab => CursorIcon::Grab,
         CursorStyle::Grabbing => CursorIcon::Grabbing,
@@ -1533,6 +1534,10 @@ mod tests {
         assert_eq!(
             cursor_style_to_winit(CursorStyle::Crosshair),
             CursorIcon::Crosshair
+        );
+        assert_eq!(
+            cursor_style_to_winit(CursorStyle::Pointer),
+            CursorIcon::Pointer
         );
         assert_eq!(cursor_style_to_winit(CursorStyle::Grab), CursorIcon::Grab);
         assert_eq!(

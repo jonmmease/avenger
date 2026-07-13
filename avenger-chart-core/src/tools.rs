@@ -107,6 +107,7 @@ pub struct ToolScaleTarget {
 
 pub struct ToolExpansion<C: CoordinateSystemCore> {
     pub params: Vec<ToolParamExpansion>,
+    pub cursor_params: Vec<String>,
     pub stores: Vec<Store>,
     pub selections: Vec<Selection>,
     pub event_bindings: Vec<ChartEventBinding>,
@@ -119,6 +120,7 @@ impl<C: CoordinateSystemCore> Clone for ToolExpansion<C> {
     fn clone(&self) -> Self {
         Self {
             params: self.params.clone(),
+            cursor_params: self.cursor_params.clone(),
             stores: self.stores.clone(),
             selections: self.selections.clone(),
             event_bindings: self.event_bindings.clone(),
@@ -133,6 +135,7 @@ impl<C: CoordinateSystemCore> Default for ToolExpansion<C> {
     fn default() -> Self {
         Self {
             params: Vec::new(),
+            cursor_params: Vec::new(),
             stores: Vec::new(),
             selections: Vec::new(),
             event_bindings: Vec::new(),
@@ -149,6 +152,13 @@ impl<C: CoordinateSystemCore> ToolExpansion<C> {
     }
 
     pub fn param(mut self, param: Param, sharing: ToolParamSharing) -> Self {
+        self.params.push(ToolParamExpansion { param, sharing });
+        self
+    }
+
+    /// Register a generated parameter whose event patches control the host cursor.
+    pub fn cursor_param(mut self, param: Param, sharing: ToolParamSharing) -> Self {
+        self.cursor_params.push(param.name.clone());
         self.params.push(ToolParamExpansion { param, sharing });
         self
     }

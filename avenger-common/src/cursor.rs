@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum CursorStyle {
     #[default]
     Default,
+    Pointer,
     Crosshair,
     Grab,
     Grabbing,
@@ -19,6 +20,7 @@ impl CursorStyle {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Default => "default",
+            Self::Pointer => "pointer",
             Self::Crosshair => "crosshair",
             Self::Grab => "grab",
             Self::Grabbing => "grabbing",
@@ -32,6 +34,7 @@ impl CursorStyle {
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "default" => Some(Self::Default),
+            "pointer" => Some(Self::Pointer),
             "crosshair" => Some(Self::Crosshair),
             "grab" => Some(Self::Grab),
             "grabbing" => Some(Self::Grabbing),

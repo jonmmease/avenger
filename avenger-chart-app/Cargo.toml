@@ -39,6 +39,7 @@ winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 avenger-chart-geo = { path = "../avenger-chart-geo" }
+avenger-chart-widgets = { path = "../avenger-chart-widgets" }
 image = { workspace = true }
 palette = { workspace = true }
 env_logger = "0.10"
