@@ -19,7 +19,7 @@ use datafusion::{
     },
     common::{DFSchema, ScalarValue},
     dataframe::DataFrame,
-    logical_expr::{EmptyRelation, Expr, LogicalPlan, col, lit, when},
+    logical_expr::{EmptyRelation, Expr, LogicalPlan, Operator, col, lit, when},
     prelude::SessionContext,
 };
 use datafusion_common::tree_node::{Transformed, TreeNode};
@@ -34,7 +34,10 @@ use avenger_chart_core::{
     ViewMaterializationRequest, ViewStalePolicy, collect_derived_scalar_ids, contains_aggregate,
     detail_array_column_name, item_frame_column_refs, params_to_datafusion,
     resolve_known_derived_scalars, resolve_known_derived_scalars_in_channel_value,
-    selection_clause_value_id_from_placeholder, selection_id_from_predicate_placeholder,
+    selection_clause_value_id_from_placeholder, selection_field_expr_fingerprint,
+    selection_id_from_equality_membership_field_placeholder,
+    selection_id_from_equality_membership_value_placeholder,
+    selection_id_from_predicate_placeholder,
 };
 #[cfg(test)]
 use avenger_common::time::Duration;
@@ -1272,6 +1275,19 @@ pub(crate) fn expand_selection_predicates_with_fallback_specs(
 ) -> Result<Expr, AvengerChartError> {
     let ctx = eval_ctx.session_context.as_ref();
     expr.transform(|candidate| {
+        if let Some((selection_id, field_expr, value_expr)) =
+            selection_equality_membership_marker(&candidate)
+        {
+            let replacement = selection_equality_membership_expr(
+                selection_id,
+                field_expr,
+                value_expr,
+                eval_ctx,
+                fallback_specs,
+            )
+            .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
+            return Ok(Transformed::yes(replacement));
+        }
         if let Expr::Placeholder(placeholder) = &candidate
             && let Some(selection_id) = selection_id_from_predicate_placeholder(&placeholder.id)
         {
@@ -1289,6 +1305,111 @@ pub(crate) fn expand_selection_predicates_with_fallback_specs(
     })
     .map(|transformed| transformed.data)
     .map_err(AvengerChartError::DataFusionError)
+}
+
+fn selection_equality_membership_marker(expr: &Expr) -> Option<(&str, Expr, Expr)> {
+    let Expr::BinaryExpr(combined) = expr else {
+        return None;
+    };
+    if combined.op != Operator::And {
+        return None;
+    }
+
+    let direct = || {
+        let (field_selection, field_expr) =
+            selection_equality_membership_field_marker(combined.left.as_ref())?;
+        let (value_selection, value_expr) =
+            selection_equality_membership_value_marker(combined.right.as_ref())?;
+        (field_selection == value_selection).then_some((field_selection, field_expr, value_expr))
+    };
+    direct().or_else(|| {
+        let (value_selection, value_expr) =
+            selection_equality_membership_value_marker(combined.left.as_ref())?;
+        let (field_selection, field_expr) =
+            selection_equality_membership_field_marker(combined.right.as_ref())?;
+        (field_selection == value_selection).then_some((field_selection, field_expr, value_expr))
+    })
+}
+
+fn selection_equality_membership_field_marker(expr: &Expr) -> Option<(&str, Expr)> {
+    selection_equality_membership_operand(
+        expr,
+        selection_id_from_equality_membership_field_placeholder,
+    )
+}
+
+fn selection_equality_membership_value_marker(expr: &Expr) -> Option<(&str, Expr)> {
+    selection_equality_membership_operand(
+        expr,
+        selection_id_from_equality_membership_value_placeholder,
+    )
+}
+
+fn selection_equality_membership_operand<'a>(
+    expr: &'a Expr,
+    parse_placeholder: impl Fn(&'a str) -> Option<&'a str>,
+) -> Option<(&'a str, Expr)> {
+    let Expr::BinaryExpr(binary) = expr else {
+        return None;
+    };
+    if binary.op != Operator::Eq {
+        return None;
+    }
+    match (binary.left.as_ref(), binary.right.as_ref()) {
+        (operand, Expr::Placeholder(placeholder)) => {
+            parse_placeholder(&placeholder.id).map(|selection_id| (selection_id, operand.clone()))
+        }
+        (Expr::Placeholder(placeholder), operand) => {
+            parse_placeholder(&placeholder.id).map(|selection_id| (selection_id, operand.clone()))
+        }
+        _ => None,
+    }
+}
+
+fn selection_equality_membership_expr(
+    selection_id: &str,
+    field_expr: Expr,
+    value_expr: Expr,
+    eval_ctx: &EvaluationContext,
+    fallback_specs: Option<&IndexMap<String, CompiledSelectionSpec>>,
+) -> Result<Expr, AvengerChartError> {
+    let field_fingerprint =
+        selection_field_expr_fingerprint(&LogicalExprNode::from_expr(field_expr)?);
+    let clauses = if let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() {
+        if !selection_store.specs().contains_key(selection_id) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection membership references unknown selection '{selection_id}'"
+            )));
+        }
+        selection_store
+            .clauses_for_selection(selection_id)
+            .unwrap_or_default()
+    } else if let Some(specs) = fallback_specs {
+        if !specs.contains_key(selection_id) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Selection membership references unknown selection '{selection_id}'"
+            )));
+        }
+        Vec::new()
+    } else {
+        return Ok(lit(false));
+    };
+
+    let matching_values = clauses.iter().filter_map(|clause| {
+        let SelectionPredicateSpec::Equality { dimensions } = &clause.predicate else {
+            return None;
+        };
+        let [dimension] = dimensions.as_slice() else {
+            return None;
+        };
+        (!dimension.value.is_null()
+            && selection_field_expr_fingerprint(&dimension.field_expr) == field_fingerprint)
+            .then(|| dimension.value.clone())
+    });
+
+    Ok(matching_values.fold(lit(false), |membership, value| {
+        membership.or(value_expr.clone().eq(lit(value)))
+    }))
 }
 
 fn selection_predicate_expr(
@@ -2887,7 +3008,7 @@ mod tests {
     use avenger_scales::scales::{ConfiguredScale, ScaleConfig};
     use datafusion::{
         arrow::{
-            array::{Array, ArrayRef, Float64Array, StringArray, StructArray},
+            array::{Array, ArrayRef, BooleanArray, Float64Array, StringArray, StructArray},
             compute::cast,
             datatypes::{DataType, Field, Schema},
             record_batch::RecordBatch,
@@ -2916,7 +3037,10 @@ mod tests {
         parallel::{Parallel, ParallelLine, generated_dimension_channel},
         plot::{
             compiled::materialization::MaterializationCache,
-            compiled::session::{ScopedStoreAssignment, ScopedStoreState, StoreStateUpdate},
+            compiled::session::{
+                ScopedSelectionStore, ScopedStoreAssignment, ScopedStoreState, SelectionAssignment,
+                SelectionStateUpdate, StoreStateUpdate,
+            },
         },
         scales::{Linear, Scale, ScaleRangeBinding, ScaleSpec},
         serialization::{LogicalExprNodeExt, LogicalPlanNodeExt},
@@ -2924,9 +3048,10 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        CoordinateSystem, CoordinationScope, DataTransformResult, Param, STORE_NAME_COLUMN,
-        STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, Store, StoreData, StoreRowValue, View,
-        detail_array_column_name,
+        CompiledSelectionSpec, CoordinateSystem, CoordinationScope, DataTransformResult, Param,
+        ResolvedSelectionClauseScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
+        STORE_REVISION_COLUMN, Selection, SelectionEqualityDimensionValue, Store, StoreData,
+        StoreRowValue, View, detail_array_column_name,
     };
     use avenger_chart_marks::{Area, Rect};
 
@@ -2937,6 +3062,103 @@ mod tests {
             IndexMap::new(),
             Arc::new(EvaluatedFacetTree::empty()),
         )
+    }
+
+    fn equality_clause(
+        id: &str,
+        field: &str,
+        value: &str,
+    ) -> Result<SelectionClause, AvengerChartError> {
+        Ok(SelectionClause {
+            id: id.to_string(),
+            scope: ResolvedSelectionClauseScope {
+                sharing: CoordinationScope::Shared,
+                owner_path: Vec::new(),
+            },
+            predicate: SelectionPredicateSpec::Equality {
+                dimensions: vec![SelectionEqualityDimensionValue {
+                    id: field.to_string(),
+                    field_expr: LogicalExprNode::from_expr(col(field))?,
+                    value: ScalarValue::Utf8(Some(value.to_string())),
+                }],
+            },
+            facet_context: Vec::new(),
+        })
+    }
+
+    async fn equality_membership_values(
+        selection: &Selection,
+        clauses: Vec<SelectionClause>,
+    ) -> Result<Vec<bool>, AvengerChartError> {
+        let session = Arc::new(SessionContext::new());
+        let mut specs = IndexMap::<String, CompiledSelectionSpec>::new();
+        specs.insert(selection.id.clone(), selection.compile()?);
+        let mut store = ScopedSelectionStore::new(specs);
+        store.apply_selection_patch([SelectionAssignment {
+            selection_id: selection.id.clone(),
+            update: SelectionStateUpdate::ReplaceAllClauses { clauses },
+        }])?;
+        let eval_ctx = eval_context(session.clone()).with_scoped_selection_store(Arc::new(store));
+        let batch = RecordBatch::try_from_iter(vec![(
+            "__value",
+            Arc::new(StringArray::from(vec!["A", "B"])) as ArrayRef,
+        )])?;
+        let df = session.read_batch(batch)?;
+        let membership = expand_selection_predicates(
+            selection.contains_equality_value(col("category"), col("__value")),
+            &eval_ctx,
+            None,
+        )?;
+        let batches = df
+            .select(vec![membership.alias("checked")])?
+            .collect()
+            .await?;
+        let values = batches[0]
+            .column_by_name("checked")
+            .expect("checked result")
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .expect("boolean checked result");
+        Ok((0..values.len()).map(|index| values.value(index)).collect())
+    }
+
+    #[tokio::test]
+    async fn equality_membership_is_false_for_empty_select_all_selection()
+    -> Result<(), AvengerChartError> {
+        let selection = Selection::new("picked").empty_selects_all();
+        assert_eq!(
+            equality_membership_values(&selection, Vec::new()).await?,
+            vec![false, false]
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn equality_membership_matches_typed_value_and_exact_field_only()
+    -> Result<(), AvengerChartError> {
+        let selection = Selection::new("picked").empty_selects_all();
+        let mut compound = equality_clause("compound", "category", "B")?;
+        let SelectionPredicateSpec::Equality { dimensions } = &mut compound.predicate else {
+            unreachable!("test helper creates equality predicate")
+        };
+        dimensions.push(SelectionEqualityDimensionValue {
+            id: "region".to_string(),
+            field_expr: LogicalExprNode::from_expr(col("region"))?,
+            value: ScalarValue::Utf8(Some("north".to_string())),
+        });
+        assert_eq!(
+            equality_membership_values(
+                &selection,
+                vec![
+                    equality_clause("external-id", "category", "A")?,
+                    equality_clause("same-value-other-field", "region", "B")?,
+                    compound,
+                ],
+            )
+            .await?,
+            vec![true, false]
+        );
+        Ok(())
     }
 
     fn xy_dataframe(ctx: &SessionContext) -> datafusion::dataframe::DataFrame {

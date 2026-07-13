@@ -625,7 +625,7 @@ pub(crate) struct ScopedSelectionStore {
 }
 
 impl ScopedSelectionStore {
-    fn new(specs: IndexMap<String, CompiledSelectionSpec>) -> Self {
+    pub(crate) fn new(specs: IndexMap<String, CompiledSelectionSpec>) -> Self {
         let states = specs
             .keys()
             .map(|id| {

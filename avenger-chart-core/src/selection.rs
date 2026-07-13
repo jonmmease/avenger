@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD};
 use datafusion::prelude::SessionContext;
 use datafusion::{
     arrow::datatypes::{DataType, Field},
@@ -9,6 +10,7 @@ use datafusion::{
 };
 use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
@@ -753,6 +755,31 @@ impl Selection {
         selection_predicate_expr(&self.id)
     }
 
+    /// Whether a one-dimensional equality clause selects `value_expr` for
+    /// `field_expr`.
+    ///
+    /// Unlike [`Self::predicate`], this expression describes visible
+    /// membership state. An empty selection therefore evaluates to false even
+    /// when the selection uses [`EmptySelectionBehavior::SelectAll`].
+    pub fn contains_equality_value(
+        &self,
+        field_expr: impl IntoExpr,
+        value_expr: impl IntoExpr,
+    ) -> Expr {
+        field_expr
+            .into_expr()
+            .eq(Expr::Placeholder(Placeholder::new_with_field(
+                selection_equality_membership_field_placeholder_id(&self.id),
+                None,
+            )))
+            .and(value_expr.into_expr().eq(Expr::Placeholder(
+                Placeholder::new_with_field(
+                    selection_equality_membership_value_placeholder_id(&self.id),
+                    None,
+                ),
+            )))
+    }
+
     pub fn compile(&self) -> Result<CompiledSelectionSpec, AvengerChartError> {
         validate_selection_id(&self.id)?;
         for facet in &self.facet_context {
@@ -794,6 +821,51 @@ fn selection_predicate_placeholder_id(id: &str) -> String {
 
 pub fn selection_id_from_predicate_placeholder(placeholder_id: &str) -> Option<&str> {
     placeholder_id.strip_prefix("$__selection_predicate_")
+}
+
+const SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX: &str =
+    "$__selection_equality_membership_field_";
+const SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX: &str =
+    "$__selection_equality_membership_value_";
+
+fn selection_equality_membership_field_placeholder_id(selection_id: &str) -> String {
+    format!("{SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX}{selection_id}")
+}
+
+fn selection_equality_membership_value_placeholder_id(selection_id: &str) -> String {
+    format!("{SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX}{selection_id}")
+}
+
+/// Decode the field marker emitted by
+/// [`Selection::contains_equality_value`].
+///
+/// This is public for the chart runtime and event-binding compiler; it is not
+/// intended as a chart-authoring API.
+#[doc(hidden)]
+pub fn selection_id_from_equality_membership_field_placeholder(
+    placeholder_id: &str,
+) -> Option<&str> {
+    placeholder_id.strip_prefix(SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX)
+}
+
+/// Decode the value marker emitted by
+/// [`Selection::contains_equality_value`].
+#[doc(hidden)]
+pub fn selection_id_from_equality_membership_value_placeholder(
+    placeholder_id: &str,
+) -> Option<&str> {
+    placeholder_id.strip_prefix(SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX)
+}
+
+/// Stable, type-preserving identity for a serialized selection field
+/// expression.
+///
+/// The protobuf representation is the canonical interchange form already used
+/// by compiled selections, and URL-safe base64 keeps it usable inside internal
+/// placeholder and clause identifiers without lossy string formatting.
+#[doc(hidden)]
+pub fn selection_field_expr_fingerprint(field_expr: &LogicalExprNode) -> String {
+    BASE64_URL_SAFE_NO_PAD.encode(field_expr.encode_to_vec())
 }
 
 pub fn clause_value(id: impl AsRef<str>) -> Expr {
@@ -867,6 +939,48 @@ mod tests {
     fn selection_predicate_serializes() {
         let expr = Selection::new("brush").predicate();
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
+    }
+
+    #[test]
+    fn equality_membership_marker_serializes_and_preserves_field_identity() {
+        let field_expr = col("category");
+        let expected_field = LogicalExprNode::from_expr(field_expr.clone())
+            .expect("serialize expected membership field");
+        let expr = Selection::new("picked").contains_equality_value(field_expr, col("__value"));
+        LogicalExprNode::from_expr(expr.clone()).expect("membership expression serializes");
+
+        let Expr::BinaryExpr(membership) = expr else {
+            panic!("expected equality membership conjunction");
+        };
+        assert_eq!(membership.op, datafusion::logical_expr::Operator::And);
+        let Expr::BinaryExpr(field_membership) = membership.left.as_ref() else {
+            panic!("expected field membership marker");
+        };
+        let Expr::Placeholder(field_placeholder) = field_membership.right.as_ref() else {
+            panic!("expected field marker placeholder");
+        };
+        assert_eq!(
+            selection_id_from_equality_membership_field_placeholder(&field_placeholder.id),
+            Some("picked")
+        );
+        assert_eq!(
+            selection_field_expr_fingerprint(
+                &LogicalExprNode::from_expr(field_membership.left.as_ref().clone())
+                    .expect("serialize marker field operand")
+            ),
+            selection_field_expr_fingerprint(&expected_field),
+        );
+
+        let Expr::BinaryExpr(value_membership) = membership.right.as_ref() else {
+            panic!("expected value membership marker");
+        };
+        let Expr::Placeholder(value_placeholder) = value_membership.right.as_ref() else {
+            panic!("expected value marker placeholder");
+        };
+        assert_eq!(
+            selection_id_from_equality_membership_value_placeholder(&value_placeholder.id),
+            Some("picked")
+        );
     }
 
     #[test]
