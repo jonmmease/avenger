@@ -774,19 +774,28 @@ pub fn resolve_widget_style_set(
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     widget_kind.hash(&mut hasher);
     widget_id.hash(&mut hasher);
+    theme.default_color_scheme.hash(&mut hasher);
+    for source in &theme.css_sources {
+        source.hash(&mut hasher);
+    }
+    let eval = crate::theme::eval::EvalContext::new(params, theme.get_base_font_size(params));
     for (property, value) in &resolved.host.values {
         property.hash(&mut hasher);
-        serde_json::to_string(value)
-            .map_err(|error| AvengerChartError::SerializationError(error.to_string()))?
-            .hash(&mut hasher);
+        format!(
+            "{:?}",
+            widget_style_scalar(widget_id, *property, value, &eval)?
+        )
+        .hash(&mut hasher);
     }
     for (part, style) in &resolved.parts {
         part.hash(&mut hasher);
         for (property, value) in &style.values {
             property.hash(&mut hasher);
-            serde_json::to_string(value)
-                .map_err(|error| AvengerChartError::SerializationError(error.to_string()))?
-                .hash(&mut hasher);
+            format!(
+                "{:?}",
+                widget_style_scalar(widget_id, *property, value, &eval)?
+            )
+            .hash(&mut hasher);
         }
     }
     resolved.digest = hasher.finish();
@@ -1293,6 +1302,102 @@ mod tests {
             ),
             Err(AvengerChartError::InvalidWidgetStyle { property, .. }) if property == "width"
         ));
+    }
+
+    #[test]
+    fn resolved_style_digest_tracks_environment_and_ignores_unreferenced_variables() {
+        let manifest = WidgetPartManifest {
+            name: "box".to_string(),
+            scene_mark_kind: "rect".to_string(),
+            style_properties: vec![
+                WidgetStyleProperty::Width,
+                WidgetStyleProperty::Fill,
+                WidgetStyleProperty::Stroke,
+            ],
+            states: Vec::new(),
+            interactive: true,
+        };
+        let mut theme = crate::Theme::light();
+        theme
+            .append_css(
+                r#"
+                :root {
+                    --digest-used: #0072b2;
+                    --digest-unused: #999999;
+                }
+                digest-widget::part(box) {
+                    width: 1rem;
+                    fill: var(--digest-used);
+                    stroke: light-dark(#000000, #ffffff);
+                }
+                @media (width >= 600px) {
+                    digest-widget::part(box) { width: 2rem; }
+                }
+                "#,
+            )
+            .unwrap();
+        let resolve = |theme: &crate::Theme, params: &IndexMap<String, ScalarValue>| {
+            resolve_widget_style_set(
+                theme,
+                "digest-widget",
+                "digest",
+                std::slice::from_ref(&manifest),
+                &WidgetPresentationState::default(),
+                params,
+            )
+            .unwrap()
+            .digest
+        };
+        let base = IndexMap::from([
+            (
+                "--base-font-size".to_string(),
+                ScalarValue::Utf8(Some("10px".to_string())),
+            ),
+            (
+                "color-scheme".to_string(),
+                ScalarValue::Utf8(Some("light".to_string())),
+            ),
+            ("width".to_string(), ScalarValue::Float32(Some(500.0))),
+        ]);
+        let base_digest = resolve(&theme, &base);
+
+        let mut base_font = base.clone();
+        base_font.insert(
+            "--base-font-size".to_string(),
+            ScalarValue::Utf8(Some("20px".to_string())),
+        );
+        assert_ne!(base_digest, resolve(&theme, &base_font));
+
+        let mut dark = base.clone();
+        dark.insert(
+            "color-scheme".to_string(),
+            ScalarValue::Utf8(Some("dark".to_string())),
+        );
+        assert_ne!(base_digest, resolve(&theme, &dark));
+
+        let mut used = base.clone();
+        used.insert(
+            "--digest-used".to_string(),
+            ScalarValue::Utf8(Some("#d55e00".to_string())),
+        );
+        assert_ne!(base_digest, resolve(&theme, &used));
+
+        let mut unused = base.clone();
+        unused.insert(
+            "--digest-unused".to_string(),
+            ScalarValue::Utf8(Some("#d55e00".to_string())),
+        );
+        assert_eq!(base_digest, resolve(&theme, &unused));
+
+        let mut wide = base.clone();
+        wide.insert("width".to_string(), ScalarValue::Float32(Some(800.0)));
+        assert_ne!(base_digest, resolve(&theme, &wide));
+
+        let mut revised_source = theme.clone();
+        revised_source
+            .append_css("digest-widget::part(box) { width: 1rem; }")
+            .unwrap();
+        assert_ne!(base_digest, resolve(&revised_source, &base));
     }
 
     #[test]

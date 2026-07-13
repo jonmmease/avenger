@@ -69,6 +69,24 @@ fn find_symbol<'a>(
     None
 }
 
+fn find_rect<'a>(
+    marks: &'a [SceneMark],
+    name: &str,
+) -> Option<&'a avenger_scenegraph::marks::rect::SceneRectMark> {
+    for mark in marks {
+        match mark {
+            SceneMark::Rect(rect) if rect.name == name => return Some(rect),
+            SceneMark::Group(group) => {
+                if let Some(rect) = find_rect(&group.marks, name) {
+                    return Some(rect);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 #[derive(Clone)]
 struct ContractWidget;
 
@@ -288,6 +306,11 @@ struct ExplicitPartDataWidget {
 }
 
 #[derive(Clone)]
+struct EnvironmentContractWidget {
+    data: DataFrame,
+}
+
+#[derive(Clone)]
 struct ThemedGeometryWidget;
 
 #[derive(Clone)]
@@ -426,7 +449,9 @@ impl ChartWidget for DataFrameScaledWidget {
                         .id("paint")
                         .x(24.0)
                         .y(12.0)
-                        .fill(ctx.part_style("paint", WidgetStyleProperty::Fill))
+                        .fill_with(ctx.part_style("paint", WidgetStyleProperty::Fill), |fill| {
+                            fill.no_scale()
+                        })
                         .size(20.0),
                 ),
             items: Some(WidgetItems::DataFrame {
@@ -463,6 +488,41 @@ impl ChartWidget for ExplicitPartDataWidget {
             ),
             items: None,
             measure: WidgetMeasureSpec::fixed(40.0, 24.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+impl ChartWidget for EnvironmentContractWidget {
+    fn id(&self) -> &str {
+        "environment-contract"
+    }
+
+    fn kind(&self) -> &'static str {
+        "environment-contract-widget"
+    }
+
+    fn expand(
+        &self,
+        ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Rect::<PixelFrame>::new()
+                    .id("box")
+                    .x(0.0)
+                    .x2(ctx.part_style("box", WidgetStyleProperty::ChoiceControlSize))
+                    .y(0.0)
+                    .y2(20.0)
+                    .fill_with(ctx.part_style("box", WidgetStyleProperty::Fill), |fill| {
+                        fill.no_scale()
+                    }),
+            ),
+            items: Some(WidgetItems::DataFrame {
+                data: self.data.clone(),
+                order_key: vec![col("item_order")],
+            }),
+            measure: WidgetMeasureSpec::fixed(40.0, 20.0),
             presentation: WidgetPresentationBindings::default(),
         })
     }
@@ -917,6 +977,112 @@ async fn widget_mark_geometry_reads_style_snapshot_and_realized_frame_inputs() {
         rect.fill.as_vec(1, None)[0].color_or_transparent(),
         avenger_color::parse_color_string("#0072b2").unwrap()
     );
+}
+
+#[tokio::test]
+async fn widget_style_environment_recomputes_while_item_plan_stays_cached() {
+    let ctx = Arc::new(datafusion::prelude::SessionContext::new());
+    let data = ctx
+        .sql("SELECT 0 AS item_order")
+        .await
+        .expect("environment widget item data");
+    let width = Param::new("environment_width", 80.0_f32);
+    let height = Param::new("environment_height", 100.0_f32);
+    let base_font = Param::new("--base-font-size", "12px");
+    let color_scheme = Param::new("color-scheme", "light");
+    let unrelated = Param::new("--unrelated-widget-token", "initial");
+    let mut theme = Theme::light();
+    theme
+        .append_css(
+            "environment-contract-widget::part(box) { \
+             choice-control-size: 1rem; \
+             fill: light-dark(#0072b2, #e69f00); \
+         } \
+         @media (width >= 100px) { \
+             environment-contract-widget::part(box) { choice-control-size: 2rem; } \
+         }",
+        )
+        .unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .canvas_size(width.expr(), height.expr())
+        .theme(theme)
+        .param(width)
+        .param(height)
+        .param(base_font)
+        .param(color_scheme)
+        .param(unrelated)
+        .widget(EnvironmentContractWidget { data }.position(ChromePosition::Left))
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let mut session = Arc::new(compiled).instantiate(ctx);
+
+    let rect_state = |evaluated: &avenger_chart::render::EvaluatedPlot| {
+        let rect = find_rect(
+            find_group(&evaluated.scene_graph.marks, "environment-contract").unwrap(),
+            "box",
+        )
+        .unwrap();
+        (
+            rect.x2.as_ref().unwrap().as_vec(1, None)[0],
+            rect.fill.as_vec(1, None)[0].color_or_transparent(),
+        )
+    };
+
+    let (initial, initial_metrics) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .await
+        .unwrap();
+    assert_eq!(initial_metrics.pipeline.widget_item_collects, 1);
+    assert_eq!(rect_state(&initial).0, 12.0);
+    assert_eq!(
+        rect_state(&initial).1,
+        avenger_color::parse_color_string("#0072b2").unwrap()
+    );
+
+    for (name, value, expected_size, expected_color) in [
+        (
+            "environment_width",
+            datafusion::common::ScalarValue::Float32(Some(120.0)),
+            24.0,
+            "#0072b2",
+        ),
+        (
+            "--base-font-size",
+            datafusion::common::ScalarValue::Utf8(Some("16px".to_string())),
+            32.0,
+            "#0072b2",
+        ),
+        (
+            "color-scheme",
+            datafusion::common::ScalarValue::Utf8(Some("dark".to_string())),
+            32.0,
+            "#e69f00",
+        ),
+        (
+            "--unrelated-widget-token",
+            datafusion::common::ScalarValue::Utf8(Some("changed".to_string())),
+            32.0,
+            "#e69f00",
+        ),
+    ] {
+        let mut patch = indexmap::IndexMap::new();
+        patch.insert(name.to_string(), value);
+        let (evaluated, metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
+            .await
+            .unwrap();
+        assert_eq!(metrics.pipeline.widget_item_collects, 0, "{name}");
+        assert_eq!(metrics.pipeline.widget_item_cache_hits, 1, "{name}");
+        assert_eq!(metrics.pipeline.widget_item_cache_misses, 0, "{name}");
+        let (size, color) = rect_state(&evaluated);
+        assert_eq!(size, expected_size, "{name}");
+        assert_eq!(
+            color,
+            avenger_color::parse_color_string(expected_color).unwrap(),
+            "{name}"
+        );
+    }
 }
 
 #[tokio::test]
