@@ -8,15 +8,18 @@ use avenger_chart::{
         PixelFrameTextPositionChannels,
     },
     prelude::{
-        AvengerChartError, ChartWidget, CoordinationScope, CursorStyle, IntoExpr, PixelFrame, Rect,
-        Selection, SelectionUpdate, Symbol, Text, ToolExpansion, ToolParamSharing,
-        WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetItemValidation,
-        WidgetItems, WidgetMeasureExpr, WidgetMeasureSpec, WidgetPresentationBindings,
-        WidgetStyleProperty, WidgetTextMeasureAxis,
+        AvengerChartError, ChannelExpr, ChartWidget, CoordinationScope, CursorStyle, IntoExpr,
+        Param, PixelFrame, Rect, Selection, SelectionUpdate, Symbol, Text, ToolExpansion,
+        ToolParamSharing, WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext,
+        WidgetItemValidation, WidgetItems, WidgetMeasureExpr, WidgetMeasureSpec,
+        WidgetPresentationBindings, WidgetStyleProperty, WidgetTextMeasureAxis,
     },
 };
-use datafusion::logical_expr::{Expr, lit};
 use datafusion::prelude::col;
+use datafusion::{
+    common::ScalarValue,
+    logical_expr::{Expr, lit},
+};
 
 /// A data-encoded list of independently toggleable equality-selection values.
 #[derive(Clone)]
@@ -123,7 +126,9 @@ impl ChartWidget for CheckboxList {
             .id("check")
             .x(size.clone() / lit(2.0_f32))
             .y(box_y.clone() + size.clone() * lit(0.48_f32))
-            .size(size.clone() * size.clone() * lit(0.42_f32))
+            .size(ChannelExpr::value(
+                size.clone() * size.clone() * lit(0.42_f32),
+            ))
             .shape("M -0.48 0.00 L -0.12 0.36 L 0.52 -0.42")
             .fill("transparent")
             .transform_no_output(Filter::new(checked), |mark| mark);
@@ -236,6 +241,276 @@ impl ChartWidget for CheckboxList {
     }
 }
 
+/// A data-encoded list that owns one scalar selected-value parameter.
+#[derive(Clone)]
+pub struct RadioButtonList {
+    id: String,
+    items: WidgetItems,
+    item_value: Expr,
+    label: Expr,
+    default: Option<ScalarValue>,
+}
+
+impl RadioButtonList {
+    /// Create a radio-button list. Static sources using the default `value`
+    /// column select their first declaration-order item by default. DataFrame
+    /// sources and computed static value expressions require [`Self::default`].
+    pub fn new(id: impl Into<String>, items: WidgetItems) -> Self {
+        Self {
+            id: id.into(),
+            items,
+            item_value: col("value"),
+            label: col("label"),
+            default: None,
+        }
+    }
+
+    /// Set the item expression stored in the selected-value parameter.
+    pub fn item_value(mut self, value: impl IntoExpr) -> Self {
+        self.item_value = value.into_expr();
+        self
+    }
+
+    /// Set the item expression rendered as the row label.
+    pub fn label(mut self, label: impl IntoExpr) -> Self {
+        self.label = label.into_expr();
+        self
+    }
+
+    /// Set the initial selected value. The prepared item relation validates
+    /// that this value exists before the widget is rendered.
+    pub fn default(mut self, value: impl Into<ScalarValue>) -> Self {
+        self.default = Some(value.into());
+        self
+    }
+
+    /// A scalar expression for the currently selected value.
+    pub fn value(&self) -> Expr {
+        Param::new(self.param_name(), self.placeholder_default()).expr()
+    }
+
+    fn param_name(&self) -> String {
+        format!("{}__value", self.id)
+    }
+
+    fn placeholder_default(&self) -> ScalarValue {
+        self.default
+            .clone()
+            .or_else(|| inferred_static_default(&self.items, &self.item_value).ok())
+            .unwrap_or(ScalarValue::Null)
+    }
+
+    fn resolved_param(&self) -> Result<Param, AvengerChartError> {
+        let default = match &self.default {
+            Some(default) => default.clone(),
+            None => inferred_static_default(&self.items, &self.item_value).map_err(|message| {
+                AvengerChartError::InvalidArgument(format!(
+                    "RadioButtonList '{}' requires .default(...): {message}",
+                    self.id
+                ))
+            })?,
+        };
+        if default.is_null() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "RadioButtonList '{}' requires a non-null default value",
+                self.id
+            )));
+        }
+        Ok(Param::new(self.param_name(), default))
+    }
+}
+
+fn base_widget_items(items: &WidgetItems) -> &WidgetItems {
+    match items {
+        WidgetItems::Configured { source, .. } => base_widget_items(source),
+        source => source,
+    }
+}
+
+fn inferred_static_default(items: &WidgetItems, value: &Expr) -> Result<ScalarValue, &'static str> {
+    let WidgetItems::Static(rows) = base_widget_items(items) else {
+        return Err("DataFrame item sources have no declaration-time first value");
+    };
+    let first = rows.first().ok_or("static item sources cannot be empty")?;
+    match value {
+        Expr::Column(column) => first
+            .values
+            .get(&column.name)
+            .cloned()
+            .ok_or("the selected-value column is absent from the first static item"),
+        Expr::Literal(value, _) => Ok(value.clone()),
+        _ => Err("computed static value expressions cannot be evaluated at declaration time"),
+    }
+}
+
+impl ChartWidget for RadioButtonList {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn kind(&self) -> &'static str {
+        "radio-button-list"
+    }
+
+    fn expand(
+        &self,
+        ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        const VALUE: &str = "__value";
+        const LABEL: &str = "__label";
+        const ITEM_ID: &str = "__item_id";
+
+        let selected_value = self.resolved_param()?;
+        let row_height = ctx.host_style(WidgetStyleProperty::Height);
+        let item_gap = ctx.host_style(WidgetStyleProperty::ItemGap);
+        let row_y = col("__idx") * (row_height.clone() + item_gap.clone());
+        let size = ctx.part_style("control", WidgetStyleProperty::ChoiceControlSize);
+        let center_size = ctx.part_style("control", WidgetStyleProperty::RadioCenterSize);
+        let selected_border =
+            ctx.part_style("control", WidgetStyleProperty::RadioSelectedBorderWidth);
+        let control_y = row_y.clone() + row_height.clone() / lit(2.0_f32);
+        let control_x = size.clone() / lit(2.0_f32);
+        let label_gap = ctx.part_style("label", WidgetStyleProperty::ControlLabelGap);
+        let focus_gap = ctx.part_style("focus-ring", WidgetStyleProperty::FocusGap);
+        let selected = col(VALUE).eq(selected_value.expr());
+
+        let row = Rect::<PixelFrame>::new()
+            .id("row")
+            .x(0.0)
+            .x2(ctx.frame_width())
+            .y(row_y.clone())
+            .y2(row_y.clone() + row_height.clone());
+        let control = Symbol::<PixelFrame>::new()
+            .id("control")
+            .x(control_x.clone())
+            .y(control_y.clone())
+            .size(ChannelExpr::value(size.clone() * size.clone()))
+            .shape("circle");
+        let selected_control = Symbol::<PixelFrame>::new()
+            .id("selected-control")
+            .x(control_x.clone())
+            .y(control_y.clone())
+            .size(ChannelExpr::value(size.clone() * size.clone()))
+            .shape("circle")
+            .stroke_width(ChannelExpr::value(selected_border))
+            .transform_no_output(Filter::new(selected.clone()), |mark| mark);
+        let center = Symbol::<PixelFrame>::new()
+            .id("center")
+            .x(control_x)
+            .y(control_y)
+            .size(ChannelExpr::value(center_size.clone() * center_size))
+            .shape("circle")
+            .transform_no_output(Filter::new(selected), |mark| mark);
+        let label = Text::<PixelFrame>::new()
+            .id("label")
+            .x(size.clone() + label_gap)
+            .y(row_y.clone() + row_height.clone() / lit(2.0_f32))
+            .text(col(LABEL))
+            .align("left")
+            .baseline("middle");
+        let focus_size = size.clone() + focus_gap.clone() * lit(2.0_f32);
+        let focus = Symbol::<PixelFrame>::new()
+            .id("focus-ring")
+            .x(size.clone() / lit(2.0_f32))
+            .y(row_y.clone() + row_height.clone() / lit(2.0_f32))
+            .size(ChannelExpr::value(focus_size.clone() * focus_size))
+            .shape("circle")
+            .fill("transparent");
+
+        let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
+        let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
+        let expansion = ToolExpansion::new()
+            .param(selected_value.clone(), shared.clone())
+            .cursor_param(cursor.clone(), shared)
+            .mark(row)
+            .mark(control)
+            .mark(selected_control)
+            .mark(center)
+            .mark(label)
+            .mark(focus)
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::Click)
+                    .mark(format!("{}.row", self.id))
+                    .set_param(&selected_value, event::datum(VALUE)),
+            )
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::MarkMouseEnter)
+                    .mark(format!("{}.row", self.id))
+                    .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
+            )
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::MarkMouseLeave)
+                    .mark(format!("{}.row", self.id))
+                    .set_param(&cursor, event::cursor(CursorStyle::Default)),
+            );
+
+        let items = self
+            .items
+            .clone()
+            .project(self.item_value.clone(), self.label.clone())
+            .derive_identity(VALUE, ITEM_ID)
+            .validate(WidgetItemValidation::NonNullUnique {
+                columns: vec![VALUE.to_string()],
+                role: "radio-button-list values".to_string(),
+            })
+            .validate(WidgetItemValidation::NonNullUnique {
+                columns: vec![ITEM_ID.to_string()],
+                role: "radio-button-list item identities".to_string(),
+            })
+            .validate(WidgetItemValidation::ContainsScalar {
+                column: VALUE.to_string(),
+                value: selected_value.default.clone(),
+                role: "radio-button-list default value".to_string(),
+            })
+            .validate(WidgetItemValidation::ContainsParam {
+                column: VALUE.to_string(),
+                param_name: selected_value.name.clone(),
+                role: "radio-button-list selected value".to_string(),
+            });
+
+        Ok(WidgetExpansion {
+            expansion,
+            items: Some(items),
+            measure: WidgetMeasureSpec {
+                width: WidgetAxisMeasureSpec::Content {
+                    expr: WidgetMeasureExpr::Add(vec![
+                        WidgetMeasureExpr::StyleLength {
+                            part: Some("control".to_string()),
+                            property: WidgetStyleProperty::ChoiceControlSize,
+                        },
+                        WidgetMeasureExpr::StyleLength {
+                            part: Some("label".to_string()),
+                            property: WidgetStyleProperty::ControlLabelGap,
+                        },
+                        WidgetMeasureExpr::TextExtent {
+                            part: "label".to_string(),
+                            axis: WidgetTextMeasureAxis::Width,
+                            data_encoded: true,
+                        },
+                    ]),
+                    min_px: 1.0,
+                    max_px: None,
+                },
+                height: WidgetAxisMeasureSpec::Content {
+                    expr: WidgetMeasureExpr::ItemCount {
+                        extent: Box::new(WidgetMeasureExpr::StyleLength {
+                            part: None,
+                            property: WidgetStyleProperty::Height,
+                        }),
+                        gap: Box::new(WidgetMeasureExpr::StyleLength {
+                            part: None,
+                            property: WidgetStyleProperty::ItemGap,
+                        }),
+                    },
+                    min_px: 0.0,
+                    max_px: None,
+                },
+            },
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -298,6 +573,60 @@ mod tests {
         assert_eq!(identity.source_column, "__value");
         assert_eq!(identity.output_column, "__item_id");
         assert_eq!(validations.len(), 2);
+    }
+
+    #[test]
+    fn radio_button_list_infers_first_static_value_and_rejects_ambiguous_defaults() {
+        let items = WidgetItems::Static(vec![
+            WidgetItemRow::new([
+                ("code".to_string(), ScalarValue::Int64(Some(7))),
+                (
+                    "name".to_string(),
+                    ScalarValue::Utf8(Some("Seven".to_string())),
+                ),
+            ]),
+            WidgetItemRow::new([
+                ("code".to_string(), ScalarValue::Int64(Some(9))),
+                (
+                    "name".to_string(),
+                    ScalarValue::Utf8(Some("Nine".to_string())),
+                ),
+            ]),
+        ]);
+        let widget = RadioButtonList::new("numbers", items)
+            .item_value(col("code"))
+            .label(col("name"));
+        let expanded = widget
+            .expand(WidgetExpansionContext::new("numbers"))
+            .expect("radio-button list expansion");
+
+        assert_eq!(expanded.expansion.marks.len(), 6);
+        assert_eq!(expanded.expansion.params[0].param.name, "numbers__value");
+        assert_eq!(
+            expanded.expansion.params[0].param.default,
+            ScalarValue::Int64(Some(7))
+        );
+        assert_eq!(expanded.expansion.event_bindings[0].assignments.len(), 1);
+        let Some(WidgetItems::Configured { validations, .. }) = expanded.items else {
+            panic!("configured widget items");
+        };
+        assert!(validations.iter().any(|validation| matches!(
+            validation,
+            WidgetItemValidation::ContainsScalar { value, .. }
+                if value == &ScalarValue::Int64(Some(7))
+        )));
+        assert!(validations.iter().any(|validation| matches!(
+            validation,
+            WidgetItemValidation::ContainsParam { param_name, .. }
+                if param_name == "numbers__value"
+        )));
+
+        let empty = RadioButtonList::new("empty", WidgetItems::Static(Vec::new()));
+        assert!(matches!(
+            empty.expand(WidgetExpansionContext::new("empty")),
+            Err(AvengerChartError::InvalidArgument(message))
+                if message.contains("static item sources cannot be empty")
+        ));
     }
 
     #[tokio::test]

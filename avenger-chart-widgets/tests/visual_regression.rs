@@ -17,7 +17,7 @@ use avenger_chart_core::{
     CoordinationScope, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
     SelectionEqualityDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
 };
-use avenger_chart_widgets::{Button, ButtonVariant, Checkbox, CheckboxList};
+use avenger_chart_widgets::{Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -159,6 +159,47 @@ async fn checkbox_list_baselines() {
         assert_checkbox_list_selected_visual_match(
             &compiled,
             &format!("checkbox-list/checkbox_list_selected_{scheme}"),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn radio_button_list_baselines() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        let ctx = SessionContext::new();
+        let items = ["North", "South", "West"]
+            .into_iter()
+            .map(|region| {
+                WidgetItemRow::new([
+                    (
+                        "value".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some(region.to_lowercase())),
+                    ),
+                    (
+                        "label".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some(region.to_string())),
+                    ),
+                ])
+            })
+            .collect();
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(320.0, 180.0)
+            .plot_size(128.0, 96.0)
+            .mark(Symbol::new().size(196.0).fill("#0072B2"))
+            .widget(
+                RadioButtonList::new("regions", WidgetItems::Static(items))
+                    .default("south")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile radio-button-list baseline");
+        assert_compiled_visual_match(
+            &compiled,
+            &ctx,
+            &format!("radio-button-list/radio_button_list_selected_{scheme}"),
         )
         .await;
     }

@@ -1,7 +1,7 @@
 //! Convenient re-exports for widget authors.
 
 pub use crate::style::BuiltinWidgetKind;
-pub use crate::{Button, ButtonVariant, Checkbox, CheckboxList};
+pub use crate::{Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList};
 pub use avenger_chart::pixel_frame::{
     PixelFrame, PixelFramePositionConfig, PixelFrameRectPositionChannels,
     PixelFrameRulePositionChannels, PixelFrameSymbolPositionChannels,

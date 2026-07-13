@@ -159,6 +159,13 @@ impl BuiltinWidgetKind {
                     true,
                 ),
                 part(
+                    "selected-control",
+                    "symbol",
+                    &with_properties(control, &[P::ChoiceControlSize]),
+                    LIST_STATES,
+                    false,
+                ),
+                part(
                     "center",
                     "symbol",
                     &[P::Fill, P::Stroke, P::Opacity, P::Cursor],
@@ -380,18 +387,18 @@ mod tests {
                 ("button", strings(&["box", "label", "focus-ring"])),
                 (
                     "checkbox-list",
-                    strings(&[
-                        "row",
-                        "box",
-                        "selected-box",
-                        "check",
-                        "label",
-                        "focus-ring",
-                    ])
+                    strings(&["row", "box", "selected-box", "check", "label", "focus-ring",])
                 ),
                 (
                     "radio-button-list",
-                    strings(&["row", "control", "center", "label", "focus-ring"])
+                    strings(&[
+                        "row",
+                        "control",
+                        "selected-control",
+                        "center",
+                        "label",
+                        "focus-ring",
+                    ])
                 ),
                 (
                     "slider",

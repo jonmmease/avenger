@@ -472,16 +472,17 @@ impl Theme {
                 radio-center-size: var(--widget-radio-center-size);
                 cursor: pointer;
             }
-            radio-button-list[selected="true"]::part(control) {
+            radio-button-list::part(selected-control) {
+                fill: var(--widget-field-surface);
                 stroke: var(--widget-accent);
                 stroke-width: var(--widget-radio-selected-border-width);
+                choice-control-size: var(--widget-choice-control-size);
             }
             radio-button-list::part(center) {
                 fill: var(--widget-field-surface);
-                opacity: 0;
+                opacity: 1;
                 cursor: pointer;
             }
-            radio-button-list[selected="true"]::part(center) { opacity: 1; }
 
             /* === Slider === */
             slider::part(track) {
