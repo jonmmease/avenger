@@ -488,6 +488,10 @@ impl EvaluationMetrics {
         self.pipeline.mark_data_scalar_collects += 1;
     }
 
+    pub(crate) fn record_widget_item_collect(&mut self) {
+        self.pipeline.widget_item_collects += 1;
+    }
+
     pub(crate) fn record_materialization_request_emitted(&mut self) {
         self.pipeline.materialization_requests_emitted += 1;
     }
@@ -719,6 +723,10 @@ pub struct EvaluationPipelineMetrics {
     pub mark_data_array_collects: usize,
     /// Mark data collect calls for scalar channel batches.
     pub mark_data_scalar_collects: usize,
+    /// Widget item-plan collect calls. One composed widget item relation is
+    /// collected once per evaluation revision and shared by measurement,
+    /// scale inference, and every part mark.
+    pub widget_item_collects: usize,
     /// Async materialization requests emitted during evaluation.
     pub materialization_requests_emitted: usize,
     /// Materialization cache hits for desired keys.
@@ -789,6 +797,7 @@ impl EvaluationPipelineMetrics {
         self.mark_data_full_collects += other.mark_data_full_collects;
         self.mark_data_array_collects += other.mark_data_array_collects;
         self.mark_data_scalar_collects += other.mark_data_scalar_collects;
+        self.widget_item_collects += other.widget_item_collects;
         self.materialization_requests_emitted += other.materialization_requests_emitted;
         self.materialization_cache_hits += other.materialization_cache_hits;
         self.materialization_cache_misses += other.materialization_cache_misses;

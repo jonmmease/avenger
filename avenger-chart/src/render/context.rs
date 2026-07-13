@@ -1906,6 +1906,15 @@ impl EvaluationContext {
         }
     }
 
+    pub(crate) fn record_widget_item_collect(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_widget_item_collect();
+        }
+    }
+
     pub(crate) fn record_facet_cells_built(&self, count: usize) {
         if let Some(metrics) = &self.evaluation_metrics {
             metrics

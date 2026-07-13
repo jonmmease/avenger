@@ -407,14 +407,23 @@ impl ChartWidget for DataFrameScaledWidget {
         _ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
-                Symbol::<PixelFrame>::new()
-                    .id("dot")
-                    .x(20.0)
-                    .y(12.0)
-                    .fill(col("category"))
-                    .size(col("amount")),
-            ),
+            expansion: ToolExpansion::new()
+                .mark(
+                    Symbol::<PixelFrame>::new()
+                        .id("dot")
+                        .x(20.0)
+                        .y(12.0)
+                        .fill(col("category"))
+                        .size(col("amount")),
+                )
+                .mark(
+                    Symbol::<PixelFrame>::new()
+                        .id("dot-copy")
+                        .x(24.0)
+                        .y(12.0)
+                        .fill(col("category"))
+                        .size(col("amount")),
+                ),
             items: Some(WidgetItems::DataFrame {
                 data: self.data.clone(),
                 order_key: vec![col("item_order")],
@@ -937,10 +946,11 @@ async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
         .unwrap();
     let mut session = Arc::new(compiled).instantiate(ctx);
 
-    let initial = session
-        .evaluate(EvaluationRequest::new().exact())
+    let (initial, initial_metrics) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
         .await
         .unwrap();
+    assert_eq!(initial_metrics.pipeline.widget_item_collects, 1);
     let initial_symbol = find_symbol(
         find_group(&initial.scene_graph.marks, "revision-scale").unwrap(),
         "dot",
@@ -958,10 +968,11 @@ async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
         "widget_group".to_string(),
         datafusion::common::ScalarValue::Utf8(Some("high".to_string())),
     );
-    let revised = session
-        .evaluate(EvaluationRequest::new().exact().param_patch(patch))
+    let (revised, revised_metrics) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(patch))
         .await
         .unwrap();
+    assert_eq!(revised_metrics.pipeline.widget_item_collects, 1);
     let revised_symbol = find_symbol(
         find_group(&revised.scene_graph.marks, "revision-scale").unwrap(),
         "dot",

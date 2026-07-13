@@ -2645,6 +2645,7 @@ impl CompiledPlot {
                 }
                 let schema = Arc::new(dataframe.schema().as_arrow().clone());
                 let batches = dataframe.collect().await?;
+                eval_ctx.record_widget_item_collect();
                 let batch = if batches.is_empty() {
                     RecordBatch::new_empty(schema)
                 } else {
