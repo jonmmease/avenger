@@ -12,5 +12,6 @@ pub use avenger_chart::prelude::{
     ResolvedWidgetAxisSize, ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAxisMeasureSpec,
     WidgetExpansion, WidgetExpansionContext, WidgetItemRow, WidgetItemValidation, WidgetItems,
     WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
-    WidgetPresentationState, WidgetStyleProperty, WidgetStyleValueType, WidgetTextMeasureAxis,
+    WidgetPresentationBindings, WidgetPresentationState, WidgetStyleProperty, WidgetStyleValueType,
+    WidgetTextMeasureAxis,
 };

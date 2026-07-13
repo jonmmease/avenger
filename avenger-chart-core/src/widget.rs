@@ -9,13 +9,15 @@ use std::{
 use datafusion::{
     common::ScalarValue, dataframe::DataFrame, logical_expr::expr::Placeholder, prelude::Expr,
 };
+use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, CompiledDataContext, CompiledMark, CompiledParamSpec, LegendPosition,
-    PixelFrame, ThemeValue, ToolExpansion, serialization::SerializableScalar,
+    AvengerChartError, CompiledDataContext, CompiledMark, CompiledParamSpec,
+    DefaultLogicalExprNodeExt, IntoExpr, LegendPosition, PixelFrame, ThemeValue, ToolExpansion,
+    serialization::{SerializableExpr, SerializableScalar},
 };
 
 pub type ChromePosition = LegendPosition;
@@ -69,6 +71,67 @@ pub struct WidgetExpansion {
     pub expansion: ToolExpansion<PixelFrame>,
     pub items: Option<WidgetItems>,
     pub measure: WidgetMeasureSpec,
+    pub presentation: WidgetPresentationBindings,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WidgetPresentationBindings {
+    pub variant: Option<String>,
+    pub disabled: Option<Expr>,
+    pub checked: Option<Expr>,
+    pub selected: Option<Expr>,
+    pub orientation: Option<String>,
+}
+
+impl WidgetPresentationBindings {
+    pub fn variant(mut self, variant: impl Into<String>) -> Self {
+        self.variant = Some(variant.into());
+        self
+    }
+
+    pub fn disabled(mut self, disabled: impl IntoExpr) -> Self {
+        self.disabled = Some(disabled.into_expr());
+        self
+    }
+
+    pub fn checked(mut self, checked: impl IntoExpr) -> Self {
+        self.checked = Some(checked.into_expr());
+        self
+    }
+
+    pub fn selected(mut self, selected: impl IntoExpr) -> Self {
+        self.selected = Some(selected.into_expr());
+        self
+    }
+
+    pub fn orientation(mut self, orientation: impl Into<String>) -> Self {
+        self.orientation = Some(orientation.into());
+        self
+    }
+
+    pub fn compile(&self) -> Result<CompiledWidgetPresentationSpec, AvengerChartError> {
+        let compile_expr = |expr: &Expr| LogicalExprNode::from_default_expr(expr.clone());
+        Ok(CompiledWidgetPresentationSpec {
+            variant: self.variant.clone(),
+            disabled: self.disabled.as_ref().map(compile_expr).transpose()?,
+            checked: self.checked.as_ref().map(compile_expr).transpose()?,
+            selected: self.selected.as_ref().map(compile_expr).transpose()?,
+            orientation: self.orientation.clone(),
+        })
+    }
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct CompiledWidgetPresentationSpec {
+    pub variant: Option<String>,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub disabled: Option<LogicalExprNode>,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub checked: Option<LogicalExprNode>,
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub selected: Option<LogicalExprNode>,
+    pub orientation: Option<String>,
 }
 
 pub trait ChartWidget: Send + Sync + 'static {
@@ -1036,6 +1099,8 @@ pub struct CompiledComposedWidget {
     pub relative_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
     pub measure: WidgetMeasureSpec,
     pub items: Option<CompiledWidgetItemPlan>,
+    #[serde(default)]
+    pub presentation: CompiledWidgetPresentationSpec,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

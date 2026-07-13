@@ -309,6 +309,45 @@ fn collect_widget_text_extents(
     }
 }
 
+async fn resolve_widget_presentation_state(
+    spec: &avenger_chart_core::CompiledWidgetPresentationSpec,
+    eval_ctx: &EvaluationContext,
+) -> Result<WidgetPresentationState, AvengerChartError> {
+    Ok(WidgetPresentationState {
+        variant: spec.variant.clone(),
+        disabled: evaluate_widget_presentation_bool(spec.disabled.as_ref(), eval_ctx)
+            .await?
+            .unwrap_or(false),
+        checked: evaluate_widget_presentation_bool(spec.checked.as_ref(), eval_ctx).await?,
+        selected: evaluate_widget_presentation_bool(spec.selected.as_ref(), eval_ctx).await?,
+        orientation: spec.orientation.clone(),
+        ..Default::default()
+    })
+}
+
+async fn evaluate_widget_presentation_bool(
+    node: Option<&LogicalExprNode>,
+    eval_ctx: &EvaluationContext,
+) -> Result<Option<bool>, AvengerChartError> {
+    let Some(node) = node else {
+        return Ok(None);
+    };
+    let expr = node.to_expr(eval_ctx.session_context.as_ref())?;
+    let value = if let Some(value) = direct_param_value(&expr, eval_ctx.params()) {
+        value.clone()
+    } else {
+        return Ok(Some(
+            evaluate_bool_expr(&expr, eval_ctx.session_context.as_ref(), eval_ctx.params()).await?,
+        ));
+    };
+    match value {
+        ScalarValue::Boolean(Some(value)) => Ok(Some(value)),
+        other => Err(AvengerChartError::InvalidArgument(format!(
+            "Widget presentation expression must resolve to a non-null boolean, got {other:?}"
+        ))),
+    }
+}
+
 fn measure_widget_text_mark(
     mark: &SceneTextMark,
     part: &str,
@@ -2441,6 +2480,8 @@ impl CompiledPlot {
             trace!(
                 widget_id = widget.id,
                 style_digest = measurement.styles.digest,
+                checked = ?measurement.presentation.checked,
+                selected = ?measurement.presentation.selected,
                 width,
                 height,
                 "rendering measured composed widget"
@@ -2552,12 +2593,14 @@ impl CompiledPlot {
                     })
                 })
                 .collect::<Result<Vec<_>, AvengerChartError>>()?;
+            let presentation =
+                resolve_widget_presentation_state(&widget.presentation, eval_ctx).await?;
             let styles = resolve_widget_style_set(
                 &theme,
                 &widget.kind,
                 &widget.id,
                 &manifests,
-                &WidgetPresentationState::default(),
+                &presentation,
                 &eval_ctx.params,
             )?;
             let prepared_items = if let Some(items) = &widget.items {
@@ -2673,6 +2716,7 @@ impl CompiledPlot {
                     width,
                     height,
                     styles,
+                    presentation,
                     prepared_items,
                 },
             );

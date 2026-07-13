@@ -590,6 +590,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .items
                     .map(|items| compile_widget_items(&id, items, session_context))
                     .transpose()?;
+                let presentation = expansion.presentation.compile()?;
                 let compiled = CompiledWidget::Composed(CompiledComposedWidget {
                     id,
                     kind: widget.kind().to_string(),
@@ -597,6 +598,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     relative_target_paths,
                     measure: expansion.measure,
                     items,
+                    presentation,
                 });
                 composed_widget_scene_index += 1;
                 compiled

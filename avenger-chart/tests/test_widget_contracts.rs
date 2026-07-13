@@ -122,6 +122,7 @@ impl ChartWidget for ContractWidget {
                 },
                 height: WidgetAxisMeasureSpec::Fixed { px: 24.0 },
             },
+            presentation: WidgetPresentationBindings::default(),
         })
     }
 }
@@ -158,6 +159,7 @@ impl ChartWidget for DecorativeTargetWidget {
                 ),
             items: None,
             measure: WidgetMeasureSpec::fixed(24.0, 24.0),
+            presentation: WidgetPresentationBindings::default(),
         })
     }
 }
@@ -192,6 +194,7 @@ impl ChartWidget for FixedContractWidget {
             ),
             items: None,
             measure: WidgetMeasureSpec::fixed(40.0, self.height),
+            presentation: WidgetPresentationBindings::default(),
         })
     }
 }
@@ -265,6 +268,8 @@ impl ChartWidget for ThemedGeometryWidget {
             ),
             items: None,
             measure: WidgetMeasureSpec::fixed(40.0, 23.0),
+            presentation: WidgetPresentationBindings::default()
+                .checked(datafusion::prelude::lit(true)),
         })
     }
 }
@@ -289,6 +294,7 @@ impl ChartWidget for DataFrameContractWidget {
                 order_key: vec![col("value")],
             }),
             measure: WidgetMeasureSpec::fixed(40.0, 20.0),
+            presentation: WidgetPresentationBindings::default(),
         })
     }
 }
@@ -640,7 +646,8 @@ async fn widget_item_relation_bakes_and_evaluates_without_source_table() {
 async fn widget_mark_geometry_reads_style_snapshot_and_realized_frame_inputs() {
     let ctx = datafusion::prelude::SessionContext::new();
     let theme = Theme::from_css(
-        "themed-geometry-widget::part(box) { choice-control-size: 17px; fill: #0072b2; }",
+        "themed-geometry-widget::part(box) { choice-control-size: 17px; fill: #cc0000; } \
+         themed-geometry-widget[checked=\"true\"]::part(box) { fill: #0072b2; }",
     )
     .unwrap();
     let compiled = Chart::<Cartesian>::new()

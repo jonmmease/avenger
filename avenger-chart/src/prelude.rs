@@ -41,13 +41,13 @@ pub use avenger_chart_core::{
 pub use avenger_chart_core::{
     CanonicalJson, ChartWidget, ChartWidgetPlacementExt, ChromePosition, CompiledComposedWidget,
     CompiledNativeWidgetSpec, CompiledParamSpec, CompiledWidget, CompiledWidgetAttachment,
-    CompiledWidgetItemPlan, NativeWidget, NativeWidgetMeasureSpec, NativeWidgetPlacementExt,
-    NativeWidgetStateSpec, PositionedChartWidget, PositionedNativeWidget, ResolvedWidgetAxisSize,
-    ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAttachment, WidgetAxisMeasureSpec,
-    WidgetExpansion, WidgetExpansionContext, WidgetItemRow, WidgetItemValidation, WidgetItems,
-    WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
-    WidgetPresentationState, WidgetSource, WidgetStyleProperty, WidgetStyleValueType,
-    WidgetTextMeasureAxis, is_decorative_widget_part,
+    CompiledWidgetItemPlan, CompiledWidgetPresentationSpec, NativeWidget, NativeWidgetMeasureSpec,
+    NativeWidgetPlacementExt, NativeWidgetStateSpec, PositionedChartWidget, PositionedNativeWidget,
+    ResolvedWidgetAxisSize, ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAttachment,
+    WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetItemRow,
+    WidgetItemValidation, WidgetItems, WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest,
+    WidgetPlacement, WidgetPresentationBindings, WidgetPresentationState, WidgetSource,
+    WidgetStyleProperty, WidgetStyleValueType, WidgetTextMeasureAxis, is_decorative_widget_part,
 };
 pub use avenger_chart_core::{
     NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,

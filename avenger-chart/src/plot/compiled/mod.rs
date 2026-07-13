@@ -1441,6 +1441,7 @@ pub(crate) struct WidgetMeasurement {
     pub(crate) width: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) height: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) styles: avenger_chart_core::ResolvedWidgetStyleSet,
+    pub(crate) presentation: avenger_chart_core::WidgetPresentationState,
     pub(crate) prepared_items: Option<WidgetPreparedBaseData>,
 }
 
