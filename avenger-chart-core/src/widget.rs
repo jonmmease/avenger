@@ -503,6 +503,13 @@ macro_rules! widget_style_properties {
             }
 
             pub fn for_mark_channel(channel: &str) -> Option<Self> {
+                match channel {
+                    // Text marks expose author-facing `color`/`font` channels,
+                    // while widget CSS follows the stable label-part contract.
+                    "color" => return Some(Self::Fill),
+                    "font" => return Some(Self::FontFamily),
+                    _ => {}
+                }
                 let css_name = channel.replace('_', "-");
                 Self::ALL
                     .iter()
@@ -1202,6 +1209,22 @@ mod tests {
             assert!(names.insert(property.name()));
             let _ = property.value_type();
         }
+    }
+
+    #[test]
+    fn text_mark_channels_map_to_widget_css_properties() {
+        assert_eq!(
+            WidgetStyleProperty::for_mark_channel("color"),
+            Some(WidgetStyleProperty::Fill)
+        );
+        assert_eq!(
+            WidgetStyleProperty::for_mark_channel("font"),
+            Some(WidgetStyleProperty::FontFamily)
+        );
+        assert_eq!(
+            WidgetStyleProperty::for_mark_channel("font_size"),
+            Some(WidgetStyleProperty::FontSize)
+        );
     }
 
     #[test]

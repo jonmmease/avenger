@@ -2485,14 +2485,7 @@ impl CompiledPlot {
                         widget.id
                     ))
                 })?;
-                (
-                    [
-                        bounds.x - frame_layout.plot_area.x,
-                        bounds.y - frame_layout.plot_area.y,
-                    ],
-                    bounds.width,
-                    bounds.height,
-                )
+                ([bounds.x, bounds.y], bounds.width, bounds.height)
             } else {
                 (
                     [0.0, 0.0],

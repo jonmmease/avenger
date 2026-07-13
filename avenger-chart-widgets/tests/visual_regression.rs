@@ -4,14 +4,18 @@ use std::{
 };
 
 use avenger_chart::{
+    channel::LegendableChannel,
     marks::symbol::Symbol,
     plot::{Chart, CompiledPlot},
+    prelude::{ChartWidgetPlacementExt, ChromePosition, LegendPosition, Theme},
     zerod::ZeroDCoord,
 };
+use avenger_chart_widgets::{Button, ButtonVariant, Checkbox};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::prelude::SessionContext;
+use datafusion::prelude::col;
 use image::RgbaImage;
 
 const BASELINE_DIR: &str = "tests/baselines";
@@ -55,6 +59,179 @@ async fn scaffold_harness_round_trip() {
         .expect("compare direct and round-tripped images");
     assert_eq!(equivalence.score, 1.0, "round trip changed smoke scene");
     assert_visual_match("scaffold/harness_smoke", &direct_image);
+}
+
+#[tokio::test]
+async fn checkbox_state_baselines() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        for (state, checked) in [("unchecked", false), ("checked", true)] {
+            let ctx = SessionContext::new();
+            let compiled = Chart::<ZeroDCoord>::new()
+                .theme(theme.clone())
+                .canvas_size(260.0, 96.0)
+                .plot_size(128.0, 64.0)
+                .mark(Symbol::new().size(196.0).fill("#0072B2"))
+                .widget(Checkbox::new("regions", "Regions", checked).position(ChromePosition::Left))
+                .compile(&ctx)
+                .await
+                .expect("compile checkbox baseline");
+            assert_compiled_visual_match(
+                &compiled,
+                &ctx,
+                &format!("checkbox/checkbox_{state}_{scheme}"),
+            )
+            .await;
+        }
+    }
+}
+
+#[tokio::test]
+async fn button_baselines() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(280.0, 96.0)
+            .plot_size(128.0, 64.0)
+            .mark(Symbol::new().size(196.0).fill("#0072B2"))
+            .widget(
+                Button::new("clear")
+                    .label("Clear selection")
+                    .variant(ButtonVariant::Accent)
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile button baseline");
+        assert_compiled_visual_match(
+            &compiled,
+            &ctx,
+            &format!("button/clear_selection_button_{scheme}"),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn widget_top_slot_with_legend_baselines() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql("SELECT * FROM (VALUES ('North'), ('South'), ('West')) AS t(region)")
+            .await
+            .expect("build legend data");
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(360.0, 220.0)
+            .plot_size(180.0, 88.0)
+            .data(data)
+            .mark(
+                Symbol::new()
+                    .size(196.0)
+                    .fill_with(col("region"), |channel| {
+                        channel
+                            .legend(|legend| legend.title("Region").position(LegendPosition::Top))
+                    }),
+            )
+            .widget(Checkbox::new("labels", "Show labels", true).position(ChromePosition::Top))
+            .compile(&ctx)
+            .await
+            .expect("compile top-slot baseline");
+        assert_compiled_visual_match(
+            &compiled,
+            &ctx,
+            &format!("chrome/widget_top_slot_with_legend_{scheme}"),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn custom_checkbox_button_baselines() {
+    for (scheme, mut theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        theme
+            .append_css(
+                r#"
+                checkbox#custom-choice {
+                    height: 40px;
+                    --widget-accent: #D55E00;
+                }
+                checkbox#custom-choice::part(box) {
+                    choice-control-size: 18px;
+                    corner-radius: 4px;
+                    stroke-width: 2px;
+                }
+                checkbox#custom-choice::part(label) {
+                    control-label-gap: 12px;
+                    font-size: 16px;
+                    font-weight: 500;
+                }
+                checkbox#custom-choice::part(focus-ring) { focus-gap: 3px; }
+                button#custom-action {
+                    height: 40px;
+                    --widget-accent: #D55E00;
+                }
+                button#custom-action::part(box) {
+                    button-min-width: 108px;
+                    button-inline-padding: 22px;
+                    corner-radius: 8px;
+                    stroke-width: 2px;
+                }
+                button#custom-action::part(label) {
+                    font-size: 16px;
+                    font-weight: 700;
+                }
+                button#custom-action::part(focus-ring) { focus-gap: 3px; }
+                "#,
+            )
+            .expect("append custom widget CSS");
+        let ctx = SessionContext::new();
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(440.0, 260.0)
+            .plot_size(180.0, 176.0)
+            .mark(Symbol::new().size(256.0).fill("#0072B2"))
+            .widget(
+                Checkbox::new("custom-choice", "Custom choice", true)
+                    .position(ChromePosition::Left),
+            )
+            .widget(
+                Checkbox::new("stock-choice", "Stock choice", true).position(ChromePosition::Left),
+            )
+            .widget(
+                Button::new("custom-action")
+                    .label("Custom action")
+                    .variant(ButtonVariant::Accent)
+                    .position(ChromePosition::Left),
+            )
+            .widget(
+                Button::new("stock-action")
+                    .label("Stock action")
+                    .variant(ButtonVariant::Accent)
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile custom widget baseline");
+        assert_compiled_visual_match(
+            &compiled,
+            &ctx,
+            &format!("theming/custom_checkbox_button_{scheme}"),
+        )
+        .await;
+    }
+}
+
+async fn assert_compiled_visual_match(compiled: &CompiledPlot, ctx: &SessionContext, name: &str) {
+    let encoded = bincode::serialize(compiled).expect("serialize compiled widget baseline");
+    let decoded: CompiledPlot =
+        bincode::deserialize(&encoded).expect("deserialize compiled widget baseline");
+    let evaluated = decoded
+        .evaluate(ctx, None)
+        .await
+        .expect("evaluate widget baseline");
+    let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
+    assert_visual_match(name, &image);
 }
 
 async fn render_scene_graph_to_wgpu_image(scene_graph: &SceneGraph) -> RgbaImage {

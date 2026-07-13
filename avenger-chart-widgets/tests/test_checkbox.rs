@@ -91,6 +91,9 @@ async fn checkbox_round_trips_and_checked_param_controls_inset_vector() {
     }
 
     let unchecked = compiled.evaluate(&ctx, None).await.unwrap();
+    let unchecked_group = find_group(&unchecked.scene_graph.marks, "regions").unwrap();
+    assert!(unchecked_group.origin[0] >= 0.0);
+    assert!(unchecked_group.origin[1] >= 0.0);
     assert!(find_rule(&unchecked.scene_graph.marks, "check").is_none());
 
     let mut params = IndexMap::new();
