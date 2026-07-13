@@ -66,7 +66,8 @@ pub fn item_frame_column_refs(expr: &Expr) -> Vec<String> {
     let mut refs = expr
         .column_refs()
         .into_iter()
-        .filter_map(|column| is_item_frame_column_name(&column.name).then(|| column.name.clone()))
+        .filter(|column| is_item_frame_column_name(&column.name))
+        .map(|column| column.name.clone())
         .collect::<Vec<_>>();
     refs.sort();
     refs.dedup();

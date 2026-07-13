@@ -109,16 +109,13 @@ pub enum RepeatTypeHint {
     Nominal,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RepeatDomainCoordination {
+    #[default]
     Independent,
-    ByVariable { scope: CoordinationScope },
-}
-
-impl Default for RepeatDomainCoordination {
-    fn default() -> Self {
-        Self::Independent
-    }
+    ByVariable {
+        scope: CoordinationScope,
+    },
 }
 
 impl RepeatDomainCoordination {

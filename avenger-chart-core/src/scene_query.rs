@@ -326,17 +326,12 @@ impl SceneGeometryQuery {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum SceneQueryClauseId {
+    #[default]
     Tuple,
     Field(String),
     Expr(#[serde_as(as = "FromInto<SerializableExpr>")] LogicalExprNode),
-}
-
-impl Default for SceneQueryClauseId {
-    fn default() -> Self {
-        Self::Tuple
-    }
 }
 
 impl SceneQueryClauseId {

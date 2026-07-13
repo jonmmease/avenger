@@ -440,6 +440,7 @@ pub fn apply_opacity_to_color_channel(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{apply_opacity_to_color, apply_opacity_to_color_channel};
     use avenger_color::ColorOrGradient;

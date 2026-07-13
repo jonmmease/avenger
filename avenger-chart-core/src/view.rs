@@ -191,6 +191,8 @@ impl ViewSpec for PixelFrameView {
 
 /// Serialized/compiled view specification.
 #[derive(Clone, Debug, PartialEq)]
+// Boxing variants would change the public construction API and compiled serde contract.
+#[allow(clippy::large_enum_variant)]
 pub enum CompiledViewSpec {
     Cartesian(CompiledCartesianViewSpec),
     PixelFrame(CompiledPixelFrameViewSpec),
@@ -205,6 +207,7 @@ enum HumanReadableCompiledViewSpecRef<'a> {
 
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 enum HumanReadableCompiledViewSpec {
     Cartesian(CompiledCartesianViewSpec),
     PixelFrame(CompiledPixelFrameViewSpec),
@@ -217,6 +220,7 @@ enum BinaryCompiledViewSpecRef<'a> {
 }
 
 #[derive(Deserialize)]
+#[allow(clippy::large_enum_variant)]
 enum BinaryCompiledViewSpec {
     Cartesian(CompiledCartesianViewSpec),
     PixelFrame(CompiledPixelFrameViewSpec),

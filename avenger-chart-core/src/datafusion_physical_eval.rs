@@ -342,27 +342,26 @@ fn validate_column(
     column: &Column,
     allowed_columns: Option<&HashSet<String>>,
 ) -> DataFusionResult<()> {
-    if let Some(allowed_columns) = allowed_columns {
-        if !allowed_columns.contains(&column.name) {
-            if is_item_frame_column_name(&column.name) {
-                let description = if let Some(channel) = item_channel_name_from_column(&column.name)
-                {
-                    format!("item.channel(\"{channel}\")")
-                } else if let Some(field) = item_data_name_from_column(&column.name) {
-                    format!("item.data(\"{field}\")")
-                } else {
-                    column.name.clone()
-                };
-                return Err(DataFusionError::Plan(format!(
-                    "Unknown item-frame expression column '{}' referenced by {description}",
-                    column.name
-                )));
-            }
+    if let Some(allowed_columns) = allowed_columns
+        && !allowed_columns.contains(&column.name)
+    {
+        if is_item_frame_column_name(&column.name) {
+            let description = if let Some(channel) = item_channel_name_from_column(&column.name) {
+                format!("item.channel(\"{channel}\")")
+            } else if let Some(field) = item_data_name_from_column(&column.name) {
+                format!("item.data(\"{field}\")")
+            } else {
+                column.name.clone()
+            };
             return Err(DataFusionError::Plan(format!(
-                "Unknown physical scalar expression column '{}'",
+                "Unknown item-frame expression column '{}' referenced by {description}",
                 column.name
             )));
         }
+        return Err(DataFusionError::Plan(format!(
+            "Unknown physical scalar expression column '{}'",
+            column.name
+        )));
     }
     Ok(())
 }

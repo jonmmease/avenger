@@ -125,7 +125,7 @@ impl ConfiguredScaleLegendExt for ConfiguredScale {
             }
             DomainValues::Interval(min, max) => {
                 // Format interval bounds
-                let array = ScalarValue::iter_to_array(vec![min, max].into_iter())?;
+                let array = ScalarValue::iter_to_array(vec![min, max])?;
                 let formatted = self.format(&array)?;
                 formatted.as_vec(2, None)
             }

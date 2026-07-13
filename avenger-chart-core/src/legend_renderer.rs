@@ -337,12 +337,12 @@ pub mod helpers {
             Some(ChannelInfo::Scaled {
                 expr: Some(expr), ..
             })
-            | Some(ChannelInfo::Constant { expr }) => {
-                if expr.column_refs().is_empty() {
-                    // Try to simplify - this handles literals and simple expressions
-                    if let Ok(scalar) = simplify_to_scalar_sync(expr.clone()) {
-                        return Some(scalar);
-                    }
+            | Some(ChannelInfo::Constant { expr })
+                if expr.column_refs().is_empty() =>
+            {
+                // Try to simplify - this handles literals and simple expressions
+                if let Ok(scalar) = simplify_to_scalar_sync(expr.clone()) {
+                    return Some(scalar);
                 }
             }
             _ => {}

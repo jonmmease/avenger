@@ -193,7 +193,7 @@ impl SerializableDomainValue {
                 let mut columns = Vec::with_capacity(fields.len());
                 for field in fields {
                     let scalar = field.value.to_scalar();
-                    let Ok(array) = ScalarValue::iter_to_array([scalar.clone()].into_iter()) else {
+                    let Ok(array) = ScalarValue::iter_to_array([scalar.clone()]) else {
                         return ScalarValue::Null;
                     };
                     columns.push((

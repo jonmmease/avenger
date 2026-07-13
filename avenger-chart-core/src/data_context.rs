@@ -21,6 +21,7 @@ pub struct DataContext {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use avenger_scenegraph::marks::pattern::{PatternFill, PatternLayer, StripePatternLayer};
     use datafusion::prelude::col;

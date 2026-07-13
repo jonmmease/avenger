@@ -155,6 +155,8 @@ impl WidgetItemRow {
 }
 
 #[derive(Clone)]
+// `DataFrame` is intentionally held directly; boxing would alter this public builder input.
+#[allow(clippy::large_enum_variant)]
 pub enum WidgetItems {
     Static(Vec<WidgetItemRow>),
     DataFrame {
@@ -1132,6 +1134,8 @@ pub struct CompiledNativeWidgetSpec {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+// Boxing would change both the public variant API and the compiled artifact shape.
+#[allow(clippy::large_enum_variant)]
 pub enum CompiledWidget {
     Composed(CompiledComposedWidget),
     Native(CompiledNativeWidgetSpec),

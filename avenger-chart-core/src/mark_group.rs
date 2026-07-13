@@ -357,6 +357,8 @@ impl<C: CoordinateSystemCore> PlotMark<C> {
 /// Internal shape exposed only so the facade crate can flatten plot elements.
 #[doc(hidden)]
 #[derive(Clone)]
+// Boxing `Group` would be a breaking change to this facade-facing enum.
+#[allow(clippy::large_enum_variant)]
 pub enum PlotMarkKind<C: CoordinateSystemCore> {
     Primitive(Arc<dyn Mark<C>>),
     Group(MarkGroup<C>),

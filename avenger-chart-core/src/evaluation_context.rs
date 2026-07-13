@@ -16,6 +16,9 @@ pub trait EvaluationDiagnostics: Send + Sync {
     fn record_scale_domain_collect(&self) {}
 }
 
+#[doc(hidden)]
+pub type PrefetchPlannerSink = Arc<Mutex<Vec<Arc<dyn PrefetchRetargetPlanner>>>>;
+
 /// Public/base evaluation context for chart evaluation.
 ///
 /// This owns the stable inputs that coordinate systems, marks, scales, legends,
@@ -40,7 +43,7 @@ pub struct EvaluationContext {
     #[doc(hidden)]
     pub materialization_request_sink: Option<Arc<Mutex<Vec<MaterializationRequest>>>>,
     #[doc(hidden)]
-    pub prefetch_planner_sink: Option<Arc<Mutex<Vec<Arc<dyn PrefetchRetargetPlanner>>>>>,
+    pub prefetch_planner_sink: Option<PrefetchPlannerSink>,
     /// One evaluation's already-resolved widget styles. Measurement and mark
     /// rendering share this snapshot so CSS cannot be queried through two
     /// semantically different paths.
@@ -216,13 +219,11 @@ impl EvaluationContext {
                 .find(|existing| existing.key == request.key)
             {
                 let priority = existing.priority.max(request.priority);
-                if existing.purpose == ResourceRequestPurpose::Prefetch
-                    && request.purpose == ResourceRequestPurpose::Required
-                {
-                    *existing = request;
-                } else if existing.purpose == request.purpose
-                    && request.priority > existing.priority
-                {
+                let should_replace = (existing.purpose == ResourceRequestPurpose::Prefetch
+                    && request.purpose == ResourceRequestPurpose::Required)
+                    || (existing.purpose == request.purpose
+                        && request.priority > existing.priority);
+                if should_replace {
                     *existing = request;
                 }
                 existing.priority = priority;
