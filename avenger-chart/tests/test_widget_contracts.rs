@@ -283,6 +283,11 @@ struct DataFrameScaledWidget {
 }
 
 #[derive(Clone)]
+struct ExplicitPartDataWidget {
+    data: DataFrame,
+}
+
+#[derive(Clone)]
 struct ThemedGeometryWidget;
 
 #[derive(Clone)]
@@ -404,7 +409,7 @@ impl ChartWidget for DataFrameScaledWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
             expansion: ToolExpansion::new()
@@ -418,16 +423,45 @@ impl ChartWidget for DataFrameScaledWidget {
                 )
                 .mark(
                     Symbol::<PixelFrame>::new()
-                        .id("dot-copy")
+                        .id("paint")
                         .x(24.0)
                         .y(12.0)
-                        .fill(col("category"))
-                        .size(col("amount")),
+                        .fill(ctx.part_style("paint", WidgetStyleProperty::Fill))
+                        .size(20.0),
                 ),
             items: Some(WidgetItems::DataFrame {
                 data: self.data.clone(),
                 order_key: vec![col("item_order")],
             }),
+            measure: WidgetMeasureSpec::fixed(40.0, 24.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+impl ChartWidget for ExplicitPartDataWidget {
+    fn id(&self) -> &str {
+        "explicit-part-data"
+    }
+
+    fn kind(&self) -> &'static str {
+        "explicit-part-data-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Symbol::<PixelFrame>::new()
+                    .id("dot")
+                    .data(self.data.clone())
+                    .x(col("x"))
+                    .y(12.0)
+                    .size(16.0),
+            ),
+            items: None,
             measure: WidgetMeasureSpec::fixed(40.0, 24.0),
             presentation: WidgetPresentationBindings::default(),
         })
@@ -805,6 +839,55 @@ async fn widget_item_relation_bakes_and_evaluates_without_source_table() {
 }
 
 #[tokio::test]
+async fn widget_part_data_bakes_and_evaluates_without_source_table() {
+    let server = datafusion::prelude::SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("x", DataType::Float32, false)])),
+        vec![Arc::new(datafusion::arrow::array::Float32Array::from(
+            vec![8.0, 24.0],
+        ))],
+    )
+    .unwrap();
+    server.register_batch("widget_part_source", batch).unwrap();
+    let data = server.table("widget_part_source").await.unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .widget(ExplicitPartDataWidget { data }.position(ChromePosition::Left))
+        .compile(&server)
+        .await
+        .unwrap();
+
+    let (baked, report) = compiled
+        .bake(&server, &BakePolicy::default())
+        .await
+        .unwrap();
+    assert!(report.contexts.iter().any(|status| matches!(
+        status,
+        ContextBakeStatus::Baked {
+            context_id: BakeContextId::WidgetPart {
+                widget_id,
+                part,
+                ..
+            },
+            ..
+        } if widget_id == "explicit-part-data" && part == "dot"
+    )));
+    assert!(report.self_contained, "{:#?}", report.contexts);
+
+    let decoded: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&bincode::serialize(&baked).unwrap()).unwrap();
+    let evaluated = decoded
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .expect("baked widget part should evaluate without the source table");
+    let dot = find_symbol(
+        find_group(&evaluated.scene_graph.marks, "explicit-part-data").unwrap(),
+        "dot",
+    )
+    .unwrap();
+    assert_eq!(dot.x.as_vec(2, None), vec![8.0, 24.0]);
+}
+
+#[tokio::test]
 async fn widget_mark_geometry_reads_style_snapshot_and_realized_frame_inputs() {
     let ctx = datafusion::prelude::SessionContext::new();
     let theme = Theme::from_css(
@@ -925,6 +1008,7 @@ async fn host_and_widget_visual_scales_keep_independent_domains_after_bincode() 
 async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
     let ctx = Arc::new(datafusion::prelude::SessionContext::new());
     let group = Param::new("widget_group", "low");
+    let paint = Param::new("--widget-test-fill", "#0072b2");
     let all_items = ctx
         .sql(
             "SELECT * FROM (VALUES \
@@ -938,8 +1022,14 @@ async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
         .unwrap()
         .filter(col("item_group").eq(group.expr()))
         .unwrap();
+    let mut theme = Theme::light();
+    theme
+        .append_css("scaled-contract-widget::part(paint) { fill: var(--widget-test-fill); }")
+        .unwrap();
     let compiled = Chart::<Cartesian>::new()
+        .theme(theme)
         .param(group)
+        .param(paint)
         .widget(DataFrameScaledWidget { data: all_items }.position(ChromePosition::Right))
         .compile(&ctx)
         .await
@@ -951,6 +1041,8 @@ async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
         .await
         .unwrap();
     assert_eq!(initial_metrics.pipeline.widget_item_collects, 1);
+    assert_eq!(initial_metrics.pipeline.widget_item_cache_hits, 0);
+    assert_eq!(initial_metrics.pipeline.widget_item_cache_misses, 1);
     let initial_symbol = find_symbol(
         find_group(&initial.scene_graph.marks, "revision-scale").unwrap(),
         "dot",
@@ -962,6 +1054,34 @@ async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
         .into_iter()
         .map(|fill| fill.color_or_transparent())
         .collect::<Vec<_>>();
+    let initial_paint = find_symbol(
+        find_group(&initial.scene_graph.marks, "revision-scale").unwrap(),
+        "paint",
+    )
+    .unwrap()
+    .fill_vec()[0]
+        .color_or_transparent();
+
+    let mut paint_patch = indexmap::IndexMap::new();
+    paint_patch.insert(
+        "--widget-test-fill".to_string(),
+        datafusion::common::ScalarValue::Utf8(Some("#d55e00".to_string())),
+    );
+    let (repainted, repaint_metrics) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact().param_patch(paint_patch))
+        .await
+        .unwrap();
+    assert_eq!(repaint_metrics.pipeline.widget_item_collects, 0);
+    assert_eq!(repaint_metrics.pipeline.widget_item_cache_hits, 1);
+    assert_eq!(repaint_metrics.pipeline.widget_item_cache_misses, 0);
+    let repainted_color = find_symbol(
+        find_group(&repainted.scene_graph.marks, "revision-scale").unwrap(),
+        "paint",
+    )
+    .unwrap()
+    .fill_vec()[0]
+        .color_or_transparent();
+    assert_ne!(initial_paint, repainted_color);
 
     let mut patch = indexmap::IndexMap::new();
     patch.insert(
@@ -973,6 +1093,8 @@ async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
         .await
         .unwrap();
     assert_eq!(revised_metrics.pipeline.widget_item_collects, 1);
+    assert_eq!(revised_metrics.pipeline.widget_item_cache_hits, 0);
+    assert_eq!(revised_metrics.pipeline.widget_item_cache_misses, 1);
     let revised_symbol = find_symbol(
         find_group(&revised.scene_graph.marks, "revision-scale").unwrap(),
         "dot",

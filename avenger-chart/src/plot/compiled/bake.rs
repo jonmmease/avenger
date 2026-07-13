@@ -42,6 +42,15 @@ enum BakeTargetKind {
     WidgetItems {
         index: usize,
     },
+    WidgetPart {
+        widget_index: usize,
+        mark_index: usize,
+        /// Preserve the live transform chain after replacing only its base
+        /// plan. Widget parts currently never evaluate under facets, but this
+        /// mirrors mark-group semantics and keeps the target structurally
+        /// complete for future repeated-widget support.
+        keep_transforms: bool,
+    },
     MarkGroup {
         index: usize,
         /// Emit the residual as the group's base plan while PRESERVING the
@@ -133,6 +142,9 @@ impl CompiledPlot {
                     let keeps_live_stages = matches!(
                         assembled.target.kind,
                         BakeTargetKind::MarkGroup {
+                            keep_transforms: true,
+                            ..
+                        } | BakeTargetKind::WidgetPart {
                             keep_transforms: true,
                             ..
                         }
@@ -318,38 +330,95 @@ async fn assemble_plot_tree(
         let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
             continue;
         };
-        let Some(items) = &widget.items else {
-            continue;
-        };
-        let target = BakeTarget {
-            plot_path: plot_path.clone(),
-            kind: BakeTargetKind::WidgetItems { index },
-        };
-        let context_id = widget_items_context_id(&plot_path, index, widget.id.clone());
-        match assemble_data_context(
-            &items.data,
-            target,
-            context_id.clone(),
-            ctx,
-            compiled.time_context.clone(),
-            MarkDataMode::Inherit,
-            None,
-            false,
-        )
-        .await
-        {
-            Ok(Some(context)) => assembly.contexts.push(context),
-            Ok(None) => assembly.statuses.push(ContextBakeStatus::NotBaked {
-                context_id,
-                reason: NotBakedReason::NoData,
-            }),
-            Err(reason) => {
-                assembly
-                    .live_stage_tables
-                    .extend(live_stage_session_tables(items.data.transforms()));
-                assembly
-                    .statuses
-                    .push(ContextBakeStatus::NotBaked { context_id, reason });
+        let inherited_item_plan = widget.items.as_ref().and_then(|items| {
+            items
+                .data
+                .logical_plan_node()
+                .and_then(|node| node.to_logical_plan(ctx).ok())
+        });
+        if let Some(items) = &widget.items {
+            let target = BakeTarget {
+                plot_path: plot_path.clone(),
+                kind: BakeTargetKind::WidgetItems { index },
+            };
+            let context_id = widget_items_context_id(&plot_path, index, widget.id.clone());
+            match assemble_data_context(
+                &items.data,
+                target,
+                context_id.clone(),
+                ctx,
+                compiled.time_context.clone(),
+                MarkDataMode::Inherit,
+                None,
+                false,
+            )
+            .await
+            {
+                Ok(Some(context)) => assembly.contexts.push(context),
+                Ok(None) => assembly.statuses.push(ContextBakeStatus::NotBaked {
+                    context_id,
+                    reason: NotBakedReason::NoData,
+                }),
+                Err(reason) => {
+                    assembly
+                        .live_stage_tables
+                        .extend(live_stage_session_tables(items.data.transforms()));
+                    assembly
+                        .statuses
+                        .push(ContextBakeStatus::NotBaked { context_id, reason });
+                }
+            }
+        }
+        for (mark_index, mark) in widget.marks.iter().enumerate() {
+            let data_context = mark.data_context();
+            if data_context.logical_plan_node().is_none() && data_context.transforms().is_empty() {
+                // A pure inherited part consumes the already prepared/baked
+                // widget item relation. Treating it as a separate target would
+                // duplicate that relation once per part and defeat the shared
+                // item-plan contract.
+                continue;
+            }
+            let part = mark
+                .state()
+                .widget_theme
+                .as_ref()
+                .map(|provenance| provenance.part.clone())
+                .unwrap_or_else(|| format!("mark-{mark_index}"));
+            let target = BakeTarget {
+                plot_path: plot_path.clone(),
+                kind: BakeTargetKind::WidgetPart {
+                    widget_index: index,
+                    mark_index,
+                    keep_transforms: false,
+                },
+            };
+            let context_id =
+                widget_part_context_id(&plot_path, index, &widget.id, mark_index, &part);
+            match assemble_data_context(
+                data_context,
+                target,
+                context_id.clone(),
+                ctx,
+                compiled.time_context.clone(),
+                mark.state().data_mode,
+                inherited_item_plan.as_ref(),
+                false,
+            )
+            .await
+            {
+                Ok(Some(context)) => assembly.contexts.push(context),
+                Ok(None) => assembly.statuses.push(ContextBakeStatus::NotBaked {
+                    context_id,
+                    reason: NotBakedReason::NoData,
+                }),
+                Err(reason) => {
+                    assembly
+                        .live_stage_tables
+                        .extend(live_stage_session_tables(data_context.transforms()));
+                    assembly
+                        .statuses
+                        .push(ContextBakeStatus::NotBaked { context_id, reason });
+                }
             }
         }
     }
@@ -454,6 +523,31 @@ fn widget_items_context_id(plot_path: &[usize], index: usize, id: String) -> Bak
     }
 }
 
+fn widget_part_context_id(
+    plot_path: &[usize],
+    widget_index: usize,
+    widget_id: &str,
+    mark_index: usize,
+    part: &str,
+) -> BakeContextId {
+    if plot_path.is_empty() {
+        BakeContextId::WidgetPart {
+            widget_index,
+            widget_id: widget_id.to_string(),
+            mark_index,
+            part: part.to_string(),
+        }
+    } else {
+        BakeContextId::ChildWidgetPart {
+            subplot_path: plot_path.to_vec(),
+            widget_index,
+            widget_id: widget_id.to_string(),
+            mark_index,
+            part: part.to_string(),
+        }
+    }
+}
+
 async fn assemble_data_context(
     data_context: &CompiledDataContext,
     target: BakeTarget,
@@ -488,11 +582,14 @@ async fn assemble_data_context(
                 }
                 let base_table_names = table_names(&base_plan);
                 let mut target = target;
-                if let BakeTargetKind::MarkGroup {
-                    keep_transforms, ..
-                } = &mut target.kind
-                {
-                    *keep_transforms = true;
+                match &mut target.kind {
+                    BakeTargetKind::MarkGroup {
+                        keep_transforms, ..
+                    }
+                    | BakeTargetKind::WidgetPart {
+                        keep_transforms, ..
+                    } => *keep_transforms = true,
+                    _ => {}
                 }
                 Ok(Some(AssembledContext {
                     target,
@@ -612,6 +709,43 @@ fn emit_proto_context(
             );
             Ok(())
         }
+        BakeTargetKind::WidgetPart {
+            widget_index,
+            mark_index,
+            keep_transforms,
+        } => {
+            let attachment = plot.widgets.get_mut(*widget_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Compiled widget attachment index {widget_index} is out of bounds during part bake emit"
+                ))
+            })?;
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &mut attachment.widget
+            else {
+                return Err(AvengerChartError::InternalError(format!(
+                    "Compiled widget attachment index {widget_index} is not composed during part bake emit"
+                )));
+            };
+            let mark = widget.marks.get(*mark_index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Compiled widget '{}' part-mark index {mark_index} is out of bounds during bake emit",
+                    widget.id
+                ))
+            })?;
+            let context = mark.data_context();
+            let transforms = if *keep_transforms {
+                context.transforms().to_vec()
+            } else {
+                Vec::new()
+            };
+            let retargeted = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
+                Some(node.clone()),
+                transforms,
+                context.channels().clone(),
+                context.pattern_channels().clone(),
+            );
+            widget.marks[*mark_index] = mark_with_retargeted_data_context(mark, retargeted, ctx)?;
+            Ok(())
+        }
         BakeTargetKind::MarkGroup {
             index,
             keep_transforms,
@@ -727,6 +861,14 @@ fn mark_with_retargeted_data_node(
     // guide. A state-only retarget (the generic paths below) would leave
     // the render path on the stale plan, so wrap marks regenerate the
     // physical from the retargeted state instead.
+    mark_with_retargeted_data_context(mark, retargeted_context, ctx)
+}
+
+fn mark_with_retargeted_data_context(
+    mark: &Arc<dyn CompiledMark>,
+    retargeted_context: CompiledDataContext,
+    ctx: &SessionContext,
+) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
     if mark.mark_type() == "facet_wrap" {
         let subplot = mark
             .as_any()

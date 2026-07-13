@@ -104,6 +104,17 @@ pub enum BakeContextId {
         /// Stable widget id.
         id: String,
     },
+    /// An explicit data context owned by one composed widget part mark.
+    WidgetPart {
+        /// Index into the compiled plot's widget attachment list.
+        widget_index: usize,
+        /// Stable widget id.
+        widget_id: String,
+        /// Index into the composed widget's part-mark list.
+        mark_index: usize,
+        /// Stable public part name.
+        part: String,
+    },
     /// The plot-level data plan of a child plot reached through subplot mark
     /// indices from the baked plot root.
     ChildPlotData {
@@ -128,6 +139,19 @@ pub enum BakeContextId {
         index: usize,
         /// Stable widget id.
         id: String,
+    },
+    /// An explicit widget-part data context inside a nested child plot.
+    ChildWidgetPart {
+        /// Mark-index path through nested subplot payloads.
+        subplot_path: Vec<usize>,
+        /// Index into the child plot's widget attachment list.
+        widget_index: usize,
+        /// Stable widget id.
+        widget_id: String,
+        /// Index into the composed widget's part-mark list.
+        mark_index: usize,
+        /// Stable public part name.
+        part: String,
     },
 }
 

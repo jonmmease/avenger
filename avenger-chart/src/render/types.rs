@@ -492,6 +492,14 @@ impl EvaluationMetrics {
         self.pipeline.widget_item_collects += 1;
     }
 
+    pub(crate) fn record_widget_item_cache_hit(&mut self) {
+        self.pipeline.widget_item_cache_hits += 1;
+    }
+
+    pub(crate) fn record_widget_item_cache_miss(&mut self) {
+        self.pipeline.widget_item_cache_misses += 1;
+    }
+
     pub(crate) fn record_materialization_request_emitted(&mut self) {
         self.pipeline.materialization_requests_emitted += 1;
     }
@@ -727,6 +735,10 @@ pub struct EvaluationPipelineMetrics {
     /// collected once per evaluation revision and shared by measurement,
     /// scale inference, and every part mark.
     pub widget_item_collects: usize,
+    /// Prepared widget item relations reused from a `PlotSession` cache.
+    pub widget_item_cache_hits: usize,
+    /// Prepared widget item relations missing from a `PlotSession` cache.
+    pub widget_item_cache_misses: usize,
     /// Async materialization requests emitted during evaluation.
     pub materialization_requests_emitted: usize,
     /// Materialization cache hits for desired keys.
@@ -798,6 +810,8 @@ impl EvaluationPipelineMetrics {
         self.mark_data_array_collects += other.mark_data_array_collects;
         self.mark_data_scalar_collects += other.mark_data_scalar_collects;
         self.widget_item_collects += other.widget_item_collects;
+        self.widget_item_cache_hits += other.widget_item_cache_hits;
+        self.widget_item_cache_misses += other.widget_item_cache_misses;
         self.materialization_requests_emitted += other.materialization_requests_emitted;
         self.materialization_cache_hits += other.materialization_cache_hits;
         self.materialization_cache_misses += other.materialization_cache_misses;

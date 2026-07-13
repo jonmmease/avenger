@@ -47,7 +47,7 @@ use crate::{
         GuideOverflowCacheHandle, LayoutProfileSnapshot, LegendMeasurementCacheHandle,
         MarkGroupDataCacheHandle, MaterializationCacheHandle, ScaleDomainCacheHandle,
         ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
-        TextMeasurementCacheKey,
+        TextMeasurementCacheKey, WidgetItemCacheHandle,
     },
     render::types::{
         EvaluatedEventDatumRows, EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics,
@@ -296,6 +296,8 @@ pub struct EvaluationContext {
     pub(crate) legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
     /// Optional durable text layout measurement cache owned by a reusable `PlotSession`.
     pub(crate) text_measurement_cache: Option<TextMeasurementCacheHandle>,
+    /// Optional durable prepared widget-item cache owned by a reusable `PlotSession`.
+    pub(crate) widget_item_cache: Option<WidgetItemCacheHandle>,
     /// Optional durable async materialization cache owned by a reusable `PlotSession`.
     pub(crate) materialization_cache: Option<MaterializationCacheHandle>,
     /// Priority assigned to async materialization requests emitted in this evaluation.
@@ -360,6 +362,7 @@ impl EvaluationContext {
             guide_overflow_cache: None,
             legend_measurement_cache: None,
             text_measurement_cache: None,
+            widget_item_cache: None,
             materialization_cache: None,
             materialization_priority: 0.0,
             layout_profile: None,
@@ -525,6 +528,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -573,6 +577,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -617,6 +622,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -668,6 +674,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -706,6 +713,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -748,6 +756,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -790,6 +799,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -828,6 +838,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -873,6 +884,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -923,6 +935,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -983,6 +996,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1023,6 +1037,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1061,6 +1076,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1103,6 +1119,7 @@ impl EvaluationContext {
             guide_overflow_cache: Some(cache),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1148,6 +1165,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: Some(cache),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1190,6 +1208,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: Some(cache),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1208,6 +1227,16 @@ impl EvaluationContext {
 
     pub(crate) fn text_measurement_cache(&self) -> Option<&TextMeasurementCacheHandle> {
         self.text_measurement_cache.as_ref()
+    }
+
+    pub(crate) fn with_widget_item_cache(&self, cache: WidgetItemCacheHandle) -> Self {
+        let mut ctx = self.clone();
+        ctx.widget_item_cache = Some(cache);
+        ctx
+    }
+
+    pub(crate) fn widget_item_cache(&self) -> Option<&WidgetItemCacheHandle> {
+        self.widget_item_cache.as_ref()
     }
 
     pub(crate) fn with_materialization_cache(&self, cache: MaterializationCacheHandle) -> Self {
@@ -1374,6 +1403,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: Some(layout_profile),
@@ -1416,6 +1446,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: None,
@@ -1457,6 +1488,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1502,6 +1534,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1542,6 +1575,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1597,6 +1631,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1642,6 +1677,7 @@ impl EvaluationContext {
             guide_overflow_cache: self.guide_overflow_cache.clone(),
             legend_measurement_cache: self.legend_measurement_cache.clone(),
             text_measurement_cache: self.text_measurement_cache.clone(),
+            widget_item_cache: self.widget_item_cache.clone(),
             materialization_cache: self.materialization_cache.clone(),
             materialization_priority: self.materialization_priority,
             layout_profile: self.layout_profile.clone(),
@@ -1912,6 +1948,24 @@ impl EvaluationContext {
                 .lock()
                 .expect("evaluation metrics lock poisoned")
                 .record_widget_item_collect();
+        }
+    }
+
+    pub(crate) fn record_widget_item_cache_hit(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_widget_item_cache_hit();
+        }
+    }
+
+    pub(crate) fn record_widget_item_cache_miss(&self) {
+        if let Some(metrics) = &self.evaluation_metrics {
+            metrics
+                .lock()
+                .expect("evaluation metrics lock poisoned")
+                .record_widget_item_cache_miss();
         }
     }
 

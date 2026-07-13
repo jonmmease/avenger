@@ -115,8 +115,9 @@ use super::{
         LegendMeasurementCacheHandle, ScaleDomainCache, ScaleDomainCacheHandle,
         ScaleDomainCacheScope, ScopedParamStore, ScopedSelectionStore, ScopedStoreState,
         SelectionRevisionFingerprint, StoreRevisionFingerprint, TextMeasurementCacheHandle,
-        changed_param_names, layout_size_dependency_params, new_plot_session_cache_handles,
-        scale_domain_cache_key_for_parts_with_scope,
+        WidgetItemCacheHandle, changed_param_names, layout_size_dependency_params,
+        new_plot_session_cache_handles, scale_domain_cache_key_for_parts_with_scope,
+        widget_item_cache_key,
     },
 };
 
@@ -2631,36 +2632,63 @@ impl CompiledPlot {
                 &eval_ctx.params,
             )?;
             let prepared_items = if let Some(items) = &widget.items {
-                let mut dataframe = items
-                    .data
-                    .dataframe_with_context(&eval_ctx.session_context)
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Widget '{}' item plan has no runtime dataframe",
-                            widget.id
-                        ))
-                    })?;
-                if let Some(param_values) = params_to_datafusion(&eval_ctx.params) {
-                    dataframe = dataframe.with_param_values(param_values)?;
-                }
-                let schema = Arc::new(dataframe.schema().as_arrow().clone());
-                let batches = dataframe.collect().await?;
-                eval_ctx.record_widget_item_collect();
-                let batch = if batches.is_empty() {
-                    RecordBatch::new_empty(schema)
+                let cache_key = widget_item_cache_key(
+                    items,
+                    eval_ctx.session_context.as_ref(),
+                    eval_ctx.params(),
+                    eval_ctx.scoped_selection_store.as_deref(),
+                    eval_ctx.scoped_store_state.as_deref(),
+                );
+                if let Some(prepared) = eval_ctx.widget_item_cache().and_then(|cache| {
+                    cache
+                        .lock()
+                        .expect("widget item cache lock poisoned")
+                        .get(&cache_key)
+                }) {
+                    eval_ctx.record_widget_item_cache_hit();
+                    Some(prepared)
                 } else {
-                    concat_batches(&schema, &batches)?
-                };
-                let item_count = batch.num_rows();
-                let dataframe = eval_ctx.session_context.read_batch(batch)?;
-                Some(WidgetPreparedBaseData {
-                    base: PreparedBaseData {
-                        dataframe: Some(dataframe),
-                        derived_scalars: Default::default(),
-                        facet_data_scope: FacetDataScope::FILTERED,
-                    },
-                    item_count,
-                })
+                    if eval_ctx.widget_item_cache().is_some() {
+                        eval_ctx.record_widget_item_cache_miss();
+                    }
+                    let mut dataframe = items
+                        .data
+                        .dataframe_with_context(&eval_ctx.session_context)
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Widget '{}' item plan has no runtime dataframe",
+                                widget.id
+                            ))
+                        })?;
+                    if let Some(param_values) = params_to_datafusion(&eval_ctx.params) {
+                        dataframe = dataframe.with_param_values(param_values)?;
+                    }
+                    let schema = Arc::new(dataframe.schema().as_arrow().clone());
+                    let batches = dataframe.collect().await?;
+                    eval_ctx.record_widget_item_collect();
+                    let batch = if batches.is_empty() {
+                        RecordBatch::new_empty(schema)
+                    } else {
+                        concat_batches(&schema, &batches)?
+                    };
+                    let item_count = batch.num_rows();
+                    let dataframe = eval_ctx.session_context.read_batch(batch)?;
+                    let prepared = WidgetPreparedBaseData {
+                        base: PreparedBaseData {
+                            dataframe: Some(dataframe),
+                            derived_scalars: Default::default(),
+                            facet_data_scope: FacetDataScope::FILTERED,
+                        },
+                        item_count,
+                    };
+                    if let Some(cache) = eval_ctx.widget_item_cache() {
+                        cache
+                            .lock()
+                            .expect("widget item cache lock poisoned")
+                            .insert(cache_key, prepared.clone());
+                    }
+                    Some(prepared)
+                }
             } else {
                 None
             };
@@ -6864,6 +6892,7 @@ impl CompiledPlot {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            widget_item_cache,
         ) = new_plot_session_cache_handles();
         let scale_domain_cache = Arc::new(Mutex::new(ScaleDomainCache::default()));
         let facet_semantic_cache =
@@ -6879,6 +6908,7 @@ impl CompiledPlot {
                 Some(guide_overflow_cache),
                 Some(legend_measurement_cache),
                 Some(text_measurement_cache),
+                Some(widget_item_cache),
                 Some(Arc::new(Mutex::new(MaterializationCache::default()))),
                 None,
                 None,
@@ -6900,6 +6930,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        widget_item_cache: Option<WidgetItemCacheHandle>,
         materialization_cache: Option<MaterializationCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
@@ -6924,6 +6955,7 @@ impl CompiledPlot {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            widget_item_cache,
             materialization_cache,
             None,
             scoped_param_store,
@@ -6950,6 +6982,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        widget_item_cache: Option<WidgetItemCacheHandle>,
         materialization_cache: Option<MaterializationCacheHandle>,
         layout_profile: Option<Arc<LayoutProfileSnapshot>>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
@@ -7156,6 +7189,9 @@ impl CompiledPlot {
         }
         if let Some(cache) = &text_measurement_cache {
             eval_ctx = eval_ctx.with_text_measurement_cache(cache.clone());
+        }
+        if let Some(cache) = &widget_item_cache {
+            eval_ctx = eval_ctx.with_widget_item_cache(cache.clone());
         }
         if let Some(cache) = &materialization_cache {
             eval_ctx = eval_ctx.with_materialization_cache(cache.clone());
@@ -7432,6 +7468,7 @@ impl CompiledPlot {
         guide_overflow_cache: Option<GuideOverflowCacheHandle>,
         legend_measurement_cache: Option<LegendMeasurementCacheHandle>,
         text_measurement_cache: Option<TextMeasurementCacheHandle>,
+        widget_item_cache: Option<WidgetItemCacheHandle>,
         materialization_cache: Option<MaterializationCacheHandle>,
         scoped_param_store: Option<Arc<ScopedParamStore>>,
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
@@ -7598,6 +7635,7 @@ impl CompiledPlot {
                     guide_overflow_cache,
                     legend_measurement_cache,
                     text_measurement_cache,
+                    widget_item_cache,
                     materialization_cache.clone(),
                     Some(Arc::new(layout_profile.clone())),
                     scoped_param_store.clone(),

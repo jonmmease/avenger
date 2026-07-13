@@ -128,7 +128,7 @@ pub use self::session::{
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
     ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
-    TextMeasurementCacheKey,
+    TextMeasurementCacheKey, WidgetItemCacheHandle,
 };
 
 use super::title::{PlotSubtitle, PlotTitle};

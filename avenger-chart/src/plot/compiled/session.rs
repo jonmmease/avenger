@@ -6,15 +6,15 @@ use std::{
 };
 
 use avenger_chart_core::{
-    ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CoordinationScope,
-    DefaultLogicalExprNodeExt, EvaluationInvalidationCallback, EvaluationInvalidationHub,
-    EvaluationInvalidationReason, EvaluationInvalidationRequest, EvaluationInvalidationSink,
-    EvaluationInvalidationSubscription, FacetWrapColumnMode, LegendChannel, LegendPosition,
-    LogicalPlanNodeExt, MaterializationExecutionContext, MaterializationExecutor,
-    MaterializationExecutorRegistry, MaterializationKind, MaterializationRequest, Maybe,
-    RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
-    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause, SerializableExpr, StoreData,
-    StoreRowValue, WidgetItemValidation,
+    ChannelInfo, CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec,
+    CompiledWidgetItemPlan, CoordinationScope, DefaultLogicalExprNodeExt,
+    EvaluationInvalidationCallback, EvaluationInvalidationHub, EvaluationInvalidationReason,
+    EvaluationInvalidationRequest, EvaluationInvalidationSink, EvaluationInvalidationSubscription,
+    FacetWrapColumnMode, LegendChannel, LegendPosition, LogicalPlanNodeExt,
+    MaterializationExecutionContext, MaterializationExecutor, MaterializationExecutorRegistry,
+    MaterializationKind, MaterializationRequest, Maybe, RadiusExpression, STORE_NAME_COLUMN,
+    STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain,
+    ScaleDomain, SelectionClause, SerializableExpr, StoreData, StoreRowValue, WidgetItemValidation,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
@@ -59,7 +59,8 @@ use crate::{
 };
 
 use super::{
-    CompiledPlot, LayoutProfileSnapshot, compiled_subplot_payload_child_plot,
+    CompiledPlot, LayoutProfileSnapshot, WidgetPreparedBaseData,
+    compiled_subplot_payload_child_plot,
     legends::PreparedLegendGroup,
     materialization::{MaterializationCache, MaterializationCacheHandle, MaterializationStart},
 };
@@ -73,6 +74,7 @@ pub(crate) type FacetScaleBuilderPrecomputeCacheHandle =
 pub(crate) type GuideOverflowCacheHandle = Arc<Mutex<GuideOverflowCache>>;
 pub(crate) type LegendMeasurementCacheHandle = Arc<Mutex<LegendMeasurementCache>>;
 pub(crate) type TextMeasurementCacheHandle = Arc<Mutex<TextMeasurementCache>>;
+pub(crate) type WidgetItemCacheHandle = Arc<Mutex<WidgetItemCache>>;
 pub(crate) type SelectionRevisionFingerprint = Vec<(String, u64)>;
 pub(crate) type StoreRevisionFingerprint = Vec<(String, Vec<String>, u64)>;
 
@@ -81,6 +83,7 @@ pub(crate) fn new_plot_session_cache_handles() -> (
     GuideOverflowCacheHandle,
     LegendMeasurementCacheHandle,
     TextMeasurementCacheHandle,
+    WidgetItemCacheHandle,
 ) {
     (
         Arc::new(Mutex::new(
@@ -89,7 +92,37 @@ pub(crate) fn new_plot_session_cache_handles() -> (
         Arc::new(Mutex::new(GuideOverflowCache::default())),
         Arc::new(Mutex::new(LegendMeasurementCache::default())),
         Arc::new(Mutex::new(TextMeasurementCache::default())),
+        Arc::new(Mutex::new(WidgetItemCache::default())),
     )
+}
+
+/// Session-owned cache for prepared composed-widget item relations.
+#[derive(Default)]
+pub(crate) struct WidgetItemCache {
+    prepared: HashMap<WidgetItemCacheKey, WidgetPreparedBaseData>,
+}
+
+impl WidgetItemCache {
+    pub(crate) fn get(&self, key: &WidgetItemCacheKey) -> Option<WidgetPreparedBaseData> {
+        self.prepared.get(key).cloned()
+    }
+
+    pub(crate) fn insert(
+        &mut self,
+        key: WidgetItemCacheKey,
+        prepared: WidgetPreparedBaseData,
+    ) -> WidgetPreparedBaseData {
+        self.prepared.insert(key, prepared.clone());
+        prepared
+    }
+}
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(crate) struct WidgetItemCacheKey {
+    items_ptr: usize,
+    params: Vec<(String, String)>,
+    selection_revisions: SelectionRevisionFingerprint,
+    store_revisions: StoreRevisionFingerprint,
 }
 
 /// Session-owned cache for scale-domain inference artifacts.
@@ -1521,6 +1554,7 @@ pub struct PlotSession {
     guide_overflow_cache: GuideOverflowCacheHandle,
     legend_measurement_cache: LegendMeasurementCacheHandle,
     text_measurement_cache: TextMeasurementCacheHandle,
+    widget_item_cache: WidgetItemCacheHandle,
     #[allow(dead_code)]
     materialization_cache: MaterializationCacheHandle,
     materialization_registry: MaterializationExecutorRegistry,
@@ -1541,6 +1575,7 @@ impl PlotSession {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            widget_item_cache,
         ) = new_plot_session_cache_handles();
         let materialization_registry = MaterializationExecutorRegistry::default();
         materialization_registry.register(Rasterize2DExecutor);
@@ -1560,6 +1595,7 @@ impl PlotSession {
             guide_overflow_cache,
             legend_measurement_cache,
             text_measurement_cache,
+            widget_item_cache,
             materialization_cache: Arc::new(Mutex::new(MaterializationCache::default())),
             materialization_registry,
             materialization_invalidation_hub: EvaluationInvalidationHub::default(),
@@ -1982,6 +2018,7 @@ impl PlotSession {
                         use_measurement_profile_caches
                             .then(|| self.legend_measurement_cache.clone()),
                         use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                        Some(self.widget_item_cache.clone()),
                         Some(self.materialization_cache.clone()),
                         scoped_store.clone(),
                         selection_store.clone(),
@@ -2021,6 +2058,7 @@ impl PlotSession {
                     use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                     use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                     use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                    Some(self.widget_item_cache.clone()),
                     Some(self.materialization_cache.clone()),
                     scoped_store.clone(),
                     selection_store.clone(),
@@ -2065,6 +2103,7 @@ impl PlotSession {
                 use_measurement_profile_caches.then(|| self.guide_overflow_cache.clone()),
                 use_measurement_profile_caches.then(|| self.legend_measurement_cache.clone()),
                 use_measurement_profile_caches.then(|| self.text_measurement_cache.clone()),
+                Some(self.widget_item_cache.clone()),
                 Some(self.materialization_cache.clone()),
                 scoped_store,
                 selection_store,
@@ -2304,6 +2343,53 @@ pub(crate) fn scale_domain_cache_key_for_parts_with_scope(
                 (name, value)
             })
             .collect(),
+    }
+}
+
+pub(crate) fn widget_item_cache_key(
+    items: &CompiledWidgetItemPlan,
+    ctx: &SessionContext,
+    params: &IndexMap<String, ScalarValue>,
+    selection_store: Option<&ScopedSelectionStore>,
+    store_state: Option<&ScopedStoreState>,
+) -> WidgetItemCacheKey {
+    let all_param_names = normalized_param_values(params)
+        .keys()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let mut relevant_params = BTreeSet::new();
+    collect_plan_placeholders(
+        items.data.logical_plan_node(),
+        ctx,
+        &mut relevant_params,
+        &all_param_names,
+    );
+    for validation in &items.validations {
+        if let WidgetItemValidation::ContainsParam { param_name, .. } = validation
+            && all_param_names.contains(param_name)
+        {
+            relevant_params.insert(param_name.clone());
+        }
+    }
+    WidgetItemCacheKey {
+        items_ptr: items as *const CompiledWidgetItemPlan as usize,
+        params: relevant_params
+            .into_iter()
+            .map(|name| {
+                let value = params
+                    .get(&name)
+                    .or_else(|| params.get(&format!("${name}")))
+                    .map(|value| format!("{value:?}"))
+                    .unwrap_or_else(|| "<missing>".to_string());
+                (name, value)
+            })
+            .collect(),
+        selection_revisions: selection_store
+            .map(ScopedSelectionStore::revision_fingerprint)
+            .unwrap_or_default(),
+        store_revisions: store_state
+            .map(ScopedStoreState::revision_fingerprint)
+            .unwrap_or_default(),
     }
 }
 
