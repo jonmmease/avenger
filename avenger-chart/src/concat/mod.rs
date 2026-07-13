@@ -2222,13 +2222,23 @@ impl GridGuideSharingSlots {
                 .column
                 .saturating_add(placement.column_span)
                 .min(shape.columns);
-            for column in placement.column..column_end {
-                for row in placement.row..row_end {
-                    if !rows_by_column[column].contains(&row) {
-                        rows_by_column[column].push(row);
+            for (column, rows) in rows_by_column
+                .iter_mut()
+                .enumerate()
+                .take(column_end)
+                .skip(placement.column)
+            {
+                for (row, columns) in columns_by_row
+                    .iter_mut()
+                    .enumerate()
+                    .take(row_end)
+                    .skip(placement.row)
+                {
+                    if !rows.contains(&row) {
+                        rows.push(row);
                     }
-                    if !columns_by_row[row].contains(&column) {
-                        columns_by_row[row].push(column);
+                    if !columns.contains(&column) {
+                        columns.push(column);
                     }
                 }
             }

@@ -62,6 +62,8 @@ fn params(pairs: &[(&str, f64)]) -> IndexMap<String, ScalarValue> {
         .collect()
 }
 
+type ParamPair = (IndexMap<String, ScalarValue>, IndexMap<String, ScalarValue>);
+
 /// Bake, round-trip through bincode, and assert scene-graph BYTE equality
 /// between the unbaked chart (live sources, `unbaked_params`) and the baked
 /// chart (fresh session, `baked_params`) at every param set.
@@ -70,7 +72,7 @@ async fn assert_bake_equivalence(
     server_ctx: &SessionContext,
     compiled: &CompiledPlot,
     policy: &BakePolicy,
-    param_sets: &[(IndexMap<String, ScalarValue>, IndexMap<String, ScalarValue>)],
+    param_sets: &[ParamPair],
 ) -> Result<PlotBakeReport, Box<dyn std::error::Error>> {
     let (baked, report) = compiled.bake(server_ctx, policy).await?;
     let encoded = bincode::serialize(&baked)?;

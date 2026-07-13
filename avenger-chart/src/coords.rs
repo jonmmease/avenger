@@ -132,7 +132,7 @@ impl<'a> CoordMeasureRequest<'a> {
         self.facet_path
     }
 
-    fn to_core_request(&self) -> CoordinateMeasureRequest<'a> {
+    fn to_core_request(self) -> CoordinateMeasureRequest<'a> {
         CoordinateMeasureRequest {
             plot_width: self.plot_width,
             plot_height: self.plot_height,

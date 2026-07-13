@@ -456,7 +456,7 @@ async fn apply_related_legend_item_opacity(
     {
         return Ok(());
     }
-    let domain_array = ScalarValue::iter_to_array(domain_values.into_iter())?;
+    let domain_array = ScalarValue::iter_to_array(domain_values)?;
     let schema = Arc::new(Schema::new(vec![Field::new(
         primary_column,
         domain_array.data_type().clone(),

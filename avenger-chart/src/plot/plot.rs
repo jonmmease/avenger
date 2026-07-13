@@ -79,6 +79,7 @@ pub struct Plot<C: CoordinateSystem> {
     pub(crate) widgets: Vec<WidgetAttachment>,
 }
 
+#[derive(Default)]
 pub(crate) struct RootChartFurnishings {
     pub(crate) theme: Option<Arc<Theme>>,
     pub(crate) time_context: TimeContext,
@@ -92,35 +93,19 @@ pub(crate) struct RootChartFurnishings {
     pub(crate) cursor_params: Vec<String>,
 }
 
-impl Default for RootChartFurnishings {
-    fn default() -> Self {
-        Self {
-            theme: None,
-            time_context: TimeContext::default(),
-            formatting_context: FormattingContext::default(),
-            layout_spec: LayoutSpec::default(),
-            title: None,
-            subtitle: None,
-            param_specs: Vec::new(),
-            selections: Vec::new(),
-            stores: Vec::new(),
-            cursor_params: Vec::new(),
-        }
-    }
-}
-
 fn child_layout_spec(furnishings: &ChildPlotFurnishings) -> LayoutSpec {
-    let mut layout = LayoutSpec::default();
-    layout.plot_area = match (&furnishings.size.width, &furnishings.size.height) {
-        (Some(width), Some(height)) => SizeMode::Fixed {
-            width: width.clone().into(),
-            height: height.clone().into(),
+    LayoutSpec {
+        plot_area: match (&furnishings.size.width, &furnishings.size.height) {
+            (Some(width), Some(height)) => SizeMode::Fixed {
+                width: width.clone().into(),
+                height: height.clone().into(),
+            },
+            (Some(width), None) => SizeMode::Width(width.clone().into()),
+            (None, Some(height)) => SizeMode::Height(height.clone().into()),
+            (None, None) => SizeMode::Auto,
         },
-        (Some(width), None) => SizeMode::Width(width.clone().into()),
-        (None, Some(height)) => SizeMode::Height(height.clone().into()),
-        (None, None) => SizeMode::Auto,
-    };
-    layout
+        ..Default::default()
+    }
 }
 
 fn compile_widget_items(
@@ -3004,9 +2989,7 @@ mod tests {
         }
     }
 
-    fn lowered_children<'a>(
-        compiled: &'a CompiledPlot,
-    ) -> Vec<&'a crate::concat::CompiledConcatSubplot> {
+    fn lowered_children(compiled: &CompiledPlot) -> Vec<&crate::concat::CompiledConcatSubplot> {
         compiled
             .marks
             .iter()

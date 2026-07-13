@@ -861,7 +861,7 @@ impl CompiledPlot {
             }))
             .await?;
             if let Some(df) = prepared.dataframe.as_ref() {
-                collect_event_datum_types_from_schema(&df, requested, out);
+                collect_event_datum_types_from_schema(df, requested, out);
             }
             if let Some(subplot) = crate::concat::compiled_subplot(mark.as_ref()) {
                 Box::pin(subplot.compiled_subplot().collect_event_datum_types(
@@ -1042,10 +1042,11 @@ impl CompiledPlot {
         params: &IndexMap<String, ScalarValue>,
         build_policy: Option<CoordinateDomainBuildPolicy>,
     ) -> Result<ResolvedScaleSet, AvengerChartError> {
-        let coordinate_domain_descriptors = build_policy
-            .is_some()
-            .then(|| self.coordinate_domain_descriptors())
-            .unwrap_or_default();
+        let coordinate_domain_descriptors = if build_policy.is_some() {
+            self.coordinate_domain_descriptors()
+        } else {
+            Default::default()
+        };
         let materialized_builder =
             self.materialize_coordinate_domain_builder(builder, &coordinate_domain_descriptors)?;
         let builder = materialized_builder.as_ref().unwrap_or(builder);

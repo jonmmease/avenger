@@ -283,6 +283,8 @@ impl GridPlacementConfig {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+// Variant names intentionally mirror the public concat coordinate types.
+#[allow(clippy::enum_variant_names)]
 enum ConcatContainerKind {
     HConcat,
     VConcat,

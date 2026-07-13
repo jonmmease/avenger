@@ -202,14 +202,18 @@ fn calculate_rotated_label_positions(
     let mut x_positions = Vec::new();
     let mut y_positions = Vec::new();
 
-    for i in 0..config.labels.len() {
-        let band_pos = &config.band_positions[i];
+    for (band_pos, label_dimension) in config
+        .band_positions
+        .iter()
+        .zip(label_dimensions)
+        .take(config.labels.len())
+    {
         let y_center = config.plot_bounds.y + band_pos.center();
 
         let x_center = if config.place_at_end {
-            config.plot_bounds.x + config.plot_bounds.width + 0.5 * label_dimensions[i]
+            config.plot_bounds.x + config.plot_bounds.width + 0.5 * label_dimension
         } else {
-            config.plot_bounds.x - 0.5 * label_dimensions[i]
+            config.plot_bounds.x - 0.5 * label_dimension
         };
 
         x_positions.push(x_center);

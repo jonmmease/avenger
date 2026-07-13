@@ -1233,7 +1233,7 @@ impl EvaluatedEventDatumState {
                 if values.is_empty() {
                     Ok(new_null_array(schema.field(field_index).data_type(), 0))
                 } else {
-                    ScalarValue::iter_to_array(values.into_iter()).map_err(|err| {
+                    ScalarValue::iter_to_array(values).map_err(|err| {
                         AvengerChartError::InvalidArgument(format!(
                             "Failed to build scene query datum batch: {}",
                             err

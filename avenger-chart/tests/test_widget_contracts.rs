@@ -1047,8 +1047,10 @@ async fn widget_part_view_emits_materialization_requests_after_bincode() {
         .unwrap();
     let decoded: avenger_chart::plot::CompiledPlot =
         bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
-    let mut options = EvaluationOptions::default();
-    options.materialization_priority = -1.0;
+    let options = EvaluationOptions {
+        materialization_priority: -1.0,
+        ..Default::default()
+    };
     let (evaluated, metrics) = decoded
         .evaluate_with_options_and_metrics(&ctx, None, options)
         .await

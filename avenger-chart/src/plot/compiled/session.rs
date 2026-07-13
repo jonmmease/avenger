@@ -969,7 +969,7 @@ impl ScopedStoreState {
             })
             .map(|table| (table.rows.clone(), table.revision))
             .unwrap_or_else(|| (Vec::new(), 0));
-        let instances = vec![(owner_path, rows.0, rows.1)];
+        let instances = [(owner_path, rows.0, rows.1)];
 
         let cache_key = StoreMaterializationKey {
             store_name: data.store_name.clone(),
@@ -4480,10 +4480,10 @@ mod tests {
                         collect_from_mark(child, count);
                     }
                 }
-                SceneMark::Symbol(symbol) => {
-                    if symbol.x_adjustment.is_some() || symbol.y_adjustment.is_some() {
-                        *count += 1;
-                    }
+                SceneMark::Symbol(symbol)
+                    if symbol.x_adjustment.is_some() || symbol.y_adjustment.is_some() =>
+                {
+                    *count += 1;
                 }
                 _ => {}
             }
@@ -5750,8 +5750,8 @@ mod tests {
     }
 
     /// Group-view analog of the adaptive taxi example: shared in-view filter
-    /// + eager count, an async rasterized child with an INFERRED fill domain
-    /// gated at a point budget, and a scatter child gated below it.
+    /// with an eager count, an async rasterized child with an INFERRED fill
+    /// domain gated at a point budget, and a scatter child gated below it.
     async fn compile_group_view_adaptive_inferred_fill_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {

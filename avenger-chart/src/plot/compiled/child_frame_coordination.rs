@@ -610,12 +610,7 @@ pub(crate) fn apply_child_frame_layout_alignment(
     };
 
     if !plans.is_empty() {
-        apply_child_frame_layout_alignment_recursive(
-            measurement,
-            &plans,
-            &concat_solutions,
-            &mut trace,
-        )?;
+        apply_child_frame_layout_alignment_recursive(measurement, &concat_solutions, &mut trace)?;
     }
 
     if trace.exported_node_count > 0 {
@@ -795,20 +790,18 @@ fn collect_child_frame_layout_coordination_nodes_into(
         .coord_measurement
         .as_any()
         .downcast_ref::<ConcatCoordMeasurement>()
+        && let Some(node) = grid_layout_coordination_node(concat)?
     {
-        if let Some(node) = grid_layout_coordination_node(concat)? {
-            nodes.push(node);
-        }
+        nodes.push(node);
     }
 
     if let Some(facet_band) = measurement
         .coord_measurement
         .as_any()
         .downcast_ref::<FacetBandCoordMeasurement>()
+        && let Some(node) = facet_band_layout_coordination_node(measurement, facet_band)?
     {
-        if let Some(node) = facet_band_layout_coordination_node(measurement, facet_band)? {
-            nodes.push(node);
-        }
+        nodes.push(node);
     }
 
     if let Some(container) = measurement.child_frame_container_view()? {
@@ -828,7 +821,6 @@ fn collect_child_frame_layout_coordination_nodes_into(
 
 fn apply_child_frame_layout_alignment_recursive(
     measurement: &mut ComponentsMeasurement,
-    plans: &IndexMap<LayoutAlignmentKey, ChildFrameLayoutRequirements>,
     concat_solutions: &IndexMap<ChildFrameContainerInstanceKey, SolvedLayoutMember>,
     trace: &mut ChildFrameLayoutAlignmentApplyTrace,
 ) -> Result<(), AvengerChartError> {
@@ -837,21 +829,17 @@ fn apply_child_frame_layout_alignment_recursive(
         .as_any()
         .downcast_ref::<ConcatCoordMeasurement>()
         .filter(|concat| concat.layout_coordination_shape().is_some())
-        .map(|concat| Ok::<_, AvengerChartError>(concat.container_path()?))
+        .map(|concat| concat.container_path())
         .transpose()?
         .map(ChildFrameContainerInstanceKey::new)
+        && let Some(solution) = concat_solutions.get(&instance_key)
+        && let Some(concat) = measurement
+            .coord_measurement
+            .as_any_mut()
+            .downcast_mut::<ConcatCoordMeasurement>()
+        && concat.install_grid_solution(solution)?
     {
-        if let Some(solution) = concat_solutions.get(&instance_key) {
-            if let Some(concat) = measurement
-                .coord_measurement
-                .as_any_mut()
-                .downcast_mut::<ConcatCoordMeasurement>()
-            {
-                if concat.install_grid_solution(solution)? {
-                    trace.applied_container_count += 1;
-                }
-            }
-        }
+        trace.applied_container_count += 1;
     }
 
     if let Some(concat) = measurement
@@ -862,7 +850,6 @@ fn apply_child_frame_layout_alignment_recursive(
         for child in &mut concat.children {
             apply_child_frame_layout_alignment_recursive(
                 &mut child.measurement,
-                plans,
                 concat_solutions,
                 trace,
             )?;
@@ -878,7 +865,6 @@ fn apply_child_frame_layout_alignment_recursive(
         for cell in &mut facet_band.cells {
             apply_child_frame_layout_alignment_recursive(
                 &mut cell.measurement,
-                plans,
                 concat_solutions,
                 trace,
             )?;
@@ -894,7 +880,6 @@ fn apply_child_frame_layout_alignment_recursive(
         for child in &mut positioned.children {
             apply_child_frame_layout_alignment_recursive(
                 &mut child.measurement,
-                plans,
                 concat_solutions,
                 trace,
             )?;

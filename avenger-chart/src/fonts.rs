@@ -82,7 +82,7 @@ mod tests {
             font_weight: FontWeight::Name(FontWeightNameSpec::Normal),
             font_style: FontStyle::Normal,
             syntax_mode: TextSyntaxMode::Plain,
-            params: &params,
+            params,
             number_locale: None,
             number_locale_specs: None,
             datetime_locale: None,

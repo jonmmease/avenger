@@ -143,7 +143,7 @@ impl ToolCompileContext {
             let mut expansion = tool.expand(expansion_context)?;
             self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
             self.localize_event_bindings(&mut expansion.event_bindings);
-            let identity = Arc::as_ptr(tool) as *const dyn ChartTool<C> as *const () as usize;
+            let identity = Arc::as_ptr(tool) as *const () as usize;
             let active_expansion = ActiveToolExpansion {
                 id: id.clone(),
                 expansion: expansion.clone(),

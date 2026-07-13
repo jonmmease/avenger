@@ -390,7 +390,7 @@ fn measure_widget_text_mark(
             text: &texts[index],
             font: &fonts[index],
             font_size: font_sizes[index],
-            font_weight: font_weights[index].clone(),
+            font_weight: font_weights[index],
             font_style: font_styles[index],
             syntax_mode: mark.text_syntax,
             params: &mark.text_params,
@@ -5960,7 +5960,7 @@ impl CompiledPlot {
 
                 let rendered_legends = self
                     .render_legends_from_plan(
-                        &eval_ctx,
+                        eval_ctx,
                         &legend_plan_initial,
                         &layout_initial.frame_layout,
                         ctx,
@@ -6060,7 +6060,7 @@ impl CompiledPlot {
                 let plot_bounds = layout_initial.plot_area_bounds();
                 let rendered_legends = self
                     .render_legends_from_plan(
-                        &eval_ctx,
+                        eval_ctx,
                         &legend_plan_initial,
                         &layout_initial.frame_layout,
                         ctx,

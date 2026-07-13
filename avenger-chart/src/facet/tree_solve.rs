@@ -580,26 +580,26 @@ fn lower_band(
         for ghost_index in cell_count..slot_count {
             let mut ghost = Layout::leaf(fallback);
             main_track_sizes.push(measurement_main_plot_size_for_size(band.axis, fallback));
-            if ghost_index + 1 == slot_count {
-                if let Some((guide, total)) = &trailing_envelope {
-                    let trailing_side = match band.axis {
-                        FacetAxis::Column => Side::Right,
-                        FacetAxis::Row => Side::Bottom,
-                    };
-                    ghost = ghost.demand(
-                        trailing_side,
-                        EdgeDemand::from_guide_and_envelope(
-                            *match band.axis {
-                                FacetAxis::Column => &guide.right,
-                                FacetAxis::Row => &guide.bottom,
-                            },
-                            *match band.axis {
-                                FacetAxis::Column => &total.right,
-                                FacetAxis::Row => &total.bottom,
-                            },
-                        ),
-                    );
-                }
+            if ghost_index + 1 == slot_count
+                && let Some((guide, total)) = &trailing_envelope
+            {
+                let trailing_side = match band.axis {
+                    FacetAxis::Column => Side::Right,
+                    FacetAxis::Row => Side::Bottom,
+                };
+                ghost = ghost.demand(
+                    trailing_side,
+                    EdgeDemand::from_guide_and_envelope(
+                        *match band.axis {
+                            FacetAxis::Column => &guide.right,
+                            FacetAxis::Row => &guide.bottom,
+                        },
+                        *match band.axis {
+                            FacetAxis::Column => &total.right,
+                            FacetAxis::Row => &total.bottom,
+                        },
+                    ),
+                );
             }
             cell_nodes.push(ghost);
         }
@@ -1065,13 +1065,13 @@ pub(crate) fn run_shadow_census(
         for idx in 0..band.cell_count {
             let mut child_path = band_region.path.clone();
             child_path.push(idx);
-            if let Some(cell_region) = solved.at_path(&child_path) {
-                if matches!(cell_region.detail, RegionDetail::Leaf) {
-                    overrides.insert(
-                        (band.node_id.clone(), idx),
-                        Size::new(cell_region.slot.width, cell_region.slot.height),
-                    );
-                }
+            if let Some(cell_region) = solved.at_path(&child_path)
+                && matches!(cell_region.detail, RegionDetail::Leaf)
+            {
+                overrides.insert(
+                    (band.node_id.clone(), idx),
+                    Size::new(cell_region.slot.width, cell_region.slot.height),
+                );
             }
         }
     }

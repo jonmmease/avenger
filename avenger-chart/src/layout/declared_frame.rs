@@ -11,6 +11,8 @@ use avenger_layout::{ChromeLayer, Layout, Rect, Side, Size as LayoutSize, SolveF
 
 /// Per-axis sizing declaration (the chart's canvas/plot sizing policy).
 #[derive(Clone, Copy, Debug, PartialEq)]
+// Names distinguish which of the envelope/content extents are fixed.
+#[allow(clippy::enum_variant_names)]
 pub(crate) enum DeclaredAxisSizing {
     /// The envelope extent is given; the content takes what remains after
     /// the declared chrome, floored at [`DeclaredAxis::content_min`].
