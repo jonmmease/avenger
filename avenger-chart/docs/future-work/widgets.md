@@ -607,12 +607,16 @@ mark.transform_no_output(Filter::new(col("fare").gt_eq(min_fare.value())), |m| m
   frame-local coordinates, `mouse_up` ends it. Track clicks jump. Value
   mapping is pure SQL arithmetic; `step` is a `round(x / step) * step`
   wrapper.
-- **New helper requirement**: frame-local event coordinates
+- **Implemented frame-local foundation (2026-07-13)**: frame-local event coordinates
   (`ev::frame_x()`, `frame_y()`, `frame_width()`, `frame_height()`) over
   reserved `__frame_*` fields — the widget-frame analogs of the existing
   event/canvas helpers. A between gesture snapshots widget id + frame at
   gesture start and retains it through mouse-up, even if layout changes.
-  These are the slider's only genuinely new engine surface.
+  Evaluation retains exact final mark-path-to-frame ownership for every
+  widget descendant, and the app captures that ownership before authored
+  streams can consume the mouse-down. Non-widget events receive NULLs. These
+  helpers are now available for the slider; the slider itself remains to be
+  implemented.
 - **Update cadence**: bindings reuse existing `throttle_ms`; a
   `commit: on_release` option (write a preview param during drag, commit
   on `mouse_up`) is recorded as an open question shared with the dashboard
@@ -980,9 +984,11 @@ compound marks.
    `avenger-chart-app/examples/widget_region_cross_filter.rs`; the phase landed
    in `32090604a`, `4b3bf9857`, `06314afc2`, `c3fd116bb`, `d991252b6`,
    `7ee4bd823`, `e9c94f54c`, and `9c4145b64`.
-3. **Slider.** Frame-local coordinate helpers; drag bindings; step/format;
-   throttle. Exit criterion: live range filtering of a scatter at
-   interactive frame rates.
+3. **Slider — in progress.** The frame-local coordinate helpers and stable
+   gesture-frame capture are complete. Remaining work is the slider marks,
+   min-anchored step normalization, drag bindings, formatting, and throttle.
+   Exit criterion: live range filtering of a scatter at interactive frame
+   rates.
 4. **`WidgetCell` + content tracks.** Numeric hint plumbing, target/state
    rebasing, explicit-frame evaluation, and the sidebar control-panel
    example. The dashboard host remains deferred, but its frame contract lands.

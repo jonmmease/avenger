@@ -39,6 +39,15 @@ pub const EVENT_CONTROL_FIELD: &str = "__event_control";
 pub const EVENT_ALT_FIELD: &str = "__event_alt";
 pub const EVENT_META_FIELD: &str = "__event_meta";
 
+/// Pointer x coordinate localized to the owning widget frame.
+pub const FRAME_X_FIELD: &str = "__frame_x";
+/// Pointer y coordinate localized to the owning widget frame.
+pub const FRAME_Y_FIELD: &str = "__frame_y";
+/// Width of the owning widget frame.
+pub const FRAME_WIDTH_FIELD: &str = "__frame_width";
+/// Height of the owning widget frame.
+pub const FRAME_HEIGHT_FIELD: &str = "__frame_height";
+
 pub const EVENT_SCOPE_FRAME_FIELD: &str = "__event_scope_frame";
 
 pub const START_X_FIELD: &str = "__start_x";
@@ -915,6 +924,29 @@ pub fn meta() -> Expr {
     col(EVENT_META_FIELD)
 }
 
+/// Current pointer x coordinate in the owning widget's local PixelFrame.
+///
+/// This is NULL for events that do not target a widget. During a between
+/// gesture it remains localized to the widget frame captured at gesture start.
+pub fn frame_x() -> Expr {
+    col(FRAME_X_FIELD)
+}
+
+/// Current pointer y coordinate in the owning widget's local PixelFrame.
+pub fn frame_y() -> Expr {
+    col(FRAME_Y_FIELD)
+}
+
+/// Width of the owning widget frame captured for this event or gesture.
+pub fn frame_width() -> Expr {
+    col(FRAME_WIDTH_FIELD)
+}
+
+/// Height of the owning widget frame captured for this event or gesture.
+pub fn frame_height() -> Expr {
+    col(FRAME_HEIGHT_FIELD)
+}
+
 pub fn cursor(style: CursorStyle) -> Expr {
     lit(style.as_str().to_string())
 }
@@ -1765,7 +1797,7 @@ fn map_expr_node(
 #[cfg(test)]
 mod tests {
     use crate::{CoordinationScope, SceneGeometryQuery, SceneQueryDatumField};
-    use datafusion::prelude::{SessionContext, lit};
+    use datafusion::prelude::{SessionContext, col, lit};
 
     use super::*;
 
@@ -1826,6 +1858,14 @@ mod tests {
         // The public helper expressions reference those reserved columns.
         assert_eq!(event_coord("x"), col("__event_coord_x"));
         assert_eq!(start_domain("y"), col("__start_domain_y"));
+    }
+
+    #[test]
+    fn widget_frame_helpers_use_reserved_event_columns() {
+        assert_eq!(frame_x(), col(FRAME_X_FIELD));
+        assert_eq!(frame_y(), col(FRAME_Y_FIELD));
+        assert_eq!(frame_width(), col(FRAME_WIDTH_FIELD));
+        assert_eq!(frame_height(), col(FRAME_HEIGHT_FIELD));
     }
 
     #[test]

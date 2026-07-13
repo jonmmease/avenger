@@ -1258,6 +1258,43 @@ impl EvaluatedEventDatumState {
     }
 }
 
+/// One realized widget frame associated with a final scene-mark path.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluatedWidgetFrame {
+    pub widget_id: String,
+    pub bounds: LayoutBounds,
+}
+
+impl EvaluatedWidgetFrame {
+    /// Localize a final scene-space point to this widget's PixelFrame.
+    pub fn local_point(&self, point: [f32; 2]) -> [f32; 2] {
+        [point[0] - self.bounds.x, point[1] - self.bounds.y]
+    }
+}
+
+/// Realized widget-frame ownership for final scene-mark paths.
+///
+/// Entries use the exact paths emitted into the scene graph and hit index. A
+/// gesture runtime may therefore freeze the owning frame without relying on
+/// names, authored target strings, or current layout geometry.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EvaluatedWidgetFrameState {
+    pub frames: HashMap<Vec<usize>, EvaluatedWidgetFrame>,
+}
+
+impl EvaluatedWidgetFrameState {
+    pub fn frame_for_mark_path(&self, mark_path: &[usize]) -> Option<&EvaluatedWidgetFrame> {
+        self.frames.get(mark_path)
+    }
+
+    pub fn frame_for_mark_instance(
+        &self,
+        mark_instance: Option<&MarkInstance>,
+    ) -> Option<&EvaluatedWidgetFrame> {
+        self.frame_for_mark_path(&mark_instance?.mark_path)
+    }
+}
+
 fn scalar_unique_key(value: &ScalarValue) -> Option<String> {
     if value.is_null() {
         None
@@ -1280,6 +1317,8 @@ pub struct EvaluatedPlot {
     pub interaction: EvaluatedInteractionState,
     /// Logical datum rows addressable by rendered mark instance.
     pub event_datums: EvaluatedEventDatumState,
+    /// Realized widget frames keyed by final scene-mark paths.
+    pub widget_frames: EvaluatedWidgetFrameState,
     /// Prefetch-retarget planners published by coordinate guides for this
     /// evaluation (hover-driven prefetch retargeting; one per scope).
     pub prefetch_planners: Vec<Arc<dyn avenger_resource::PrefetchRetargetPlanner>>,

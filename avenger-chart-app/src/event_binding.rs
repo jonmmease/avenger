@@ -16,7 +16,8 @@ use avenger_chart::{
         SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
     },
     render::{
-        EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluationMode, InteractionScopeKind,
+        EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedWidgetFrame, EvaluationMode,
+        InteractionScopeKind,
     },
     serialization::LogicalExprNodeExt,
 };
@@ -1773,6 +1774,7 @@ struct ChartEventBindingState {
     previous_params: Option<ScopedParamStoreSnapshot>,
     start_scope: Option<EvaluatedInteractionScope>,
     previous_scope: Option<EvaluatedInteractionScope>,
+    start_widget_frame: Option<EvaluatedWidgetFrame>,
     event_path: Vec<[f32; 2]>,
 }
 
@@ -1921,6 +1923,16 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     } else {
                         None
                     };
+                    binding_state.start_widget_frame = app
+                        .active_widget_gesture_frame
+                        .as_ref()
+                        .filter(|capture| capture.start_instant == start.instant)
+                        .map(|capture| capture.frame.clone())
+                        .or_else(|| {
+                            app.last_widget_frame_state
+                                .frame_for_mark_instance(start_mark_instance)
+                                .cloned()
+                        });
                     binding_state.previous_params = None;
                     binding_state.previous_scope = None;
                     binding_state.event_path.clear();
@@ -1933,6 +1945,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     binding_state.active_start_event_id = None;
                     binding_state.start_params = None;
                     binding_state.start_scope = None;
+                    binding_state.start_widget_frame = None;
                     binding_state.event_path.clear();
                 }
                 _ => {}
@@ -1954,6 +1967,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             start_scope,
             previous_scope,
             start_event_id,
+            start_widget_frame,
             event_path,
         ) = {
             let binding_state = self
@@ -1966,6 +1980,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 binding_state.start_scope.clone(),
                 binding_state.previous_scope.clone(),
                 binding_state.active_start_event_id,
+                binding_state.start_widget_frame.clone(),
                 binding_state.event_path.clone(),
             )
         };
@@ -2029,6 +2044,30 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             previous_scope.as_ref(),
         );
         let mut interaction_values = interaction_values;
+        let widget_frame = start_widget_frame.or_else(|| {
+            app.last_widget_frame_state
+                .frame_for_mark_instance(event_mark_instance)
+                .cloned()
+        });
+        if let (Some(frame), Some(position)) = (widget_frame.as_ref(), event.position()) {
+            let local = frame.local_point(position);
+            interaction_values.insert(
+                event::FRAME_X_FIELD.to_string(),
+                ScalarValue::Float64(Some(f64::from(local[0]))),
+            );
+            interaction_values.insert(
+                event::FRAME_Y_FIELD.to_string(),
+                ScalarValue::Float64(Some(f64::from(local[1]))),
+            );
+            interaction_values.insert(
+                event::FRAME_WIDTH_FIELD.to_string(),
+                ScalarValue::Float64(Some(f64::from(frame.bounds.width))),
+            );
+            interaction_values.insert(
+                event::FRAME_HEIGHT_FIELD.to_string(),
+                ScalarValue::Float64(Some(f64::from(frame.bounds.height))),
+            );
+        }
         if requests.event_path {
             interaction_values.insert(
                 event::EVENT_PATH_FIELD.to_string(),
@@ -4137,6 +4176,10 @@ fn event_schema(
         Field::new(event::EVENT_TYPE_FIELD, DataType::Utf8, true),
         Field::new(event::EVENT_X_FIELD, DataType::Float64, true),
         Field::new(event::EVENT_Y_FIELD, DataType::Float64, true),
+        Field::new(event::FRAME_X_FIELD, DataType::Float64, true),
+        Field::new(event::FRAME_Y_FIELD, DataType::Float64, true),
+        Field::new(event::FRAME_WIDTH_FIELD, DataType::Float64, true),
+        Field::new(event::FRAME_HEIGHT_FIELD, DataType::Float64, true),
         Field::new(event::EVENT_CANVAS_WIDTH_FIELD, DataType::Float64, true),
         Field::new(event::EVENT_CANVAS_HEIGHT_FIELD, DataType::Float64, true),
         Field::new(event::EVENT_WINDOW_WIDTH_FIELD, DataType::Float64, true),
@@ -4853,6 +4896,47 @@ mod tests {
             config.filter.is_none(),
             "resolved mark paths should not also install a mark-name filter"
         );
+    }
+
+    #[test]
+    fn non_widget_event_leaves_frame_columns_null() {
+        let schema = event_schema(
+            &IndexMap::new(),
+            &InteractionColumnRequests::default(),
+            &IndexMap::new(),
+            &IndexMap::new(),
+        );
+        let params = IndexMap::new();
+        let interaction_values = HashMap::new();
+        let event_datum_values = HashMap::new();
+        let batch = event_record_batch(
+            schema,
+            &SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                size: [640.0, 480.0],
+            }),
+            &EventStreamContext::default(),
+            EventBatchInputs {
+                current_params: &params,
+                start_params: None,
+                previous_params: None,
+                interaction_values: &interaction_values,
+                event_datum_values: &event_datum_values,
+                start_event_id: None,
+            },
+        )
+        .expect("non-widget event batch");
+
+        for name in [
+            event::FRAME_X_FIELD,
+            event::FRAME_Y_FIELD,
+            event::FRAME_WIDTH_FIELD,
+            event::FRAME_HEIGHT_FIELD,
+        ] {
+            let value =
+                ScalarValue::try_from_array(batch.column_by_name(name).expect("frame column"), 0)
+                    .expect("frame scalar");
+            assert!(value.is_null(), "{name} should be null");
+        }
     }
 
     #[test]
@@ -8480,6 +8564,157 @@ mod tests {
         assert_eq!(
             state.params().await.get("regions__checked"),
             Some(&ScalarValue::Boolean(Some(true)))
+        );
+    }
+
+    #[tokio::test]
+    async fn widget_frame_fields_stay_bound_to_the_gesture_start_frame() {
+        let ctx = SessionContext::new();
+        let start = ChartEventStream::on(ChartEventType::MouseDown).mark("regions.box");
+        let end = ChartEventStream::on(ChartEventType::MouseUp);
+        let frame_assignments = |binding: ChartEventBinding| {
+            binding
+                .set_param("frame_x", event::frame_x())
+                .set_param("frame_y", event::frame_y())
+                .set_param("frame_width", event::frame_width())
+                .set_param("frame_height", event::frame_height())
+                .preview()
+        };
+        let compiled = Chart::<Cartesian>::new()
+            .param(Param::new("frame_x", ScalarValue::Float64(None)))
+            .param(Param::new("frame_y", ScalarValue::Float64(None)))
+            .param(Param::new("frame_width", ScalarValue::Float64(None)))
+            .param(Param::new("frame_height", ScalarValue::Float64(None)))
+            .widget(Checkbox::new("regions", "Regions", false).position(ChromePosition::Left))
+            .event_binding(frame_assignments(
+                ChartEventBinding::on(ChartEventType::CursorMoved)
+                    .between(start.clone(), end.clone()),
+            ))
+            .event_binding(frame_assignments(ChartEventBinding::on_between_end(
+                start, end,
+            )))
+            .compile(&ctx)
+            .await
+            .expect("compile frame-local widget bindings");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("widget streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial widget scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let origin = rtree.named_group_origin("regions").expect("widget origin");
+        let inside = [origin[0] + 8.0, origin[1] + 16.0];
+        let box_instance = rtree
+            .pick_top_mark_at_point(&inside)
+            .cloned()
+            .expect("checkbox box hit");
+        let original_frame = {
+            let runtime = state.runtime.lock().await;
+            runtime
+                .last_widget_frame_state
+                .frame_for_mark_instance(Some(&box_instance))
+                .cloned()
+                .expect("box owns a widget frame")
+        };
+        assert_eq!(original_frame.widget_id, "regions");
+        assert_eq!(original_frame.local_point(inside), [8.0, 16.0]);
+
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(crate::WidgetGestureFrameCaptureHandler),
+        );
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: inside }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+
+        let outside = [
+            original_frame.bounds.x + original_frame.bounds.width + 50.0,
+            original_frame.bounds.y + original_frame.bounds.height + 30.0,
+        ];
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: outside }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+
+        let expected_x = f64::from(outside[0] - original_frame.bounds.x);
+        let expected_y = f64::from(outside[1] - original_frame.bounds.y);
+        let params = manager.state().params().await;
+        assert_eq!(params["frame_x"], ScalarValue::Float64(Some(expected_x)));
+        assert_eq!(params["frame_y"], ScalarValue::Float64(Some(expected_y)));
+        assert_eq!(
+            params["frame_width"],
+            ScalarValue::Float64(Some(f64::from(original_frame.bounds.width)))
+        );
+        assert_eq!(
+            params["frame_height"],
+            ScalarValue::Float64(Some(f64::from(original_frame.bounds.height)))
+        );
+
+        {
+            let mut runtime = manager.state().runtime.lock().await;
+            let capture = runtime
+                .active_widget_gesture_frame
+                .as_ref()
+                .expect("widget frame captured at mouse-down");
+            assert_eq!(capture.frame, original_frame);
+            for frame in runtime.last_widget_frame_state.frames.values_mut() {
+                frame.bounds.x += 1_000.0;
+                frame.bounds.y += 1_000.0;
+                frame.bounds.width += 500.0;
+                frame.bounds.height += 500.0;
+            }
+        }
+
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(3),
+            )
+            .await;
+
+        let params = manager.state().params().await;
+        assert_eq!(params["frame_x"], ScalarValue::Float64(Some(expected_x)));
+        assert_eq!(params["frame_y"], ScalarValue::Float64(Some(expected_y)));
+        assert_eq!(
+            params["frame_width"],
+            ScalarValue::Float64(Some(f64::from(original_frame.bounds.width)))
+        );
+        assert_eq!(
+            params["frame_height"],
+            ScalarValue::Float64(Some(f64::from(original_frame.bounds.height)))
         );
     }
 

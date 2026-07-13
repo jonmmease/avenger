@@ -14,7 +14,8 @@ use avenger_chart::{
     plot::{CompiledPlot, EvaluationRequest, PlotSession, ScopedParamAssignment},
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
-        EvaluationMetrics, EvaluationMode, EvaluationOptions,
+        EvaluatedWidgetFrame, EvaluatedWidgetFrameState, EvaluationMetrics, EvaluationMode,
+        EvaluationOptions,
     },
 };
 use avenger_chart_core::ScalarValueHelpers;
@@ -26,7 +27,7 @@ use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},
-    stream::{EventStreamConfig, UpdateStatus},
+    stream::{EventStreamConfig, EventStreamContext, UpdateStatus},
 };
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceCache, ImageResourceResolver};
@@ -356,6 +357,16 @@ struct ChartAppRuntime {
     last_interaction_state: EvaluatedInteractionState,
     /// Event datum rows from the most recent evaluation, used by `ev::datum`.
     last_event_datum_state: EvaluatedEventDatumState,
+    /// Widget frames from the most recent evaluation, keyed by final mark path.
+    last_widget_frame_state: EvaluatedWidgetFrameState,
+    /// Widget frame captured before authored streams see a gesture start.
+    active_widget_gesture_frame: Option<WidgetGestureFrameCapture>,
+}
+
+#[derive(Clone)]
+struct WidgetGestureFrameCapture {
+    start_instant: Instant,
+    frame: EvaluatedWidgetFrame,
 }
 
 impl ChartAppState {
@@ -400,6 +411,8 @@ impl ChartAppState {
                 last_evaluated_param_revision: 0,
                 last_interaction_state: EvaluatedInteractionState::default(),
                 last_event_datum_state: EvaluatedEventDatumState::default(),
+                last_widget_frame_state: EvaluatedWidgetFrameState::default(),
+                active_widget_gesture_frame: None,
             })),
         }
     }
@@ -737,7 +750,49 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         }
         runtime.last_interaction_state = evaluated.interaction;
         runtime.last_event_datum_state = evaluated.event_datums;
+        runtime.last_widget_frame_state = evaluated.widget_frames;
         Ok(evaluated.scene_graph)
+    }
+}
+
+/// Captures widget ownership before authored streams can consume a mouse-down.
+struct WidgetGestureFrameCaptureHandler;
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl EventStreamHandler<ChartAppState> for WidgetGestureFrameCaptureHandler {
+    async fn handle(
+        &self,
+        _event: &SceneGraphEvent,
+        _state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        UpdateStatus::default()
+    }
+
+    async fn handle_with_context(
+        &self,
+        event: &SceneGraphEvent,
+        context: &EventStreamContext,
+        state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        let mut runtime = state.runtime.lock().await;
+        let mark_instance = context
+            .mark_instance
+            .as_ref()
+            .or_else(|| event.mark_instance());
+        runtime.active_widget_gesture_frame = context.current_event.as_ref().and_then(|current| {
+            runtime
+                .last_widget_frame_state
+                .frame_for_mark_instance(mark_instance)
+                .cloned()
+                .map(|frame| WidgetGestureFrameCapture {
+                    start_instant: current.instant,
+                    frame,
+                })
+        });
+        UpdateStatus::default()
     }
 }
 
@@ -914,7 +969,16 @@ async fn chart_avenger_app_inner(
         options,
         runtime_resources,
     );
-    let mut streams = event_streams;
+    // Gesture-frame capture must precede authored streams because those streams
+    // may consume the mouse-down that establishes `between` state.
+    let mut streams = vec![(
+        EventStreamConfig {
+            types: vec![SceneGraphEventType::MouseDown],
+            ..Default::default()
+        },
+        Arc::new(WidgetGestureFrameCaptureHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
+    )];
+    streams.extend(event_streams);
     if exact_on_resize_settle {
         streams.push((
             EventStreamConfig {

@@ -84,11 +84,12 @@ use crate::{
     },
     render::{
         CoordinationCheckpoint, EvaluatedEventDatumRows, EvaluatedEventDatumState,
-        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluatedPlot, EvaluationContext,
-        EvaluationMetrics, EvaluationOptions, FacetSubtreeCheckpoint, FacetSubtreeSelector,
-        FacetSubtreeSnapshot, InteractionScopeId, InteractionScopeKind, LayoutDebugOverlayMode,
-        LayoutSnapshot, LayoutSolution, PreviewProfileFallbackReason, RefinementCheckpoint,
-        RenderContext, RenderState, WholeChartSnapshot,
+        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluatedPlot, EvaluatedWidgetFrame,
+        EvaluatedWidgetFrameState, EvaluationContext, EvaluationMetrics, EvaluationOptions,
+        FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId,
+        InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
+        PreviewProfileFallbackReason, RefinementCheckpoint, RenderContext, RenderState,
+        WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
@@ -607,6 +608,52 @@ fn offset_flat_event_datum_rows(
             rows
         })
         .collect()
+}
+
+fn collect_widget_descendant_frame_paths(
+    mark: &SceneMark,
+    path: &mut Vec<usize>,
+    frame: &EvaluatedWidgetFrame,
+    state: &mut EvaluatedWidgetFrameState,
+) {
+    state.frames.insert(path.clone(), frame.clone());
+    if let SceneMark::Group(group) = mark {
+        for (index, child) in group.marks.iter().enumerate() {
+            path.push(index);
+            collect_widget_descendant_frame_paths(child, path, frame, state);
+            path.pop();
+        }
+    }
+}
+
+fn evaluated_widget_frames(
+    widget_container: &SceneMark,
+    widget_container_index: usize,
+) -> EvaluatedWidgetFrameState {
+    let mut state = EvaluatedWidgetFrameState::default();
+    let SceneMark::Group(container) = widget_container else {
+        return state;
+    };
+    for (widget_index, mark) in container.marks.iter().enumerate() {
+        let SceneMark::Group(widget) = mark else {
+            continue;
+        };
+        let Clip::Rect { width, height, .. } = &widget.clip else {
+            continue;
+        };
+        let frame = EvaluatedWidgetFrame {
+            widget_id: widget.name.clone(),
+            bounds: LayoutBounds {
+                x: container.origin[0] + widget.origin[0],
+                y: container.origin[1] + widget.origin[1],
+                width: *width,
+                height: *height,
+            },
+        };
+        let mut path = vec![0, widget_container_index, widget_index];
+        collect_widget_descendant_frame_paths(mark, &mut path, &frame, &mut state);
+    }
+    state
 }
 
 fn guide_event_datum_rows(
@@ -6583,19 +6630,27 @@ impl CompiledPlot {
 
         let data_group_index = all_marks.len();
         all_marks.push(SceneMark::Group(data_marks_group));
-        if !components.widget_marks.is_empty() {
+        let widget_container_index = if components.widget_marks.is_empty() {
+            None
+        } else {
+            let index = all_marks.len();
             all_marks.push(SceneMark::Group(SceneGroup {
                 name: "__widgets".to_string(),
                 interactive: false,
                 marks: components.widget_marks,
                 ..Default::default()
             }));
-        }
+            Some(index)
+        };
         all_marks.extend(components.guide_marks);
         all_marks.extend(components.legend_marks);
         all_marks.extend(components.title_marks);
         all_marks.extend(components.subtitle_marks);
         all_marks.extend(components.debug_marks);
+
+        let widget_frames = widget_container_index
+            .map(|index| evaluated_widget_frames(&all_marks[index], index))
+            .unwrap_or_default();
 
         let root_group = SceneGroup {
             marks: all_marks,
@@ -6623,7 +6678,6 @@ impl CompiledPlot {
         let event_datums = EvaluatedEventDatumState {
             rows: event_datum_rows,
         };
-
         let evaluated = EvaluatedPlot {
             scene_graph,
             resource_requests: eval_ctx.resource_requests_snapshot(),
@@ -6631,6 +6685,7 @@ impl CompiledPlot {
             rtree,
             interaction,
             event_datums,
+            widget_frames,
             prefetch_planners: eval_ctx.prefetch_planners_snapshot(),
         };
         let convert_elapsed = convert_start.elapsed();
@@ -6770,6 +6825,17 @@ impl CompiledPlot {
 
     fn pad_facet_subtree_snapshot(evaluated: EvaluatedPlot) -> EvaluatedPlot {
         let mut interaction = evaluated.interaction;
+        let mut widget_frames = EvaluatedWidgetFrameState {
+            frames: evaluated
+                .widget_frames
+                .frames
+                .into_iter()
+                .map(|(mut path, frame)| {
+                    path.splice(0..0, [0, 0]);
+                    (path, frame)
+                })
+                .collect(),
+        };
         let event_datums = EvaluatedEventDatumState {
             rows: prefix_event_datum_rows(evaluated.event_datums.rows, &[0, 0]),
         };
@@ -6814,6 +6880,10 @@ impl CompiledPlot {
             scope.bounds.x += shift_x;
             scope.bounds.y += shift_y;
         }
+        for frame in widget_frames.frames.values_mut() {
+            frame.bounds.x += shift_x;
+            frame.bounds.y += shift_y;
+        }
         EvaluatedPlot {
             scene_graph,
             resource_requests: evaluated.resource_requests,
@@ -6821,6 +6891,7 @@ impl CompiledPlot {
             rtree: Some(rtree),
             interaction,
             event_datums,
+            widget_frames,
             prefetch_planners: evaluated.prefetch_planners,
         }
     }
