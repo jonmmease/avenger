@@ -13,6 +13,7 @@ use datafusion::arrow::{
     array::{Int64Array, RecordBatch},
     datatypes::{DataType, Field, Schema},
 };
+use datafusion::logical_expr::when;
 
 fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a [SceneMark]> {
     find_scene_group(marks, name).map(|group| group.marks.as_slice())
@@ -424,6 +425,37 @@ impl ChartWidget for DataFrameContractWidget {
             items: Some(WidgetItems::DataFrame {
                 data: self.data.clone(),
                 order_key: vec![col("value")],
+            }),
+            measure: WidgetMeasureSpec::fixed(40.0, 20.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+#[derive(Clone)]
+struct DataFrameValidationWidget {
+    data: datafusion::dataframe::DataFrame,
+    order_key: Expr,
+}
+
+impl ChartWidget for DataFrameValidationWidget {
+    fn id(&self) -> &str {
+        "validation-contract"
+    }
+
+    fn kind(&self) -> &'static str {
+        "validation-contract-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new(),
+            items: Some(WidgetItems::DataFrame {
+                data: self.data.clone(),
+                order_key: vec![self.order_key.clone()],
             }),
             measure: WidgetMeasureSpec::fixed(40.0, 20.0),
             presentation: WidgetPresentationBindings::default(),
@@ -941,6 +973,93 @@ async fn dataframe_widget_items_compile_total_order_projection() {
                 .is_ok()
         );
     }
+}
+
+#[tokio::test]
+async fn dataframe_widget_item_validation_rejects_invalid_keys_after_bincode() {
+    for (values, expected) in [
+        (vec![Some(1_i64), Some(1_i64)], "duplicate tuple"),
+        (vec![Some(1_i64), None], "contain NULL"),
+    ] {
+        let ctx = datafusion::prelude::SessionContext::new();
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![Field::new(
+                "value",
+                DataType::Int64,
+                true,
+            )])),
+            vec![Arc::new(Int64Array::from(values))],
+        )
+        .unwrap();
+        let data = ctx.read_batch(batch).unwrap();
+        let compiled = Chart::<Cartesian>::new()
+            .widget(DataFrameContractWidget { data }.position(ChromePosition::Left))
+            .compile(&ctx)
+            .await
+            .unwrap();
+        let decoded: avenger_chart::plot::CompiledPlot =
+            bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+
+        for candidate in [&compiled, &decoded] {
+            let error = match candidate.evaluate(&ctx, None).await {
+                Ok(_) => panic!("invalid total-order key must fail evaluation"),
+                Err(error) => error,
+            };
+            assert!(
+                matches!(&error, AvengerChartError::InvalidWidgetItems { widget_id, role, message }
+                    if widget_id == "data-contract"
+                        && role == "DataFrame total order key"
+                        && message.contains(expected)),
+                "unexpected error: {error}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn dataframe_widget_item_validation_rechecks_param_driven_revisions() {
+    let ctx = Arc::new(datafusion::prelude::SessionContext::new());
+    let collapse = Param::new("collapse_widget_order", false);
+    let data = ctx
+        .sql("SELECT * FROM (VALUES (1), (2)) AS t(value)")
+        .await
+        .unwrap();
+    let order_key = when(collapse.expr(), lit(0_i64))
+        .otherwise(col("value"))
+        .unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .param(collapse)
+        .widget(DataFrameValidationWidget { data, order_key }.position(ChromePosition::Left))
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let decoded: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+    let mut session = Arc::new(decoded).instantiate(ctx);
+
+    session
+        .evaluate(EvaluationRequest::new().exact())
+        .await
+        .expect("initial total key is valid");
+    let mut patch = indexmap::IndexMap::new();
+    patch.insert(
+        "collapse_widget_order".to_string(),
+        datafusion::common::ScalarValue::Boolean(Some(true)),
+    );
+    let error = match session
+        .evaluate(EvaluationRequest::new().exact().param_patch(patch))
+        .await
+    {
+        Ok(_) => panic!("changed revision must be revalidated"),
+        Err(error) => error,
+    };
+    assert!(matches!(
+        error,
+        AvengerChartError::InvalidWidgetItems { widget_id, role, message }
+            if widget_id == "validation-contract"
+                && role == "DataFrame total order key"
+                && message.contains("duplicate tuple")
+    ));
 }
 
 #[tokio::test]
