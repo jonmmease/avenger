@@ -706,12 +706,12 @@ impl Theme {
                         base_font_size,
                         resolving_variables,
                     )
-                } else if let Some(var_value) =
+                } else if let Some((var_value, source_context)) =
                     self.find_custom_property(context, &var_name, base_font_size)
                 {
                     self.resolve_theme_value(
                         var_value,
-                        context,
+                        &source_context,
                         base_font_size,
                         resolving_variables,
                     )
@@ -811,22 +811,34 @@ impl Theme {
         } else {
             self.get_base_font_size(&context.params)
         };
-        let value = if property.starts_with("--") {
-            self.find_custom_property(context, property, base_font_size)
+        let (value, source_context) = if property.starts_with("--") {
+            if let Some(value) = context
+                .params
+                .get(property)
+                .and_then(Self::scalar_to_theme_value)
+            {
+                (value, context.clone())
+            } else {
+                self.find_custom_property(context, property, base_font_size)?
+            }
         } else {
-            self.find_cascaded_declaration(context, property, base_font_size, RootRules::Include)
-                .or_else(|| {
-                    if self.inherited_properties.contains(property) {
-                        context
-                            .parent
-                            .as_deref()
-                            .and_then(|parent| self.query(parent, property))
-                    } else {
-                        None
-                    }
-                })
-        }?;
-        Some(self.resolve_theme_value(value, context, base_font_size, &mut Vec::new()))
+            if let Some(value) = self.find_cascaded_declaration(
+                context,
+                property,
+                base_font_size,
+                RootRules::Include,
+            ) {
+                (value, context.clone())
+            } else if self.inherited_properties.contains(property) {
+                return context
+                    .parent
+                    .as_deref()
+                    .and_then(|parent| self.query(parent, property));
+            } else {
+                return None;
+            }
+        };
+        Some(self.resolve_theme_value(value, &source_context, base_font_size, &mut Vec::new()))
     }
 
     fn find_custom_property(
@@ -834,8 +846,9 @@ impl Theme {
         context: &ThemeContext,
         property: &str,
         base_font_size: f32,
-    ) -> Option<ThemeValue> {
+    ) -> Option<(ThemeValue, ThemeContext)> {
         self.find_cascaded_declaration(context, property, base_font_size, RootRules::Exclude)
+            .map(|value| (value, context.clone()))
             .or_else(|| {
                 context.shadow_host.as_deref().and_then(|host| {
                     self.find_custom_property_inherited(host, property, base_font_size)
@@ -847,7 +860,9 @@ impl Theme {
                 })
             })
             .or_else(|| {
-                self.find_cascaded_declaration(context, property, base_font_size, RootRules::Only)
+                let root = ThemeContext::new(":root", context.params.clone());
+                self.find_cascaded_declaration(&root, property, base_font_size, RootRules::Only)
+                    .map(|value| (value, root))
             })
     }
 
@@ -856,8 +871,9 @@ impl Theme {
         context: &ThemeContext,
         property: &str,
         base_font_size: f32,
-    ) -> Option<ThemeValue> {
+    ) -> Option<(ThemeValue, ThemeContext)> {
         self.find_cascaded_declaration(context, property, base_font_size, RootRules::Exclude)
+            .map(|value| (value, context.clone()))
             .or_else(|| {
                 context.shadow_host.as_deref().and_then(|host| {
                     self.find_custom_property_inherited(host, property, base_font_size)
@@ -1869,6 +1885,21 @@ mod tests {
             theme.query(&child, "stroke"),
             Some(ThemeValue::Variable(name)) if name == "--cycle-a"
         ));
+    }
+
+    #[test]
+    fn inherited_nested_variables_resolve_at_their_declaration_host() {
+        let theme = Theme::from_css(
+            r#"
+                :root { --base: #0072b2; }
+                button#warning { --accent: var(--base); }
+                button::part(box) { fill: var(--accent); }
+                button#warning::part(box) { --base: #00cc00; }
+            "#,
+        )
+        .unwrap();
+        let context = widget_part_context("button", "warning", "box", IndexMap::new());
+        assert_color(theme.query_widget_part(&context, "fill"), (0, 114, 178));
     }
 
     #[test]
