@@ -20,6 +20,14 @@ Datashader-style rasterization:
    `RenderInvalidationHub` request so the host can rebuild and render the ready
    result.
 
+Two view coordinate contracts are serialized. `View::cartesian()` resolves
+its x/y domain and range parameters from configured positional scales.
+`View::pixel_frame()` is scale-free: x/y domains and ranges are
+`0..frame_width` and `0..frame_height` in logical pixels. The latter lets
+`PixelFrame` content, including composed widget parts, use the same view-local
+transform and materialization pipeline without synthesizing coordinate scales
+or guides.
+
 ## View Policy
 
 `ViewAsyncPolicy` stores one stale-result setting:

@@ -33,10 +33,11 @@ pub use avenger_chart_core::{
     AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChildPlotSizeSpec, CoordinationScope,
     CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, FormattingContext, IntoPlotMark,
     MarkGroup, MaterializationIdentity, MaterializationKey, MaterializationKind,
-    MaterializationOutputKind, MaterializationPolicy, MaterializationRequest, PixelFrame, PlotMark,
-    Selection, SelectionClauseUpdate, SelectionCombine, SelectionSceneQuery, SelectionUpdate,
-    Store, StoreData, StoreFieldPatch, StoreFieldRef, StoreKey, StoreRow, StoreUpdate, TimeContext,
-    View, ViewAsyncPolicy, ViewRef, ViewStalePolicy, WeekStart, ZeroDCoord,
+    MaterializationOutputKind, MaterializationPolicy, MaterializationRequest, PixelFrame,
+    PixelFrameView, PlotMark, Selection, SelectionClauseUpdate, SelectionCombine,
+    SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch, StoreFieldRef,
+    StoreKey, StoreRow, StoreUpdate, TimeContext, View, ViewAsyncPolicy, ViewRef, ViewStalePolicy,
+    WeekStart, ZeroDCoord,
 };
 pub use avenger_chart_core::{
     CanonicalJson, ChartWidget, ChartWidgetPlacementExt, ChromePosition, CompiledComposedWidget,

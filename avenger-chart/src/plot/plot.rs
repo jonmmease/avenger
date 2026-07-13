@@ -23,14 +23,15 @@ use avenger_chart_core::{
     AvengerChartError, Axis, AxisSpec, CanonicalJson, ChannelValue, ChartTool, ChartWidget,
     ChildPlotFurnishings, CompileContext, CompiledComposedWidget, CompiledDataContext,
     CompiledMark, CompiledMarkState, CompiledNativeWidgetSpec, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledSubplotChildPlot, CompiledWidget, CompiledWidgetAttachment,
-    CompiledWidgetItemPlan, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
-    DataContext, DomainCoordination, DomainCoordinationGroup, FormattingContext, IntoPlotMark,
-    Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState, NativeWidget, PixelFrame, PlotMark,
-    PlotMarkKind, PositionedChartWidget, PositionedNativeWidget, RepeatContext, RepeatVariable,
-    ScaleInferenceHint, SceneGeometryTarget, Selection, SelectionSceneQuery, SelectionUpdate,
-    Store, SubplotChildPlotSpec, Theme, TimeContext, WidgetAttachment, WidgetExpansionContext,
-    WidgetItemValidation, WidgetItems, WidgetPlacement, compile_selections, validate_structural_id,
+    CompiledSelectionSpec, CompiledSubplotChildPlot, CompiledViewSpec, CompiledWidget,
+    CompiledWidgetAttachment, CompiledWidgetItemPlan, CoordinateGuide, CoordinateSystem,
+    CoordinateSystemTransformCore, DataContext, DomainCoordination, DomainCoordinationGroup,
+    FormattingContext, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState,
+    NativeWidget, PixelFrame, PlotMark, PlotMarkKind, PositionedChartWidget,
+    PositionedNativeWidget, RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget,
+    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
+    TimeContext, WidgetAttachment, WidgetExpansionContext, WidgetItemValidation, WidgetItems,
+    WidgetPlacement, compile_selections, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -567,6 +568,14 @@ impl<C: CoordinateSystem> Plot<C> {
                         ))
                     })?;
                     validate_structural_id("widget part", part)?;
+                    if matches!(
+                        mark.state().view.as_ref().map(|view| &view.spec),
+                        Some(CompiledViewSpec::Cartesian(_))
+                    ) {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Widget '{id}' part '{part}' uses a Cartesian view; PixelFrame widget parts must use View::pixel_frame()"
+                        )));
+                    }
                     crate::plot::channel::extract_channel_configs_from_state(
                         mark.state(),
                         session_context,

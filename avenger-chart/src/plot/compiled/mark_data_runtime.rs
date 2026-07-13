@@ -1998,6 +1998,33 @@ fn resolved_view_params(
             );
             Ok(params)
         }
+        CompiledViewSpec::PixelFrame(_) => {
+            let view_ref = spec.view_ref();
+            let mut params = IndexMap::new();
+            for (axis, extent) in [(view_ref.x(), plot_width), (view_ref.y(), plot_height)] {
+                params.insert(
+                    axis.param_name("domain_start"),
+                    ScalarValue::Float64(Some(0.0)),
+                );
+                params.insert(
+                    axis.param_name("domain_end"),
+                    ScalarValue::Float64(Some(extent as f64)),
+                );
+                params.insert(
+                    axis.param_name("range_start"),
+                    ScalarValue::Float64(Some(0.0)),
+                );
+                params.insert(
+                    axis.param_name("range_end"),
+                    ScalarValue::Float64(Some(extent as f64)),
+                );
+                params.insert(
+                    axis.param_name("pixels"),
+                    ScalarValue::UInt32(Some(rounded_pixel_count(extent))),
+                );
+            }
+            Ok(params)
+        }
     }
 }
 

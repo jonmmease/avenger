@@ -361,8 +361,9 @@ pub use transform::{
 };
 pub use unit_aspect::CartesianUnitAspect;
 pub use view::{
-    CartesianView, CompiledCartesianViewSpec, CompiledViewScope, CompiledViewSpec, View,
-    ViewAsyncPolicy, ViewRef, ViewScopeState, ViewSpec, ViewStalePolicy,
+    CartesianView, CompiledCartesianViewSpec, CompiledPixelFrameViewSpec, CompiledViewScope,
+    CompiledViewSpec, PixelFrameView, View, ViewAsyncPolicy, ViewRef, ViewScopeState, ViewSpec,
+    ViewStalePolicy,
 };
 pub use widget::*;
 pub use zero_d::ZeroDCoord;

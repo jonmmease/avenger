@@ -70,6 +70,7 @@ fn view_domain_sources(
                 },
             ])
         }
+        CompiledViewSpec::PixelFrame(_) => Ok(Vec::new()),
     }
 }
 

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use datafusion::{logical_expr::Expr, scalar::ScalarValue};
 use datafusion_proto::protobuf::LogicalExprNode;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
@@ -48,6 +48,13 @@ pub struct View;
 impl View {
     pub fn cartesian() -> CartesianView {
         CartesianView::default()
+    }
+
+    /// A scale-free view whose x/y domains and ranges are the rendered frame
+    /// in logical pixels. This is the view scope for [`crate::PixelFrame`]
+    /// marks such as composed widget parts.
+    pub fn pixel_frame() -> PixelFrameView {
+        PixelFrameView::default()
     }
 }
 
@@ -130,23 +137,151 @@ impl ViewSpec for CartesianView {
     }
 }
 
+/// Scale-free view authoring builder for logical-pixel frames.
+#[derive(Clone, Debug, Default)]
+pub struct PixelFrameView {
+    id: Option<String>,
+    policy: ViewAsyncPolicy,
+}
+
+impl PixelFrameView {
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn preview_cached(mut self, preview_cached: bool) -> Self {
+        self.policy.stale_policy = if preview_cached {
+            ViewStalePolicy::RetargetCached
+        } else {
+            ViewStalePolicy::HideUntilReady
+        };
+        self
+    }
+
+    pub fn stale_policy(mut self, stale_policy: ViewStalePolicy) -> Self {
+        self.policy.stale_policy = stale_policy;
+        self
+    }
+
+    pub fn throttle(mut self, throttle: Duration) -> Self {
+        self.policy.throttle = Some(throttle);
+        self
+    }
+
+    pub fn debounce(mut self, debounce: Duration) -> Self {
+        self.policy.debounce = Some(debounce);
+        self
+    }
+}
+
+impl ViewSpec for PixelFrameView {
+    fn into_compiled_and_ref(self) -> Result<(CompiledViewSpec, ViewRef), AvengerChartError> {
+        let id = self.id.ok_or_else(|| {
+            AvengerChartError::InvalidArgument("Pixel-frame view requires an id".to_string())
+        })?;
+        validate_structural_id("view", &id)?;
+        let spec = CompiledViewSpec::PixelFrame(CompiledPixelFrameViewSpec {
+            id: id.clone(),
+            policy: self.policy,
+        });
+        Ok((spec, ViewRef { id }))
+    }
+}
+
 /// Serialized/compiled view specification.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[derive(Clone, Debug, PartialEq)]
 pub enum CompiledViewSpec {
     Cartesian(CompiledCartesianViewSpec),
+    PixelFrame(CompiledPixelFrameViewSpec),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum HumanReadableCompiledViewSpecRef<'a> {
+    Cartesian(&'a CompiledCartesianViewSpec),
+    PixelFrame(&'a CompiledPixelFrameViewSpec),
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum HumanReadableCompiledViewSpec {
+    Cartesian(CompiledCartesianViewSpec),
+    PixelFrame(CompiledPixelFrameViewSpec),
+}
+
+#[derive(Serialize)]
+enum BinaryCompiledViewSpecRef<'a> {
+    Cartesian(&'a CompiledCartesianViewSpec),
+    PixelFrame(&'a CompiledPixelFrameViewSpec),
+}
+
+#[derive(Deserialize)]
+enum BinaryCompiledViewSpec {
+    Cartesian(CompiledCartesianViewSpec),
+    PixelFrame(CompiledPixelFrameViewSpec),
+}
+
+impl Serialize for CompiledViewSpec {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            match self {
+                Self::Cartesian(spec) => {
+                    HumanReadableCompiledViewSpecRef::Cartesian(spec).serialize(serializer)
+                }
+                Self::PixelFrame(spec) => {
+                    HumanReadableCompiledViewSpecRef::PixelFrame(spec).serialize(serializer)
+                }
+            }
+        } else {
+            match self {
+                Self::Cartesian(spec) => {
+                    BinaryCompiledViewSpecRef::Cartesian(spec).serialize(serializer)
+                }
+                Self::PixelFrame(spec) => {
+                    BinaryCompiledViewSpecRef::PixelFrame(spec).serialize(serializer)
+                }
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CompiledViewSpec {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            Ok(
+                match HumanReadableCompiledViewSpec::deserialize(deserializer)? {
+                    HumanReadableCompiledViewSpec::Cartesian(spec) => Self::Cartesian(spec),
+                    HumanReadableCompiledViewSpec::PixelFrame(spec) => Self::PixelFrame(spec),
+                },
+            )
+        } else {
+            Ok(match BinaryCompiledViewSpec::deserialize(deserializer)? {
+                BinaryCompiledViewSpec::Cartesian(spec) => Self::Cartesian(spec),
+                BinaryCompiledViewSpec::PixelFrame(spec) => Self::PixelFrame(spec),
+            })
+        }
+    }
 }
 
 impl CompiledViewSpec {
     pub fn id(&self) -> &str {
         match self {
             Self::Cartesian(spec) => &spec.id,
+            Self::PixelFrame(spec) => &spec.id,
         }
     }
 
     pub fn policy(&self) -> &ViewAsyncPolicy {
         match self {
             Self::Cartesian(spec) => &spec.policy,
+            Self::PixelFrame(spec) => &spec.policy,
         }
     }
 
@@ -159,8 +294,16 @@ impl CompiledViewSpec {
     pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
         match self {
             Self::Cartesian(spec) => Ok(Self::Cartesian(spec.resolve_repeat(ctx)?)),
+            Self::PixelFrame(spec) => Ok(Self::PixelFrame(spec.clone())),
         }
     }
+}
+
+/// Serialized scale-free view for a logical-pixel frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompiledPixelFrameViewSpec {
+    pub id: String,
+    pub policy: ViewAsyncPolicy,
 }
 
 /// Serialized/compiled Cartesian view specification.
@@ -431,6 +574,22 @@ mod tests {
     }
 
     #[test]
+    fn pixel_frame_view_is_scale_free_and_binary_stable() {
+        let (spec, view_ref) = View::pixel_frame()
+            .id("widget_part")
+            .preview_cached(true)
+            .into_compiled_and_ref()
+            .expect("compile pixel-frame view");
+        assert_eq!(view_ref.id(), "widget_part");
+        assert!(matches!(spec, CompiledViewSpec::PixelFrame(_)));
+        assert_eq!(spec.policy().stale_policy, ViewStalePolicy::RetargetCached);
+
+        let decoded: CompiledViewSpec =
+            bincode::deserialize(&bincode::serialize(&spec).unwrap()).unwrap();
+        assert_eq!(decoded, spec);
+    }
+
+    #[test]
     fn preview_cached_sets_stale_policy_sugar() {
         let base = View::cartesian()
             .id("density")
@@ -467,6 +626,7 @@ mod tests {
             .expect("compile view");
 
         let json = serde_json::to_string(&spec).expect("serialize view spec");
+        assert!(json.contains("\"kind\":\"cartesian\""));
         assert!(json.contains("stale_policy"));
         assert!(!json.contains("preview_cached"));
 
@@ -476,6 +636,11 @@ mod tests {
             roundtrip.policy().stale_policy,
             ViewStalePolicy::RetargetCached
         );
+
+        let binary = bincode::serialize(&spec).expect("serialize binary view spec");
+        let binary_roundtrip: CompiledViewSpec =
+            bincode::deserialize(&binary).expect("deserialize binary view spec");
+        assert_eq!(binary_roundtrip, spec);
     }
 
     #[test]
@@ -563,7 +728,9 @@ mod tests {
             .resolve_repeat(&repeat_context)
             .expect("resolve repeat");
         let view = resolved.view.expect("resolved view");
-        let CompiledViewSpec::Cartesian(spec) = view.spec;
+        let CompiledViewSpec::Cartesian(spec) = view.spec else {
+            panic!("expected Cartesian view")
+        };
         let session_context = datafusion::prelude::SessionContext::new();
 
         match spec

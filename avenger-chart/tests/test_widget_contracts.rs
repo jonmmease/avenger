@@ -306,6 +306,16 @@ struct ExplicitPartDataWidget {
 }
 
 #[derive(Clone)]
+struct MaterializedPartWidget {
+    data: DataFrame,
+}
+
+#[derive(Clone)]
+struct CartesianViewPartWidget {
+    data: DataFrame,
+}
+
+#[derive(Clone)]
 struct EnvironmentContractWidget {
     data: DataFrame,
 }
@@ -488,6 +498,82 @@ impl ChartWidget for ExplicitPartDataWidget {
             ),
             items: None,
             measure: WidgetMeasureSpec::fixed(40.0, 24.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+impl ChartWidget for MaterializedPartWidget {
+    fn id(&self) -> &str {
+        "materialized-part"
+    }
+
+    fn kind(&self) -> &'static str {
+        "materialized-part-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Symbol::<PixelFrame>::new()
+                    .id("dot")
+                    .data(self.data.clone())
+                    .view(
+                        View::pixel_frame()
+                            .id("materialized-part-view")
+                            .preview_cached(true),
+                        |mark, view| {
+                            mark.transform(
+                                ScalarAggregate::new().count("item_count"),
+                                move |mark, stats| {
+                                    mark.x(view.x().domain_end() / lit(2.0))
+                                        .y(12.0)
+                                        .size_with(stats.scalar("item_count") * lit(8.0), |size| {
+                                            size.no_scale()
+                                        })
+                                },
+                            )
+                        },
+                    ),
+            ),
+            items: None,
+            measure: WidgetMeasureSpec::fixed(24.0, 24.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+impl ChartWidget for CartesianViewPartWidget {
+    fn id(&self) -> &str {
+        "cartesian-view-part"
+    }
+
+    fn kind(&self) -> &'static str {
+        "cartesian-view-part-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Symbol::<PixelFrame>::new()
+                    .id("dot")
+                    .data(self.data.clone())
+                    .view(
+                        View::cartesian()
+                            .id("wrong-view-kind")
+                            .x_domain(col("x"))
+                            .y_domain(col("x")),
+                        |mark, _view| mark.x(12.0).y(12.0).size(16.0),
+                    ),
+            ),
+            items: None,
+            measure: WidgetMeasureSpec::fixed(24.0, 24.0),
             presentation: WidgetPresentationBindings::default(),
         })
     }
@@ -945,6 +1031,57 @@ async fn widget_part_data_bakes_and_evaluates_without_source_table() {
     )
     .unwrap();
     assert_eq!(dot.x.as_vec(2, None), vec![8.0, 24.0]);
+}
+
+#[tokio::test]
+async fn widget_part_view_emits_materialization_requests_after_bincode() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let data = ctx
+        .sql("SELECT * FROM (VALUES (1.0), (2.0), (3.0)) AS t(x)")
+        .await
+        .unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .widget(MaterializedPartWidget { data }.position(ChromePosition::Left))
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let decoded: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+    let mut options = EvaluationOptions::default();
+    options.materialization_priority = -1.0;
+    let (evaluated, metrics) = decoded
+        .evaluate_with_options_and_metrics(&ctx, None, options)
+        .await
+        .unwrap();
+    assert!(metrics.pipeline.materialization_requests_emitted > 0);
+    assert!(!evaluated.materialization_requests.is_empty());
+    let dot = find_symbol(
+        find_group(&evaluated.scene_graph.marks, "materialized-part").unwrap(),
+        "dot",
+    )
+    .unwrap();
+    assert_eq!(dot.x.as_vec(3, None), vec![12.0, 12.0, 12.0]);
+    assert_eq!(dot.size.as_vec(3, None), vec![24.0, 24.0, 24.0]);
+}
+
+#[tokio::test]
+async fn widget_part_rejects_cartesian_view_scope_at_compile_time() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let data = ctx
+        .sql("SELECT * FROM (VALUES (1.0), (2.0)) AS t(x)")
+        .await
+        .unwrap();
+    let result = Chart::<Cartesian>::new()
+        .widget(CartesianViewPartWidget { data }.position(ChromePosition::Left))
+        .compile(&ctx)
+        .await;
+    let error = match result {
+        Ok(_) => panic!("Cartesian widget-part view should fail compilation"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(message.contains("cartesian-view-part"), "{message}");
+    assert!(message.contains("View::pixel_frame()"), "{message}");
 }
 
 #[tokio::test]
