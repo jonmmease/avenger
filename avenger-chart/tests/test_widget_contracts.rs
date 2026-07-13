@@ -10,10 +10,11 @@ use avenger_chart::{
 };
 use avenger_scenegraph::marks::mark::SceneMark;
 use datafusion::arrow::{
-    array::{Int64Array, RecordBatch},
+    array::{Int64Array, RecordBatch, StringArray},
     datatypes::{DataType, Field, Schema},
 };
-use datafusion::logical_expr::when;
+use datafusion::functions::expr_fn::concat;
+use datafusion::logical_expr::{Expr, when};
 
 fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a [SceneMark]> {
     find_scene_group(marks, name).map(|group| group.marks.as_slice())
@@ -457,6 +458,44 @@ impl ChartWidget for DataFrameValidationWidget {
                 data: self.data.clone(),
                 order_key: vec![self.order_key.clone()],
             }),
+            measure: WidgetMeasureSpec::fixed(40.0, 20.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+#[derive(Clone)]
+struct CanonicalItemsWidget {
+    data: datafusion::dataframe::DataFrame,
+    value: Expr,
+    label: Expr,
+}
+
+impl ChartWidget for CanonicalItemsWidget {
+    fn id(&self) -> &str {
+        "canonical-items"
+    }
+
+    fn kind(&self) -> &'static str {
+        "canonical-items-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        let items = WidgetItems::DataFrame {
+            data: self.data.clone(),
+            order_key: vec![col("sort_key")],
+        }
+        .project(self.value.clone(), self.label.clone())
+        .validate(WidgetItemValidation::NonNullUnique {
+            columns: vec!["__value".to_string()],
+            role: "canonical value".to_string(),
+        });
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new(),
+            items: Some(items),
             measure: WidgetMeasureSpec::fixed(40.0, 20.0),
             presentation: WidgetPresentationBindings::default(),
         })
@@ -1060,6 +1099,141 @@ async fn dataframe_widget_item_validation_rechecks_param_driven_revisions() {
                 && role == "DataFrame total order key"
                 && message.contains("duplicate tuple")
     ));
+}
+
+#[tokio::test]
+async fn configured_widget_items_project_canonical_columns_after_bincode() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("sort_key", DataType::Int64, false),
+            Field::new("raw_value", DataType::Int64, false),
+            Field::new("raw_label", DataType::Utf8, false),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![2_i64, 1_i64])),
+            Arc::new(Int64Array::from(vec![20_i64, 10_i64])),
+            Arc::new(StringArray::from(vec!["twenty", "ten"])),
+        ],
+    )
+    .unwrap();
+    let data = ctx.read_batch(batch).unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .widget(
+            CanonicalItemsWidget {
+                data,
+                value: col("raw_value"),
+                label: concat(vec![col("raw_label"), lit("!")]),
+            }
+            .position(ChromePosition::Left),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let decoded: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+
+    for candidate in [&compiled, &decoded] {
+        let CompiledWidget::Composed(widget) = &candidate.widgets()[0].widget else {
+            panic!("expected composed widget")
+        };
+        let items = widget.items.as_ref().expect("compiled canonical items");
+        assert!(items.validations.iter().any(|validation| matches!(
+            validation,
+            WidgetItemValidation::NonNullUnique { columns, role }
+                if columns.len() == 1
+                    && columns[0] == "__value"
+                    && role == "canonical value"
+        )));
+        let dataframe = items
+            .data
+            .dataframe_with_context(&ctx)
+            .expect("canonical item dataframe")
+            .sort(vec![col("__order").sort(true, false)])
+            .unwrap();
+        let batches = dataframe.collect().await.unwrap();
+        assert_eq!(batches.len(), 1);
+        let batch = &batches[0];
+        let values = batch
+            .column_by_name("__value")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<Int64Array>()
+            .unwrap();
+        let labels = batch
+            .column_by_name("__label")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .unwrap();
+        let indexes = batch
+            .column_by_name("__idx")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<datafusion::arrow::array::UInt64Array>()
+            .unwrap();
+        assert_eq!(values.values(), &[10_i64, 20_i64]);
+        assert_eq!(labels.value(0), "ten!");
+        assert_eq!(labels.value(1), "twenty!");
+        assert_eq!(indexes.values(), &[0_u64, 1_u64]);
+    }
+}
+
+#[tokio::test]
+async fn configured_widget_items_replace_canonical_columns_atomically() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![
+            Field::new("sort_key", DataType::Int64, false),
+            Field::new("__value", DataType::Utf8, false),
+            Field::new("__label", DataType::Utf8, false),
+        ])),
+        vec![
+            Arc::new(Int64Array::from(vec![1_i64])),
+            Arc::new(StringArray::from(vec!["source-value"])),
+            Arc::new(StringArray::from(vec!["source-label"])),
+        ],
+    )
+    .unwrap();
+    let data = ctx.read_batch(batch).unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .widget(
+            CanonicalItemsWidget {
+                data,
+                value: col("__label"),
+                label: col("__value"),
+            }
+            .position(ChromePosition::Left),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let CompiledWidget::Composed(widget) = &compiled.widgets()[0].widget else {
+        panic!("expected composed widget")
+    };
+    let dataframe = widget
+        .items
+        .as_ref()
+        .expect("compiled canonical items")
+        .data
+        .dataframe_with_context(&ctx)
+        .expect("canonical item dataframe");
+    let batches = dataframe.collect().await.unwrap();
+    let batch = &batches[0];
+    let values = batch
+        .column_by_name("__value")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let labels = batch
+        .column_by_name("__label")
+        .unwrap()
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    assert_eq!(values.value(0), "source-label");
+    assert_eq!(labels.value(0), "source-value");
 }
 
 #[tokio::test]

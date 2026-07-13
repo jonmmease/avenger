@@ -163,6 +163,63 @@ pub enum WidgetItems {
         data: DataFrame,
         order_key: Vec<Expr>,
     },
+    Configured {
+        source: Box<WidgetItems>,
+        value: Option<Expr>,
+        label: Option<Expr>,
+        validations: Vec<WidgetItemValidation>,
+    },
+}
+
+impl WidgetItems {
+    /// Project author-facing item expressions to the canonical columns used
+    /// by data-encoded widget marks, measurement, validation, and event data.
+    pub fn project(self, value: impl IntoExpr, label: impl IntoExpr) -> Self {
+        match self {
+            Self::Configured {
+                source,
+                validations,
+                ..
+            } => Self::Configured {
+                source,
+                value: Some(value.into_expr()),
+                label: Some(label.into_expr()),
+                validations,
+            },
+            source => Self::Configured {
+                source: Box::new(source),
+                value: Some(value.into_expr()),
+                label: Some(label.into_expr()),
+                validations: Vec::new(),
+            },
+        }
+    }
+
+    /// Attach a serialized validation to the prepared item relation.
+    pub fn validate(self, validation: WidgetItemValidation) -> Self {
+        match self {
+            Self::Configured {
+                source,
+                value,
+                label,
+                mut validations,
+            } => {
+                validations.push(validation);
+                Self::Configured {
+                    source,
+                    value,
+                    label,
+                    validations,
+                }
+            }
+            source => Self::Configured {
+                source: Box::new(source),
+                value: None,
+                label: None,
+                validations: vec![validation],
+            },
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

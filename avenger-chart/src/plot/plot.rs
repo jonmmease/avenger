@@ -115,8 +115,46 @@ fn compile_widget_items(
 ) -> Result<CompiledWidgetItemPlan, AvengerChartError> {
     const ORDER: &str = "__order";
     const INDEX: &str = "__idx";
+    const VALUE: &str = "__value";
+    const LABEL: &str = "__label";
 
-    let (data, validations) = match items {
+    let mut source = items;
+    let mut value_projection = None;
+    let mut label_projection = None;
+    let mut configured_validations = Vec::new();
+    loop {
+        match source {
+            WidgetItems::Configured {
+                source: inner,
+                value,
+                label,
+                validations,
+            } => {
+                if (value_projection.is_some() && value.is_some())
+                    || (label_projection.is_some() && label.is_some())
+                {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Widget '{widget_id}' item source has more than one canonical projection"
+                    )));
+                }
+                value_projection = value_projection.or(value);
+                label_projection = label_projection.or(label);
+                configured_validations.extend(validations);
+                source = *inner;
+            }
+            base => {
+                source = base;
+                break;
+            }
+        }
+    }
+    if value_projection.is_some() != label_projection.is_some() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Widget '{widget_id}' item source must project both canonical value and label columns"
+        )));
+    }
+
+    let (mut data, mut validations) = match source {
         WidgetItems::Static(rows) => {
             let names = rows
                 .first()
@@ -153,13 +191,11 @@ fn compile_widget_items(
             }
             let order = Arc::new(UInt64Array::from_iter_values(0..rows.len() as u64)) as ArrayRef;
             fields.push(Field::new(ORDER, order.data_type().clone(), false));
-            arrays.push(order.clone());
-            fields.push(Field::new(INDEX, order.data_type().clone(), false));
             arrays.push(order);
             let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;
             let dataframe = session_context.read_batch(batch)?;
             (
-                CompiledDataContext::new(Some(dataframe), Vec::new(), IndexMap::new()),
+                dataframe,
                 vec![WidgetItemValidation::NonNullUnique {
                     columns: vec![ORDER.to_string()],
                     role: "static declaration order".to_string(),
@@ -215,19 +251,38 @@ fn compile_widget_items(
                 .map(|name| col(name).sort(true, false))
                 .collect();
             data = data.with_column(ORDER, row_number_expr)?;
-            data = data.with_column(INDEX, col(ORDER) - lit(1_u64))?;
             (
-                CompiledDataContext::new(Some(data), Vec::new(), IndexMap::new()),
+                data,
                 vec![WidgetItemValidation::NonNullUnique {
                     columns: key_columns,
                     role: "DataFrame total order key".to_string(),
                 }],
             )
         }
+        WidgetItems::Configured { .. } => unreachable!("configured widget items were unwrapped"),
     };
 
+    if let (Some(value), Some(label)) = (value_projection, label_projection) {
+        // Evaluate both author expressions against the same input schema. Two
+        // sequential `with_column` calls would let the label expression observe
+        // a newly replaced `__value` (or vice versa) instead of the source
+        // column, violating the canonical projection boundary.
+        let mut projection = data
+            .schema()
+            .columns()
+            .into_iter()
+            .filter(|column| column.name != VALUE && column.name != LABEL)
+            .map(datafusion::logical_expr::Expr::Column)
+            .collect::<Vec<_>>();
+        projection.push(value.alias(VALUE));
+        projection.push(label.alias(LABEL));
+        data = data.select(projection)?;
+    }
+    data = data.with_column(INDEX, col(ORDER) - lit(1_u64))?;
+    validations.extend(configured_validations);
+
     Ok(CompiledWidgetItemPlan {
-        data,
+        data: CompiledDataContext::new(Some(data), Vec::new(), IndexMap::new()),
         order_column: ORDER.to_string(),
         validations,
     })
