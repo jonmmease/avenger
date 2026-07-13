@@ -140,6 +140,9 @@ pub struct ChartEventParamAssignment {
     pub scope: ChartEventAssignmentScope,
     #[serde(default)]
     pub replace_scoped_values: bool,
+    /// Treat a null/degenerate result as an assignment error instead of a no-op.
+    #[serde(default)]
+    pub reject_null: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -554,6 +557,22 @@ impl ChartEventBinding {
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Current,
             replace_scoped_values: false,
+            reject_null: false,
+        });
+        self
+    }
+
+    /// Assign a parameter and reject a null/degenerate expression result.
+    ///
+    /// This supports checked arithmetic and other assignments where null is a
+    /// domain error rather than an absent routed interaction value.
+    pub fn set_param_required(mut self, param: impl IntoParamName, expr: impl IntoExpr) -> Self {
+        self.assignments.push(ChartEventParamAssignment {
+            param_name: param.into_param_name(),
+            expr: expr_node(expr.into_expr(), "required event param assignment"),
+            scope: ChartEventAssignmentScope::Current,
+            replace_scoped_values: false,
+            reject_null: true,
         });
         self
     }
@@ -568,6 +587,7 @@ impl ChartEventBinding {
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Current,
             replace_scoped_values: true,
+            reject_null: false,
         });
         self
     }
@@ -582,6 +602,7 @@ impl ChartEventBinding {
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Start,
             replace_scoped_values: false,
+            reject_null: false,
         });
         self
     }
@@ -596,6 +617,7 @@ impl ChartEventBinding {
             expr: expr_node(expr.into_expr(), "event param assignment"),
             scope: ChartEventAssignmentScope::Start,
             replace_scoped_values: true,
+            reject_null: false,
         });
         self
     }
@@ -768,6 +790,7 @@ impl ChartEventBinding {
                     expr: map_expr_node(assignment.expr, f, "event param assignment")?,
                     scope: assignment.scope,
                     replace_scoped_values: assignment.replace_scoped_values,
+                    reject_null: assignment.reject_null,
                 })
             })
             .collect::<Result<_, AvengerChartError>>()?;
@@ -1978,7 +2001,7 @@ mod tests {
             )
             .event_path_min_distance_px(6.0)
             .filter(shift().eq(lit(false)))
-            .set_param("x0", start_param("x0") + dx())
+            .set_param_required("x0", start_param("x0") + dx())
             .preview()
             .settle_exact();
 
@@ -1986,6 +2009,7 @@ mod tests {
         let restored: ChartEventBinding = serde_json::from_str(&json).expect("deserialize binding");
         assert_eq!(restored.event_type, ChartEventType::CursorMoved);
         assert_eq!(restored.assignments.len(), 1);
+        assert!(restored.assignments[0].reject_null);
         assert!(restored.settle_exact);
         assert_eq!(restored.event_path_min_distance_px, Some(6.0));
     }

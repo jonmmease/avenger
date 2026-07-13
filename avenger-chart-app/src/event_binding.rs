@@ -189,6 +189,7 @@ struct CompiledParamAssignment {
     default_value: ScalarValue,
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
+    reject_null: bool,
 }
 
 #[derive(Clone)]
@@ -612,6 +613,7 @@ impl CompiledChartEventBinding {
                 expr,
                 assignment.scope,
                 assignment.replace_scoped_values,
+                assignment.reject_null,
             ));
         }
         let mut store_exprs = Vec::new();
@@ -641,7 +643,11 @@ impl CompiledChartEventBinding {
         }
 
         let mut scan_exprs = filter_exprs.clone();
-        scan_exprs.extend(assignment_exprs.iter().map(|(_, expr, _, _)| expr.clone()));
+        scan_exprs.extend(
+            assignment_exprs
+                .iter()
+                .map(|(_, expr, _, _, _)| expr.clone()),
+        );
         for assignment in &store_exprs {
             scan_exprs.extend(store_expression_update_exprs(&assignment.update));
         }
@@ -704,7 +710,7 @@ impl CompiledChartEventBinding {
         }
         let filter_count = specs.len();
         let mut assignments = Vec::new();
-        for (param_name, expr, scope, replace_scoped_values) in assignment_exprs {
+        for (param_name, expr, scope, replace_scoped_values, reject_null) in assignment_exprs {
             let spec = param_specs
                 .get(&param_name)
                 .expect("assignment param validated");
@@ -721,6 +727,7 @@ impl CompiledChartEventBinding {
                 default_value: spec.default.clone(),
                 scope,
                 replace_scoped_values,
+                reject_null,
             });
         }
         let mut store_assignments = Vec::new();
@@ -2081,6 +2088,17 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             // would corrupt the target param, so treat it as a no-op unless the
             // binding intentionally writes the target's list-shaped default.
             if !assignment_value_is_writable(value, &assignment.default_value) {
+                if assignment.reject_null {
+                    app.event_metrics.evaluation_errors += 1;
+                    record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                    tracing::warn!(
+                        target: "avenger_chart_app::event_binding",
+                        binding = self.runtime.binding_index,
+                        param = %assignment.param_name,
+                        "required chart event assignment evaluated to null or a degenerate value"
+                    );
+                    return UpdateStatus::default();
+                }
                 tracing::debug!(
                     target: "avenger_chart_app::event_binding",
                     binding = self.runtime.binding_index,
@@ -4582,7 +4600,7 @@ mod tests {
         TreemapPadding,
         event::{self as treemap_event, HIERARCHY_PATH_ID_FIELD},
     };
-    use avenger_chart_widgets::Checkbox;
+    use avenger_chart_widgets::{Button, Checkbox};
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -8365,6 +8383,140 @@ mod tests {
             checked_rtree
                 .iter()
                 .any(|geometry| geometry.mark_instance.name == "check")
+        );
+    }
+
+    #[tokio::test]
+    async fn button_box_and_label_clicks_count_once_and_overflow_is_rejected() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .widget(
+                Button::new("clear")
+                    .label("Clear")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile button chart");
+        let click_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| binding.event_type == ChartEventType::Click)
+            .expect("button click binding");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, click_index);
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("button streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial button scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let box_instance = rtree
+            .iter()
+            .find(|geometry| geometry.mark_instance.name == "box")
+            .map(|geometry| geometry.mark_instance.clone())
+            .expect("button box hit target");
+        let label_instance = rtree
+            .iter()
+            .find(|geometry| geometry.mark_instance.name == "label")
+            .map(|geometry| geometry.mark_instance.clone())
+            .expect("button label hit target");
+        assert!(
+            rtree
+                .iter()
+                .all(|geometry| geometry.mark_instance.name != "focus-ring")
+        );
+
+        let first = click_mark(
+            &mut state,
+            &handler,
+            Some(box_instance.clone()),
+            [0.0, 0.0],
+            false,
+        )
+        .await;
+        assert!(first.rerender);
+        assert_eq!(
+            state.params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(1)))
+        );
+
+        let second = click_mark(
+            &mut state,
+            &handler,
+            Some(label_instance),
+            [0.0, 0.0],
+            false,
+        )
+        .await;
+        assert!(second.rerender);
+        assert_eq!(
+            state.params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(2)))
+        );
+
+        let mut manager = EventStreamManager::new(state);
+        for (config, stream_handler) in streams {
+            manager.register_handler(config, stream_handler);
+        }
+        let instant = Instant::now();
+        let miss_position = [-10_000.0, -10_000.0];
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: miss_position,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        let miss = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(10),
+            )
+            .await;
+        assert!(!miss.rerender);
+        assert_eq!(
+            manager.state().params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(2)))
+        );
+
+        manager.state().set_param("clear__activations", u64::MAX);
+        let before_errors = manager.state().event_metrics().await.evaluation_errors;
+        let overflow = click_mark(
+            manager.state_mut(),
+            &handler,
+            Some(box_instance),
+            [0.0, 0.0],
+            false,
+        )
+        .await;
+        assert!(!overflow.rerender);
+        assert_eq!(
+            manager.state().params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(u64::MAX)))
+        );
+        assert_eq!(
+            manager.state().event_metrics().await.evaluation_errors,
+            before_errors + 1
         );
     }
 

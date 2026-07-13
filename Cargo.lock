@@ -1001,6 +1001,7 @@ dependencies = [
  "avenger-chart-core",
  "avenger-chart-marks",
  "avenger-chart-transforms",
+ "avenger-color",
  "avenger-common",
  "avenger-format-number",
  "avenger-scenegraph",

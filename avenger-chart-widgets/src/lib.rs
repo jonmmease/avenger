@@ -14,4 +14,5 @@ pub mod slider;
 pub mod style;
 pub mod text_input;
 
+pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
