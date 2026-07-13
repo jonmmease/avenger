@@ -1,16 +1,23 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use avenger_chart::{
     channel::LegendableChannel,
     marks::symbol::Symbol,
-    plot::{Chart, CompiledPlot},
-    prelude::{ChartWidgetPlacementExt, ChromePosition, LegendPosition, Theme},
+    plot::{Chart, CompiledPlot, EvaluationRequest, SelectionAssignment, SelectionStateUpdate},
+    prelude::{
+        ChartWidgetPlacementExt, ChromePosition, LegendPosition, Theme, WidgetItemRow, WidgetItems,
+    },
     zerod::ZeroDCoord,
 };
-use avenger_chart_widgets::{Button, ButtonVariant, Checkbox};
+use avenger_chart_core::{
+    CoordinationScope, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
+    SelectionEqualityDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
+};
+use avenger_chart_widgets::{Button, ButtonVariant, Checkbox, CheckboxList};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -107,6 +114,51 @@ async fn button_baselines() {
             &compiled,
             &ctx,
             &format!("button/clear_selection_button_{scheme}"),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn checkbox_list_baselines() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        let ctx = SessionContext::new();
+        let items = ["North", "South", "West"]
+            .into_iter()
+            .map(|region| {
+                WidgetItemRow::new([
+                    (
+                        "value".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some(region.to_lowercase())),
+                    ),
+                    (
+                        "label".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some(region.to_string())),
+                    ),
+                ])
+            })
+            .collect();
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(320.0, 180.0)
+            .plot_size(128.0, 96.0)
+            .mark(Symbol::new().size(196.0).fill("#0072B2"))
+            .widget(
+                CheckboxList::new("regions", WidgetItems::Static(items))
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile checkbox-list baseline");
+        assert_compiled_visual_match(
+            &compiled,
+            &ctx,
+            &format!("checkbox-list/checkbox_list_{scheme}"),
+        )
+        .await;
+        assert_checkbox_list_selected_visual_match(
+            &compiled,
+            &format!("checkbox-list/checkbox_list_selected_{scheme}"),
         )
         .await;
     }
@@ -230,6 +282,50 @@ async fn assert_compiled_visual_match(compiled: &CompiledPlot, ctx: &SessionCont
         .evaluate(ctx, None)
         .await
         .expect("evaluate widget baseline");
+    let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
+    assert_visual_match(name, &image);
+}
+
+async fn assert_checkbox_list_selected_visual_match(compiled: &CompiledPlot, name: &str) {
+    let encoded = bincode::serialize(compiled).expect("serialize selected checkbox-list baseline");
+    let decoded: CompiledPlot =
+        bincode::deserialize(&encoded).expect("deserialize selected checkbox-list baseline");
+    let ctx = Arc::new(SessionContext::new());
+    let mut session = Arc::new(decoded).instantiate(ctx);
+    let field_expr = match SelectionClauseUpdate::equality("seed")
+        .dimension(col("value"), "south")
+        .build()
+        .predicate
+    {
+        SelectionPredicateUpdate::Equality { mut dimensions } => dimensions.remove(0).field_expr,
+        _ => unreachable!("equality builder produced another predicate"),
+    };
+    session
+        .apply_selection_patch(vec![SelectionAssignment {
+            selection_id: "regions__selection".to_string(),
+            update: SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![SelectionClause {
+                    id: "external-south".to_string(),
+                    scope: ResolvedSelectionClauseScope {
+                        sharing: CoordinationScope::Free,
+                        owner_path: Vec::new(),
+                    },
+                    predicate: SelectionPredicateSpec::Equality {
+                        dimensions: vec![SelectionEqualityDimensionValue {
+                            id: "value".to_string(),
+                            field_expr,
+                            value: datafusion::common::ScalarValue::Utf8(Some("south".to_string())),
+                        }],
+                    },
+                    facet_context: Vec::new(),
+                }],
+            },
+        }])
+        .expect("seed checkbox-list selection");
+    let evaluated = session
+        .evaluate(EvaluationRequest::new())
+        .await
+        .expect("evaluate selected checkbox-list baseline");
     let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
     assert_visual_match(name, &image);
 }
