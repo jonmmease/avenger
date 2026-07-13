@@ -150,6 +150,229 @@ pub struct ResolvedWidgetAxisSize {
     pub stretch: f32,
 }
 
+/// Evaluates a widget's symbolic measurement using one already-resolved style
+/// snapshot. The callback is the sole text-measurement seam; callers can route
+/// it through their durable text cache without allowing measurement to query
+/// CSS independently.
+pub fn resolve_widget_measure_spec<F>(
+    widget_id: &str,
+    spec: &WidgetMeasureSpec,
+    styles: &ResolvedWidgetStyleSet,
+    item_count: usize,
+    params: &IndexMap<String, ScalarValue>,
+    base_font_size: f32,
+    mut text_extent: F,
+) -> Result<(ResolvedWidgetAxisSize, ResolvedWidgetAxisSize), AvengerChartError>
+where
+    F: FnMut(&str, WidgetTextMeasureAxis, bool) -> Result<f32, AvengerChartError>,
+{
+    let mut evaluate = |axis: &WidgetAxisMeasureSpec| {
+        resolve_widget_axis_measure(
+            widget_id,
+            axis,
+            styles,
+            item_count,
+            params,
+            base_font_size,
+            &mut text_extent,
+        )
+    };
+    Ok((evaluate(&spec.width)?, evaluate(&spec.height)?))
+}
+
+fn resolve_widget_axis_measure<F>(
+    widget_id: &str,
+    spec: &WidgetAxisMeasureSpec,
+    styles: &ResolvedWidgetStyleSet,
+    item_count: usize,
+    params: &IndexMap<String, ScalarValue>,
+    base_font_size: f32,
+    text_extent: &mut F,
+) -> Result<ResolvedWidgetAxisSize, AvengerChartError>
+where
+    F: FnMut(&str, WidgetTextMeasureAxis, bool) -> Result<f32, AvengerChartError>,
+{
+    let (min_px, preferred_px, max_px, stretch) = match spec {
+        WidgetAxisMeasureSpec::Fixed { px } => (*px, *px, Some(*px), 0.0),
+        WidgetAxisMeasureSpec::Content {
+            expr,
+            min_px,
+            max_px,
+        } => (
+            *min_px,
+            evaluate_widget_measure_expr(
+                widget_id,
+                expr,
+                styles,
+                item_count,
+                params,
+                base_font_size,
+                text_extent,
+            )?,
+            *max_px,
+            0.0,
+        ),
+        WidgetAxisMeasureSpec::Fill {
+            expr,
+            min_px,
+            max_px,
+            stretch,
+        } => (
+            *min_px,
+            evaluate_widget_measure_expr(
+                widget_id,
+                expr,
+                styles,
+                item_count,
+                params,
+                base_font_size,
+                text_extent,
+            )?,
+            *max_px,
+            *stretch,
+        ),
+    };
+    for (name, value) in [
+        ("minimum", min_px),
+        ("preferred", preferred_px),
+        ("stretch", stretch),
+    ] {
+        if !value.is_finite() || value < 0.0 {
+            return Err(invalid_widget_measure(widget_id, name, value));
+        }
+    }
+    if let Some(max_px) = max_px
+        && (!max_px.is_finite() || max_px < min_px)
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Widget '{widget_id}' measurement maximum {max_px} must be finite and at least its minimum {min_px}"
+        )));
+    }
+    Ok(ResolvedWidgetAxisSize {
+        min_px,
+        preferred_px: preferred_px
+            .max(min_px)
+            .min(max_px.unwrap_or(f32::INFINITY)),
+        stretch,
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn evaluate_widget_measure_expr<F>(
+    widget_id: &str,
+    expr: &WidgetMeasureExpr,
+    styles: &ResolvedWidgetStyleSet,
+    item_count: usize,
+    params: &IndexMap<String, ScalarValue>,
+    base_font_size: f32,
+    text_extent: &mut F,
+) -> Result<f32, AvengerChartError>
+where
+    F: FnMut(&str, WidgetTextMeasureAxis, bool) -> Result<f32, AvengerChartError>,
+{
+    let value = match expr {
+        WidgetMeasureExpr::Px(px) => *px,
+        WidgetMeasureExpr::StyleLength { part, property } => {
+            let style = if let Some(part) = part {
+                styles.parts.get(part).ok_or_else(|| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Widget '{widget_id}' measurement references unknown part '{part}'"
+                    ))
+                })?
+            } else {
+                &styles.host
+            };
+            let value = style.values.get(property).ok_or_else(|| {
+                AvengerChartError::InvalidWidgetStyle {
+                    widget_id: widget_id.to_string(),
+                    property: property.name().to_string(),
+                    message: "required by measurement but not resolved".to_string(),
+                }
+            })?;
+            value
+                .eval_as_length(&crate::theme::eval::EvalContext::new(
+                    params,
+                    base_font_size,
+                ))
+                .map_err(|error| AvengerChartError::InvalidWidgetStyle {
+                    widget_id: widget_id.to_string(),
+                    property: property.name().to_string(),
+                    message: error.to_string(),
+                })? as f32
+        }
+        WidgetMeasureExpr::TextExtent {
+            part,
+            axis,
+            data_encoded,
+        } => text_extent(part, *axis, *data_encoded)?,
+        WidgetMeasureExpr::ItemCount { extent, gap } => {
+            if item_count == 0 {
+                0.0
+            } else {
+                let extent = evaluate_widget_measure_expr(
+                    widget_id,
+                    extent,
+                    styles,
+                    item_count,
+                    params,
+                    base_font_size,
+                    text_extent,
+                )?;
+                let gap = evaluate_widget_measure_expr(
+                    widget_id,
+                    gap,
+                    styles,
+                    item_count,
+                    params,
+                    base_font_size,
+                    text_extent,
+                )?;
+                extent * item_count as f32 + gap * item_count.saturating_sub(1) as f32
+            }
+        }
+        WidgetMeasureExpr::Add(values) => {
+            let mut total = 0.0;
+            for value in values {
+                total += evaluate_widget_measure_expr(
+                    widget_id,
+                    value,
+                    styles,
+                    item_count,
+                    params,
+                    base_font_size,
+                    text_extent,
+                )?;
+            }
+            total
+        }
+        WidgetMeasureExpr::Max(values) => {
+            let mut maximum = 0.0_f32;
+            for value in values {
+                maximum = maximum.max(evaluate_widget_measure_expr(
+                    widget_id,
+                    value,
+                    styles,
+                    item_count,
+                    params,
+                    base_font_size,
+                    text_extent,
+                )?);
+            }
+            maximum
+        }
+    };
+    if !value.is_finite() || value < 0.0 {
+        return Err(invalid_widget_measure(widget_id, "expression", value));
+    }
+    Ok(value)
+}
+
+fn invalid_widget_measure(widget_id: &str, role: &str, value: f32) -> AvengerChartError {
+    AvengerChartError::InvalidArgument(format!(
+        "Widget '{widget_id}' measurement {role} resolved to invalid value {value}"
+    ))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WidgetStyleValueType {
@@ -919,5 +1142,90 @@ mod tests {
             styles.parts["focus-ring"].values[&WidgetStyleProperty::Opacity],
             ThemeValue::Number(1.0)
         );
+    }
+
+    #[test]
+    fn symbolic_widget_measurement_uses_one_style_snapshot_and_item_count() {
+        let mut styles = ResolvedWidgetStyleSet::default();
+        styles.parts.insert(
+            "row".to_string(),
+            ResolvedWidgetPartStyle {
+                values: IndexMap::from([(
+                    WidgetStyleProperty::Height,
+                    ThemeValue::Length(20.0, crate::theme::LengthUnit::Px),
+                )]),
+            },
+        );
+        let spec = WidgetMeasureSpec {
+            width: WidgetAxisMeasureSpec::Content {
+                expr: WidgetMeasureExpr::Add(vec![
+                    WidgetMeasureExpr::TextExtent {
+                        part: "label".to_string(),
+                        axis: WidgetTextMeasureAxis::Width,
+                        data_encoded: true,
+                    },
+                    WidgetMeasureExpr::Px(8.0),
+                ]),
+                min_px: 24.0,
+                max_px: Some(80.0),
+            },
+            height: WidgetAxisMeasureSpec::Content {
+                expr: WidgetMeasureExpr::ItemCount {
+                    extent: Box::new(WidgetMeasureExpr::StyleLength {
+                        part: Some("row".to_string()),
+                        property: WidgetStyleProperty::Height,
+                    }),
+                    gap: Box::new(WidgetMeasureExpr::Px(4.0)),
+                },
+                min_px: 0.0,
+                max_px: None,
+            },
+        };
+        let mut calls = 0;
+        let (width, height) = resolve_widget_measure_spec(
+            "choices",
+            &spec,
+            &styles,
+            3,
+            &IndexMap::new(),
+            12.0,
+            |part, axis, data_encoded| {
+                calls += 1;
+                assert_eq!(part, "label");
+                assert_eq!(axis, WidgetTextMeasureAxis::Width);
+                assert!(data_encoded);
+                Ok(100.0)
+            },
+        )
+        .unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(width.min_px, 24.0);
+        assert_eq!(width.preferred_px, 80.0);
+        assert_eq!(height.preferred_px, 68.0);
+    }
+
+    #[test]
+    fn symbolic_widget_measurement_rejects_invalid_bounds() {
+        let result = resolve_widget_measure_spec(
+            "broken",
+            &WidgetMeasureSpec {
+                width: WidgetAxisMeasureSpec::Content {
+                    expr: WidgetMeasureExpr::Px(20.0),
+                    min_px: 30.0,
+                    max_px: Some(10.0),
+                },
+                height: WidgetAxisMeasureSpec::Fixed { px: 10.0 },
+            },
+            &ResolvedWidgetStyleSet::default(),
+            0,
+            &IndexMap::new(),
+            12.0,
+            |_part, _axis, _data_encoded| Ok(0.0),
+        );
+        assert!(matches!(
+            result,
+            Err(AvengerChartError::InvalidArgument(message))
+                if message.contains("maximum 10") && message.contains("minimum 30")
+        ));
     }
 }
