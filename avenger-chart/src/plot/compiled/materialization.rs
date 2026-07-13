@@ -77,6 +77,8 @@ pub(crate) struct MaterializationCache {
     last_settled_ready_by_identity: HashMap<MaterializationIdentity, MaterializationKey>,
     last_started_by_identity: HashMap<MaterializationIdentity, Instant>,
     preview_desired_key_motion: HashMap<MaterializationIdentity, (MaterializationKey, Instant)>,
+    #[cfg(test)]
+    preview_desired_key_stability_override: Option<Duration>,
     preview_schedule_last_run: HashMap<MaterializationIdentity, Instant>,
     pending_consume_wakeup: Option<(Duration, MaterializationKind)>,
     ready_order: VecDeque<MaterializationKey>,
@@ -251,7 +253,7 @@ impl MaterializationCache {
         now: Instant,
     ) -> Duration {
         let identity = throttle_identity_for_request(request);
-        match self.preview_desired_key_motion.get_mut(&identity) {
+        let stable_for = match self.preview_desired_key_motion.get_mut(&identity) {
             Some((key, changed_at)) if *key == request.key => {
                 now.saturating_duration_since(*changed_at)
             }
@@ -264,14 +266,20 @@ impl MaterializationCache {
                     .insert(identity, (request.key.clone(), now));
                 Duration::ZERO
             }
+        };
+        #[cfg(test)]
+        if let Some(override_value) = self.preview_desired_key_stability_override {
+            return override_value;
         }
+        stable_for
     }
 
     #[cfg(test)]
-    pub(crate) fn reset_preview_desired_key_stability_for_tests(&mut self, now: Instant) {
-        for (_, changed_at) in self.preview_desired_key_motion.values_mut() {
-            *changed_at = now;
-        }
+    pub(crate) fn set_preview_desired_key_stability_for_tests(
+        &mut self,
+        stable_for: Option<Duration>,
+    ) {
+        self.preview_desired_key_stability_override = stable_for;
     }
 
     /// Note that a ready preview result was NOT consumed because its key has

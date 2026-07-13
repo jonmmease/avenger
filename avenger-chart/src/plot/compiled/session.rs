@@ -6069,15 +6069,14 @@ mod tests {
         // keep retargeting and schedule a delayed wakeup instead of
         // interrupting the gesture with a data-mark rebuild.
         wait_for_session_materializations(&session).await;
-        // The full all-targets suite can leave this task unscheduled for more
-        // than the production stability window after the pan above. Reset the
-        // internal clock here so this assertion tests the just-ready branch,
-        // rather than scheduler contention on the test host.
+        // Drive the stability branch explicitly: the full all-targets suite
+        // can otherwise leave this task unscheduled for longer than the
+        // production window between any two awaits.
         session
             .materialization_cache()
             .lock()
             .expect("materialization cache lock poisoned")
-            .reset_preview_desired_key_stability_for_tests(Instant::now());
+            .set_preview_desired_key_stability_for_tests(Some(Duration::ZERO));
         let (_deferred_preview, deferred_metrics) = session
             .evaluate_with_metrics(
                 EvaluationRequest::new()
@@ -6103,12 +6102,22 @@ mod tests {
             "deferring a ready preview consume must request a delayed re-evaluation"
         );
 
-        // Once the key has been stable past the window (the wakeup path),
-        // the preview rebuilds data marks and consumes the panned raster.
-        tokio::time::sleep(PREVIEW_CONSUME_STABILITY + Duration::from_millis(50)).await;
+        // Once the key has been stable past the window (the wakeup path), the
+        // preview rebuilds data marks and consumes the panned raster. Keep
+        // this branch independent of scheduler timing too.
+        session
+            .materialization_cache()
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .set_preview_desired_key_stability_for_tests(Some(PREVIEW_CONSUME_STABILITY));
         let (stable_preview, stable_metrics) = session
             .evaluate_with_metrics(EvaluationRequest::new().preview().param_patch(patch))
             .await?;
+        session
+            .materialization_cache()
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .set_preview_desired_key_stability_for_tests(None);
         assert_eq!(
             stable_metrics.pipeline.preview_data_mark_reuses, 0,
             "a ready desired materialization with a stable key must be consumed"

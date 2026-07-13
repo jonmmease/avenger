@@ -9,7 +9,7 @@ use datafusion::{
     arrow::{
         array::{ArrayRef, Float64Array, ListBuilder, StringArray, StringBuilder, StructArray},
         buffer::OffsetBuffer,
-        datatypes::{DataType, Field, Fields},
+        datatypes::{DataType, Field},
         record_batch::RecordBatch,
     },
     prelude::{SessionContext, col, lit},
@@ -281,15 +281,6 @@ async fn categorical_raster_external_3d() {
 /// Hand-built raster struct row: dims x (uniform, 3), y (uniform, 2),
 /// species (categorical, ["fir", "oak"]); values.dims [species, y, x].
 fn external_3d_raster_batch() -> RecordBatch {
-    let coords_fields = Fields::from(vec![
-        Field::new("kind", DataType::Utf8, false),
-        Field::new("sampling", DataType::Utf8, true),
-        Field::new("start", DataType::Float64, true),
-        Field::new("stop", DataType::Float64, true),
-        Field::new("count", DataType::UInt32, true),
-        Field::new("values", DataType::new_list(DataType::Utf8, true), true),
-    ]);
-
     let mut values_builder = ListBuilder::new(StringBuilder::new());
     values_builder.append(false); // x
     values_builder.append(false); // y
