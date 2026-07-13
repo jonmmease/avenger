@@ -2604,23 +2604,83 @@ pub(crate) async fn prepare_mark_data(
         }
     }
 
-    let event_datum_batch = if !request.eval_ctx.event_datum_fields.is_empty() {
-        let available_fields = df
-            .schema()
-            .fields()
-            .iter()
-            .map(|field| field.name().clone())
-            .collect::<HashSet<_>>();
-        let select_exprs = request
-            .eval_ctx
-            .event_datum_fields
-            .keys()
-            .filter(|field| available_fields.contains(*field))
-            .map(|field| col(field).alias(field))
-            .collect::<Vec<_>>();
-        if select_exprs.is_empty() {
+    let available_fields = df
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().clone())
+        .collect::<HashSet<_>>();
+    let event_datum_columns = request
+        .eval_ctx
+        .event_datum_fields
+        .keys()
+        .filter(|field| available_fields.contains(*field))
+        .enumerate()
+        .map(|(index, field)| {
+            (
+                field.clone(),
+                format!("__avenger_event_datum_column_{index}"),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let (data_batch, event_datum_batch) = if mark.wants_full_data_batch() || has_array_data {
+        let datafusion_params = params_to_datafusion(params);
+        let mut data_select_exprs = if mark.wants_full_data_batch() {
+            record_mark_data_full_collect(&request.evaluation_metrics);
+            if array_channels.is_empty() {
+                df.schema()
+                    .fields()
+                    .iter()
+                    .map(|field| col(field.name().clone()))
+                    .collect::<Vec<_>>()
+            } else {
+                full_data_select_exprs(df.as_ref(), &array_channels)?
+            }
+        } else {
+            record_mark_data_array_collect(&request.evaluation_metrics);
+            array_channels
+                .iter()
+                .map(|(name, expr)| expr.clone().alias(name))
+                .collect::<Vec<_>>()
+        };
+        let data_column_count = data_select_exprs.len();
+        // A rendered instance index addresses both batches. Keep mark channels
+        // and event datum fields in one DataFusion collection so unordered
+        // plans (notably aggregates) cannot assign different row orders to
+        // separate executions of the same logical plan.
+        data_select_exprs.extend(
+            event_datum_columns
+                .iter()
+                .map(|(field, alias)| col(field).alias(alias)),
+        );
+        let selected = (*df).clone().select(data_select_exprs)?;
+        let selected_schema = Arc::new(selected.schema().as_arrow().clone());
+        let batch = if let Some(param_values) = datafusion_params {
+            selected.with_param_values(param_values)?.collect().await?
+        } else {
+            selected.collect().await?
+        };
+        let combined_batch = if batch.is_empty() {
+            RecordBatch::new_empty(selected_schema)
+        } else {
+            let schema = batch[0].schema();
+            concat_batches(&schema, &batch)?
+        };
+        let (data_batch, event_datum_batch) = split_mark_and_event_datum_batch(
+            combined_batch,
+            data_column_count,
+            &event_datum_columns,
+        )?;
+        (Some(data_batch), event_datum_batch)
+    } else {
+        let event_datum_batch = if event_datum_columns.is_empty() {
             None
         } else {
+            let select_exprs = event_datum_columns
+                .iter()
+                .map(|(field, _)| col(field).alias(field))
+                .collect::<Vec<_>>();
             let datafusion_params = params_to_datafusion(params);
             let batch = if let Some(param_values) = datafusion_params {
                 (*df)
@@ -2638,60 +2698,8 @@ pub(crate) async fn prepare_mark_data(
                 let schema = batch[0].schema();
                 Some(concat_batches(&schema, &batch)?)
             }
-        }
-    } else {
-        None
-    };
-
-    let data_batch = if mark.wants_full_data_batch() {
-        let datafusion_params = params_to_datafusion(params);
-        record_mark_data_full_collect(&request.evaluation_metrics);
-        let full_df = if array_channels.is_empty() {
-            (*df).clone()
-        } else {
-            (*df)
-                .clone()
-                .select(full_data_select_exprs(df.as_ref(), &array_channels)?)?
         };
-        let batch = if let Some(param_values) = datafusion_params {
-            full_df.with_param_values(param_values)?.collect().await?
-        } else {
-            full_df.collect().await?
-        };
-
-        if batch.is_empty() {
-            let arrow_schema = std::sync::Arc::new(df.schema().as_arrow().clone());
-            Some(RecordBatch::new_empty(arrow_schema))
-        } else {
-            let schema = batch[0].schema();
-            Some(concat_batches(&schema, &batch)?)
-        }
-    } else if has_array_data {
-        let mut select_exprs = vec![];
-        for (name, expr) in &array_channels {
-            select_exprs.push(expr.clone().alias(name));
-        }
-        let datafusion_params = params_to_datafusion(params);
-        record_mark_data_array_collect(&request.evaluation_metrics);
-        let selected = (*df).clone().select(select_exprs)?;
-        let selected_schema = std::sync::Arc::new(selected.schema().as_arrow().clone());
-        let batch = if let Some(param_values) = datafusion_params {
-            selected.with_param_values(param_values)?.collect().await?
-        } else {
-            selected.collect().await?
-        };
-        if batch.is_empty() {
-            // A plan that optimizes to an empty relation (e.g. a
-            // constant-false scalar gate) yields zero batches; marks with
-            // array channels must still see a schema-complete empty batch
-            // rather than falling back to scalar-only unit rendering.
-            Some(RecordBatch::new_empty(selected_schema))
-        } else {
-            let schema = batch[0].schema();
-            Some(concat_batches(&schema, &batch)?)
-        }
-    } else {
-        None
+        (None, event_datum_batch)
     };
 
     let mut scalar_select_exprs = vec![];
@@ -2738,6 +2746,46 @@ pub(crate) async fn prepare_mark_data(
             request.scales.clone(),
         ),
     }))
+}
+
+fn split_mark_and_event_datum_batch(
+    combined: RecordBatch,
+    data_column_count: usize,
+    event_datum_columns: &[(String, String)],
+) -> Result<(RecordBatch, Option<RecordBatch>), AvengerChartError> {
+    let combined_schema = combined.schema();
+    let data_schema = Arc::new(Schema::new(
+        combined_schema
+            .fields()
+            .iter()
+            .take(data_column_count)
+            .cloned()
+            .collect::<Vec<_>>(),
+    ));
+    let data_batch = RecordBatch::try_new(
+        data_schema,
+        combined
+            .columns()
+            .iter()
+            .take(data_column_count)
+            .cloned()
+            .collect(),
+    )?;
+
+    if event_datum_columns.is_empty() || combined.num_rows() == 0 {
+        return Ok((data_batch, None));
+    }
+
+    let mut event_fields = Vec::with_capacity(event_datum_columns.len());
+    let mut event_columns = Vec::with_capacity(event_datum_columns.len());
+    for (datum_field, internal_alias) in event_datum_columns {
+        let index = combined_schema.index_of(internal_alias)?;
+        event_fields.push(combined_schema.field(index).clone().with_name(datum_field));
+        event_columns.push(combined.column(index).clone());
+    }
+    let event_datum_batch =
+        RecordBatch::try_new(Arc::new(Schema::new(event_fields)), event_columns)?;
+    Ok((data_batch, Some(event_datum_batch)))
 }
 
 fn full_data_select_exprs(
@@ -3896,6 +3944,43 @@ mod tests {
             mark.state().details.as_deref(),
             Some(["group".to_string(), "series".to_string()].as_slice())
         );
+    }
+
+    #[test]
+    fn split_event_datums_preserves_rendered_instance_order() -> Result<(), AvengerChartError> {
+        let combined = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("x", DataType::Float64, false),
+                Field::new("__avenger_event_datum_column_0", DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(Float64Array::from(vec![30.0, 10.0, 20.0])),
+                Arc::new(StringArray::from(vec!["March", "January", "February"])),
+            ],
+        )?;
+
+        let (mark_batch, event_batch) = split_mark_and_event_datum_batch(
+            combined,
+            1,
+            &[(
+                "month".to_string(),
+                "__avenger_event_datum_column_0".to_string(),
+            )],
+        )?;
+
+        assert_eq!(values_as_f64(&mark_batch, "x"), vec![30.0, 10.0, 20.0]);
+        let event_batch = event_batch.expect("nonempty event datum batch");
+        let months = event_batch
+            .column_by_name("month")
+            .expect("month datum field")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("month string array");
+        assert_eq!(
+            months.iter().flatten().collect::<Vec<_>>(),
+            vec!["March", "January", "February"]
+        );
+        Ok(())
     }
 
     #[tokio::test]
