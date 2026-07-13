@@ -2639,7 +2639,11 @@ fn collect_plot_dependency_placeholders_with_options(
             collect_expr_node_placeholders(expression, ctx, names, all_param_names);
         }
     }
-    for scale_spec in plot.scale_specs.values() {
+    for scale_spec in plot.scale_specs.values().chain(
+        plot.widget_scale_specs
+            .values()
+            .flat_map(|specs| specs.values()),
+    ) {
         match scale_spec {
             PlotScaleSpec::Local(config) => {
                 collect_scale_config_placeholders_with_options(

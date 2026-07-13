@@ -238,6 +238,14 @@ pub struct CompiledPlot {
     /// Scale specifications for building scales
     pub(crate) scale_specs: HashMap<String, ScaleSpec>,
 
+    /// Scale specifications owned by composed widgets, keyed first by widget id.
+    ///
+    /// Keeping each widget in its own namespace prevents identically named
+    /// visual channels (for example, three independent `fill` scales) from
+    /// coordinating accidentally. Widget scales never produce plot guides.
+    #[serde(default)]
+    pub(crate) widget_scale_specs: HashMap<String, HashMap<String, ScaleSpec>>,
+
     // Note: We intentionally do not persist a ScaleBuilder here. Scales are
     // rebuilt per evaluation using current params to ensure correctness for
     // paramized data queries and to keep direct vs serialized paths identical.
@@ -320,6 +328,7 @@ impl Clone for CompiledPlot {
             formatting_context: self.formatting_context.clone(),
             scale_to_coord_channel: self.scale_to_coord_channel.clone(),
             scale_specs: self.scale_specs.clone(),
+            widget_scale_specs: self.widget_scale_specs.clone(),
             data: self.data.clone(),
             default_params: self.default_params.clone(),
             param_specs: self.param_specs.clone(),
@@ -1495,6 +1504,7 @@ pub(crate) struct WidgetMeasurement {
     pub(crate) styles: avenger_chart_core::ResolvedWidgetStyleSet,
     pub(crate) presentation: avenger_chart_core::WidgetPresentationState,
     pub(crate) prepared_items: Option<WidgetPreparedBaseData>,
+    pub(crate) scales: HashMap<String, ConfiguredScaleWithSpec>,
 }
 
 #[derive(Clone)]

@@ -576,6 +576,7 @@ mod tests {
             formatting_context: FormattingContext::default(),
             scale_to_coord_channel: HashMap::new(),
             scale_specs: HashMap::<String, ScaleSpec>::new(),
+            widget_scale_specs: HashMap::new(),
             data: None::<LogicalPlanNode>,
             default_params: IndexMap::new(),
             param_specs: IndexMap::<String, CompiledParamSpec>::new(),

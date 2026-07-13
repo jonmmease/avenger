@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use avenger_chart::{
     bake::{BakeContextId, BakePolicy, ContextBakeStatus},
-    pixel_frame::{PixelFrameRectPositionChannels, PixelFrameTextPositionChannels},
+    pixel_frame::{
+        PixelFrameRectPositionChannels, PixelFrameSymbolPositionChannels,
+        PixelFrameTextPositionChannels,
+    },
     prelude::*,
 };
 use avenger_scenegraph::marks::mark::SceneMark;
@@ -44,6 +47,24 @@ fn find_rect_path(marks: &[SceneMark], name: &str, prefix: &mut Vec<usize>) -> O
             return Some(path);
         }
         prefix.pop();
+    }
+    None
+}
+
+fn find_symbol<'a>(
+    marks: &'a [SceneMark],
+    name: &str,
+) -> Option<&'a avenger_scenegraph::marks::symbol::SceneSymbolMark> {
+    for mark in marks {
+        match mark {
+            SceneMark::Symbol(symbol) if symbol.name == name => return Some(symbol),
+            SceneMark::Group(group) => {
+                if let Some(symbol) = find_symbol(&group.marks, name) {
+                    return Some(symbol);
+                }
+            }
+            _ => {}
+        }
     }
     None
 }
@@ -257,7 +278,65 @@ struct DataFrameContractWidget {
 }
 
 #[derive(Clone)]
+struct DataFrameScaledWidget {
+    data: DataFrame,
+}
+
+#[derive(Clone)]
 struct ThemedGeometryWidget;
+
+#[derive(Clone)]
+struct ScaledContractWidget {
+    id: &'static str,
+    categories: [&'static str; 2],
+    amounts: [f64; 2],
+}
+
+impl ChartWidget for ScaledContractWidget {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn kind(&self) -> &'static str {
+        "scaled-contract-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        let items = self
+            .categories
+            .iter()
+            .zip(self.amounts)
+            .map(|(category, amount)| {
+                WidgetItemRow::new(vec![
+                    (
+                        "category".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some((*category).to_string())),
+                    ),
+                    (
+                        "amount".to_string(),
+                        datafusion::common::ScalarValue::Float64(Some(amount)),
+                    ),
+                ])
+            })
+            .collect();
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Symbol::<PixelFrame>::new()
+                    .id("dot")
+                    .x(20.0)
+                    .y(12.0)
+                    .fill(col("category"))
+                    .size(col("amount")),
+            ),
+            items: Some(WidgetItems::Static(items)),
+            measure: WidgetMeasureSpec::fixed(40.0, 24.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
 
 impl ChartWidget for ThemedGeometryWidget {
     fn id(&self) -> &str {
@@ -309,6 +388,38 @@ impl ChartWidget for DataFrameContractWidget {
                 order_key: vec![col("value")],
             }),
             measure: WidgetMeasureSpec::fixed(40.0, 20.0),
+            presentation: WidgetPresentationBindings::default(),
+        })
+    }
+}
+
+impl ChartWidget for DataFrameScaledWidget {
+    fn id(&self) -> &str {
+        "revision-scale"
+    }
+
+    fn kind(&self) -> &'static str {
+        "scaled-contract-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Symbol::<PixelFrame>::new()
+                    .id("dot")
+                    .x(20.0)
+                    .y(12.0)
+                    .fill(col("category"))
+                    .size(col("amount")),
+            ),
+            items: Some(WidgetItems::DataFrame {
+                data: self.data.clone(),
+                order_key: vec![col("item_order")],
+            }),
+            measure: WidgetMeasureSpec::fixed(40.0, 24.0),
             presentation: WidgetPresentationBindings::default(),
         })
     }
@@ -714,4 +825,161 @@ async fn widget_mark_geometry_reads_style_snapshot_and_realized_frame_inputs() {
         rect.fill.as_vec(1, None)[0].color_or_transparent(),
         avenger_color::parse_color_string("#0072b2").unwrap()
     );
+}
+
+#[tokio::test]
+async fn host_and_widget_visual_scales_keep_independent_domains_after_bincode() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let host_data = ctx
+        .sql(
+            "SELECT * FROM (VALUES \
+             (0.0, 0.0, 'host-a', 10.0), \
+             (1.0, 1.0, 'host-b', 20.0) \
+             ) AS t(x, y, category, amount)",
+        )
+        .await
+        .unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .data(host_data)
+        .mark(
+            Symbol::<Cartesian>::new()
+                .id("host")
+                .x(col("x"))
+                .y(col("y"))
+                .fill_with(col("category"), |channel| channel.no_legend())
+                .size_with(col("amount"), |channel| channel.no_legend()),
+        )
+        .widget(
+            ScaledContractWidget {
+                id: "scaled-a",
+                categories: ["widget-a-1", "widget-a-2"],
+                amounts: [1.0, 2.0],
+            }
+            .position(ChromePosition::Right),
+        )
+        .widget(
+            ScaledContractWidget {
+                id: "scaled-b",
+                categories: ["widget-b-1", "widget-b-2"],
+                amounts: [100.0, 200.0],
+            }
+            .position(ChromePosition::Right),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+
+    assert_eq!(compiled.legends().len(), 2);
+    assert!(compiled.legends().contains_key("fill"));
+    assert!(compiled.legends().contains_key("size"));
+    let artifact = serde_json::to_value(&compiled).unwrap();
+    assert!(artifact["widget_scale_specs"].get("scaled-a").is_some());
+    assert!(artifact["widget_scale_specs"].get("scaled-b").is_some());
+
+    let decoded = bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+    for candidate in [compiled, decoded] {
+        let evaluated = candidate.evaluate(&ctx, None).await.unwrap();
+        let host = find_symbol(&evaluated.scene_graph.marks, "host").unwrap();
+        let first = find_symbol(
+            find_group(&evaluated.scene_graph.marks, "scaled-a").unwrap(),
+            "dot",
+        )
+        .unwrap();
+        let second = find_symbol(
+            find_group(&evaluated.scene_graph.marks, "scaled-b").unwrap(),
+            "dot",
+        )
+        .unwrap();
+        let colors = |symbol: &avenger_scenegraph::marks::symbol::SceneSymbolMark| {
+            symbol
+                .fill_vec()
+                .into_iter()
+                .map(|fill| fill.color_or_transparent())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(colors(host), colors(first));
+        assert_eq!(colors(host), colors(second));
+        for widget_sizes in [first.size_vec(), second.size_vec()] {
+            let host_sizes = host.size_vec();
+            assert_eq!(host_sizes.len(), widget_sizes.len());
+            assert!(
+                host_sizes
+                    .iter()
+                    .zip(widget_sizes)
+                    .all(|(host, widget)| (host - widget).abs() < 1e-3)
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
+    let ctx = Arc::new(datafusion::prelude::SessionContext::new());
+    let group = Param::new("widget_group", "low");
+    let all_items = ctx
+        .sql(
+            "SELECT * FROM (VALUES \
+             (0, 'low',  'low-a',    1.0), \
+             (1, 'low',  'low-b',    2.0), \
+             (0, 'high', 'high-a', 100.0), \
+             (1, 'high', 'high-b', 200.0) \
+             ) AS t(item_order, item_group, category, amount)",
+        )
+        .await
+        .unwrap()
+        .filter(col("item_group").eq(group.expr()))
+        .unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .param(group)
+        .widget(DataFrameScaledWidget { data: all_items }.position(ChromePosition::Right))
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let mut session = Arc::new(compiled).instantiate(ctx);
+
+    let initial = session
+        .evaluate(EvaluationRequest::new().exact())
+        .await
+        .unwrap();
+    let initial_symbol = find_symbol(
+        find_group(&initial.scene_graph.marks, "revision-scale").unwrap(),
+        "dot",
+    )
+    .unwrap();
+    let initial_sizes = initial_symbol.size_vec();
+    let initial_colors = initial_symbol
+        .fill_vec()
+        .into_iter()
+        .map(|fill| fill.color_or_transparent())
+        .collect::<Vec<_>>();
+
+    let mut patch = indexmap::IndexMap::new();
+    patch.insert(
+        "widget_group".to_string(),
+        datafusion::common::ScalarValue::Utf8(Some("high".to_string())),
+    );
+    let revised = session
+        .evaluate(EvaluationRequest::new().exact().param_patch(patch))
+        .await
+        .unwrap();
+    let revised_symbol = find_symbol(
+        find_group(&revised.scene_graph.marks, "revision-scale").unwrap(),
+        "dot",
+    )
+    .unwrap();
+    let revised_colors = revised_symbol
+        .fill_vec()
+        .into_iter()
+        .map(|fill| fill.color_or_transparent())
+        .collect::<Vec<_>>();
+
+    let revised_sizes = revised_symbol.size_vec();
+    assert_eq!(initial_sizes.len(), revised_sizes.len());
+    assert!(
+        initial_sizes
+            .iter()
+            .zip(revised_sizes)
+            .all(|(initial, revised)| (initial - revised).abs() < 1e-3)
+    );
+    assert_eq!(initial_colors, revised_colors);
 }

@@ -40,6 +40,7 @@ use avenger_chart_core::{
     params_to_datafusion, resolve_widget_measure_spec, resolve_widget_style_set,
     widget_style_evaluation_inputs,
 };
+use avenger_chart_scales::PreparedScaleMark;
 use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
 
 use crate::{
@@ -97,15 +98,15 @@ use crate::{
 
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
-    FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
-    PreparedBaseData, PreparedMarkData, WidgetMeasurement, WidgetPreparedBaseData,
+    FacetCellProfileIndex, LayoutProfileSnapshot, LogicalMarkDataRequest, MarkDataRequest,
+    PlotComponents, PreparedBaseData, PreparedMarkData, WidgetMeasurement, WidgetPreparedBaseData,
     child_frame_coordination::{
         apply_child_frame_layout_alignment, diagnose_child_frame_layout_alignment,
     },
     compiled_subplot_payload_child_plot,
     legends::{HoistedLegendAnchor, HoistedLegendRequest, LegendPlanScope, PreparedLegendPlan},
     materialization::{MaterializationCache, MaterializationCacheHandle},
-    prepare_mark_data_runtime,
+    prepare_logical_mark_data, prepare_mark_data_runtime,
     scale_provider::{DynamicScaleProvider, ScaleProvider, ViewAwareScaleProvider},
     scales::build_scale_builder_from_compiled_plot,
     schedule_view_materializations_for_mark,
@@ -2458,7 +2459,6 @@ impl CompiledPlot {
         renderer.coord_transform = Box::new(PixelFrame);
         renderer.data = None;
         renderer.widgets.clear();
-        let scales = HashMap::new();
         let style_snapshots: Arc<IndexMap<String, avenger_chart_core::ResolvedWidgetStyleSet>> =
             Arc::new(
                 measurements
@@ -2525,7 +2525,7 @@ impl CompiledPlot {
                 let output = Box::pin(renderer.render_mark_with_plot_df(
                     mark.as_ref(),
                     &widget_eval_ctx,
-                    &scales,
+                    &measurement.scales,
                     width,
                     height,
                     None,
@@ -2591,7 +2591,6 @@ impl CompiledPlot {
         renderer.coord_transform = Box::new(PixelFrame);
         renderer.data = None;
         renderer.widgets.clear();
-        let scales = HashMap::new();
         let theme = self.get_theme();
         let base_font_size = theme.get_base_font_size(&eval_ctx.params);
         let mut measurements = IndexMap::new();
@@ -2632,7 +2631,7 @@ impl CompiledPlot {
                 &eval_ctx.params,
             )?;
             let prepared_items = if let Some(items) = &widget.items {
-                let dataframe = items
+                let mut dataframe = items
                     .data
                     .dataframe_with_context(&eval_ctx.session_context)
                     .ok_or_else(|| {
@@ -2641,6 +2640,9 @@ impl CompiledPlot {
                             widget.id
                         ))
                     })?;
+                if let Some(param_values) = params_to_datafusion(&eval_ctx.params) {
+                    dataframe = dataframe.with_param_values(param_values)?;
+                }
                 let schema = Arc::new(dataframe.schema().as_arrow().clone());
                 let batches = dataframe.collect().await?;
                 let batch = if batches.is_empty() {
@@ -2683,6 +2685,32 @@ impl CompiledPlot {
                 .with_widget_style_snapshots(Arc::new(
                     [(widget.id.clone(), styles.clone())].into_iter().collect(),
                 ));
+            let scale_builder = self
+                .build_composed_widget_scale_builder(
+                    widget,
+                    prepared_items.as_ref(),
+                    &widget_eval_ctx,
+                )
+                .await?;
+            let local_scale_specs = self
+                .widget_scale_specs
+                .get(&widget.id)
+                .cloned()
+                .unwrap_or_default();
+            let default_range_resolver =
+                super::scales::default_range_for_compiled_marks(&widget.marks);
+            let provisional_scales = scale_builder
+                .build_scales(
+                    provisional_width,
+                    provisional_height,
+                    &HashMap::new(),
+                    &local_scale_specs,
+                    &default_range_resolver,
+                    theme.as_ref(),
+                    eval_ctx.session_context.as_ref(),
+                    &widget_eval_ctx.params,
+                )
+                .await?;
             let mut text_extents = HashMap::<String, (f32, f32)>::new();
             for mark in &widget.marks {
                 let part = mark
@@ -2699,7 +2727,7 @@ impl CompiledPlot {
                 let output = Box::pin(renderer.render_mark_with_plot_df(
                     mark.as_ref(),
                     &widget_eval_ctx,
-                    &scales,
+                    &provisional_scales,
                     provisional_width,
                     provisional_height,
                     None,
@@ -2733,6 +2761,18 @@ impl CompiledPlot {
                     })
                 },
             )?;
+            let scales = scale_builder
+                .build_scales(
+                    width.preferred_px,
+                    height.preferred_px,
+                    &HashMap::new(),
+                    &local_scale_specs,
+                    &default_range_resolver,
+                    theme.as_ref(),
+                    eval_ctx.session_context.as_ref(),
+                    &widget_eval_ctx.params,
+                )
+                .await?;
             measurements.insert(
                 widget.id.clone(),
                 WidgetMeasurement {
@@ -2746,10 +2786,52 @@ impl CompiledPlot {
                     styles,
                     presentation,
                     prepared_items,
+                    scales,
                 },
             );
         }
         Ok(measurements)
+    }
+
+    async fn build_composed_widget_scale_builder(
+        &self,
+        widget: &avenger_chart_core::CompiledComposedWidget,
+        prepared_items: Option<&WidgetPreparedBaseData>,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<avenger_chart_scales::ScaleBuilder, AvengerChartError> {
+        let mut prepared_marks = Vec::with_capacity(widget.marks.len());
+        for mark in &widget.marks {
+            let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+                mark: mark.as_ref(),
+                plot_data: None,
+                provided_plot_df: None,
+                facet_data_scope: None,
+                prepared_base: prepared_items.map(|items| &items.base),
+                eval_ctx,
+            }))
+            .await?;
+            prepared_marks.push(PreparedScaleMark::new_with_domain_source(
+                mark.clone(),
+                prepared.dataframe,
+                prepared.channels,
+                prepared.domain_dataframe,
+                prepared.domain_channels,
+                prepared.derived_scalars,
+            ));
+        }
+        let local_scale_specs = self
+            .widget_scale_specs
+            .get(&widget.id)
+            .cloned()
+            .unwrap_or_default();
+        avenger_chart_scales::build_scale_builder_from_prepared_marks(
+            &prepared_marks,
+            &local_scale_specs,
+            &PixelFrame,
+            &eval_ctx.core,
+            self.get_theme().as_ref(),
+        )
+        .await
     }
 
     /// Create guide marks (axes, grids) for the coordinate system

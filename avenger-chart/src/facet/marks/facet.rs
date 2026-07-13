@@ -1403,6 +1403,7 @@ fn build_physical_wrap_subplot(
         formatting_context: compiled_subplot.formatting_context.clone(),
         scale_to_coord_channel: Default::default(),
         scale_specs: Default::default(),
+        widget_scale_specs: Default::default(),
         data: None,
         default_params: compiled_subplot.default_params.clone(),
         param_specs: compiled_subplot.param_specs.clone(),

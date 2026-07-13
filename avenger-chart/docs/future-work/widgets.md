@@ -2,8 +2,11 @@
 
 ## Status
 
-Planned design, 2026-07-09 (implementation contract synchronized
-2026-07-12). Composed + native tiers are promoted; external-toolkit
+Active implementation, begun 2026-07-12 and synchronized 2026-07-13.
+The shared composed/native artifact contracts, PixelFrame host, CSS part
+machinery, mixed chrome solve, Checkbox, and Button are implemented; later
+data-encoded/native widgets and parameter-change reactions remain planned.
+Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
 in-repo Typst-based text stack. The active implementation plan is
 `scratch/2026-07-09/02-widgets/plan.md`; this document remains planned until
@@ -131,10 +134,12 @@ unscaled-channel mechanism; expression channels default to scaled.)
 `x`/`y`/`x2`/`y2`; generic mark preparation evaluates those expressions
 directly, including conditionals. Color, opacity, size, and other channels keep
 the ordinary scale path, so data-encoded widgets can use real scales without
-axes/guides. Compilation namespaces every widget-local scale name and
-reference by widget id before merging it into the root scale registry; parts
-within one widget may share, but host marks and other widgets never couple
-domains accidentally.
+axes/guides. Compilation records widget visual scales in a two-level registry
+keyed first by widget id. Parts within one widget share its local scale names,
+while host marks and other widgets never couple domains accidentally. One
+prepared item relation feeds one widget scale builder; its cached domain data
+is reused for provisional measurement and final-frame ranges. Widget scales
+do not enter automatic axis or legend generation.
 
 ### Shared types
 
@@ -233,7 +238,9 @@ pub trait ChartWidget: Send + Sync {
 
 **The compiled form is serializable.** `WidgetExpansion` lowers to
 `CompiledWidget::Composed(CompiledComposedWidget { id, kind, marks,
-relative_target_paths, measure, items })`. The compiler owns a group named
+relative_target_paths, measure, items, presentation })`. Widget-local scale
+specs live in the owning `CompiledPlot`'s widget-id namespace rather than in
+the coordinate-scale map. The compiler owns a group named
 `{id}` with structurally named child parts (`box`, `check`, `label`, and so
 on); periods remain invalid inside structural ids, while public targeting uses
 the existing dot-separated `{id}.{part}` path. An omitted widget mark target
@@ -440,21 +447,25 @@ Six ship first: five composed, one native. All live in a new
 ### `Checkbox` — composed, scalar boolean
 
 ```rust
-let trend_toggle = Checkbox::new("trend_toggle")
-    .label("Show 3-month trend")
-    .default(true);
+let trend_toggle = Checkbox::new(
+    "trend_toggle",
+    "Show 3-month trend",
+    true,
+);
 
 chart.mark(trend_line().visible(trend_toggle.checked()))
     .widget(trend_toggle.position(ChromePosition::Right));
 ```
 
-- **State**: one boolean param (name = widget id). Accessor
-  `checked() -> Expr`.
-- **Marks**: box `Rect` (named `box`), check-glyph `Rect`/`Path` (named
+- **State**: one shared boolean param (default name
+  `{widget_id}__checked`). `param() -> &Param` and `checked() -> Expr` expose
+  it; `checked_param(existing)` supplies an external boolean parameter.
+- **Marks**: box `Rect` (named `box`), two-segment check-glyph `Rule` (named
   `check`) with `.visible(param.expr())` — the widget's own glyph runs on
   the same mechanism it controls — and a `Text` label.
-- **Bindings**: `Click` on the widget's marks →
-  `set_param(id, not(param.expr()))`; `mark_mouse_enter`/`leave` set the
+- **Bindings**: `Click` on any interactive widget part →
+  `set_param(checked_param, not(checked_param.expr()))`;
+  `mark_mouse_enter`/`leave` set the
   existing cursor-kind param for pointer feedback.
 - **Sizing**: `Content(box + gap + measured label)` × `Content(line
   height)`.
@@ -471,7 +482,8 @@ chart
     .widget(clear.position(ChromePosition::Right));
 ```
 
-- **State**: one shared `UInt64` activation parameter, initially zero. A
+- **State**: one shared `UInt64` activation parameter (default name
+  `{widget_id}__activations`), initially zero. A
   pointer activation increments exactly once; overflow is a structured event
   assignment error. A boolean pulse is forbidden because coalescing can lose
   occurrences. `activation_param() -> Param` identifies the reaction source;

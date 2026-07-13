@@ -539,6 +539,7 @@ impl<C: CoordinateSystem> Plot<C> {
             }
         }
         let mut compiled_widgets = Vec::with_capacity(self.widgets.len());
+        let mut widget_scale_specs = HashMap::new();
         let mut native_widget_param_specs = Vec::new();
         let mut composed_widget_scene_index = 0usize;
         for (declaration_order, attachment) in self.widgets.iter().enumerate() {
@@ -554,6 +555,10 @@ impl<C: CoordinateSystem> Plot<C> {
                     &expansion.expansion,
                 )?;
                 let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
+                let mut local_scale_specs = HashMap::new();
+                let mut suppressed_axes = HashMap::new();
+                let mut suppressed_legends = IndexMap::new();
+                let mut local_scale_channels = HashMap::new();
                 let mut relative_target_paths = std::collections::BTreeMap::new();
                 for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
                     let part = mark.state().id.as_ref().ok_or_else(|| {
@@ -562,6 +567,15 @@ impl<C: CoordinateSystem> Plot<C> {
                         ))
                     })?;
                     validate_structural_id("widget part", part)?;
+                    crate::plot::channel::extract_channel_configs_from_state(
+                        mark.state(),
+                        session_context,
+                        &PixelFrame,
+                        &mut suppressed_axes,
+                        &mut suppressed_legends,
+                        &mut local_scale_specs,
+                        &mut local_scale_channels,
+                    )?;
                     let public_target_path = format!("{id}.{part}");
                     if relative_target_paths
                         .insert(public_target_path.clone(), vec![vec![mark_index]])
@@ -586,6 +600,15 @@ impl<C: CoordinateSystem> Plot<C> {
                     );
                     compiled_marks.push(mark.compile(state, session_context).await?);
                 }
+                crate::plot::channel::extract_channel_configs_from_compiled_domain_channels(
+                    &compiled_marks,
+                    &PixelFrame,
+                    &mut suppressed_axes,
+                    &mut suppressed_legends,
+                    &mut local_scale_specs,
+                    &mut local_scale_channels,
+                )?;
+                widget_scale_specs.insert(id.clone(), local_scale_specs);
                 let items = expansion
                     .items
                     .map(|items| compile_widget_items(&id, items, session_context))
@@ -932,6 +955,7 @@ impl<C: CoordinateSystem> Plot<C> {
             formatting_context: effective_formatting_context,
             scale_to_coord_channel,
             scale_specs,
+            widget_scale_specs,
             data: data_plan_node,
             default_params,
             param_specs,
