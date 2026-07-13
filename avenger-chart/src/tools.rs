@@ -29,6 +29,7 @@ pub use avenger_chart_tools::{
 pub(crate) struct ToolCompileContext {
     state: Arc<Mutex<ToolCompileState>>,
     coord_node_path: Vec<usize>,
+    multiplied_host: bool,
     theme: Option<Arc<avenger_chart_core::Theme>>,
     time_context: TimeContext,
     formatting_context: FormattingContext,
@@ -44,6 +45,7 @@ impl ToolCompileContext {
         Self {
             state: Arc::new(Mutex::new(ToolCompileState::default())),
             coord_node_path: Vec::new(),
+            multiplied_host: false,
             theme,
             time_context,
             formatting_context,
@@ -59,6 +61,7 @@ impl ToolCompileContext {
             coord_node_path: parent
                 .map(|ctx| ctx.coord_node_path.clone())
                 .unwrap_or_default(),
+            multiplied_host: parent.is_some_and(|ctx| ctx.multiplied_host),
             theme: parent.and_then(|ctx| ctx.theme.clone()),
             time_context: parent
                 .map(|ctx| ctx.time_context.clone())
@@ -86,9 +89,19 @@ impl ToolCompileContext {
         self.repeat_context.as_ref()
     }
 
+    pub(crate) fn is_multiplied_host(&self) -> bool {
+        self.multiplied_host
+    }
+
+    pub(crate) fn with_multiplied_host(mut self) -> Self {
+        self.multiplied_host = true;
+        self
+    }
+
     #[allow(dead_code)]
     pub(crate) fn with_repeat_context(mut self, repeat_context: RepeatContext) -> Self {
         self.repeat_context = Some(repeat_context);
+        self.multiplied_host = true;
         self
     }
 
@@ -98,6 +111,7 @@ impl ToolCompileContext {
         Self {
             state: self.state.clone(),
             coord_node_path,
+            multiplied_host: self.multiplied_host,
             theme: self.theme.clone(),
             time_context: self.time_context.clone(),
             formatting_context: self.formatting_context.clone(),
@@ -165,6 +179,7 @@ impl ToolCompileContext {
         &self,
         id: &str,
         identity: usize,
+        widget_scene_index: usize,
         expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
     ) -> Result<(), AvengerChartError> {
         let mut expansion = expansion.clone();
@@ -197,10 +212,19 @@ impl ToolCompileContext {
             }
         }
         self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
-        self.state
-            .lock()
-            .expect("tool compile state lock poisoned")
-            .register_expansion(id, identity, &expansion)
+        let mut state = self.state.lock().expect("tool compile state lock poisoned");
+        if !self.coord_node_path.is_empty() {
+            for (mark_index, mark) in expansion.marks.iter().enumerate() {
+                let Some(part) = mark.state().id.as_deref() else {
+                    continue;
+                };
+                state.register_child_widget_target(
+                    format!("{id}.{part}"),
+                    vec![vec![widget_scene_index, mark_index]],
+                )?;
+            }
+        }
+        state.register_expansion(id, identity, &expansion)
     }
 
     pub(crate) fn register_local_legend_event_bindings(
@@ -376,9 +400,24 @@ struct ToolCompileState {
     event_bindings: Vec<ChartEventBinding>,
     metadata: Vec<ToolMetadata>,
     expected_targets: BTreeMap<(String, String, String), usize>,
+    child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
 }
 
 impl ToolCompileState {
+    fn register_child_widget_target(
+        &mut self,
+        target: String,
+        paths: Vec<Vec<usize>>,
+    ) -> Result<(), AvengerChartError> {
+        if self.child_widget_target_paths.contains_key(&target) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Duplicate mark target path '{target}'"
+            )));
+        }
+        self.child_widget_target_paths.insert(target, paths);
+        Ok(())
+    }
+
     fn register_expansion<C: CoordinateSystemCore>(
         &mut self,
         id: &str,
@@ -608,6 +647,7 @@ impl ToolCompileState {
             selection_specs: self.selections.values().cloned().collect(),
             event_bindings: self.event_bindings.clone(),
             metadata: self.metadata.clone(),
+            child_widget_target_paths: self.child_widget_target_paths.clone(),
         })
     }
 }
@@ -626,6 +666,7 @@ pub(crate) struct ToolArtifacts {
     pub selection_specs: Vec<CompiledSelectionSpec>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub metadata: Vec<ToolMetadata>,
+    pub child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
 }
 
 fn apply_raw_domain_scale_edit(

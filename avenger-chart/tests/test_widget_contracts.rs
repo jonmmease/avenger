@@ -373,6 +373,71 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
 }
 
 #[tokio::test]
+async fn one_shot_concat_child_accepts_widget_attachment() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let result = Chart::<HConcat>::new()
+        .mark(Subplot::new(
+            Plot::<Cartesian>::new().widget(ContractWidget.position(ChromePosition::Right)),
+        ))
+        .compile(&ctx)
+        .await;
+
+    if let Err(error) = result {
+        panic!("one-shot concat child should be legal: {error}");
+    }
+}
+
+#[tokio::test]
+async fn facet_multiplied_child_rejects_widget_attachment() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let result = Chart::<FacetRow>::new()
+        .mark(
+            Subplot::new(
+                Plot::<Cartesian>::new().widget(ContractWidget.position(ChromePosition::Right)),
+            )
+            .row(datafusion::prelude::col("group")),
+        )
+        .compile(&ctx)
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("facet-multiplied widget must be rejected"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("facet- or repeat-multiplied"),
+        "unexpected diagnostic: {error}"
+    );
+}
+
+#[tokio::test]
+async fn repeat_multiplied_child_rejects_widget_attachment() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let result = Chart::<RepeatColumns>::new()
+        .configure_coord(|coord| {
+            coord
+                .columns(vec![
+                    RepeatVariable::new("a", datafusion::prelude::col("a")),
+                    RepeatVariable::new("b", datafusion::prelude::col("b")),
+                ])
+                .cell(
+                    Plot::<Cartesian>::new().widget(ContractWidget.position(ChromePosition::Right)),
+                )
+        })
+        .compile(&ctx)
+        .await;
+
+    let error = match result {
+        Ok(_) => panic!("repeat-multiplied widget must be rejected"),
+        Err(error) => error,
+    };
+    assert!(
+        error.to_string().contains("facet- or repeat-multiplied"),
+        "unexpected diagnostic: {error}"
+    );
+}
+
+#[tokio::test]
 async fn composed_widget_rejects_decorative_event_targets() {
     let ctx = datafusion::prelude::SessionContext::new();
     let result = Chart::<Cartesian>::new()

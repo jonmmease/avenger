@@ -19,6 +19,7 @@ use crate::render::{
     EvaluationContext, EvaluationMetrics, RenderContext, context::plot_area_pattern_reference_frame,
 };
 use crate::task::ChartFuture;
+use crate::tools::ToolCompileContext;
 use avenger_chart_core::{
     AvengerChartError, AxisGuideVisibilityConfig, ChannelDescriptor, ChannelValue,
     ColumnDimensionConfig, CompileContext, CompiledDataContext, CompiledMark, CompiledMarkCore,
@@ -816,6 +817,14 @@ async fn compile_facet_subplot_child(
                 .to_string(),
         ));
     }
+
+    let multiplied_tool_context = compile_context
+        .and_then(ToolCompileContext::downcast)
+        .map(|context| context.clone().with_multiplied_host());
+    let compile_context = multiplied_tool_context
+        .as_ref()
+        .map(|context| context as CompileContext<'_>)
+        .or(compile_context);
 
     subplot
         .compile_child_plot_with_context(session_context, compile_context)

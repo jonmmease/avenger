@@ -370,14 +370,30 @@ pub fn default_channel_value_for_eval<M: CompiledMarkCore + ?Sized>(
     eval_ctx: &EvaluationContext,
 ) -> Option<ScalarValue> {
     let theme_default = if let Some(provenance) = mark.state().widget_theme.as_ref() {
-        let host = ThemeContext::new(&provenance.widget_kind, eval_ctx.params().clone())
-            .with_id(&provenance.widget_id);
-        let part = ThemeContext::new("mark", eval_ctx.params().clone())
-            .with_subtype(mark.mark_type())
-            .with_part(&provenance.part, host);
-        eval_ctx
-            .theme()
-            .mark_default_in_context(&part, channel, eval_ctx.params())
+        if let Some(styles) = eval_ctx.widget_style_snapshots.as_ref() {
+            crate::WidgetStyleProperty::for_mark_channel(channel).and_then(|property| {
+                styles
+                    .get(&provenance.widget_id)
+                    .and_then(|styles| styles.parts.get(&provenance.part))
+                    .and_then(|style| style.values.get(&property))
+                    .and_then(|value| {
+                        eval_ctx.theme().evaluate_mark_channel_value(
+                            property.name(),
+                            value,
+                            eval_ctx.params(),
+                        )
+                    })
+            })
+        } else {
+            let host = ThemeContext::new(&provenance.widget_kind, eval_ctx.params().clone())
+                .with_id(&provenance.widget_id);
+            let part = ThemeContext::new("mark", eval_ctx.params().clone())
+                .with_subtype(mark.mark_type())
+                .with_part(&provenance.part, host);
+            eval_ctx
+                .theme()
+                .mark_default_in_context(&part, channel, eval_ctx.params())
+        }
     } else {
         eval_ctx.mark_default(mark.mark_type(), channel)
     };

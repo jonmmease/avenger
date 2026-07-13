@@ -541,6 +541,15 @@ impl EvaluationContext {
         }
     }
 
+    pub(crate) fn with_widget_style_snapshots(
+        &self,
+        snapshots: Arc<IndexMap<String, avenger_chart_core::ResolvedWidgetStyleSet>>,
+    ) -> Self {
+        let mut context = self.clone();
+        context.core = self.core.with_widget_style_snapshots(snapshots);
+        context
+    }
+
     /// Create a new context with canvas dimensions added to params (for media queries)
     pub fn with_dimension_params(&self, width: f32, height: f32) -> Self {
         Self {

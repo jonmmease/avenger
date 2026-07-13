@@ -5,7 +5,8 @@ use datafusion::{common::ScalarValue, prelude::SessionContext};
 use indexmap::IndexMap;
 
 use crate::{
-    FormattingContext, MaterializationRequest, Theme, ThemeContext, ThemeValue, TimeContext,
+    FormattingContext, MaterializationRequest, ResolvedWidgetStyleSet, Theme, ThemeContext,
+    ThemeValue, TimeContext,
 };
 
 /// Diagnostics hook used by higher-level runtime crates to observe expensive
@@ -40,6 +41,11 @@ pub struct EvaluationContext {
     pub materialization_request_sink: Option<Arc<Mutex<Vec<MaterializationRequest>>>>,
     #[doc(hidden)]
     pub prefetch_planner_sink: Option<Arc<Mutex<Vec<Arc<dyn PrefetchRetargetPlanner>>>>>,
+    /// One evaluation's already-resolved widget styles. Measurement and mark
+    /// rendering share this snapshot so CSS cannot be queried through two
+    /// semantically different paths.
+    #[doc(hidden)]
+    pub widget_style_snapshots: Option<Arc<IndexMap<String, ResolvedWidgetStyleSet>>>,
 }
 
 impl EvaluationContext {
@@ -58,6 +64,7 @@ impl EvaluationContext {
             resource_request_sink: None,
             materialization_request_sink: None,
             prefetch_planner_sink: None,
+            widget_style_snapshots: None,
         }
     }
 
@@ -98,6 +105,7 @@ impl EvaluationContext {
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
             prefetch_planner_sink: self.prefetch_planner_sink.clone(),
+            widget_style_snapshots: self.widget_style_snapshots.clone(),
         }
     }
 
@@ -112,6 +120,7 @@ impl EvaluationContext {
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
             prefetch_planner_sink: self.prefetch_planner_sink.clone(),
+            widget_style_snapshots: self.widget_style_snapshots.clone(),
         }
     }
 
@@ -126,6 +135,7 @@ impl EvaluationContext {
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
             prefetch_planner_sink: self.prefetch_planner_sink.clone(),
+            widget_style_snapshots: self.widget_style_snapshots.clone(),
         }
     }
 
@@ -141,6 +151,7 @@ impl EvaluationContext {
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: self.materialization_request_sink.clone(),
             prefetch_planner_sink: self.prefetch_planner_sink.clone(),
+            widget_style_snapshots: self.widget_style_snapshots.clone(),
         }
     }
 
@@ -156,6 +167,7 @@ impl EvaluationContext {
             resource_request_sink: Some(sink),
             materialization_request_sink: self.materialization_request_sink.clone(),
             prefetch_planner_sink: self.prefetch_planner_sink.clone(),
+            widget_style_snapshots: self.widget_style_snapshots.clone(),
         }
     }
 
@@ -174,7 +186,18 @@ impl EvaluationContext {
             resource_request_sink: self.resource_request_sink.clone(),
             materialization_request_sink: Some(sink),
             prefetch_planner_sink: self.prefetch_planner_sink.clone(),
+            widget_style_snapshots: self.widget_style_snapshots.clone(),
         }
+    }
+
+    #[doc(hidden)]
+    pub fn with_widget_style_snapshots(
+        &self,
+        snapshots: Arc<IndexMap<String, ResolvedWidgetStyleSet>>,
+    ) -> Self {
+        let mut context = self.clone();
+        context.widget_style_snapshots = Some(snapshots);
+        context
     }
 
     #[doc(hidden)]

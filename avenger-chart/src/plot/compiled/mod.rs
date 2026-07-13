@@ -1434,13 +1434,20 @@ pub struct ComponentsMeasurement {
     pub(crate) widget_measurements: IndexMap<String, WidgetMeasurement>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct WidgetMeasurement {
     pub(crate) position: Option<avenger_chart_core::LegendPosition>,
     pub(crate) declaration_order: u64,
     pub(crate) width: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) height: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) styles: avenger_chart_core::ResolvedWidgetStyleSet,
+    pub(crate) prepared_items: Option<WidgetPreparedBaseData>,
+}
+
+#[derive(Clone)]
+pub(crate) struct WidgetPreparedBaseData {
+    pub(crate) base: PreparedBaseData,
+    pub(crate) item_count: usize,
 }
 
 impl std::fmt::Debug for ComponentsMeasurement {
@@ -1454,7 +1461,10 @@ impl std::fmt::Debug for ComponentsMeasurement {
             .field("layout", &"LayoutSolution")
             .field("frame_allocation", &self.frame_allocation)
             .field("legend_plan", &"<legend_plan>")
-            .field("widget_measurements", &self.widget_measurements)
+            .field(
+                "widget_measurements",
+                &format!("{} widgets", self.widget_measurements.len()),
+            )
             .finish()
     }
 }

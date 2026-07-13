@@ -495,6 +495,12 @@ impl<C: CoordinateSystem> Plot<C> {
             &tool_scale_targets,
             &tool_coordinate_metrics,
         )?;
+        if tool_context.is_multiplied_host() && !self.widgets.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(
+                "Widgets cannot be attached to a facet- or repeat-multiplied child plot; attach shared chrome to the parent or use a one-shot concat cell"
+                    .to_string(),
+            ));
+        }
         let mut widget_ids = HashSet::new();
         for attachment in &self.widgets {
             let (id, kind) = if let Some(widget) = attachment.source.composed_widget() {
@@ -516,13 +522,19 @@ impl<C: CoordinateSystem> Plot<C> {
         }
         let mut compiled_widgets = Vec::with_capacity(self.widgets.len());
         let mut native_widget_param_specs = Vec::new();
+        let mut composed_widget_scene_index = 0usize;
         for (declaration_order, attachment) in self.widgets.iter().enumerate() {
             let compiled_widget = if let Some(widget) = attachment.source.composed_widget() {
                 let id = widget.id().to_string();
                 validate_structural_id("widget", &id)?;
                 let expansion = widget.expand(WidgetExpansionContext::new(&id))?;
                 let identity = widget as *const dyn ChartWidget as *const () as usize;
-                tool_context.register_widget_expansion(&id, identity, &expansion.expansion)?;
+                tool_context.register_widget_expansion(
+                    &id,
+                    identity,
+                    composed_widget_scene_index,
+                    &expansion.expansion,
+                )?;
                 let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
                 let mut relative_target_paths = std::collections::BTreeMap::new();
                 for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
@@ -560,14 +572,16 @@ impl<C: CoordinateSystem> Plot<C> {
                     .items
                     .map(|items| compile_widget_items(&id, items, session_context))
                     .transpose()?;
-                CompiledWidget::Composed(CompiledComposedWidget {
+                let compiled = CompiledWidget::Composed(CompiledComposedWidget {
                     id,
                     kind: widget.kind().to_string(),
                     marks: compiled_marks,
                     relative_target_paths,
                     measure: expansion.measure,
                     items,
-                })
+                });
+                composed_widget_scene_index += 1;
+                compiled
             } else if let Some(widget) = attachment.source.native_widget() {
                 let id = widget.id().to_string();
                 validate_structural_id("widget", &id)?;
@@ -816,6 +830,9 @@ impl<C: CoordinateSystem> Plot<C> {
             }
             event_bindings.extend(artifacts.event_bindings);
             tool_metadata.extend(artifacts.metadata);
+            for (target, paths) in artifacts.child_widget_target_paths {
+                flat_marks.mark_target_registry.insert(target, paths)?;
+            }
         }
 
         event_bindings = event_bindings

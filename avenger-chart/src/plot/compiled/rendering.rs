@@ -7,7 +7,7 @@ use std::{
 
 use arrow::{
     array::{ArrayRef, Float32Array, Float64Array, UInt32Array},
-    compute::take,
+    compute::{concat_batches, take},
     datatypes::Schema,
     record_batch::RecordBatch,
 };
@@ -33,11 +33,11 @@ use tracing::{Level, debug, trace};
 
 use avenger_chart_core::{
     AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, EmptyCoordMeasurement,
-    FacetEmptyCellPolicy, FacetWrapColumnMode, GuideRenderContext, LegendPosition, PixelFrame,
-    ScalarValueHelpers, TextMeasurementService, WidgetPartManifest, WidgetPresentationState,
-    WidgetStyleProperty, WidgetTextMeasureAxis, eval_to_scalars, evaluate_bool_expr,
-    evaluate_f32_expr, maybe::Maybe, params_to_datafusion, resolve_widget_measure_spec,
-    resolve_widget_style_set,
+    FacetDataScope, FacetEmptyCellPolicy, FacetWrapColumnMode, GuideRenderContext, LegendPosition,
+    PixelFrame, ScalarValueHelpers, TextMeasurementService, WidgetPartManifest,
+    WidgetPresentationState, WidgetStyleProperty, WidgetTextMeasureAxis, eval_to_scalars,
+    evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+    resolve_widget_measure_spec, resolve_widget_style_set,
 };
 use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
 
@@ -97,7 +97,7 @@ use crate::{
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
     FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
-    PreparedMarkData, WidgetMeasurement,
+    PreparedBaseData, PreparedMarkData, WidgetMeasurement, WidgetPreparedBaseData,
     child_frame_coordination::{
         apply_child_frame_layout_alignment, diagnose_child_frame_layout_alignment,
     },
@@ -2103,10 +2103,15 @@ impl CompiledPlot {
         plot_width: f32,
         plot_height: f32,
         provided_plot_df: Option<&DataFrame>,
+        prepared_base_override: Option<&PreparedBaseData>,
         facet_path: &[ScalarValue],
     ) -> Result<Option<PreparedMarkData>, AvengerChartError> {
-        let prepared_base = match self.data_group_index_for_mark(mark.state().mark_index()) {
-            Some(group_index) => Some(
+        let prepared_base = match (
+            prepared_base_override,
+            self.data_group_index_for_mark(mark.state().mark_index()),
+        ) {
+            (Some(prepared), _) => Some(Arc::new(prepared.clone())),
+            (None, Some(group_index)) => Some(
                 Box::pin(self.prepare_mark_group_base_data(
                     group_index,
                     eval_ctx,
@@ -2115,7 +2120,7 @@ impl CompiledPlot {
                 ))
                 .await?,
             ),
-            None => None,
+            (None, None) => None,
         };
         let prepared = prepare_mark_data_runtime(MarkDataRequest {
             mark,
@@ -2211,6 +2216,7 @@ impl CompiledPlot {
         plot_width: f32,
         plot_height: f32,
         provided_plot_df: Option<&DataFrame>,
+        prepared_base_override: Option<&PreparedBaseData>,
         facet_path: &[ScalarValue],
         coord_measurement: &dyn CoordMeasurement,
         phase: MarkRenderPhase,
@@ -2260,6 +2266,7 @@ impl CompiledPlot {
                     plot_width,
                     plot_height,
                     provided_plot_df,
+                    prepared_base_override,
                     facet_path,
                 )
                 .await?;
@@ -2301,6 +2308,7 @@ impl CompiledPlot {
                 plot_width,
                 plot_height,
                 provided_plot_df,
+                prepared_base_override,
                 facet_path,
             )
             .await?;
@@ -2389,6 +2397,13 @@ impl CompiledPlot {
         renderer.data = None;
         renderer.widgets.clear();
         let scales = HashMap::new();
+        let style_snapshots = Arc::new(
+            measurements
+                .iter()
+                .map(|(id, measurement)| (id.clone(), measurement.styles.clone()))
+                .collect(),
+        );
+        let widget_eval_ctx = eval_ctx.with_widget_style_snapshots(style_snapshots);
         let mut groups = Vec::new();
         for attachment in &self.widgets {
             let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
@@ -2433,11 +2448,12 @@ impl CompiledPlot {
             for mark in &widget.marks {
                 let output = Box::pin(renderer.render_mark_with_plot_df(
                     mark.as_ref(),
-                    eval_ctx,
+                    &widget_eval_ctx,
                     &scales,
                     width,
                     height,
                     None,
+                    measurement.prepared_items.as_ref().map(|items| &items.base),
                     &[],
                     &EmptyCoordMeasurement,
                     MarkRenderPhase::Combined,
@@ -2525,6 +2541,40 @@ impl CompiledPlot {
                 &WidgetPresentationState::default(),
                 &eval_ctx.params,
             )?;
+            let widget_eval_ctx = eval_ctx.with_widget_style_snapshots(Arc::new(
+                [(widget.id.clone(), styles.clone())].into_iter().collect(),
+            ));
+
+            let prepared_items = if let Some(items) = &widget.items {
+                let dataframe = items
+                    .data
+                    .dataframe_with_context(&eval_ctx.session_context)
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Widget '{}' item plan has no runtime dataframe",
+                            widget.id
+                        ))
+                    })?;
+                let schema = Arc::new(dataframe.schema().as_arrow().clone());
+                let batches = dataframe.collect().await?;
+                let batch = if batches.is_empty() {
+                    RecordBatch::new_empty(schema)
+                } else {
+                    concat_batches(&schema, &batches)?
+                };
+                let item_count = batch.num_rows();
+                let dataframe = eval_ctx.session_context.read_batch(batch)?;
+                Some(WidgetPreparedBaseData {
+                    base: PreparedBaseData {
+                        dataframe: Some(dataframe),
+                        derived_scalars: Default::default(),
+                        facet_data_scope: FacetDataScope::FILTERED,
+                    },
+                    item_count,
+                })
+            } else {
+                None
+            };
 
             let (provisional_width, provisional_height) = widget.measure.provisional_frame_size();
             let mut text_extents = HashMap::<String, (f32, f32)>::new();
@@ -2542,11 +2592,12 @@ impl CompiledPlot {
                     })?;
                 let output = Box::pin(renderer.render_mark_with_plot_df(
                     mark.as_ref(),
-                    eval_ctx,
+                    &widget_eval_ctx,
                     &scales,
                     provisional_width,
                     provisional_height,
                     None,
+                    prepared_items.as_ref().map(|items| &items.base),
                     &[],
                     &EmptyCoordMeasurement,
                     MarkRenderPhase::Combined,
@@ -2560,21 +2611,7 @@ impl CompiledPlot {
                 }
             }
 
-            let item_count = if let Some(items) = &widget.items {
-                items
-                    .data
-                    .dataframe_with_context(&eval_ctx.session_context)
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Widget '{}' item plan has no runtime dataframe",
-                            widget.id
-                        ))
-                    })?
-                    .count()
-                    .await?
-            } else {
-                0
-            };
+            let item_count = prepared_items.as_ref().map_or(0, |items| items.item_count);
             let (width, height) = resolve_widget_measure_spec(
                 &widget.id,
                 &widget.measure,
@@ -2601,6 +2638,7 @@ impl CompiledPlot {
                     width,
                     height,
                     styles,
+                    prepared_items,
                 },
             );
         }
@@ -5561,6 +5599,7 @@ impl CompiledPlot {
                     plot_area_width,
                     plot_area_height,
                     data_override,
+                    None,
                     facet_path,
                     coord_measurement_ref,
                     base_phase,
@@ -5614,6 +5653,7 @@ impl CompiledPlot {
                         plot_area_width,
                         plot_area_height,
                         data_override,
+                        None,
                         facet_path,
                         coord_measurement_ref,
                         MarkRenderPhase::Derived,

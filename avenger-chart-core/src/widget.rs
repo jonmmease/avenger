@@ -402,6 +402,14 @@ macro_rules! widget_style_properties {
                 matches!(self, Self::Width | Self::Height | Self::MinWidth | Self::MinHeight
                     | Self::PaddingInline | Self::PaddingBlock | Self::ItemGap)
             }
+
+            pub fn for_mark_channel(channel: &str) -> Option<Self> {
+                let css_name = channel.replace('_', "-");
+                Self::ALL
+                    .iter()
+                    .copied()
+                    .find(|property| property.name() == css_name)
+            }
         }
     };
 }

@@ -1549,8 +1549,6 @@ impl Theme {
         channel: &str,
         params: &IndexMap<String, datafusion_common::ScalarValue>,
     ) -> Option<datafusion_common::ScalarValue> {
-        use crate::theme::eval::{EvalContext, TargetType, get_channel_type};
-
         // Convert underscore to hyphen for CSS property name
         let css_property = channel.replace('_', "-");
 
@@ -1560,14 +1558,19 @@ impl Theme {
             self.query(context, &css_property)?
         };
 
-        // Determine expected type from channel name
-        let channel_type = get_channel_type(&css_property)?;
+        self.evaluate_mark_channel_value(&css_property, &theme_value, params)
+    }
 
-        // Create evaluation context
-        let base_font_size = self.get_base_font_size(params);
-        let eval_ctx = EvalContext::new(params, base_font_size);
+    pub(crate) fn evaluate_mark_channel_value(
+        &self,
+        css_property: &str,
+        theme_value: &ThemeValue,
+        params: &IndexMap<String, datafusion_common::ScalarValue>,
+    ) -> Option<datafusion_common::ScalarValue> {
+        use crate::theme::eval::{EvalContext, TargetType, get_channel_type};
 
-        // Evaluate based on expected type
+        let channel_type = get_channel_type(css_property)?;
+        let eval_ctx = EvalContext::new(params, self.get_base_font_size(params));
         match channel_type {
             TargetType::Color => {
                 // Evaluate as color and convert to string
@@ -1606,7 +1609,7 @@ impl Theme {
                 // Try to get as boolean directly
                 match theme_value {
                     ThemeValue::Boolean(b) => {
-                        Some(datafusion_common::ScalarValue::Boolean(Some(b)))
+                        Some(datafusion_common::ScalarValue::Boolean(Some(*b)))
                     }
                     _ => None,
                 }
