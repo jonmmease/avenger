@@ -8,8 +8,8 @@ machinery, mixed chrome solve, Checkbox, and Button are implemented; later
 data-encoded/native widgets and parameter-change reactions remain planned.
 Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. Phase W1 is implemented and undergoing its
-final phase gate; W2-W6 remain planned in the active implementation plan at
+in-repo Typst-based text stack. Phase W1 is complete; W2-W6 remain planned
+in the active implementation plan at
 `scratch/2026-07-09/02-widgets/plan.md`.
 Rust-first implementation plan for the widget paradigm: interactive input
 controls built from the engine's own primitives — marks, params,
@@ -532,14 +532,15 @@ scatter_mark.transform_no_output(Filter::new(regions.predicate()), |m| m);
   filter-style semantics (nothing checked = no filter). Default tier mints
   the selection; `.selection(&external)` is the common override because
   cross-filtering wants the handle in other charts.
-- **Item pipeline**: project `value AS __value, label AS __label` once;
-  a `Sql` stage assigns presentation order as `__idx` — **stable
-  declaration order by default** (the input relation's insertion
-  order, captured as a monotonic column at materialization; corrected
-  2026-07-10 — ordering by `__label` alphabetizes and breaks the
-  declaration order tab strips and navbars require), with an optional
-  caller-supplied order expression; positions are
-  `__idx * item_height` arithmetic — no scales.
+- **Item pipeline**: project `value AS __value, label AS __label` once.
+  Static rows receive a unique monotonic `__order` while their declaration
+  sequence is converted into a relation. An arbitrary DataFrame must supply
+  an explicit nonempty total-order key whose evaluated tuples are non-null
+  and unique; the compiler derives `__order` from that key before the item
+  relation materializes. `__idx` is then derived from `__order`. Ordering by
+  `__label` is deliberately forbidden because it alphabetizes and breaks the
+  declaration order that tab strips and navbars require. Positions are
+  `__idx * item_height` arithmetic—no positional scales.
 - **Marks**: box rects for every row; checked overlay behind
   `Selection::contains_equality_value(field_expr, col("__value"))`, a
   **membership-display predicate** (is a clause for this item's value
