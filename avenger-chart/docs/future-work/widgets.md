@@ -178,9 +178,8 @@ that same object; no part independently rematerializes the item query.
 ### State wiring: the three tiers (identical to tools)
 
 1. **Auto-mint by default.** The widget mints its state at construction,
-   named by widget id (`generated_widget_name(id, "value")` following the
-   `generated_tool_name` convention; for single-value widgets the param
-   name is simply the widget id). Expansion/state-spec returns it; the
+   named by widget id and role (`{id}__checked`, `{id}__value`, or
+   `{id}__selection`). Expansion/state-spec returns it; the
    compiler registers it. No `.add_param()` ceremony.
 2. **Consumer accessors.** Each widget exposes the expressions consumers
    need, paralleling `Selection::predicate()`:
@@ -516,9 +515,10 @@ chart
 
 ```rust
 let regions = Selection::new("regions").empty_selects_all();
-let region_filter = CheckboxList::new("region_filter", region_items, &regions)
-    .value(col("origin"))
-    .label(col("origin"));
+let region_filter = CheckboxList::new("region_filter", region_items)
+    .value(col("region"))
+    .label(col("label"))
+    .selection(&regions);
 
 scatter_mark.transform_no_output(Filter::new(regions.predicate()), |m| m);
 ```
@@ -532,15 +532,17 @@ scatter_mark.transform_no_output(Filter::new(regions.predicate()), |m| m);
   filter-style semantics (nothing checked = no filter). Default tier mints
   the selection; `.selection(&external)` is the common override because
   cross-filtering wants the handle in other charts.
-- **Item pipeline**: project `value AS __value, label AS __label` once.
-  Static rows receive a unique monotonic `__order` while their declaration
-  sequence is converted into a relation. An arbitrary DataFrame must supply
-  an explicit nonempty total-order key whose evaluated tuples are non-null
-  and unique; the compiler derives `__order` from that key before the item
-  relation materializes. `__idx` is then derived from `__order`. Ordering by
-  `__label` is deliberately forbidden because it alphabetizes and breaks the
-  declaration order that tab strips and navbars require. Positions are
-  `__idx * item_height` arithmetic—no positional scales.
+- **Item pipeline**: project the author expressions to `__value` and
+  `__label` once, while retaining the original field expression for selection
+  clauses. Static rows are stamped with one-based declaration ordinals before
+  their single materialization; `__idx = __order - 1` is therefore stable and
+  zero-based. An arbitrary DataFrame must declare a nonempty total-order key;
+  `row_number()` derives the ordinal from that key before collection. Every
+  revision rejects NULL or duplicate key tuples, NULL or duplicate typed
+  values, and NULL or duplicate type-preserving item identities. There is no
+  implicit `ORDER BY __label`: labels may repeat or change without reordering
+  navigation. Positions are `__idx * item_height` arithmetic—no positional
+  scales.
 - **Marks**: box rects for every row; checked overlay behind
   `Selection::contains_equality_value(field_expr, col("__value"))`, a
   **membership-display predicate** (is a clause for this item's value
@@ -561,17 +563,23 @@ scatter_mark.transform_no_output(Filter::new(regions.predicate()), |m| m);
 
 ```rust
 let measure = RadioButtonList::new("measure", measure_items)
-    .value(col("key"))
+    .item_value(col("key"))
     .label(col("title"))
-    .default(lit("revenue"));
+    .default("revenue");
 
 // consumer: CASE-switch an encoding on measure.value()
 ```
 
-- **State**: one scalar param holding the selected item's value (default
-  from `.default(...)`). Accessor `value() -> Expr`. Radio semantics —
-  always exactly one selected — fall out of scalar-param semantics.
-- **Marks**: outer circle `Symbol` per row; selected-dot overlay behind
+- **State**: one scalar param holding the selected item's value. A nonempty
+  static list defaults to its first declaration-order value when the value is
+  a bare column. Computed static values and arbitrary DataFrames require
+  `.default(...)`. Serialized validation requires both the default and live
+  parameter value to remain present after every item or parameter revision;
+  invalid values are errors, never implicit resets. Accessor `value() -> Expr`.
+  Radio semantics—always exactly one selected—fall out of scalar-param
+  semantics.
+- **Marks**: outer circle `Symbol` per row; selected-ring and surface-center
+  overlays behind
   `Filter::new(col("__value").eq(param.expr()))`; text labels. Same
   `__idx` pipeline as `CheckboxList`.
 - **Bindings**: `Click` → `set_param(id, ev::datum("__value"))`.
@@ -964,11 +972,14 @@ compound marks.
    `Button`; baselines.
    Exit criterion: the trend-line toggle example renders and round-trips
    interaction in `chart_avenger_app`.
-2. **Data-encoded widgets.** Widget data contexts (materialize + share
+2. **Data-encoded widgets — complete (2026-07-13).** Widget data contexts (materialize + share
    with sizing); `CheckboxList` (new predicate-aware equality membership and
    toggle operations that preserve `empty_selects_all` filter semantics);
    `RadioButtonList`. Exit criterion: the
-   region cross-filter example, checkbox list in a chrome slot.
+   region cross-filter example, checkbox list in a chrome slot. Implemented in
+   `avenger-chart-app/examples/widget_region_cross_filter.rs`; the phase landed
+   in `32090604a`, `4b3bf9857`, `06314afc2`, `c3fd116bb`, `d991252b6`,
+   `7ee4bd823`, `e9c94f54c`, and `9c4145b64`.
 3. **Slider.** Frame-local coordinate helpers; drag bindings; step/format;
    throttle. Exit criterion: live range filtering of a scatter at
    interactive frame rates.
