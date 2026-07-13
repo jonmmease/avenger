@@ -1362,6 +1362,28 @@ mod tests {
             styles.parts["focus-ring"].values[&WidgetStyleProperty::Opacity],
             ThemeValue::Number(1.0)
         );
+
+        let disabled_neutral = resolve_widget_style_set(
+            &crate::Theme::light(),
+            "button",
+            "clear",
+            &parts,
+            &WidgetPresentationState {
+                variant: Some("neutral".to_string()),
+                disabled: true,
+                ..Default::default()
+            },
+            &IndexMap::new(),
+        )
+        .unwrap();
+        assert!(matches!(
+            disabled_neutral.parts["box"].values[&WidgetStyleProperty::Fill],
+            ThemeValue::Color(color) if (color.red, color.green, color.blue) == (244, 244, 244)
+        ));
+        assert!(matches!(
+            disabled_neutral.parts["label"].values[&WidgetStyleProperty::Fill],
+            ThemeValue::Color(color) if (color.red, color.green, color.blue) == (138, 138, 138)
+        ));
     }
 
     #[test]

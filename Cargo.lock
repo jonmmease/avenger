@@ -616,6 +616,7 @@ dependencies = [
  "avenger-resource",
  "avenger-scenegraph",
  "avenger-winit-wgpu",
+ "bincode",
  "cfg-if",
  "chrono",
  "datafusion",

@@ -8332,7 +8332,17 @@ mod tests {
     #[tokio::test]
     async fn checkbox_click_flips_param_and_rebuilds_checked_scene() {
         let ctx = SessionContext::new();
+        let mut theme = Theme::light();
+        theme
+            .append_css(
+                "checkbox { height: 40px; } \
+                 checkbox::part(box) { choice-control-size: 18px; corner-radius: 4px; } \
+                 checkbox::part(label) { control-label-gap: 12px; } \
+                 checkbox::part(focus-ring) { focus-gap: 3px; }",
+            )
+            .expect("custom checkbox hit theme");
         let compiled = Chart::<Cartesian>::new()
+            .theme(theme)
             .widget(Checkbox::new("regions", "Regions", false).position(ChromePosition::Left))
             .compile(&ctx)
             .await
@@ -8360,7 +8370,7 @@ mod tests {
         let origin = rtree
             .named_group_origin("regions")
             .expect("checkbox group origin");
-        let position = [origin[0] + 7.0, origin[1] + 16.0];
+        let position = [origin[0] + 9.0, origin[1] + 20.0];
         let box_instance = rtree
             .pick_top_mark_at_point(&position)
             .cloned()
@@ -8383,6 +8393,155 @@ mod tests {
             checked_rtree
                 .iter()
                 .any(|geometry| geometry.mark_instance.name == "check")
+        );
+        let check_instance = checked_rtree
+            .iter()
+            .find(|geometry| geometry.mark_instance.name == "check")
+            .map(|geometry| geometry.mark_instance.clone())
+            .expect("visible check hit target");
+        let check_click =
+            click_mark(&mut state, &handler, Some(check_instance), position, false).await;
+        assert!(check_click.rerender);
+        assert_eq!(
+            state.params().await.get("regions__checked"),
+            Some(&ScalarValue::Boolean(Some(false)))
+        );
+        let label_instance = checked_rtree
+            .iter()
+            .find(|geometry| geometry.mark_instance.name == "label")
+            .map(|geometry| geometry.mark_instance.clone())
+            .expect("checkbox label hit target");
+        let label_click =
+            click_mark(&mut state, &handler, Some(label_instance), position, false).await;
+        assert!(label_click.rerender);
+        assert_eq!(
+            state.params().await.get("regions__checked"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+    }
+
+    #[tokio::test]
+    async fn two_checkboxes_dispatch_only_to_the_picked_widget() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .widget(Checkbox::new("first", "First", false).position(ChromePosition::Left))
+            .widget(Checkbox::new("second", "Second", false).position(ChromePosition::Left))
+            .compile(&ctx)
+            .await
+            .expect("compile two-checkbox chart");
+        let compiled: CompiledPlot =
+            bincode::deserialize(&bincode::serialize(&compiled).expect("serialize chart"))
+                .expect("deserialize chart");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("checkbox streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial two-checkbox scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let first_origin = rtree.named_group_origin("first").expect("first origin");
+        let second_origin = rtree.named_group_origin("second").expect("second origin");
+        let first_position = [first_origin[0] + 7.0, first_origin[1] + 16.0];
+        let second_position = [second_origin[0] + 7.0, second_origin[1] + 16.0];
+        assert_eq!(
+            rtree
+                .pick_top_mark_at_point(&first_position)
+                .expect("first box hit")
+                .name,
+            "box"
+        );
+        assert_eq!(
+            rtree
+                .pick_top_mark_at_point(&second_position)
+                .expect("second box hit")
+                .name,
+            "box"
+        );
+
+        let mut manager = EventStreamManager::new(state);
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: first_position,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        let first_click = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(10),
+            )
+            .await;
+        assert!(first_click.rerender);
+        assert_eq!(
+            manager.state().params().await.get("first__checked"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+        assert_eq!(
+            manager.state().params().await.get("second__checked"),
+            Some(&ScalarValue::Boolean(Some(false)))
+        );
+
+        let second_instant = instant + Duration::from_millis(600);
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: second_position,
+                }),
+                &rtree,
+                second_instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                second_instant,
+            )
+            .await;
+        let second_click = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                second_instant + Duration::from_millis(10),
+            )
+            .await;
+        assert!(second_click.rerender);
+        assert_eq!(
+            manager.state().params().await.get("first__checked"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+        assert_eq!(
+            manager.state().params().await.get("second__checked"),
+            Some(&ScalarValue::Boolean(Some(true)))
         );
     }
 
