@@ -6069,6 +6069,15 @@ mod tests {
         // keep retargeting and schedule a delayed wakeup instead of
         // interrupting the gesture with a data-mark rebuild.
         wait_for_session_materializations(&session).await;
+        // The full all-targets suite can leave this task unscheduled for more
+        // than the production stability window after the pan above. Reset the
+        // internal clock here so this assertion tests the just-ready branch,
+        // rather than scheduler contention on the test host.
+        session
+            .materialization_cache()
+            .lock()
+            .expect("materialization cache lock poisoned")
+            .reset_preview_desired_key_stability_for_tests(Instant::now());
         let (_deferred_preview, deferred_metrics) = session
             .evaluate_with_metrics(
                 EvaluationRequest::new()

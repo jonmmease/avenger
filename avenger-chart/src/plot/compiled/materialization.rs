@@ -267,6 +267,13 @@ impl MaterializationCache {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn reset_preview_desired_key_stability_for_tests(&mut self, now: Instant) {
+        for (_, changed_at) in self.preview_desired_key_motion.values_mut() {
+            *changed_at = now;
+        }
+    }
+
     /// Note that a ready preview result was NOT consumed because its key has
     /// not been stable long enough; the session drains this after evaluation
     /// and schedules a delayed re-evaluation so a hold still swaps the result
