@@ -35,10 +35,10 @@ use avenger_chart_core::{
     AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, EmptyCoordMeasurement,
     FacetDataScope, FacetEmptyCellPolicy, FacetWrapColumnMode, GuideRenderContext, LegendPosition,
     PixelFrame, ScalarValueHelpers, TextMeasurementService, WIDGET_FRAME_HEIGHT_INPUT,
-    WIDGET_FRAME_WIDTH_INPUT, WidgetPartManifest, WidgetPresentationState, WidgetStyleProperty,
-    WidgetTextMeasureAxis, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
-    params_to_datafusion, resolve_widget_measure_spec, resolve_widget_style_set,
-    widget_style_evaluation_inputs,
+    WIDGET_FRAME_WIDTH_INPUT, WidgetItemValidation, WidgetPartManifest, WidgetPresentationState,
+    WidgetStyleProperty, WidgetTextMeasureAxis, eval_to_scalars, evaluate_bool_expr,
+    evaluate_f32_expr, maybe::Maybe, params_to_datafusion, resolve_widget_measure_spec,
+    resolve_widget_style_set, widget_style_evaluation_inputs,
 };
 use avenger_chart_scales::PreparedScaleMark;
 use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
@@ -120,6 +120,134 @@ use super::{
         widget_item_cache_key,
     },
 };
+
+fn invalid_widget_items(
+    widget_id: &str,
+    role: &str,
+    message: impl Into<String>,
+) -> AvengerChartError {
+    AvengerChartError::InvalidWidgetItems {
+        widget_id: widget_id.to_string(),
+        role: role.to_string(),
+        message: message.into(),
+    }
+}
+
+fn widget_item_column<'a>(
+    widget_id: &str,
+    role: &str,
+    batch: &'a RecordBatch,
+    column: &str,
+) -> Result<&'a ArrayRef, AvengerChartError> {
+    batch.column_by_name(column).ok_or_else(|| {
+        invalid_widget_items(
+            widget_id,
+            role,
+            format!("required column '{column}' is missing"),
+        )
+    })
+}
+
+fn validate_widget_item_batch(
+    widget_id: &str,
+    batch: &RecordBatch,
+    validations: &[WidgetItemValidation],
+    params: &IndexMap<String, ScalarValue>,
+) -> Result<(), AvengerChartError> {
+    for validation in validations {
+        match validation {
+            WidgetItemValidation::NonNullUnique { columns, role } => {
+                if columns.is_empty() {
+                    return Err(invalid_widget_items(
+                        widget_id,
+                        role,
+                        "uniqueness validation requires at least one column",
+                    ));
+                }
+                let arrays = columns
+                    .iter()
+                    .map(|column| widget_item_column(widget_id, role, batch, column))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut seen = HashSet::<Vec<ScalarValue>>::with_capacity(batch.num_rows());
+                for row in 0..batch.num_rows() {
+                    let tuple = arrays
+                        .iter()
+                        .map(|array| ScalarValue::try_from_array(array.as_ref(), row))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if tuple.iter().any(ScalarValue::is_null) {
+                        return Err(invalid_widget_items(
+                            widget_id,
+                            role,
+                            format!("columns {columns:?} contain NULL at row {row}"),
+                        ));
+                    }
+                    if !seen.insert(tuple.clone()) {
+                        return Err(invalid_widget_items(
+                            widget_id,
+                            role,
+                            format!("columns {columns:?} contain duplicate tuple {tuple:?}"),
+                        ));
+                    }
+                }
+            }
+            WidgetItemValidation::ContainsScalar {
+                column,
+                value,
+                role,
+            } => {
+                let array = widget_item_column(widget_id, role, batch, column)?;
+                let mut found = false;
+                for row in 0..batch.num_rows() {
+                    if ScalarValue::try_from_array(array.as_ref(), row)? == *value {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(invalid_widget_items(
+                        widget_id,
+                        role,
+                        format!("column '{column}' does not contain {value:?}"),
+                    ));
+                }
+            }
+            WidgetItemValidation::ContainsParam {
+                column,
+                param_name,
+                role,
+            } => {
+                let value = params
+                    .get(param_name)
+                    .or_else(|| params.get(&format!("${param_name}")))
+                    .ok_or_else(|| {
+                        invalid_widget_items(
+                            widget_id,
+                            role,
+                            format!("parameter '{param_name}' is missing"),
+                        )
+                    })?;
+                let array = widget_item_column(widget_id, role, batch, column)?;
+                let mut found = false;
+                for row in 0..batch.num_rows() {
+                    if ScalarValue::try_from_array(array.as_ref(), row)? == *value {
+                        found = true;
+                        break;
+                    }
+                }
+                if !found {
+                    return Err(invalid_widget_items(
+                        widget_id,
+                        role,
+                        format!(
+                            "column '{column}' does not contain parameter '{param_name}' value {value:?}"
+                        ),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 fn plot_contains_responsive_wrap_concat(plot: &CompiledPlot) -> bool {
     if plot
@@ -2671,6 +2799,12 @@ impl CompiledPlot {
                     } else {
                         concat_batches(&schema, &batches)?
                     };
+                    validate_widget_item_batch(
+                        &widget.id,
+                        &batch,
+                        &items.validations,
+                        eval_ctx.params(),
+                    )?;
                     let item_count = batch.num_rows();
                     let dataframe = eval_ctx.session_context.read_batch(batch)?;
                     let prepared = WidgetPreparedBaseData {
@@ -8141,6 +8275,99 @@ mod tests {
             leaf_plot_width,
             leaf_plot_height,
         ))
+    }
+
+    fn widget_validation_batch(keys: Vec<Option<i64>>, values: Vec<Option<&str>>) -> RecordBatch {
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("key", DataType::Int64, true),
+                Field::new("value", DataType::Utf8, true),
+            ])),
+            vec![
+                Arc::new(Int64Array::from(keys)),
+                Arc::new(StringArray::from(values)),
+            ],
+        )
+        .expect("widget validation batch")
+    }
+
+    #[test]
+    fn widget_item_validations_accept_typed_membership_and_total_keys()
+    -> Result<(), AvengerChartError> {
+        let batch = widget_validation_batch(vec![Some(1), Some(2)], vec![Some("a"), Some("b")]);
+        let validations = vec![
+            WidgetItemValidation::NonNullUnique {
+                columns: vec!["key".to_string()],
+                role: "total order".to_string(),
+            },
+            WidgetItemValidation::ContainsScalar {
+                column: "value".to_string(),
+                value: ScalarValue::Utf8(Some("b".to_string())),
+                role: "default".to_string(),
+            },
+            WidgetItemValidation::ContainsParam {
+                column: "value".to_string(),
+                param_name: "selected".to_string(),
+                role: "current value".to_string(),
+            },
+        ];
+        let params = IndexMap::from([(
+            "selected".to_string(),
+            ScalarValue::Utf8(Some("a".to_string())),
+        )]);
+
+        validate_widget_item_batch("choices", &batch, &validations, &params)
+    }
+
+    #[test]
+    fn widget_item_validations_report_null_duplicate_missing_and_membership_errors() {
+        let unique = WidgetItemValidation::NonNullUnique {
+            columns: vec!["key".to_string()],
+            role: "total order".to_string(),
+        };
+        for (batch, expected) in [
+            (
+                widget_validation_batch(vec![Some(1), Some(1)], vec![Some("a"), Some("b")]),
+                "duplicate tuple",
+            ),
+            (
+                widget_validation_batch(vec![Some(1), None], vec![Some("a"), Some("b")]),
+                "contain NULL",
+            ),
+        ] {
+            let error =
+                validate_widget_item_batch("choices", &batch, &[unique.clone()], &IndexMap::new())
+                    .expect_err("invalid total key");
+            assert!(
+                matches!(&error, AvengerChartError::InvalidWidgetItems { widget_id, role, message }
+                    if widget_id == "choices" && role == "total order" && message.contains(expected)),
+                "unexpected error: {error}"
+            );
+        }
+
+        let batch = widget_validation_batch(vec![Some(1)], vec![Some("a")]);
+        for validation in [
+            WidgetItemValidation::NonNullUnique {
+                columns: vec!["missing".to_string()],
+                role: "missing column".to_string(),
+            },
+            WidgetItemValidation::ContainsScalar {
+                column: "value".to_string(),
+                value: ScalarValue::Utf8(Some("b".to_string())),
+                role: "default".to_string(),
+            },
+            WidgetItemValidation::ContainsParam {
+                column: "value".to_string(),
+                param_name: "selected".to_string(),
+                role: "current value".to_string(),
+            },
+        ] {
+            assert!(matches!(
+                validate_widget_item_batch("choices", &batch, &[validation], &IndexMap::new()),
+                Err(AvengerChartError::InvalidWidgetItems { widget_id, .. })
+                    if widget_id == "choices"
+            ));
+        }
     }
 
     #[test]

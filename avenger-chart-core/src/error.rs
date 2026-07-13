@@ -84,6 +84,13 @@ pub enum AvengerChartError {
         message: String,
     },
 
+    #[error("Invalid widget items for '{widget_id}' ({role}): {message}")]
+    InvalidWidgetItems {
+        widget_id: String,
+        role: String,
+        message: String,
+    },
+
     #[error("Channel resolution error: `{0}`")]
     ChannelResolutionError(#[from] ChannelResolutionError),
 
