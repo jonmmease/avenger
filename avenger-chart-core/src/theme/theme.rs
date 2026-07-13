@@ -1903,6 +1903,52 @@ mod tests {
     }
 
     #[test]
+    fn scoped_custom_properties_respect_media_queries() {
+        let theme = Theme::from_css(
+            r#"
+                :root { --accent: #0072b2; }
+                @media (width >= 600px) {
+                    button#warning { --accent: #cc0000; }
+                }
+                button::part(box) { fill: var(--accent); }
+            "#,
+        )
+        .unwrap();
+        let mut wide = IndexMap::new();
+        wide.insert(
+            "width".to_string(),
+            datafusion_common::ScalarValue::Float32(Some(800.0)),
+        );
+        assert_color(
+            theme.query_widget_part(
+                &widget_part_context("button", "warning", "box", wide.clone()),
+                "fill",
+            ),
+            (204, 0, 0),
+        );
+        assert_color(
+            theme.query_widget_part(
+                &widget_part_context("button", "ordinary", "box", wide),
+                "fill",
+            ),
+            (0, 114, 178),
+        );
+    }
+
+    #[test]
+    fn interactive_pseudo_classes_remain_unsupported() {
+        for pseudo_class in [":hover", ":active", ":focus"] {
+            assert!(
+                Theme::from_css(&format!(
+                    "button{pseudo_class}::part(box) {{ fill: #0072b2; }}"
+                ))
+                .is_err(),
+                "{pseudo_class} unexpectedly parsed"
+            );
+        }
+    }
+
+    #[test]
     fn test_css_theme_serialization() {
         // Create a Theme
         let theme = Theme::light();
