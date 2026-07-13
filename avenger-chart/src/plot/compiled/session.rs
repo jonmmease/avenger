@@ -14,7 +14,7 @@ use avenger_chart_core::{
     MaterializationExecutorRegistry, MaterializationKind, MaterializationRequest, Maybe,
     RadiusExpression, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
     ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause, SerializableExpr, StoreData,
-    StoreRowValue,
+    StoreRowValue, WidgetItemValidation,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
@@ -2616,6 +2616,29 @@ fn collect_plot_dependency_placeholders_with_options(
         collect_coordinate_transform_dependency_params(plot, names);
     }
     collect_marks_dependency_placeholders(&plot.marks, ctx, names, all_param_names, options);
+    for attachment in &plot.widgets {
+        let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+            continue;
+        };
+        if let Some(items) = &widget.items {
+            collect_plan_placeholders(items.data.logical_plan_node(), ctx, names, all_param_names);
+            for validation in &items.validations {
+                if let WidgetItemValidation::ContainsParam { param_name, .. } = validation
+                    && all_param_names.contains(param_name)
+                {
+                    names.insert(param_name.clone());
+                }
+            }
+        }
+        collect_marks_dependency_placeholders(&widget.marks, ctx, names, all_param_names, options);
+        for expression in [
+            widget.presentation.disabled.as_ref(),
+            widget.presentation.checked.as_ref(),
+            widget.presentation.selected.as_ref(),
+        ] {
+            collect_expr_node_placeholders(expression, ctx, names, all_param_names);
+        }
+    }
     for scale_spec in plot.scale_specs.values() {
         match scale_spec {
             PlotScaleSpec::Local(config) => {

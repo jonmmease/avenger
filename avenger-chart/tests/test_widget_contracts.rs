@@ -70,7 +70,7 @@ impl ChartWidget for ContractWidget {
                     Rect::<PixelFrame>::new()
                         .id("box")
                         .x(0.0)
-                        .x2(80.0)
+                        .x2(col("box_x2"))
                         .y(0.0)
                         .y2(24.0),
                 )
@@ -93,16 +93,31 @@ impl ChartWidget for ContractWidget {
                     ChartEventStream::on(ChartEventType::MouseDown).mark("contract.box"),
                     ChartEventStream::on(ChartEventType::MouseUp).mark("contract.box"),
                 ))
-                .event_binding(ChartEventBinding::on(ChartEventType::Click)),
+                .event_binding(
+                    ChartEventBinding::on(ChartEventType::Click)
+                        .filter(avenger_chart::event::datum("value").is_not_null()),
+                ),
             items: Some(WidgetItems::Static(vec![
-                WidgetItemRow::new(vec![(
-                    "value".to_string(),
-                    datafusion::common::ScalarValue::Utf8(Some("one".to_string())),
-                )]),
-                WidgetItemRow::new(vec![(
-                    "value".to_string(),
-                    datafusion::common::ScalarValue::Utf8(Some("two".to_string())),
-                )]),
+                WidgetItemRow::new(vec![
+                    (
+                        "value".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some("one".to_string())),
+                    ),
+                    (
+                        "box_x2".to_string(),
+                        datafusion::common::ScalarValue::Float32(Some(80.0)),
+                    ),
+                ]),
+                WidgetItemRow::new(vec![
+                    (
+                        "value".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some("two".to_string())),
+                    ),
+                    (
+                        "box_x2".to_string(),
+                        datafusion::common::ScalarValue::Float32(Some(80.0)),
+                    ),
+                ]),
             ])),
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {
@@ -355,6 +370,11 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
             ..
         }
     ));
+    assert_eq!(
+        decoded.event_datum_types().get("value"),
+        Some(&DataType::Utf8),
+        "widget binding datum fields must be present in the compiled schema"
+    );
     let evaluated = decoded.evaluate(&ctx, None).await.unwrap();
     let widget_children =
         find_group(&evaluated.scene_graph.marks, "contract").expect("compiler-owned widget group");
@@ -394,6 +414,28 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     assert_eq!(resolved, &[vec![0, 0]]);
     let box_path = find_rect_path(&evaluated.scene_graph.marks, "box", &mut Vec::new()).unwrap();
     assert!(box_path.ends_with(&resolved[0]));
+    let box_datums = evaluated
+        .event_datums
+        .rows
+        .iter()
+        .find(|rows| rows.mark_path == box_path)
+        .unwrap_or_else(|| {
+            panic!(
+                "widget box event datum rows use final scene path {box_path:?}; actual paths: {:?}",
+                evaluated
+                    .event_datums
+                    .rows
+                    .iter()
+                    .map(|rows| rows.mark_path.as_slice())
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(box_datums.rows.num_rows(), 2);
+    assert_eq!(
+        box_datums.rows.schema().field(0).name(),
+        "value",
+        "the widget item schema must participate in event datum inference"
+    );
 
     let click_binding = decoded
         .event_bindings()

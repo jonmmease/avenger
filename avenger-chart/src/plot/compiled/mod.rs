@@ -741,6 +741,16 @@ impl CompiledPlot {
                 requested.extend(details.iter().cloned());
             }
         }
+        for attachment in &self.widgets {
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+                continue;
+            };
+            for mark in &widget.marks {
+                if let Some(details) = mark.state().details.as_ref() {
+                    requested.extend(details.iter().cloned());
+                }
+            }
+        }
         if requested.is_empty() {
             return Ok(Vec::new());
         }
@@ -875,6 +885,48 @@ impl CompiledPlot {
                     ),
                 )
                 .await?;
+            }
+        }
+
+        for attachment in &self.widgets {
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+                continue;
+            };
+            let item_df = widget
+                .items
+                .as_ref()
+                .and_then(|items| items.data.dataframe_with_context(ctx));
+            if let Some(df) = item_df.as_ref() {
+                collect_event_datum_types_from_schema(df, requested, out);
+            }
+            let prepared_base = item_df.clone().map(|dataframe| PreparedBaseData {
+                dataframe: Some(dataframe),
+                derived_scalars: Default::default(),
+                facet_data_scope: FacetDataScope::FILTERED,
+            });
+            for mark in &widget.marks {
+                collect_event_datum_types_from_specs(
+                    mark.event_datum_field_specs(),
+                    requested,
+                    out,
+                )?;
+                if let Some(store_data) = mark.data_context().store_data()
+                    && let Some(spec) = store_specs.get(&store_data.store_name)
+                {
+                    collect_event_datum_types_from_store_spec(spec, requested, out);
+                }
+                let prepared = Box::pin(prepare_logical_mark_data(LogicalMarkDataRequest {
+                    mark: mark.as_ref(),
+                    plot_data: None,
+                    provided_plot_df: None,
+                    facet_data_scope: None,
+                    prepared_base: prepared_base.as_ref(),
+                    eval_ctx: &eval_ctx,
+                }))
+                .await?;
+                if let Some(df) = prepared.dataframe.as_ref() {
+                    collect_event_datum_types_from_schema(df, requested, out);
+                }
             }
         }
         Ok(())

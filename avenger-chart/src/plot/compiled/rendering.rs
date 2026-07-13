@@ -247,6 +247,11 @@ struct RenderedMarkOutput {
     event_datums: Vec<EvaluatedEventDatumRows>,
 }
 
+struct RenderedWidgetGroups {
+    marks: Vec<SceneMark>,
+    event_datums: Vec<EvaluatedEventDatumRows>,
+}
+
 impl RenderedMarkOutput {
     fn marks_only(marks: Vec<SceneMark>) -> Self {
         Self {
@@ -2431,7 +2436,7 @@ impl CompiledPlot {
         eval_ctx: &EvaluationContext,
         measurements: &IndexMap<String, WidgetMeasurement>,
         frame_layout: &FrameLayout,
-    ) -> Result<Vec<SceneMark>, AvengerChartError> {
+    ) -> Result<RenderedWidgetGroups, AvengerChartError> {
         let mut renderer = self.clone();
         renderer.coord_transform = Box::new(PixelFrame);
         renderer.data = None;
@@ -2445,6 +2450,7 @@ impl CompiledPlot {
                     .collect(),
             );
         let mut groups = Vec::new();
+        let mut event_datums = Vec::new();
         for attachment in &self.widgets {
             let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
                 continue;
@@ -2522,6 +2528,11 @@ impl CompiledPlot {
                     None,
                 ))
                 .await?;
+                let part_start_index = parts.len();
+                event_datums.extend(prefix_event_datum_rows(
+                    offset_flat_event_datum_rows(output.event_datums, part_start_index),
+                    &[groups.len()],
+                ));
                 let part = mark
                     .state()
                     .widget_theme
@@ -2552,7 +2563,10 @@ impl CompiledPlot {
                 ..Default::default()
             }));
         }
-        Ok(groups)
+        Ok(RenderedWidgetGroups {
+            marks: groups,
+            event_datums,
+        })
     }
 
     async fn measure_composed_widgets(
@@ -6044,17 +6058,25 @@ impl CompiledPlot {
             sharing_owner_paths,
         ));
 
+        let rendered_widgets = self
+            .render_composed_widget_groups(
+                &mark_eval_ctx,
+                &measurement.widget_measurements,
+                &measurement.layout.frame_layout,
+            )
+            .await?;
+        let chrome_event_datums = if rendered_widgets.marks.is_empty() {
+            chrome_event_datums
+        } else {
+            let mut rows = prefix_event_datum_rows(rendered_widgets.event_datums, &[1]);
+            rows.extend(offset_flat_event_datum_rows(chrome_event_datums, 1));
+            rows
+        };
         let components = PlotComponents {
             data_marks,
             guide_marks,
             legend_marks,
-            widget_marks: self
-                .render_composed_widget_groups(
-                    &mark_eval_ctx,
-                    &measurement.widget_measurements,
-                    &measurement.layout.frame_layout,
-                )
-                .await?,
+            widget_marks: rendered_widgets.marks,
             title_marks,
             subtitle_marks,
             plot_bounds: plot_bounds_struct,
