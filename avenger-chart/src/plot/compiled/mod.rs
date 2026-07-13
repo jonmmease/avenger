@@ -1428,6 +1428,17 @@ pub struct ComponentsMeasurement {
 
     /// Prepared legend plan used by both layout and render phases
     pub(crate) legend_plan: PreparedLegendPlan,
+
+    /// Resolved composed-widget styles and intrinsic sizes from this same
+    /// measurement pass.
+    pub(crate) widget_measurements: IndexMap<String, WidgetMeasurement>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct WidgetMeasurement {
+    pub(crate) width: avenger_chart_core::ResolvedWidgetAxisSize,
+    pub(crate) height: avenger_chart_core::ResolvedWidgetAxisSize,
+    pub(crate) styles: avenger_chart_core::ResolvedWidgetStyleSet,
 }
 
 impl std::fmt::Debug for ComponentsMeasurement {
@@ -1441,6 +1452,7 @@ impl std::fmt::Debug for ComponentsMeasurement {
             .field("layout", &"LayoutSolution")
             .field("frame_allocation", &self.frame_allocation)
             .field("legend_plan", &"<legend_plan>")
+            .field("widget_measurements", &self.widget_measurements)
             .finish()
     }
 }

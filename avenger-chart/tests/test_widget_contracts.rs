@@ -11,12 +11,19 @@ use datafusion::arrow::{
 };
 
 fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a [SceneMark]> {
+    find_scene_group(marks, name).map(|group| group.marks.as_slice())
+}
+
+fn find_scene_group<'a>(
+    marks: &'a [SceneMark],
+    name: &str,
+) -> Option<&'a avenger_scenegraph::marks::group::SceneGroup> {
     for mark in marks {
         if let SceneMark::Group(group) = mark {
             if group.name == name {
-                return Some(&group.marks);
+                return Some(group);
             }
-            if let Some(found) = find_group(&group.marks, name) {
+            if let Some(found) = find_scene_group(&group.marks, name) {
                 return Some(found);
             }
         }
@@ -106,7 +113,7 @@ impl ChartWidget for ContractWidget {
                         },
                         WidgetMeasureExpr::StyleLength {
                             part: Some("box".to_string()),
-                            property: WidgetStyleProperty::PaddingInline,
+                            property: WidgetStyleProperty::StrokeWidth,
                         },
                     ]),
                     min_px: 24.0,
@@ -279,6 +286,12 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     let evaluated = decoded.evaluate(&ctx, None).await.unwrap();
     let widget_children =
         find_group(&evaluated.scene_graph.marks, "contract").expect("compiler-owned widget group");
+    let widget_group = find_scene_group(&evaluated.scene_graph.marks, "contract").unwrap();
+    assert!(matches!(
+        widget_group.clip,
+        avenger_scenegraph::marks::group::Clip::Rect { width, height, .. }
+            if width > 24.0 && width <= 200.0 && height == 24.0
+    ));
     assert!(
         widget_children
             .iter()

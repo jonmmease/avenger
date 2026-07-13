@@ -20,6 +20,7 @@ use avenger_scenegraph::{
         group::{Clip, SceneGroup},
         mark::SceneMark,
         rect::SceneRectMark,
+        text::SceneTextMark,
     },
     scene_graph::SceneGraph,
 };
@@ -33,8 +34,10 @@ use tracing::{Level, debug, trace};
 use avenger_chart_core::{
     AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, EmptyCoordMeasurement,
     FacetEmptyCellPolicy, FacetWrapColumnMode, GuideRenderContext, LegendPosition, PixelFrame,
-    ScalarValueHelpers, TextMeasurementService, eval_to_scalars, evaluate_bool_expr,
-    evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
+    ScalarValueHelpers, TextMeasurementService, WidgetPartManifest, WidgetPresentationState,
+    WidgetStyleProperty, WidgetTextMeasureAxis, eval_to_scalars, evaluate_bool_expr,
+    evaluate_f32_expr, maybe::Maybe, params_to_datafusion, resolve_widget_measure_spec,
+    resolve_widget_style_set,
 };
 use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
 
@@ -94,7 +97,7 @@ use crate::{
 use super::{
     ChildFrameContainerView, ChildFrameSharingPath, CompiledPlot, ComponentsMeasurement,
     FacetCellProfileIndex, LayoutProfileSnapshot, MarkDataRequest, PlotComponents,
-    PreparedMarkData,
+    PreparedMarkData, WidgetMeasurement,
     child_frame_coordination::{
         apply_child_frame_layout_alignment, diagnose_child_frame_layout_alignment,
     },
@@ -285,6 +288,58 @@ fn set_scene_mark_name(mark: &mut SceneMark, name: &str) {
         SceneMark::WarpedImage(mark) => Arc::make_mut(mark).name = name.to_string(),
         SceneMark::Group(mark) => mark.name = name.to_string(),
     }
+}
+
+fn collect_widget_text_extents(
+    mark: &SceneMark,
+    part: &str,
+    eval_ctx: &EvaluationContext,
+    extents: &mut HashMap<String, (f32, f32)>,
+) -> Result<(), AvengerChartError> {
+    match mark {
+        SceneMark::Text(text) => measure_widget_text_mark(text, part, eval_ctx, extents),
+        SceneMark::Group(group) => {
+            for child in &group.marks {
+                collect_widget_text_extents(child, part, eval_ctx, extents)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn measure_widget_text_mark(
+    mark: &SceneTextMark,
+    part: &str,
+    eval_ctx: &EvaluationContext,
+    extents: &mut HashMap<String, (f32, f32)>,
+) -> Result<(), AvengerChartError> {
+    let len = mark.len as usize;
+    let texts = mark.text.as_vec(len, mark.indices.as_ref());
+    let fonts = mark.font.as_vec(len, mark.indices.as_ref());
+    let font_sizes = mark.font_size.as_vec(len, mark.indices.as_ref());
+    let font_weights = mark.font_weight.as_vec(len, mark.indices.as_ref());
+    let font_styles = mark.font_style.as_vec(len, mark.indices.as_ref());
+    let entry = extents.entry(part.to_string()).or_default();
+    for index in 0..len {
+        let bounds = eval_ctx.measure_text_bounds(&TextMeasurementConfig {
+            text: &texts[index],
+            font: &fonts[index],
+            font_size: font_sizes[index],
+            font_weight: font_weights[index].clone(),
+            font_style: font_styles[index],
+            syntax_mode: mark.text_syntax,
+            params: &mark.text_params,
+            number_locale: mark.number_locale.as_deref(),
+            number_locale_specs: Some(&mark.number_locale_specs),
+            datetime_locale: mark.datetime_locale.as_deref(),
+            datetime_timezone: mark.datetime_timezone.as_deref(),
+            datetime_locale_specs: Some(&mark.datetime_locale_specs),
+        })?;
+        entry.0 = entry.0.max(bounds.width);
+        entry.1 = entry.1.max(bounds.height);
+    }
+    Ok(())
 }
 
 fn prefix_event_datum_rows(
@@ -2323,6 +2378,7 @@ impl CompiledPlot {
     async fn render_composed_widget_groups(
         &self,
         eval_ctx: &EvaluationContext,
+        measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut renderer = self.clone();
         renderer.coord_transform = Box::new(PixelFrame);
@@ -2334,7 +2390,21 @@ impl CompiledPlot {
             let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
                 continue;
             };
-            let (width, height) = widget.measure.provisional_frame_size();
+            let measurement = measurements.get(&widget.id).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Missing measurement for composed widget '{}'",
+                    widget.id
+                ))
+            })?;
+            let width = measurement.width.preferred_px;
+            let height = measurement.height.preferred_px;
+            trace!(
+                widget_id = widget.id,
+                style_digest = measurement.styles.digest,
+                width,
+                height,
+                "rendering measured composed widget"
+            );
             let mut parts = Vec::new();
             for mark in &widget.marks {
                 let output = Box::pin(renderer.render_mark_with_plot_df(
@@ -2382,6 +2452,129 @@ impl CompiledPlot {
             }));
         }
         Ok(groups)
+    }
+
+    async fn measure_composed_widgets(
+        &self,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<IndexMap<String, WidgetMeasurement>, AvengerChartError> {
+        let mut renderer = self.clone();
+        renderer.coord_transform = Box::new(PixelFrame);
+        renderer.data = None;
+        renderer.widgets.clear();
+        let scales = HashMap::new();
+        let theme = self.get_theme();
+        let base_font_size = theme.get_base_font_size(&eval_ctx.params);
+        let mut measurements = IndexMap::new();
+
+        for attachment in &self.widgets {
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+                continue;
+            };
+            let manifests = widget
+                .marks
+                .iter()
+                .map(|mark| {
+                    let provenance = mark.state().widget_theme.as_ref().ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Compiled widget '{}' mark lacks part provenance",
+                            widget.id
+                        ))
+                    })?;
+                    Ok(WidgetPartManifest {
+                        name: provenance.part.clone(),
+                        scene_mark_kind: mark.mark_type().to_string(),
+                        style_properties: WidgetStyleProperty::ALL.to_vec(),
+                        states: Vec::new(),
+                        interactive: !avenger_chart_core::is_decorative_widget_part(
+                            &provenance.part,
+                        ),
+                    })
+                })
+                .collect::<Result<Vec<_>, AvengerChartError>>()?;
+            let styles = resolve_widget_style_set(
+                &theme,
+                &widget.kind,
+                &widget.id,
+                &manifests,
+                &WidgetPresentationState::default(),
+                &eval_ctx.params,
+            )?;
+
+            let (provisional_width, provisional_height) = widget.measure.provisional_frame_size();
+            let mut text_extents = HashMap::<String, (f32, f32)>::new();
+            for mark in &widget.marks {
+                let part = mark
+                    .state()
+                    .widget_theme
+                    .as_ref()
+                    .map(|provenance| provenance.part.as_str())
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Compiled widget '{}' mark lacks part provenance",
+                            widget.id
+                        ))
+                    })?;
+                let output = Box::pin(renderer.render_mark_with_plot_df(
+                    mark.as_ref(),
+                    eval_ctx,
+                    &scales,
+                    provisional_width,
+                    provisional_height,
+                    None,
+                    &[],
+                    &EmptyCoordMeasurement,
+                    MarkRenderPhase::Combined,
+                    None,
+                    None,
+                    None,
+                ))
+                .await?;
+                for scene_mark in &output.marks {
+                    collect_widget_text_extents(scene_mark, part, eval_ctx, &mut text_extents)?;
+                }
+            }
+
+            let item_count = if let Some(items) = &widget.items {
+                items
+                    .data
+                    .dataframe_with_context(&eval_ctx.session_context)
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Widget '{}' item plan has no runtime dataframe",
+                            widget.id
+                        ))
+                    })?
+                    .count()
+                    .await?
+            } else {
+                0
+            };
+            let (width, height) = resolve_widget_measure_spec(
+                &widget.id,
+                &widget.measure,
+                &styles,
+                item_count,
+                &eval_ctx.params,
+                base_font_size,
+                |part, axis, _data_encoded| {
+                    let extents = text_extents.get(part).copied().unwrap_or_default();
+                    Ok(match axis {
+                        WidgetTextMeasureAxis::Width => extents.0,
+                        WidgetTextMeasureAxis::Height => extents.1,
+                    })
+                },
+            )?;
+            measurements.insert(
+                widget.id.clone(),
+                WidgetMeasurement {
+                    width,
+                    height,
+                    styles,
+                },
+            );
+        }
+        Ok(measurements)
     }
 
     /// Create guide marks (axes, grids) for the coordinate system
@@ -5033,6 +5226,7 @@ impl CompiledPlot {
             sizing: dimensions.frame_sizing_policy(),
             owned_slabs: EdgeSlabs::default(),
         };
+        let widget_measurements = self.measure_composed_widgets(&params_with_dims).await?;
 
         let mut measurement = ComponentsMeasurement {
             coord_measurement,
@@ -5045,6 +5239,7 @@ impl CompiledPlot {
             frame_allocation,
             params: merged_params,
             legend_plan,
+            widget_measurements,
         };
         crate::facet::coordination_apply::refresh_current_facet_geometry(
             &mut measurement,
@@ -5664,7 +5859,9 @@ impl CompiledPlot {
             data_marks,
             guide_marks,
             legend_marks,
-            widget_marks: self.render_composed_widget_groups(&mark_eval_ctx).await?,
+            widget_marks: self
+                .render_composed_widget_groups(&mark_eval_ctx, &measurement.widget_measurements)
+                .await?,
             title_marks,
             subtitle_marks,
             plot_bounds: plot_bounds_struct,
