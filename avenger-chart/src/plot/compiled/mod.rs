@@ -1436,6 +1436,8 @@ pub struct ComponentsMeasurement {
 
 #[derive(Clone, Debug)]
 pub(crate) struct WidgetMeasurement {
+    pub(crate) position: Option<avenger_chart_core::LegendPosition>,
+    pub(crate) declaration_order: u64,
     pub(crate) width: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) height: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) styles: avenger_chart_core::ResolvedWidgetStyleSet,

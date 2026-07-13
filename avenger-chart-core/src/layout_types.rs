@@ -11,6 +11,8 @@ pub struct FrameLayout {
     pub guide_overflows: HashMap<AxisPosition, LayoutBounds>,
     pub legends: IndexMap<String, LayoutBounds>,
     pub legends_by_position: IndexMap<LegendPosition, Vec<String>>,
+    pub widgets: IndexMap<String, LayoutBounds>,
+    pub widgets_by_position: IndexMap<LegendPosition, Vec<String>>,
     pub title: Option<LayoutBounds>,
     pub subtitle: Option<LayoutBounds>,
 }

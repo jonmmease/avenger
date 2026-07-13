@@ -6,8 +6,6 @@
 //! gating), and assembles the declared [`FrameChrome`] that
 //! `avenger_layout::Frame` solves.
 
-use std::collections::HashMap;
-
 use avenger_text::{
     measurement::{TextBounds, TextMeasurementConfig},
     types::{FontStyle, FontWeight, TextSyntaxMode},
@@ -37,6 +35,20 @@ use crate::{
 };
 
 use super::sizing::EvaluatedLayoutSpec;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ChromeOccupantKey {
+    Legend(String),
+    Widget(String),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ChromeOccupantMeasurement {
+    pub(crate) size: Size2D,
+    pub(crate) flexible: bool,
+}
+
+pub(crate) type ChromeOccupantMeasurements = IndexMap<ChromeOccupantKey, ChromeOccupantMeasurement>;
 
 /// Minimum size in pixels for creating guide overflow regions.
 /// Overflow regions smaller than this are ignored entirely.
@@ -104,6 +116,8 @@ pub(crate) struct FrameChromeBuilder {
     // Track legend channels by position, preserving insertion order
     // This is the only place where insertion order matters (for stacking)
     pub legends_by_position: IndexMap<LegendPosition, Vec<String>>,
+    pub occupants_by_position: IndexMap<LegendPosition, Vec<ChromeOccupantKey>>,
+    pub widgets_by_position: IndexMap<LegendPosition, Vec<String>>,
 }
 
 /// Helper function to measure title/subtitle text height
@@ -184,6 +198,8 @@ impl FrameChromeBuilder {
             has_title: false,
             has_subtitle: false,
             legends_by_position: IndexMap::new(),
+            occupants_by_position: IndexMap::new(),
+            widgets_by_position: IndexMap::new(),
         }
     }
 
@@ -200,18 +216,33 @@ impl FrameChromeBuilder {
         self.legends_by_position
             .entry(position)
             .or_default()
-            .push(channel);
+            .push(channel.clone());
+        self.occupants_by_position
+            .entry(position)
+            .or_default()
+            .push(ChromeOccupantKey::Legend(channel));
     }
 
-    pub fn measure_legend_container_width(
+    pub fn add_widget(&mut self, id: String, position: LegendPosition) {
+        self.widgets_by_position
+            .entry(position)
+            .or_default()
+            .push(id.clone());
+        self.occupants_by_position
+            .entry(position)
+            .or_default()
+            .push(ChromeOccupantKey::Widget(id));
+    }
+
+    pub fn measure_chrome_container_width(
         &self,
-        channels: &[String],
-        legend_sizes: &HashMap<String, Size2D>,
+        occupants: &[ChromeOccupantKey],
+        measurements: &ChromeOccupantMeasurements,
     ) -> f32 {
         let mut max_width: f32 = 0.0;
-        for channel in channels {
-            if let Some(size) = legend_sizes.get(channel) {
-                max_width = max_width.max(size.width);
+        for occupant in occupants {
+            if let Some(measurement) = measurements.get(occupant) {
+                max_width = max_width.max(measurement.size.width);
             }
         }
         max_width
@@ -219,15 +250,15 @@ impl FrameChromeBuilder {
 
     /// Measure the height needed for a legend container
     /// For horizontal legends (Top/Bottom), legends stack horizontally so use max height
-    pub fn measure_legend_container_height(
+    pub fn measure_chrome_container_height(
         &self,
-        channels: &[String],
-        legend_sizes: &HashMap<String, Size2D>,
+        occupants: &[ChromeOccupantKey],
+        measurements: &ChromeOccupantMeasurements,
     ) -> f32 {
         let mut max_height: f32 = 0.0;
-        for channel in channels {
-            if let Some(size) = legend_sizes.get(channel) {
-                max_height = max_height.max(size.height);
+        for occupant in occupants {
+            if let Some(measurement) = measurements.get(occupant) {
+                max_height = max_height.max(measurement.size.height);
             }
         }
         max_height
@@ -310,7 +341,7 @@ impl FrameChromeBuilder {
         subtitle: Option<&PlotSubtitle>,
         theme: &Theme,
         layout_spec: &EvaluatedLayoutSpec,
-        legend_sizes: &HashMap<String, Size2D>,
+        occupant_measurements: &ChromeOccupantMeasurements,
         ctx: &SessionContext,
         params: &IndexMap<String, ScalarValue>,
         eval_ctx: &EvaluationContext,
@@ -326,16 +357,20 @@ impl FrameChromeBuilder {
             "Frame chrome build"
         );
 
-        let legend_container_width = |position: LegendPosition| {
-            self.legends_by_position
+        let chrome_container_width = |position: LegendPosition| {
+            self.occupants_by_position
                 .get(&position)
-                .map(|channels| self.measure_legend_container_width(channels, legend_sizes))
+                .map(|occupants| {
+                    self.measure_chrome_container_width(occupants, occupant_measurements)
+                })
                 .unwrap_or(0.0)
         };
-        let legend_container_height = |position: LegendPosition| {
-            self.legends_by_position
+        let chrome_container_height = |position: LegendPosition| {
+            self.occupants_by_position
                 .get(&position)
-                .map(|channels| self.measure_legend_container_height(channels, legend_sizes))
+                .map(|occupants| {
+                    self.measure_chrome_container_height(occupants, occupant_measurements)
+                })
                 .unwrap_or(0.0)
         };
 
@@ -363,13 +398,13 @@ impl FrameChromeBuilder {
                 leading: FrameSide {
                     margin: margins.left,
                     strips: Vec::new(),
-                    legend: legend_container_width(LegendPosition::Left),
+                    legend: chrome_container_width(LegendPosition::Left),
                     guide: inner(guide_overflow.left, overflow.left),
                 },
                 trailing: FrameSide {
                     margin: margins.right,
                     strips: Vec::new(),
-                    legend: legend_container_width(LegendPosition::Right),
+                    legend: chrome_container_width(LegendPosition::Right),
                     guide: inner(guide_overflow.right, overflow.right),
                 },
                 content_min: MIN_COMPONENT_SIZE,
@@ -379,13 +414,13 @@ impl FrameChromeBuilder {
                 leading: FrameSide {
                     margin: margins.top,
                     strips: top_strips,
-                    legend: legend_container_height(LegendPosition::Top),
+                    legend: chrome_container_height(LegendPosition::Top),
                     guide: inner(guide_overflow.top, overflow.top),
                 },
                 trailing: FrameSide {
                     margin: margins.bottom,
                     strips: Vec::new(),
-                    legend: legend_container_height(LegendPosition::Bottom),
+                    legend: chrome_container_height(LegendPosition::Bottom),
                     guide: inner(guide_overflow.bottom, overflow.bottom),
                 },
                 content_min: MIN_COMPONENT_SIZE,

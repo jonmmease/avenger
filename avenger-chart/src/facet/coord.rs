@@ -1216,6 +1216,7 @@ fn apply_measurement_side_slab(
         guide,
         total,
         &measurement.legend_plan.measurements,
+        &measurement.widget_measurements,
     );
     measurement.sync_canvas_size_from_layout();
 }
@@ -1361,6 +1362,7 @@ fn update_measurement_plot_area_metadata(
     retarget_frame_layout_for_plot_area(
         &mut measurement.layout,
         &measurement.legend_plan.measurements,
+        &measurement.widget_measurements,
         new_plot_area_width,
         new_plot_area_height,
     );
@@ -1416,6 +1418,7 @@ fn update_measurement_plot_area_metadata_for_policy(
     retarget_frame_layout_for_plot_area(
         &mut measurement.layout,
         &measurement.legend_plan.measurements,
+        &measurement.widget_measurements,
         new_plot_area_width,
         new_plot_area_height,
     );
@@ -4587,6 +4590,8 @@ mod tests {
                 guide_overflows: HashMap::new(),
                 legends,
                 legends_by_position,
+                widgets: IndexMap::new(),
+                widgets_by_position: IndexMap::new(),
                 title: None,
                 subtitle: None,
             },
@@ -4633,6 +4638,7 @@ mod tests {
             5.0,
             66.0,
             &legend_measurements,
+            &IndexMap::new(),
         );
 
         assert_close(layout.overflow.right, 5.0);
@@ -4696,6 +4702,7 @@ mod tests {
             0.0,
             48.0,
             &legend_measurements,
+            &IndexMap::new(),
         );
 
         assert_close(layout.overflow.bottom, 34.0);
@@ -4746,7 +4753,13 @@ mod tests {
             },
         );
 
-        retarget_frame_layout_for_plot_area(&mut layout, &legend_measurements, 100.0, 246.0);
+        retarget_frame_layout_for_plot_area(
+            &mut layout,
+            &legend_measurements,
+            &IndexMap::new(),
+            100.0,
+            246.0,
+        );
 
         let bounds = layout
             .frame_layout
@@ -4811,7 +4824,13 @@ mod tests {
             },
         );
 
-        retarget_frame_layout_for_plot_area(&mut layout, &legend_measurements, 80.0, 246.0);
+        retarget_frame_layout_for_plot_area(
+            &mut layout,
+            &legend_measurements,
+            &IndexMap::new(),
+            80.0,
+            246.0,
+        );
 
         let shape_bounds = layout
             .frame_layout

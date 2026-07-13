@@ -18,6 +18,7 @@ use avenger_chart_core::{
 use crate::{
     error::AvengerChartError,
     guide::OverflowSpaceRequirement,
+    plot::compiled::WidgetMeasurement,
     plot::{PlotSubtitle, PlotTitle},
     render::{EvaluationContext, LayoutSolution, LegendMeasurements},
     serialization::LogicalExprNodeExt,
@@ -27,7 +28,10 @@ use crate::{
 use super::declared_frame::{DeclaredAxisSizing as FrameAxisSizing, SolvedFrameView};
 
 use super::{
-    chrome::{FrameChrome, FrameChromeBuilder, MIN_COMPONENT_SIZE},
+    chrome::{
+        ChromeOccupantKey, ChromeOccupantMeasurement, ChromeOccupantMeasurements, FrameChrome,
+        FrameChromeBuilder, MIN_COMPONENT_SIZE,
+    },
     info::LegendLayoutInfo,
     sizing::EvaluatedLayoutSpec,
 };
@@ -40,6 +44,7 @@ pub(crate) struct FrameLayoutInput<'a> {
     pub(crate) subtitle: Option<&'a PlotSubtitle>,
     pub(crate) theme: &'a Theme,
     pub(crate) legend_measurements: &'a LegendMeasurements,
+    pub(crate) widget_measurements: &'a IndexMap<String, WidgetMeasurement>,
     pub(crate) ctx: &'a SessionContext,
     pub(crate) params: &'a IndexMap<String, ScalarValue>,
     pub(crate) eval_ctx: &'a EvaluationContext,
@@ -62,12 +67,44 @@ impl AvengerFrameLayoutSolver {
         for (channel, measurement) in input.legend_measurements.iter() {
             builder.add_legend(channel.clone(), measurement.position);
         }
+        let mut widgets = input.widget_measurements.iter().collect::<Vec<_>>();
+        widgets.sort_by_key(|(_, measurement)| measurement.declaration_order);
+        for (id, measurement) in &widgets {
+            if let Some(position) = measurement.position {
+                builder.add_widget((*id).clone(), position);
+            }
+        }
 
-        let legend_sizes: HashMap<String, Size2D> = input
-            .legend_measurements
-            .iter()
-            .map(|(key, measurement)| (key.clone(), measurement.size))
-            .collect();
+        let mut occupant_measurements = ChromeOccupantMeasurements::new();
+        for (key, measurement) in input.legend_measurements.iter() {
+            occupant_measurements.insert(
+                ChromeOccupantKey::Legend(key.clone()),
+                ChromeOccupantMeasurement {
+                    size: measurement.size,
+                    flexible: measurement.flexible,
+                },
+            );
+        }
+        for (id, measurement) in widgets {
+            let Some(position) = measurement.position else {
+                continue;
+            };
+            let flexible = if matches!(position, LegendPosition::Left | LegendPosition::Right) {
+                measurement.height.stretch > 0.0
+            } else {
+                measurement.width.stretch > 0.0
+            };
+            occupant_measurements.insert(
+                ChromeOccupantKey::Widget(id.clone()),
+                ChromeOccupantMeasurement {
+                    size: Size2D::new(
+                        measurement.width.preferred_px,
+                        measurement.height.preferred_px,
+                    ),
+                    flexible,
+                },
+            );
+        }
 
         let title_span = if let Some(title) = input.title {
             let title_ctx = input.theme.title_context_with_params(input.params.clone());
@@ -110,7 +147,7 @@ impl AvengerFrameLayoutSolver {
                 input.subtitle,
                 input.theme,
                 input.layout_spec,
-                &legend_sizes,
+                &occupant_measurements,
                 input.ctx,
                 input.params,
                 input.eval_ctx,
@@ -119,19 +156,25 @@ impl AvengerFrameLayoutSolver {
 
         solve_native_frame_layout(
             chrome,
+            &builder.occupants_by_position,
+            &occupant_measurements,
             &builder.legends_by_position,
-            input.legend_measurements,
         )
     }
 }
 
 fn solve_native_frame_layout(
     chrome: FrameChrome,
+    occupants_by_position: &IndexMap<LegendPosition, Vec<ChromeOccupantKey>>,
+    occupant_measurements: &ChromeOccupantMeasurements,
     legends_by_position: &IndexMap<LegendPosition, Vec<String>>,
-    legend_measurements: &LegendMeasurements,
 ) -> Result<LayoutSolution, AvengerChartError> {
-    let (frame_layout, legend_info, solution) =
-        project_layout_rects(&chrome, legends_by_position, legend_measurements);
+    let (frame_layout, legend_info, solution) = project_layout_rects(
+        &chrome,
+        occupants_by_position,
+        occupant_measurements,
+        legends_by_position,
+    );
 
     let mut guide_overflow = OverflowSpaceRequirement::default();
     for (side, bounds) in &frame_layout.guide_overflows {
@@ -165,8 +208,9 @@ fn solve_native_frame_layout(
 /// mutating realized rects).
 fn project_layout_rects(
     chrome: &FrameChrome,
+    occupants_by_position: &IndexMap<LegendPosition, Vec<ChromeOccupantKey>>,
+    occupant_measurements: &ChromeOccupantMeasurements,
     legends_by_position: &IndexMap<LegendPosition, Vec<String>>,
-    legend_measurements: &LegendMeasurements,
 ) -> (FrameLayout, LegendLayoutInfo, SolvedFrameView) {
     let solution = chrome.frame.solve();
     let h = &solution.horizontal;
@@ -182,6 +226,20 @@ fn project_layout_rects(
         guide_overflows: HashMap::new(),
         legends: IndexMap::new(),
         legends_by_position: legends_by_position.clone(),
+        widgets: IndexMap::new(),
+        widgets_by_position: occupants_by_position
+            .iter()
+            .filter_map(|(position, occupants)| {
+                let widgets = occupants
+                    .iter()
+                    .filter_map(|occupant| match occupant {
+                        ChromeOccupantKey::Widget(id) => Some(id.clone()),
+                        ChromeOccupantKey::Legend(_) => None,
+                    })
+                    .collect::<Vec<_>>();
+                (!widgets.is_empty()).then_some((*position, widgets))
+            })
+            .collect(),
         title: None,
         subtitle: None,
     };
@@ -277,7 +335,7 @@ fn project_layout_rects(
         ));
     }
 
-    for (position, legend_keys) in legends_by_position {
+    for (position, occupants) in occupants_by_position {
         let container = match position {
             LegendPosition::Left => LayoutBounds {
                 x: h.leading.legend.start,
@@ -305,18 +363,33 @@ fn project_layout_rects(
             },
         };
         for (key, bounds) in
-            layout_legend_group(*position, container, legend_keys, legend_measurements)
+            layout_chrome_group(*position, container, occupants, occupant_measurements)
         {
             let bounds = snap_rect_edges(bounds);
-            debug!(
-                channel = key,
-                x = bounds.x,
-                y = bounds.y,
-                width = bounds.width,
-                height = bounds.height,
-                "Individual legend bounds"
-            );
-            frame_layout.legends.insert(key, bounds);
+            match key {
+                ChromeOccupantKey::Legend(key) => {
+                    debug!(
+                        channel = key,
+                        x = bounds.x,
+                        y = bounds.y,
+                        width = bounds.width,
+                        height = bounds.height,
+                        "Individual legend bounds"
+                    );
+                    frame_layout.legends.insert(key, bounds);
+                }
+                ChromeOccupantKey::Widget(id) => {
+                    debug!(
+                        widget_id = id,
+                        x = bounds.x,
+                        y = bounds.y,
+                        width = bounds.width,
+                        height = bounds.height,
+                        "Individual widget bounds"
+                    );
+                    frame_layout.widgets.insert(id, bounds);
+                }
+            }
         }
     }
 
@@ -352,10 +425,74 @@ fn project_layout_rects(
 /// retained chrome, leaving the slab state (`overflow`, `total_overflow`)
 /// and `canvas_size` untouched — those are owned by the caller's slab
 /// algebra and sizing policy.
-fn reproject_layout_rects(layout: &mut LayoutSolution, legend_measurements: &LegendMeasurements) {
+fn reproject_layout_rects(
+    layout: &mut LayoutSolution,
+    legend_measurements: &LegendMeasurements,
+    widget_measurements: &IndexMap<String, WidgetMeasurement>,
+) {
     let legends_by_position = layout.frame_layout.legends_by_position.clone();
-    let (frame_layout, legend_info, _) =
-        project_layout_rects(&layout.chrome, &legends_by_position, legend_measurements);
+    let widgets_by_position = layout.frame_layout.widgets_by_position.clone();
+    let mut occupants_by_position = IndexMap::new();
+    for position in [
+        LegendPosition::Top,
+        LegendPosition::Right,
+        LegendPosition::Bottom,
+        LegendPosition::Left,
+    ] {
+        let mut occupants = legends_by_position
+            .get(&position)
+            .into_iter()
+            .flatten()
+            .cloned()
+            .map(ChromeOccupantKey::Legend)
+            .collect::<Vec<_>>();
+        occupants.extend(
+            widgets_by_position
+                .get(&position)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .map(ChromeOccupantKey::Widget),
+        );
+        if !occupants.is_empty() {
+            occupants_by_position.insert(position, occupants);
+        }
+    }
+    let mut occupant_measurements = ChromeOccupantMeasurements::new();
+    for (key, measurement) in legend_measurements {
+        occupant_measurements.insert(
+            ChromeOccupantKey::Legend(key.clone()),
+            ChromeOccupantMeasurement {
+                size: measurement.size,
+                flexible: measurement.flexible,
+            },
+        );
+    }
+    for (id, measurement) in widget_measurements {
+        let Some(position) = measurement.position else {
+            continue;
+        };
+        occupant_measurements.insert(
+            ChromeOccupantKey::Widget(id.clone()),
+            ChromeOccupantMeasurement {
+                size: Size2D::new(
+                    measurement.width.preferred_px,
+                    measurement.height.preferred_px,
+                ),
+                flexible: if matches!(position, LegendPosition::Left | LegendPosition::Right) {
+                    measurement.height.stretch > 0.0
+                } else {
+                    measurement.width.stretch > 0.0
+                },
+            },
+        );
+    }
+    let (frame_layout, legend_info, _) = project_layout_rects(
+        &layout.chrome,
+        &occupants_by_position,
+        &occupant_measurements,
+        &legends_by_position,
+    );
     layout.frame_layout = frame_layout;
     layout.legend_info = legend_info;
 }
@@ -462,19 +599,19 @@ fn snap_rect_edges(bounds: LayoutBounds) -> LayoutBounds {
 /// leaves any remainder trailing when no legend is flexible. Cross-axis
 /// extents stay each legend's own measured size (the container's cross
 /// extent is the slab, already reserved as chrome).
-fn layout_legend_group(
+fn layout_chrome_group(
     position: LegendPosition,
     container: LayoutBounds,
-    legend_keys: &[String],
-    legend_measurements: &LegendMeasurements,
-) -> IndexMap<String, LayoutBounds> {
+    occupant_keys: &[ChromeOccupantKey],
+    occupant_measurements: &ChromeOccupantMeasurements,
+) -> IndexMap<ChromeOccupantKey, LayoutBounds> {
     let vertical = matches!(position, LegendPosition::Left | LegendPosition::Right);
 
     let mut keys = Vec::new();
     let mut leaves = Vec::new();
     let mut tracks = Vec::new();
-    for key in legend_keys {
-        let Some(measurement) = legend_measurements.get(key) else {
+    for key in occupant_keys {
+        let Some(measurement) = occupant_measurements.get(key) else {
             continue;
         };
         let main = if measurement.flexible {
@@ -554,6 +691,39 @@ fn layout_legend_group(
     result
 }
 
+#[cfg(test)]
+fn layout_legend_group(
+    position: LegendPosition,
+    container: LayoutBounds,
+    legend_keys: &[String],
+    legend_measurements: &LegendMeasurements,
+) -> IndexMap<String, LayoutBounds> {
+    let keys = legend_keys
+        .iter()
+        .cloned()
+        .map(ChromeOccupantKey::Legend)
+        .collect::<Vec<_>>();
+    let measurements = legend_measurements
+        .iter()
+        .map(|(key, measurement)| {
+            (
+                ChromeOccupantKey::Legend(key.clone()),
+                ChromeOccupantMeasurement {
+                    size: measurement.size,
+                    flexible: measurement.flexible,
+                },
+            )
+        })
+        .collect();
+    layout_chrome_group(position, container, &keys, &measurements)
+        .into_iter()
+        .filter_map(|(key, bounds)| match key {
+            ChromeOccupantKey::Legend(key) => Some((key, bounds)),
+            ChromeOccupantKey::Widget(_) => None,
+        })
+        .collect()
+}
+
 pub(crate) fn overflow_side_value(overflow: &OverflowSpaceRequirement, side: AxisPosition) -> f32 {
     match side {
         AxisPosition::Top => overflow.top,
@@ -577,19 +747,27 @@ fn set_overflow_side_value(
     }
 }
 
-fn legend_cross_axis_extent(layout: &FrameLayout, side: AxisPosition) -> f32 {
+fn chrome_cross_axis_extent(layout: &FrameLayout, side: AxisPosition) -> f32 {
     let position = match side {
         AxisPosition::Top => LegendPosition::Top,
         AxisPosition::Right => LegendPosition::Right,
         AxisPosition::Bottom => LegendPosition::Bottom,
         AxisPosition::Left => LegendPosition::Left,
     };
-    let Some(keys) = layout.legends_by_position.get(&position) else {
-        return 0.0;
-    };
-
-    keys.iter()
+    layout
+        .legends_by_position
+        .get(&position)
+        .into_iter()
+        .flatten()
         .filter_map(|key| layout.legends.get(key))
+        .chain(
+            layout
+                .widgets_by_position
+                .get(&position)
+                .into_iter()
+                .flatten()
+                .filter_map(|key| layout.widgets.get(key)),
+        )
         .map(|bounds| match side {
             AxisPosition::Left | AxisPosition::Right => bounds.width,
             AxisPosition::Top | AxisPosition::Bottom => bounds.height,
@@ -610,8 +788,9 @@ mod tests {
     use indexmap::IndexMap;
 
     use super::{
-        FrameChrome, MIN_COMPONENT_SIZE, layout_legend_group, snap_rect_edges,
-        solve_native_frame_layout, title_band_bounds,
+        ChromeOccupantKey, ChromeOccupantMeasurement, FrameChrome, MIN_COMPONENT_SIZE,
+        layout_chrome_group, layout_legend_group, snap_rect_edges, solve_native_frame_layout,
+        title_band_bounds,
     };
 
     fn frame_side(margin: f32, strips: &[f32], legend: f32, guide: f32) -> FrameSide {
@@ -757,6 +936,55 @@ mod tests {
     }
 
     #[test]
+    fn chrome_group_solves_legends_and_widgets_in_one_ordered_track_list() {
+        let legend = ChromeOccupantKey::Legend("color".to_string());
+        let fixed_widget = ChromeOccupantKey::Widget("filter".to_string());
+        let fill_widget = ChromeOccupantKey::Widget("choices".to_string());
+        let keys = vec![legend.clone(), fixed_widget.clone(), fill_widget.clone()];
+        let measurements = IndexMap::from([
+            (
+                legend.clone(),
+                ChromeOccupantMeasurement {
+                    size: Size2D::new(50.0, 40.0),
+                    flexible: false,
+                },
+            ),
+            (
+                fixed_widget.clone(),
+                ChromeOccupantMeasurement {
+                    size: Size2D::new(60.0, 30.0),
+                    flexible: false,
+                },
+            ),
+            (
+                fill_widget.clone(),
+                ChromeOccupantMeasurement {
+                    size: Size2D::new(70.0, 50.0),
+                    flexible: true,
+                },
+            ),
+        ]);
+        let bounds = layout_chrome_group(
+            LegendPosition::Right,
+            LayoutBounds {
+                x: 300.0,
+                y: 10.0,
+                width: 70.0,
+                height: 200.0,
+            },
+            &keys,
+            &measurements,
+        );
+
+        assert_eq!(bounds[&legend].y, 10.0);
+        assert_eq!(bounds[&legend].height, 40.0);
+        assert_eq!(bounds[&fixed_widget].y, 50.0);
+        assert_eq!(bounds[&fixed_widget].height, 30.0);
+        assert_eq!(bounds[&fill_widget].y, 80.0);
+        assert_eq!(bounds[&fill_widget].height, 130.0);
+    }
+
+    #[test]
     fn layout_solution_reports_guide_only_total_overflow_from_solver() {
         let chrome = FrameChrome {
             frame: Frame {
@@ -801,7 +1029,7 @@ mod tests {
         };
 
         let solution =
-            solve_native_frame_layout(chrome, &IndexMap::new(), &LegendMeasurements::new())
+            solve_native_frame_layout(chrome, &IndexMap::new(), &IndexMap::new(), &IndexMap::new())
                 .expect("solve native frame layout");
 
         assert_eq!(solution.overflow.left, 5.0);
@@ -848,13 +1076,14 @@ pub(crate) fn apply_frame_side_slab(
     guide: f32,
     total: f32,
     legend_measurements: &LegendMeasurements,
+    widget_measurements: &IndexMap<String, WidgetMeasurement>,
 ) {
     let guide = guide
         .max(overflow_side_value(&layout.overflow, side))
         .max(0.0);
     let total = total
         .max(guide)
-        .max(guide + legend_cross_axis_extent(&layout.frame_layout, side));
+        .max(guide + chrome_cross_axis_extent(&layout.frame_layout, side));
     let old_total = overflow_side_value(&layout.total_overflow, side)
         .max(overflow_side_value(&layout.overflow, side));
     let delta = total - old_total;
@@ -885,7 +1114,7 @@ pub(crate) fn apply_frame_side_slab(
         AxisPosition::Left => layout.chrome.guide_overflow.left = guide_exists,
     }
 
-    reproject_layout_rects(layout, legend_measurements);
+    reproject_layout_rects(layout, legend_measurements, widget_measurements);
 }
 
 /// Retarget a realized frame to a new plot-area size without remeasuring:
@@ -896,6 +1125,7 @@ pub(crate) fn apply_frame_side_slab(
 pub(crate) fn retarget_frame_layout_for_plot_area(
     layout: &mut LayoutSolution,
     legend_measurements: &LegendMeasurements,
+    widget_measurements: &IndexMap<String, WidgetMeasurement>,
     new_plot_area_width: f32,
     new_plot_area_height: f32,
 ) {
@@ -905,7 +1135,7 @@ pub(crate) fn retarget_frame_layout_for_plot_area(
     layout.chrome.frame.vertical.sizing = FrameAxisSizing::ContentFixed {
         content: new_plot_area_height,
     };
-    reproject_layout_rects(layout, legend_measurements);
+    reproject_layout_rects(layout, legend_measurements, widget_measurements);
 }
 
 /// Freeze both chrome axes at the realized plot-area size, so re-solving

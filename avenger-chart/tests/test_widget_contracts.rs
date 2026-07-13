@@ -162,6 +162,40 @@ impl ChartWidget for DecorativeTargetWidget {
 }
 
 #[derive(Clone)]
+struct FixedContractWidget {
+    id: &'static str,
+    height: f32,
+}
+
+impl ChartWidget for FixedContractWidget {
+    fn id(&self) -> &str {
+        self.id
+    }
+
+    fn kind(&self) -> &'static str {
+        "fixed-contract-widget"
+    }
+
+    fn expand(
+        &self,
+        _ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Rect::<PixelFrame>::new()
+                    .id("box")
+                    .x(0.0)
+                    .x2(40.0)
+                    .y(0.0)
+                    .y2(self.height),
+            ),
+            items: None,
+            measure: WidgetMeasureSpec::fixed(40.0, self.height),
+        })
+    }
+}
+
+#[derive(Clone)]
 struct ContractNativeWidget;
 
 impl NativeWidget for ContractNativeWidget {
@@ -287,6 +321,10 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     let widget_children =
         find_group(&evaluated.scene_graph.marks, "contract").expect("compiler-owned widget group");
     let widget_group = find_scene_group(&evaluated.scene_graph.marks, "contract").unwrap();
+    assert!(
+        widget_group.origin[0] > 0.0,
+        "right-side widget must be translated into reserved chrome"
+    );
     assert!(matches!(
         widget_group.clip,
         avenger_scenegraph::marks::group::Clip::Rect { width, height, .. }
@@ -346,6 +384,34 @@ async fn composed_widget_rejects_decorative_event_targets() {
         Err(AvengerChartError::InvalidArgument(message))
             if message.contains("cannot target decorative part 'focus-ring'")
     ));
+}
+
+#[tokio::test]
+async fn guide_widgets_share_one_ordered_side_stack() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let compiled = Chart::<Cartesian>::new()
+        .widget(
+            FixedContractWidget {
+                id: "first",
+                height: 20.0,
+            }
+            .position(ChromePosition::Right),
+        )
+        .widget(
+            FixedContractWidget {
+                id: "second",
+                height: 30.0,
+            }
+            .position(ChromePosition::Right),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+    let first = find_scene_group(&evaluated.scene_graph.marks, "first").unwrap();
+    let second = find_scene_group(&evaluated.scene_graph.marks, "second").unwrap();
+    assert_eq!(second.origin[1], first.origin[1] + 20.0);
+    assert_eq!(first.origin[0], second.origin[0]);
 }
 
 #[tokio::test]

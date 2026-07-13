@@ -665,6 +665,9 @@ fn translated_frame_layout(layout: &FrameLayout, origin: [f32; 2]) -> FrameLayou
     for bounds in layout.legends.values_mut() {
         translate_layout_bounds(bounds, origin[0], origin[1]);
     }
+    for bounds in layout.widgets.values_mut() {
+        translate_layout_bounds(bounds, origin[0], origin[1]);
+    }
     if let Some(bounds) = &mut layout.title {
         translate_layout_bounds(bounds, origin[0], origin[1]);
     }
@@ -2379,6 +2382,7 @@ impl CompiledPlot {
         &self,
         eval_ctx: &EvaluationContext,
         measurements: &IndexMap<String, WidgetMeasurement>,
+        frame_layout: &FrameLayout,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
         let mut renderer = self.clone();
         renderer.coord_transform = Box::new(PixelFrame);
@@ -2396,8 +2400,28 @@ impl CompiledPlot {
                     widget.id
                 ))
             })?;
-            let width = measurement.width.preferred_px;
-            let height = measurement.height.preferred_px;
+            let (origin, width, height) = if measurement.position.is_some() {
+                let bounds = frame_layout.widgets.get(&widget.id).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing realized chrome bounds for widget '{}'",
+                        widget.id
+                    ))
+                })?;
+                (
+                    [
+                        bounds.x - frame_layout.plot_area.x,
+                        bounds.y - frame_layout.plot_area.y,
+                    ],
+                    bounds.width,
+                    bounds.height,
+                )
+            } else {
+                (
+                    [0.0, 0.0],
+                    measurement.width.preferred_px,
+                    measurement.height.preferred_px,
+                )
+            };
             trace!(
                 widget_id = widget.id,
                 style_digest = measurement.styles.digest,
@@ -2441,6 +2465,7 @@ impl CompiledPlot {
             groups.push(SceneMark::Group(SceneGroup {
                 name: widget.id.clone(),
                 interactive: false,
+                origin,
                 clip: Clip::Rect {
                     x: 0.0,
                     y: 0.0,
@@ -2568,6 +2593,11 @@ impl CompiledPlot {
             measurements.insert(
                 widget.id.clone(),
                 WidgetMeasurement {
+                    position: match attachment.placement {
+                        avenger_chart_core::WidgetPlacement::Guide(position) => Some(position),
+                        avenger_chart_core::WidgetPlacement::ExplicitFrame => None,
+                    },
+                    declaration_order: attachment.declaration_order,
                     width,
                     height,
                     styles,
@@ -2659,6 +2689,7 @@ impl CompiledPlot {
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
         child_frame_sharing_path: &ChildFrameSharingPath,
+        widget_measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         // Check for required positional scales before measuring overflow
         self.validate_positional_scales_exist(scales)?;
@@ -2794,6 +2825,7 @@ impl CompiledPlot {
             facet_path,
             child_frame_sharing_path,
             scope,
+            widget_measurements,
         ))
         .await
     }
@@ -2811,6 +2843,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
         child_frame_sharing_path: &ChildFrameSharingPath,
         scope: LegendPlanScope,
+        widget_measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         Box::pin(self.compute_layout_with_precomputed_overflow_and_coord(
             eval_ctx,
@@ -2825,6 +2858,7 @@ impl CompiledPlot {
             child_frame_sharing_path,
             scope,
             None,
+            widget_measurements,
         ))
         .await
     }
@@ -2844,6 +2878,7 @@ impl CompiledPlot {
         child_frame_sharing_path: &ChildFrameSharingPath,
         scope: LegendPlanScope,
         coord_measurement: Option<&dyn CoordMeasurement>,
+        widget_measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         eval_ctx.record_legend_plan_build();
         let legend_plan = Box::pin(self.prepare_legend_plan(
@@ -2870,6 +2905,7 @@ impl CompiledPlot {
             child_frame_sharing_path,
             coord_measurement,
             legend_plan,
+            widget_measurements,
         ))
         .await
     }
@@ -2887,6 +2923,7 @@ impl CompiledPlot {
         child_frame_sharing_path: &ChildFrameSharingPath,
         coord_measurement: Option<&dyn CoordMeasurement>,
         mut legend_plan: PreparedLegendPlan,
+        widget_measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<(LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         if let Some(coord_measurement) = coord_measurement {
             Box::pin(self.consume_anchored_hoisted_legends(
@@ -2909,29 +2946,53 @@ impl CompiledPlot {
             subtitle: self.get_subtitle(),
             theme: self.get_theme().as_ref(),
             legend_measurements: &legend_plan.measurements,
+            widget_measurements,
             ctx,
             params,
             eval_ctx,
         }))
         .await?;
 
-        // The frame solver sets total_overflow to guide-only; add legend dimensions.
+        // The frame solver uses one cross-kind slab per side. Reflect that same
+        // max-cross-axis law in coordinated total overflow.
+        let mut chrome_cross = OverflowSpaceRequirement::default();
         for measurement in legend_plan.measurements.values() {
             match measurement.position {
                 LegendPosition::Left => {
-                    result.total_overflow.left += measurement.size.width;
+                    chrome_cross.left = chrome_cross.left.max(measurement.size.width);
                 }
                 LegendPosition::Right => {
-                    result.total_overflow.right += measurement.size.width;
+                    chrome_cross.right = chrome_cross.right.max(measurement.size.width);
                 }
                 LegendPosition::Top => {
-                    result.total_overflow.top += measurement.size.height;
+                    chrome_cross.top = chrome_cross.top.max(measurement.size.height);
                 }
                 LegendPosition::Bottom => {
-                    result.total_overflow.bottom += measurement.size.height;
+                    chrome_cross.bottom = chrome_cross.bottom.max(measurement.size.height);
                 }
             }
         }
+        for measurement in widget_measurements.values() {
+            match measurement.position {
+                Some(LegendPosition::Left) => {
+                    chrome_cross.left = chrome_cross.left.max(measurement.width.preferred_px);
+                }
+                Some(LegendPosition::Right) => {
+                    chrome_cross.right = chrome_cross.right.max(measurement.width.preferred_px);
+                }
+                Some(LegendPosition::Top) => {
+                    chrome_cross.top = chrome_cross.top.max(measurement.height.preferred_px);
+                }
+                Some(LegendPosition::Bottom) => {
+                    chrome_cross.bottom = chrome_cross.bottom.max(measurement.height.preferred_px);
+                }
+                None => {}
+            }
+        }
+        result.total_overflow.left += chrome_cross.left;
+        result.total_overflow.right += chrome_cross.right;
+        result.total_overflow.top += chrome_cross.top;
+        result.total_overflow.bottom += chrome_cross.bottom;
 
         Ok((result, legend_plan))
     }
@@ -3034,6 +3095,7 @@ impl CompiledPlot {
         facet_path: &[ScalarValue],
     ) -> Result<OverflowSpaceRequirement, AvengerChartError> {
         let params_with_dims = eval_ctx.with_dimension_params(plot_area_width, plot_area_height);
+        let widget_measurements = self.measure_composed_widgets(&params_with_dims).await?;
         let (layout, _) = Box::pin(self.compute_layout_with_precomputed_overflow(
             &params_with_dims,
             guide_overflow,
@@ -3049,6 +3111,7 @@ impl CompiledPlot {
             facet_path,
             params_with_dims.child_frame_sharing_path(),
             Self::legend_scope_for_context(facet_path, params_with_dims.child_frame_sharing_path()),
+            &widget_measurements,
         ))
         .await?;
         Ok(layout.total_overflow)
@@ -3247,6 +3310,7 @@ impl CompiledPlot {
         child_frame_sharing_path: &ChildFrameSharingPath,
         coord_measurement: Option<&dyn CoordMeasurement>,
         phase: GuideOverflowPhase,
+        widget_measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<(OverflowSpaceRequirement, LayoutSolution, PreparedLegendPlan), AvengerChartError>
     {
         let overflow = self
@@ -3283,6 +3347,7 @@ impl CompiledPlot {
                 child_frame_sharing_path,
                 Self::legend_scope_for_context(facet_path, child_frame_sharing_path),
                 coord_measurement,
+                widget_measurements,
             ))
             .await?;
 
@@ -3351,6 +3416,7 @@ impl CompiledPlot {
             eval_ctx.child_frame_sharing_path(),
             Some(measurement.coord_measurement.as_ref()),
             phase,
+            &measurement.widget_measurements,
         ))
         .await?;
 
@@ -4942,6 +5008,7 @@ impl CompiledPlot {
         facet_tree: &EvaluatedFacetTree,
         facet_path: &[ScalarValue],
         child_frame_sharing_path: &ChildFrameSharingPath,
+        widget_measurements: &IndexMap<String, WidgetMeasurement>,
     ) -> Result<(f32, f32, (f32, f32), LayoutSolution, PreparedLegendPlan), AvengerChartError> {
         if dimensions.dimensions_are_plot_area() {
             // Plot area mode: dimensions specify the plot area size.
@@ -4962,6 +5029,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 child_frame_sharing_path,
+                widget_measurements,
             ))
             .await?;
 
@@ -5000,6 +5068,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 child_frame_sharing_path,
+                widget_measurements,
             ))
             .await?;
 
@@ -5119,6 +5188,7 @@ impl CompiledPlot {
         let params_with_dims =
             eval_ctx.with_dimension_params(dimensions.width_value(), dimensions.height_value());
         let merged_params = params_with_dims.params.clone();
+        let widget_measurements = self.measure_composed_widgets(&params_with_dims).await?;
 
         // Phase 2: Compute layout and determine plot area dimensions
         let (plot_area_width, plot_area_height, mut canvas_size, mut layout, mut legend_plan) =
@@ -5133,6 +5203,7 @@ impl CompiledPlot {
                 facet_tree,
                 facet_path,
                 eval_ctx.child_frame_sharing_path(),
+                &widget_measurements,
             ))
             .await?;
 
@@ -5172,6 +5243,7 @@ impl CompiledPlot {
                     eval_ctx.child_frame_sharing_path(),
                     Some(coord_measurement.as_ref()),
                     GuideOverflowPhase::Measurement,
+                    &widget_measurements,
                 ))
                 .await?;
             let refined_plot_bounds = refined_layout.plot_area_bounds();
@@ -5226,8 +5298,6 @@ impl CompiledPlot {
             sizing: dimensions.frame_sizing_policy(),
             owned_slabs: EdgeSlabs::default(),
         };
-        let widget_measurements = self.measure_composed_widgets(&params_with_dims).await?;
-
         let mut measurement = ComponentsMeasurement {
             coord_measurement,
             scales: final_scales,
@@ -5860,7 +5930,11 @@ impl CompiledPlot {
             guide_marks,
             legend_marks,
             widget_marks: self
-                .render_composed_widget_groups(&mark_eval_ctx, &measurement.widget_measurements)
+                .render_composed_widget_groups(
+                    &mark_eval_ctx,
+                    &measurement.widget_measurements,
+                    &measurement.layout.frame_layout,
+                )
                 .await?,
             title_marks,
             subtitle_marks,
@@ -12189,6 +12263,7 @@ mod tests {
                 eval_ctx.child_frame_sharing_path(),
                 Some(child_measurement.coord_measurement.as_ref()),
                 GuideOverflowPhase::Final,
+                &child_measurement.widget_measurements,
             )
             .await?;
         let (_, no_coord_layout, _) = child_plot
@@ -12206,6 +12281,7 @@ mod tests {
                 eval_ctx.child_frame_sharing_path(),
                 None,
                 GuideOverflowPhase::Measurement,
+                &child_measurement.widget_measurements,
             )
             .await?;
 
