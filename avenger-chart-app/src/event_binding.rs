@@ -11597,6 +11597,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn semantic_equality_toggle_dispatches_typed_event_value() {
+        let binding = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::toggle_equality_value(
+                    col("category"),
+                    event::datum("category"),
+                    event::datum("category"),
+                ),
+            )
+            .exact();
+        let (mut state, handler, mark_instance, position) =
+            equality_bar_state_and_handler(binding).await;
+
+        let first = click_mark(
+            &mut state,
+            &handler,
+            Some(mark_instance.clone()),
+            position,
+            false,
+        )
+        .await;
+        assert!(first.rerender);
+        {
+            let runtime = state.runtime.lock().await;
+            let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+            assert_eq!(clauses.len(), 1);
+            assert!(clauses[0].id.starts_with("__widget_eq_"));
+            let SelectionPredicateSpec::Equality { dimensions } = &clauses[0].predicate else {
+                panic!("expected equality predicate");
+            };
+            assert_eq!(dimensions.len(), 1);
+            assert_eq!(
+                dimensions[0].value,
+                ScalarValue::Utf8(Some("Beta".to_string()))
+            );
+        }
+
+        let second = click_mark(&mut state, &handler, Some(mark_instance), position, false).await;
+        assert!(second.rerender);
+        let runtime = state.runtime.lock().await;
+        assert!(
+            runtime
+                .session
+                .selection_clauses_for_diagnostics("picked")
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn equality_selection_shift_click_toggles_one_of_multiple_clauses() {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .filter(event::button().eq(lit("left")))

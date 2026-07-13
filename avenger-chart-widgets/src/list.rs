@@ -244,9 +244,10 @@ mod tests {
     use avenger_chart::{
         marks::symbol::Symbol as PlotSymbol,
         plot::{Chart, CompiledPlot, EvaluationRequest},
-        prelude::{ChartWidgetPlacementExt, ChromePosition, WidgetItemRow},
+        prelude::{ChartWidgetPlacementExt, ChromePosition, Theme, WidgetItemRow},
         zerod::ZeroDCoord,
     };
+    use avenger_scenegraph::marks::{mark::SceneMark, rect::SceneRectMark};
     use datafusion::common::ScalarValue;
     use datafusion::prelude::SessionContext;
 
@@ -352,5 +353,79 @@ mod tests {
             .await
             .expect("evaluate restored checkbox list");
         assert_eq!(restored_metrics.pipeline.widget_item_collects, 1);
+    }
+
+    #[tokio::test]
+    async fn checkbox_list_theme_geometry_moves_rows_and_hit_rects_together() {
+        async fn row_geometry(theme: Theme) -> Vec<(f32, f32, bool)> {
+            let ctx = SessionContext::new();
+            let items = WidgetItems::Static(vec![
+                WidgetItemRow::new([
+                    (
+                        "value".to_string(),
+                        ScalarValue::Utf8(Some("north".to_string())),
+                    ),
+                    (
+                        "label".to_string(),
+                        ScalarValue::Utf8(Some("North".to_string())),
+                    ),
+                ]),
+                WidgetItemRow::new([
+                    (
+                        "value".to_string(),
+                        ScalarValue::Utf8(Some("south".to_string())),
+                    ),
+                    (
+                        "label".to_string(),
+                        ScalarValue::Utf8(Some("South".to_string())),
+                    ),
+                ]),
+            ]);
+            let compiled = Chart::<ZeroDCoord>::new()
+                .theme(theme)
+                .canvas_size(280.0, 180.0)
+                .plot_size(96.0, 80.0)
+                .mark(PlotSymbol::new().size(144.0).fill("#0072B2"))
+                .widget(CheckboxList::new("regions", items).position(ChromePosition::Left))
+                .compile(&ctx)
+                .await
+                .expect("compile themed checkbox list");
+            let evaluated = compiled
+                .evaluate(&ctx, None)
+                .await
+                .expect("evaluate themed checkbox list");
+
+            fn find_row(marks: &[SceneMark]) -> Option<&SceneRectMark> {
+                for mark in marks {
+                    match mark {
+                        SceneMark::Rect(rect) if rect.name == "row" => return Some(rect),
+                        SceneMark::Group(group) => {
+                            if let Some(rect) = find_row(&group.marks) {
+                                return Some(rect);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                None
+            }
+
+            let row = find_row(&evaluated.scene_graph.marks).expect("checkbox-list row mark");
+            row.y_iter()
+                .copied()
+                .zip(row.height_iter())
+                .map(|(y, height)| (y, height, row.interactive))
+                .collect()
+        }
+
+        let default = row_geometry(Theme::light()).await;
+        let mut custom_theme = Theme::light();
+        custom_theme
+            .append_css("checkbox-list#regions { height: 40px; item-gap: 12px; }")
+            .expect("custom checkbox-list CSS");
+        let custom = row_geometry(custom_theme).await;
+
+        assert_eq!(default, vec![(0.0, 32.0, true), (40.0, 32.0, true)]);
+        assert_eq!(custom, vec![(0.0, 40.0, true), (52.0, 40.0, true)]);
     }
 }

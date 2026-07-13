@@ -197,7 +197,10 @@ fn compile_widget_items(
                 fields.push(Field::new(name, array.data_type().clone(), true));
                 arrays.push(array);
             }
-            let order = Arc::new(UInt64Array::from_iter_values(0..rows.len() as u64)) as ArrayRef;
+            // Match DataFusion's one-based `row_number()` used by dynamic
+            // sources so the shared `__idx = __order - 1` projection is
+            // zero-based without underflow for the first static item.
+            let order = Arc::new(UInt64Array::from_iter_values(1..=rows.len() as u64)) as ArrayRef;
             fields.push(Field::new(ORDER, order.data_type().clone(), false));
             arrays.push(order);
             let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), arrays)?;

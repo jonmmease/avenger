@@ -7744,6 +7744,49 @@ mod tests {
     }
 
     #[test]
+    fn toggle_equality_value_clause_ids_preserve_scalar_types() {
+        let field_expr = LogicalExprNode::from_expr(datafusion::prelude::col("value"))
+            .expect("value field expression");
+        let scope = ResolvedSelectionClauseScope {
+            sharing: CoordinationScope::Shared,
+            owner_path: Vec::new(),
+        };
+        let values = [
+            ScalarValue::Int64(Some(1)),
+            ScalarValue::Boolean(Some(true)),
+            ScalarValue::Utf8(Some("1".to_string())),
+        ];
+        let build_state = || {
+            let mut state = MutableSelectionState {
+                clauses: IndexMap::new(),
+                revision: 0,
+            };
+            for value in &values {
+                assert!(apply_selection_update(
+                    &mut state,
+                    SelectionStateUpdate::ToggleEqualityValue {
+                        field_expr: field_expr.clone(),
+                        value: value.clone(),
+                        item_id: WidgetItemIdentityCodec::encode(value).unwrap(),
+                        scope: scope.clone(),
+                        facet_context: Vec::new(),
+                    }
+                ));
+            }
+            state
+                .clauses
+                .values()
+                .map(|clause| clause.id.clone())
+                .collect::<Vec<_>>()
+        };
+        let first = build_state();
+        let second = build_state();
+        assert_eq!(first, second, "clause ids must be stable");
+        assert_eq!(first.len(), 3);
+        assert_eq!(first.iter().collect::<BTreeSet<_>>().len(), 3);
+    }
+
+    #[test]
     fn delete_clauses_removes_matching_ids_across_scopes() {
         let mut state = MutableSelectionState {
             clauses: IndexMap::new(),
