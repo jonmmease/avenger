@@ -177,8 +177,10 @@ impl WidgetMeasureSpec {
         }
     }
 
-    /// Conservative pre-measurement frame used while the W1.4 host solver is
-    /// not yet active. Content/fill axes use their declared minimum.
+    /// Conservative seed frame used for style-dependent mark preparation
+    /// before intrinsic measurement and the unified chrome solve. Content and
+    /// fill axes use their declared minimum; the realized frame replaces this
+    /// seed for final rendering.
     #[doc(hidden)]
     pub fn provisional_frame_size(&self) -> (f32, f32) {
         fn axis(spec: &WidgetAxisMeasureSpec) -> f32 {

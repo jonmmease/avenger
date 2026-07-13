@@ -8,9 +8,9 @@ machinery, mixed chrome solve, Checkbox, and Button are implemented; later
 data-encoded/native widgets and parameter-change reactions remain planned.
 Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. The active implementation plan is
-`scratch/2026-07-09/02-widgets/plan.md`; this document remains planned until
-that plan's phase gates land.
+in-repo Typst-based text stack. Phase W1 is implemented and undergoing its
+final phase gate; W2-W6 remain planned in the active implementation plan at
+`scratch/2026-07-09/02-widgets/plan.md`.
 Rust-first implementation plan for the widget paradigm: interactive input
 controls built from the engine's own primitives — marks, params,
 selections, event bindings, and, where declarative composition runs out,
@@ -141,6 +141,13 @@ prepared item relation feeds one widget scale builder; its cached domain data
 is reused for provisional measurement and final-frame ranges. Widget scales
 do not enter automatic axis or legend generation.
 
+View-local transforms use `View::pixel_frame()`, not `View::cartesian()`.
+That scale-free view exposes x/y domain and range parameters as
+`0..frame_width` and `0..frame_height` in logical pixels, so existing async
+materialization and stale-result policy work for a widget part without
+creating positional scales or guides. The compiled view kind is serializable;
+direct and bincode evaluation must emit equivalent requests.
+
 ### Shared types
 
 Sizing is serializable and numeric. Each axis of `WidgetMeasureSpec` is
@@ -161,10 +168,12 @@ closures and implicit 400×300 plot defaults are forbidden.
   preexisting reserved `__order`, then derives `__order` and `__idx` before
   sizing or marks consume the relation.
 
-The compiler projects canonical `__value` and `__label` fields and builds one
-shared `WidgetPreparedBaseData` per result/revision. Validation, measurement,
-part mark preparation, scale domains, and event datums all consume that same
-object; no part independently rematerializes the item query.
+The generic compiler adds only `__order` and `__idx`; each data-encoded
+built-in's W2 expansion projects its source-specific fields into canonical
+`__value` and `__label` columns before constructing `WidgetItems`. Evaluation
+builds one shared `WidgetPreparedBaseData` per result/revision. Validation,
+measurement, part mark preparation, scale domains, and event datums all consume
+that same object; no part independently rematerializes the item query.
 
 ### State wiring: the three tiers (identical to tools)
 
@@ -215,6 +224,8 @@ pub struct WidgetExpansion {
     pub items: Option<WidgetItems>,
     /// Serializable intrinsic measurement program.
     pub measure: WidgetMeasureSpec,
+    /// Serializable persistent host-state expressions used by CSS matching.
+    pub presentation: WidgetPresentationBindings,
 }
 
 pub trait ChartWidget: Send + Sync {
@@ -254,12 +265,13 @@ placement is either a guide side or an explicit frame. `WidgetCell` embeds the
 same positionless artifact. Direct evaluation and bincode round trips must
 produce equivalent sizing, validation, target registries, and scenes.
 
-`CompiledWidgetItemPlan` serializes its final canonical projection plus generic
-`NonNullUnique`, `ContainsScalar`, and `ContainsParam` validations. They encode
-total-order/identity and radio default/current-value requirements without a
-widget-kind switch in `avenger-chart`, and run once per newly materialized
-revision before measurement or parts. Dynamic invalidation is an evaluation
-diagnostic and performs no implicit state repair.
+`CompiledWidgetItemPlan` serializes the lowered relation, compiler-owned order
+column, and generic `NonNullUnique`, `ContainsScalar`, and `ContainsParam`
+validations. The latter two are available for W2 built-ins to encode radio
+default/current-value requirements without a widget-kind switch in
+`avenger-chart`. Validations run once per newly materialized revision before
+measurement or parts. Dynamic invalidation is an evaluation diagnostic and
+performs no implicit state repair.
 
 Deliberately **not generic over a coordinate system**. `ToolExpansion<C>`'s
 generic is load-bearing for tools (a tool expands *into* a host plot and
@@ -346,7 +358,8 @@ Properties of the tier:
   opaque primitives. This is the cost that keeps the composed tier
   preferred where it suffices. **Serialization rides a kind registry**
   (2026-07-10): the compiled artifact carries a kind-keyed spec; a
-  registered factory reconstructs instances on deserialization, and
+  registered factory constructs instances after artifact deserialization at
+  evaluation/hosting time, and
   headless/export paths construct an instance and call `scene()`
   without an app loop — which is what keeps native widgets inside the
   baseline and PDF stories. Measurement for a reconstructed native
@@ -467,8 +480,8 @@ chart.mark(trend_line().visible(trend_toggle.checked()))
   `set_param(checked_param, not(checked_param.expr()))`;
   `mark_mouse_enter`/`leave` set the
   existing cursor-kind param for pointer feedback.
-- **Sizing**: `Content(box + gap + measured label)` × `Content(line
-  height)`.
+- **Sizing**: `Content(choice-control-size + control-label-gap + measured
+  label)` × `Content(resolved host height)`.
 
 ### `Button` — composed, momentary activation
 
@@ -489,14 +502,15 @@ chart
   occurrences. `activation_param() -> Param` identifies the reaction source;
   `activations() -> Expr` reads its count. An external-param override follows
   the same sharing convention as other widgets.
-- **Marks**: bounded background/outline, label, optional focus-ring part. The
+- **Marks**: bounded background/outline, label, and a decorative focus-ring
+  part. The
   whole interactive surface activates; decorative parts do not enter the hit
   registry.
 - **Actions**: W1 ships the counter. W6 adds `Button::action(ChartAction)` as
   sugar for a parameter-change binding while retaining the independent
   plot-level reaction API. The required example clears a selection.
-- **Sizing**: measured label plus themed horizontal/vertical padding, clamped
-  by themed minimum size.
+- **Sizing**: width is the greater of themed minimum width and measured label
+  plus twice the themed inline padding; height is the resolved host height.
 
 ### `CheckboxList` — composed, data-encoded multi-select
 
@@ -623,7 +637,7 @@ plot.mark(
         )
         .x(col("horsepower")).y(col("mpg")),
     )
-    .widget(search.position(ChromePosition::Top));
+    .native_widget(search.position(ChromePosition::Top));
 ```
 
 - **Document state**: one Utf8 param holding *committed* text, with
@@ -864,7 +878,7 @@ families are:
 `font-weight` (number or supported keyword), `stroke-width`,
 `focus-ring-width`, `corner-radius`, `width`, `height`, `min-width`,
 `min-height`, `padding-inline`, `padding-block`, `control-label-gap`,
-`item-gap`, `focus-gap`, and each component extent above (definite length),
+`visual-label-gap`, `item-gap`, `focus-gap`, and each component extent above (definite length),
 plus `cursor` (supported cursor keyword). Unknown CSS
 declarations may parse for forward compatibility, but a custom property has no
 effect until a widget rule maps it to this closed consumer schema. Intrinsic
