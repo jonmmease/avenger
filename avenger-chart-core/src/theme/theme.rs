@@ -118,6 +118,70 @@ impl Theme {
                     #999999;
 
                 --viridis-colors: #440154, #3b528b, #21918c, #5ec962, #FDE725;
+
+                /* === Avenger flat widget system === */
+                --widget-control-height: 32px;
+                --widget-font-size: 14px;
+                --widget-aux-font-size: 12px;
+                --widget-line-height: 18px;
+                --widget-border-width: 1px;
+                --widget-strong-border-width: 2px;
+                --widget-focus-width: 2px;
+                --widget-focus-gap: 2px;
+                --widget-radius-small: 2px;
+                --widget-radius-field: 3px;
+                --widget-radius-large: 4px;
+                --widget-radius-pill: 999px;
+                --widget-edge-padding: 8px;
+                --widget-control-label-gap: 8px;
+                --widget-visual-label-gap: 8px;
+                --widget-item-gap: 8px;
+
+                --widget-surface: light-dark(#FFFFFF, #1D1D1D);
+                --widget-app-surface: light-dark(#F4F4F4, #2B2B2B);
+                --widget-field-surface: light-dark(#FFFFFF, #323232);
+                --widget-text: light-dark(#202020, #EDEDED);
+                --widget-text-strong: light-dark(#101010, #FFFFFF);
+                --widget-text-muted: light-dark(#5F5F5F, #B8B8B8);
+                --widget-border: light-dark(#D7D7D7, #505050);
+                --widget-grid: light-dark(#E5E5E5, #484848);
+                --widget-control: light-dark(#525252, #D1D1D1);
+                --widget-track: light-dark(#D7D7D7, #505050);
+                --widget-accent: #0072B2;
+                --widget-on-accent: #FFFFFF;
+                --widget-accent-hover: light-dark(
+                    color-mix(in srgb, #0072B2 82%, black),
+                    color-mix(in srgb, #0072B2 78%, white)
+                );
+                --widget-accent-down: light-dark(
+                    color-mix(in srgb, #0072B2 70%, black),
+                    color-mix(in srgb, #0072B2 66%, white)
+                );
+                --widget-focus-color: #0072B2;
+                --widget-negative: light-dark(#B3261E, #F2B8B5);
+                --widget-disabled-surface: light-dark(#F4F4F4, #2B2B2B);
+                --widget-disabled-border: light-dark(#D7D7D7, #505050);
+                --widget-disabled-text: light-dark(#8A8A8A, #767676);
+                --widget-selection: #0072B2;
+
+                --widget-button-min-width: 72px;
+                --widget-button-inline-padding: 14px;
+                --widget-button-line-height: 18px;
+                --widget-button-radius: 4px;
+                --widget-button-border-width: 1px;
+                --widget-choice-control-size: 14px;
+                --widget-radio-selected-border-width: 2px;
+                --widget-radio-center-size: 6px;
+                --widget-slider-min-width: 80px;
+                --widget-slider-track-height: 2px;
+                --widget-slider-handle-size: 16px;
+                --widget-slider-handle-border-width: 2px;
+                --widget-slider-handle-pressed-border-width: 3px;
+                --widget-slider-value-padding: 8px;
+                --widget-input-inline-inset: 11px;
+                --widget-input-caret-width: 1px;
+                --widget-input-placeholder-color: var(--widget-text-muted);
+                --widget-input-selection-opacity: 0.28;
             }
 
             /* Backgrounds */
@@ -282,6 +346,205 @@ impl Theme {
             mark[type="text"] {
                 fill: var(--text-color);
                 font-size: 1.0rem; /* 12px @ 12px base */
+            }
+
+            /* === Widget host geometry === */
+            checkbox, button, checkbox-list, radio-button-list, slider, text-input {
+                height: var(--widget-control-height);
+                min-height: var(--widget-control-height);
+                padding-inline: 0px;
+                padding-block: 0px;
+                item-gap: var(--widget-item-gap);
+            }
+
+            button { min-width: var(--widget-button-min-width); }
+            slider { min-width: var(--widget-slider-min-width); }
+
+            /* === Shared widget typography and focus === */
+            checkbox::part(label), button::part(label),
+            checkbox-list::part(label), radio-button-list::part(label),
+            text-input::part(text), text-input::part(placeholder) {
+                fill: var(--widget-text);
+                font-family: "Lato";
+                font-size: var(--widget-font-size);
+                font-weight: 400;
+                control-label-gap: var(--widget-control-label-gap);
+                visual-label-gap: var(--widget-visual-label-gap);
+                cursor: pointer;
+            }
+
+            button::part(label) {
+                fill: var(--widget-text-strong);
+                font-weight: 500;
+            }
+
+            slider::part(label), slider::part(value-label) {
+                fill: var(--widget-text-muted);
+                font-family: "Lato";
+                font-size: var(--widget-aux-font-size);
+                font-weight: 400;
+                control-label-gap: var(--widget-control-label-gap);
+            }
+
+            checkbox::part(focus-ring), button::part(focus-ring),
+            checkbox-list::part(focus-ring), radio-button-list::part(focus-ring),
+            slider::part(focus-ring), text-input::part(focus-ring) {
+                stroke: var(--widget-focus-color);
+                stroke-width: var(--widget-focus-width);
+                focus-ring-width: var(--widget-focus-width);
+                focus-gap: var(--widget-focus-gap);
+                opacity: 0;
+            }
+
+            checkbox[focus-visible="true"]::part(focus-ring),
+            button[focus-visible="true"]::part(focus-ring),
+            checkbox-list[focus-visible="true"]::part(focus-ring),
+            radio-button-list[focus-visible="true"]::part(focus-ring),
+            slider[focus-visible="true"]::part(focus-ring),
+            text-input[focus-visible="true"]::part(focus-ring) { opacity: 1; }
+
+            /* === Button === */
+            button::part(box) {
+                fill: var(--widget-field-surface);
+                stroke: var(--widget-border);
+                stroke-width: var(--widget-button-border-width);
+                border-width: var(--widget-button-border-width);
+                corner-radius: var(--widget-button-radius);
+                control-height: var(--widget-control-height);
+                button-min-width: var(--widget-button-min-width);
+                button-inline-padding: var(--widget-button-inline-padding);
+                button-line-height: var(--widget-button-line-height);
+                button-radius: var(--widget-button-radius);
+                button-border-width: var(--widget-button-border-width);
+                cursor: pointer;
+            }
+            button[variant="accent"]::part(box) {
+                fill: var(--widget-accent);
+                stroke: var(--widget-accent);
+            }
+            button[variant="accent"]::part(label) { fill: var(--widget-on-accent); }
+            button[hover="true"]::part(box) { stroke: var(--widget-accent-hover); }
+            button[pressed="true"]::part(box) { fill: var(--widget-accent-down); }
+
+            /* === Checkbox and CheckboxList === */
+            checkbox::part(box), checkbox-list::part(box) {
+                fill: var(--widget-field-surface);
+                stroke: var(--widget-control);
+                stroke-width: var(--widget-border-width);
+                border-width: var(--widget-border-width);
+                corner-radius: var(--widget-radius-small);
+                control-height: var(--widget-control-height);
+                choice-control-size: var(--widget-choice-control-size);
+                cursor: pointer;
+            }
+            checkbox[checked="true"]::part(box),
+            checkbox-list[selected="true"]::part(box) {
+                fill: var(--widget-accent);
+                stroke: var(--widget-accent);
+            }
+            checkbox::part(check), checkbox-list::part(check) {
+                stroke: var(--widget-on-accent);
+                stroke-width: var(--widget-strong-border-width);
+                opacity: 0;
+                cursor: pointer;
+            }
+            checkbox[checked="true"]::part(check),
+            checkbox-list[selected="true"]::part(check) { opacity: 1; }
+            checkbox-list::part(row) { fill: transparent; cursor: pointer; }
+
+            /* === RadioButtonList === */
+            radio-button-list::part(row) { fill: transparent; cursor: pointer; }
+            radio-button-list::part(control) {
+                fill: var(--widget-field-surface);
+                stroke: var(--widget-control);
+                stroke-width: var(--widget-border-width);
+                border-width: var(--widget-border-width);
+                choice-control-size: var(--widget-choice-control-size);
+                radio-selected-border-width: var(--widget-radio-selected-border-width);
+                radio-center-size: var(--widget-radio-center-size);
+                cursor: pointer;
+            }
+            radio-button-list[selected="true"]::part(control) {
+                stroke: var(--widget-accent);
+                stroke-width: var(--widget-radio-selected-border-width);
+            }
+            radio-button-list::part(center) {
+                fill: var(--widget-field-surface);
+                opacity: 0;
+                cursor: pointer;
+            }
+            radio-button-list[selected="true"]::part(center) { opacity: 1; }
+
+            /* === Slider === */
+            slider::part(track) {
+                fill: var(--widget-track);
+                slider-min-width: var(--widget-slider-min-width);
+                slider-track-height: var(--widget-slider-track-height);
+                corner-radius: var(--widget-radius-pill);
+                cursor: pointer;
+            }
+            slider::part(fill) {
+                fill: var(--widget-accent);
+                corner-radius: var(--widget-radius-pill);
+                cursor: pointer;
+            }
+            slider::part(handle) {
+                fill: var(--widget-field-surface);
+                stroke: var(--widget-accent);
+                stroke-width: var(--widget-slider-handle-border-width);
+                slider-handle-size: var(--widget-slider-handle-size);
+                slider-handle-border-width: var(--widget-slider-handle-border-width);
+                slider-handle-pressed-border-width: var(--widget-slider-handle-pressed-border-width);
+                cursor: pointer;
+            }
+            slider[pressed="true"]::part(handle) {
+                stroke-width: var(--widget-slider-handle-pressed-border-width);
+            }
+            slider::part(value-label) {
+                slider-value-padding: var(--widget-slider-value-padding);
+            }
+
+            /* === TextInput === */
+            text-input::part(box) {
+                fill: var(--widget-field-surface);
+                stroke: var(--widget-border);
+                stroke-width: var(--widget-border-width);
+                border-width: var(--widget-border-width);
+                corner-radius: var(--widget-radius-field);
+                control-height: var(--widget-control-height);
+                input-inline-inset: var(--widget-input-inline-inset);
+                cursor: text;
+            }
+            text-input::part(placeholder) {
+                fill: var(--widget-input-placeholder-color);
+                input-placeholder-color: var(--widget-input-placeholder-color);
+                cursor: text;
+            }
+            text-input::part(selection) {
+                fill: var(--widget-selection);
+                opacity: var(--widget-input-selection-opacity);
+                input-selection-opacity: var(--widget-input-selection-opacity);
+            }
+            text-input::part(caret) {
+                stroke: var(--widget-text);
+                stroke-width: var(--widget-input-caret-width);
+                input-caret-width: var(--widget-input-caret-width);
+            }
+
+            checkbox[disabled="true"]::part(box), button[disabled="true"]::part(box),
+            checkbox-list[disabled="true"]::part(box),
+            radio-button-list[disabled="true"]::part(control),
+            slider[disabled="true"]::part(handle), text-input[disabled="true"]::part(box) {
+                fill: var(--widget-disabled-surface);
+                stroke: var(--widget-disabled-border);
+                cursor: not-allowed;
+            }
+            checkbox[disabled="true"]::part(label), button[disabled="true"]::part(label),
+            checkbox-list[disabled="true"]::part(label),
+            radio-button-list[disabled="true"]::part(label),
+            slider[disabled="true"]::part(label), text-input[disabled="true"]::part(text) {
+                fill: var(--widget-disabled-text);
+                cursor: not-allowed;
             }
 
             /* Range configurations */

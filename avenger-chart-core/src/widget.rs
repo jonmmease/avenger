@@ -851,4 +851,73 @@ mod tests {
             Err(AvengerChartError::InvalidWidgetStyle { property, .. }) if property == "width"
         ));
     }
+
+    #[test]
+    fn default_hybrid_button_style_resolves_geometry_accent_and_focus() {
+        let parts = vec![
+            WidgetPartManifest {
+                name: "box".to_string(),
+                scene_mark_kind: "rect".to_string(),
+                style_properties: vec![
+                    WidgetStyleProperty::Fill,
+                    WidgetStyleProperty::StrokeWidth,
+                    WidgetStyleProperty::ButtonRadius,
+                ],
+                states: Vec::new(),
+                interactive: true,
+            },
+            WidgetPartManifest {
+                name: "label".to_string(),
+                scene_mark_kind: "text".to_string(),
+                style_properties: vec![WidgetStyleProperty::Fill],
+                states: Vec::new(),
+                interactive: true,
+            },
+            WidgetPartManifest {
+                name: "focus-ring".to_string(),
+                scene_mark_kind: "rect".to_string(),
+                style_properties: vec![
+                    WidgetStyleProperty::Stroke,
+                    WidgetStyleProperty::StrokeWidth,
+                    WidgetStyleProperty::Opacity,
+                ],
+                states: Vec::new(),
+                interactive: false,
+            },
+        ];
+        let styles = resolve_widget_style_set(
+            &crate::Theme::light(),
+            "button",
+            "clear",
+            &parts,
+            &WidgetPresentationState {
+                variant: Some("accent".to_string()),
+                focus_visible: true,
+                ..Default::default()
+            },
+            &IndexMap::new(),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            styles.host.values[&WidgetStyleProperty::Height],
+            ThemeValue::Length(32.0, _)
+        ));
+        assert!(matches!(
+            styles.parts["box"].values[&WidgetStyleProperty::Fill],
+            ThemeValue::Color(color) if (color.red, color.green, color.blue) == (0, 114, 178)
+        ));
+        assert!(matches!(
+            styles.parts["box"].values[&WidgetStyleProperty::ButtonRadius],
+            ThemeValue::Length(4.0, _)
+        ));
+        assert!(matches!(
+            styles.parts["label"].values[&WidgetStyleProperty::Fill],
+            ThemeValue::Color(color) if (color.red, color.green, color.blue) == (255, 255, 255)
+        ));
+        assert_eq!(
+            styles.parts["focus-ring"].values[&WidgetStyleProperty::Opacity],
+            ThemeValue::Number(1.0)
+        );
+    }
 }
