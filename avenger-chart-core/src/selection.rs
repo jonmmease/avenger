@@ -772,12 +772,14 @@ impl Selection {
                 selection_equality_membership_field_placeholder_id(&self.id),
                 None,
             )))
-            .and(value_expr.into_expr().eq(Expr::Placeholder(
-                Placeholder::new_with_field(
-                    selection_equality_membership_value_placeholder_id(&self.id),
-                    None,
-                ),
-            )))
+            .and(
+                value_expr
+                    .into_expr()
+                    .eq(Expr::Placeholder(Placeholder::new_with_field(
+                        selection_equality_membership_value_placeholder_id(&self.id),
+                        None,
+                    ))),
+            )
     }
 
     pub fn compile(&self) -> Result<CompiledSelectionSpec, AvengerChartError> {
@@ -823,10 +825,8 @@ pub fn selection_id_from_predicate_placeholder(placeholder_id: &str) -> Option<&
     placeholder_id.strip_prefix("$__selection_predicate_")
 }
 
-const SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX: &str =
-    "$__selection_equality_membership_field_";
-const SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX: &str =
-    "$__selection_equality_membership_value_";
+const SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX: &str = "$__selection_equality_membership_field_";
+const SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX: &str = "$__selection_equality_membership_value_";
 
 fn selection_equality_membership_field_placeholder_id(selection_id: &str) -> String {
     format!("{SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX}{selection_id}")
