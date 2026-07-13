@@ -39,6 +39,9 @@ struct BakeTarget {
 #[derive(Clone)]
 enum BakeTargetKind {
     PlotData,
+    WidgetItems {
+        index: usize,
+    },
     MarkGroup {
         index: usize,
         /// Emit the residual as the group's base plan while PRESERVING the
@@ -311,6 +314,46 @@ async fn assemble_plot_tree(
         }
     }
 
+    for (index, attachment) in compiled.widgets.iter().enumerate() {
+        let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+            continue;
+        };
+        let Some(items) = &widget.items else {
+            continue;
+        };
+        let target = BakeTarget {
+            plot_path: plot_path.clone(),
+            kind: BakeTargetKind::WidgetItems { index },
+        };
+        let context_id = widget_items_context_id(&plot_path, index, widget.id.clone());
+        match assemble_data_context(
+            &items.data,
+            target,
+            context_id.clone(),
+            ctx,
+            compiled.time_context.clone(),
+            MarkDataMode::Inherit,
+            None,
+            false,
+        )
+        .await
+        {
+            Ok(Some(context)) => assembly.contexts.push(context),
+            Ok(None) => assembly.statuses.push(ContextBakeStatus::NotBaked {
+                context_id,
+                reason: NotBakedReason::NoData,
+            }),
+            Err(reason) => {
+                assembly
+                    .live_stage_tables
+                    .extend(live_stage_session_tables(items.data.transforms()));
+                assembly
+                    .statuses
+                    .push(ContextBakeStatus::NotBaked { context_id, reason });
+            }
+        }
+    }
+
     for (mark_index, mark) in compiled.marks.iter().enumerate() {
         let Some(payload) = subplot_payload_for_mark(mark.as_ref()) else {
             continue;
@@ -392,6 +435,18 @@ fn mark_group_context_id(plot_path: &[usize], index: usize, id: Option<String>) 
         BakeContextId::MarkGroup { index, id }
     } else {
         BakeContextId::ChildMarkGroup {
+            subplot_path: plot_path.to_vec(),
+            index,
+            id,
+        }
+    }
+}
+
+fn widget_items_context_id(plot_path: &[usize], index: usize, id: String) -> BakeContextId {
+    if plot_path.is_empty() {
+        BakeContextId::WidgetItems { index, id }
+    } else {
+        BakeContextId::ChildWidgetItems {
             subplot_path: plot_path.to_vec(),
             index,
             id,
@@ -529,6 +584,32 @@ fn emit_proto_context(
             if let Some(original) = original.as_ref() {
                 retarget_subplot_data_snapshots(plot, original, &node, ctx)?;
             }
+            Ok(())
+        }
+        BakeTargetKind::WidgetItems { index } => {
+            let attachment = plot.widgets.get_mut(*index).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Compiled widget attachment index {index} is out of bounds during bake emit"
+                ))
+            })?;
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &mut attachment.widget
+            else {
+                return Err(AvengerChartError::InternalError(format!(
+                    "Compiled widget attachment index {index} is not composed during bake emit"
+                )));
+            };
+            let items = widget.items.as_mut().ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "Compiled widget '{}' has no item plan during bake emit",
+                    widget.id
+                ))
+            })?;
+            items.data = CompiledDataContext::from_logical_plan_node_with_pattern_channels(
+                Some(node.clone()),
+                Vec::new(),
+                items.data.channels().clone(),
+                items.data.pattern_channels().clone(),
+            );
             Ok(())
         }
         BakeTargetKind::MarkGroup {

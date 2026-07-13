@@ -97,6 +97,13 @@ pub enum BakeContextId {
         /// Optional author-provided group id.
         id: Option<String>,
     },
+    /// A composed widget's item relation.
+    WidgetItems {
+        /// Index into the compiled plot's widget attachment list.
+        index: usize,
+        /// Stable widget id.
+        id: String,
+    },
     /// The plot-level data plan of a child plot reached through subplot mark
     /// indices from the baked plot root.
     ChildPlotData {
@@ -112,6 +119,15 @@ pub enum BakeContextId {
         index: usize,
         /// Optional author-provided group id.
         id: Option<String>,
+    },
+    /// A composed widget item relation inside a nested child plot.
+    ChildWidgetItems {
+        /// Mark-index path through nested subplot payloads.
+        subplot_path: Vec<usize>,
+        /// Index into the child plot's widget attachment list.
+        index: usize,
+        /// Stable widget id.
+        id: String,
     },
 }
 

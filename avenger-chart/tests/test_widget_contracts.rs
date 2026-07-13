@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use avenger_chart::{
+    bake::{BakeContextId, BakePolicy, ContextBakeStatus},
     pixel_frame::{PixelFrameRectPositionChannels, PixelFrameTextPositionChannels},
     prelude::*,
 };
@@ -561,4 +562,45 @@ async fn dataframe_widget_items_compile_total_order_projection() {
                 .is_ok()
         );
     }
+}
+
+#[tokio::test]
+async fn widget_item_relation_bakes_and_evaluates_without_source_table() {
+    let server = datafusion::prelude::SessionContext::new();
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )])),
+        vec![Arc::new(Int64Array::from(vec![3, 1, 2]))],
+    )
+    .unwrap();
+    server.register_batch("widget_source", batch).unwrap();
+    let data = server.table("widget_source").await.unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .widget(DataFrameContractWidget { data }.position(ChromePosition::Left))
+        .compile(&server)
+        .await
+        .unwrap();
+
+    let (baked, report) = compiled
+        .bake(&server, &BakePolicy::default())
+        .await
+        .unwrap();
+    assert!(report.contexts.iter().any(|status| matches!(
+        status,
+        ContextBakeStatus::Baked {
+            context_id: BakeContextId::WidgetItems { id, .. },
+            ..
+        } if id == "data-contract"
+    )));
+    assert!(report.self_contained, "{:#?}", report.contexts);
+
+    let decoded: avenger_chart::plot::CompiledPlot =
+        bincode::deserialize(&bincode::serialize(&baked).unwrap()).unwrap();
+    decoded
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .expect("baked widget items should evaluate without the source table");
 }
