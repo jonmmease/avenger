@@ -8382,14 +8382,13 @@ mod tests {
                 "contain NULL",
             ),
         ] {
-            let error =
-                validate_widget_item_batch(
-                    "choices",
-                    &batch,
-                    std::slice::from_ref(&unique),
-                    &IndexMap::new(),
-                )
-                    .expect_err("invalid total key");
+            let error = validate_widget_item_batch(
+                "choices",
+                &batch,
+                std::slice::from_ref(&unique),
+                &IndexMap::new(),
+            )
+            .expect_err("invalid total key");
             assert!(
                 matches!(&error, AvengerChartError::InvalidWidgetItems { widget_id, role, message }
                     if widget_id == "choices" && role == "total order" && message.contains(expected)),
