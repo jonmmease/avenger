@@ -442,12 +442,20 @@ impl Theme {
                 fill: var(--widget-accent);
                 stroke: var(--widget-accent);
             }
+            checkbox-list::part(selected-box) {
+                fill: var(--widget-accent);
+                stroke: var(--widget-accent);
+                stroke-width: var(--widget-border-width);
+                corner-radius: var(--widget-radius-small);
+                choice-control-size: var(--widget-choice-control-size);
+            }
             checkbox::part(check), checkbox-list::part(check) {
                 stroke: var(--widget-on-accent);
                 stroke-width: var(--widget-strong-border-width);
-                opacity: 0;
                 cursor: pointer;
             }
+            checkbox::part(check) { opacity: 0; }
+            checkbox-list::part(check) { opacity: 1; }
             checkbox[checked="true"]::part(check),
             checkbox-list[selected="true"]::part(check) { opacity: 1; }
             checkbox-list::part(row) { fill: transparent; cursor: pointer; }

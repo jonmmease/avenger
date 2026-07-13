@@ -1299,6 +1299,16 @@ fn rewrite_selection_update_reserved_datums(
                 }
             }
         }
+        SelectionUpdate::ToggleEqualityValue {
+            field_expr,
+            value,
+            item_id,
+            ..
+        } => {
+            rewrite_expr_node_reserved_datums(field_expr, ctx)?;
+            rewrite_expr_node_reserved_datums(&mut value.expr, ctx)?;
+            rewrite_expr_node_reserved_datums(&mut item_id.expr, ctx)?;
+        }
         SelectionUpdate::DeleteClauses { ids }
         | SelectionUpdate::DeleteClausesInScope { ids, .. } => {
             for id in ids {
@@ -1667,6 +1677,10 @@ fn collect_selection_update_exprs(
                     }
                 }
             }
+        }
+        SelectionUpdate::ToggleEqualityValue { value, item_id, .. } => {
+            exprs.push(value.expr.to_expr(ctx)?);
+            exprs.push(item_id.expr.to_expr(ctx)?);
         }
         SelectionUpdate::DeleteClauses { ids } => {
             for id in ids {

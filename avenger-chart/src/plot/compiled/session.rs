@@ -12,9 +12,12 @@ use avenger_chart_core::{
     EvaluationInvalidationRequest, EvaluationInvalidationSink, EvaluationInvalidationSubscription,
     FacetWrapColumnMode, LegendChannel, LegendPosition, LogicalPlanNodeExt,
     MaterializationExecutionContext, MaterializationExecutor, MaterializationExecutorRegistry,
-    MaterializationKind, MaterializationRequest, Maybe, RadiusExpression, STORE_NAME_COLUMN,
-    STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN, ScaleConfigSpec, ScaleDefaultDomain,
-    ScaleDomain, SelectionClause, SerializableExpr, StoreData, StoreRowValue, WidgetItemValidation,
+    MaterializationKind, MaterializationRequest, Maybe, RadiusExpression,
+    ResolvedSelectionClauseScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
+    ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause,
+    SelectionEqualityDimensionValue, SelectionFacetContextValue, SelectionPredicateSpec,
+    SerializableExpr, StoreData, StoreRowValue, WidgetItemIdentityCodec, WidgetItemValidation,
+    selection_field_expr_fingerprint,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
@@ -712,6 +715,13 @@ pub enum SelectionStateUpdate {
     ToggleClauses {
         clauses: Vec<SelectionClause>,
     },
+    ToggleEqualityValue {
+        field_expr: LogicalExprNode,
+        value: ScalarValue,
+        item_id: String,
+        scope: ResolvedSelectionClauseScope,
+        facet_context: Vec<SelectionFacetContextValue>,
+    },
     DeleteClauses {
         ids: Vec<String>,
     },
@@ -796,6 +806,77 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
             }
             changed
         }
+        SelectionStateUpdate::ToggleEqualityValue {
+            field_expr,
+            value,
+            item_id,
+            scope,
+            facet_context,
+        } => {
+            let field_fingerprint = selection_field_expr_fingerprint(&field_expr);
+            let matching_keys = state
+                .clauses
+                .iter()
+                .filter(|(_, clause)| {
+                    clause.scope == scope
+                        && clause.facet_context == facet_context
+                        && matches!(
+                            &clause.predicate,
+                            SelectionPredicateSpec::Equality { dimensions }
+                                if dimensions.len() == 1
+                                    && selection_field_expr_fingerprint(
+                                        &dimensions[0].field_expr
+                                    ) == field_fingerprint
+                                    && dimensions[0].value == value
+                        )
+                })
+                .map(|(key, _)| key.clone())
+                .collect::<Vec<_>>();
+            if !matching_keys.is_empty() {
+                for key in matching_keys {
+                    state.clauses.shift_remove(&key);
+                }
+                true
+            } else {
+                let preferred = equality_toggle_preferred_clause_id(
+                    &field_fingerprint,
+                    &scope,
+                    &facet_context,
+                    &item_id,
+                );
+                let mut suffix = 0_u64;
+                let id = loop {
+                    let candidate = if suffix == 0 {
+                        preferred.clone()
+                    } else {
+                        format!("{preferred}~{suffix}")
+                    };
+                    let occupied = state.clauses.values().any(|clause| {
+                        clause.scope.owner_path == scope.owner_path && clause.id == candidate
+                    });
+                    if !occupied {
+                        break candidate;
+                    }
+                    suffix = suffix.saturating_add(1);
+                };
+                let clause = SelectionClause {
+                    id,
+                    scope,
+                    predicate: SelectionPredicateSpec::Equality {
+                        dimensions: vec![SelectionEqualityDimensionValue {
+                            id: "value".to_string(),
+                            field_expr,
+                            value,
+                        }],
+                    },
+                    facet_context,
+                };
+                state
+                    .clauses
+                    .insert(selection_clause_state_key(&clause), clause);
+                true
+            }
+        }
         SelectionStateUpdate::DeleteClauses { ids } => {
             let mut changed = false;
             state.clauses.retain(|_, clause| {
@@ -819,6 +900,37 @@ fn apply_selection_update(state: &mut MutableSelectionState, update: SelectionSt
             changed
         }
     }
+}
+
+fn equality_toggle_preferred_clause_id(
+    field_fingerprint: &str,
+    scope: &ResolvedSelectionClauseScope,
+    facet_context: &[SelectionFacetContextValue],
+    item_id: &str,
+) -> String {
+    fn component(value: &str) -> String {
+        format!("{}:{value}", value.len())
+    }
+
+    let mut scope_fingerprint = format!("level={};", scope.sharing.to_level());
+    for value in &scope.owner_path {
+        let encoded =
+            WidgetItemIdentityCodec::encode(value).unwrap_or_else(|_| "wii1_invalid".to_string());
+        scope_fingerprint.push_str(&component(&encoded));
+    }
+    scope_fingerprint.push(';');
+    for facet in facet_context {
+        scope_fingerprint.push_str(&component(&facet.id));
+        let encoded = WidgetItemIdentityCodec::encode(&facet.value)
+            .unwrap_or_else(|_| "wii1_invalid".to_string());
+        scope_fingerprint.push_str(&component(&encoded));
+    }
+    format!(
+        "__widget_eq_{}_{}_{}",
+        component(field_fingerprint),
+        component(&scope_fingerprint),
+        component(item_id)
+    )
 }
 
 fn selection_clause_state_key(clause: &SelectionClause) -> String {
@@ -7540,6 +7652,95 @@ mod tests {
         assert_eq!(state.clauses.len(), 1);
         let remaining = state.clauses.values().next().expect("remaining clause");
         assert_eq!(remaining.scope.owner_path, alpha_owner);
+    }
+
+    #[test]
+    fn toggle_equality_value_interoperates_with_external_clause_ids() {
+        let mut state = MutableSelectionState {
+            clauses: IndexMap::new(),
+            revision: 0,
+        };
+        let field_expr = LogicalExprNode::from_expr(datafusion::prelude::col("category"))
+            .expect("category field expression");
+        let other_field = LogicalExprNode::from_expr(datafusion::prelude::col("country"))
+            .expect("country field expression");
+        let value = ScalarValue::Utf8(Some("US".to_string()));
+        let scope = ResolvedSelectionClauseScope {
+            sharing: CoordinationScope::Shared,
+            owner_path: Vec::new(),
+        };
+        let external = SelectionClause {
+            id: "arbitrary-external-id".to_string(),
+            scope: scope.clone(),
+            predicate: SelectionPredicateSpec::Equality {
+                dimensions: vec![SelectionEqualityDimensionValue {
+                    id: "category".to_string(),
+                    field_expr: field_expr.clone(),
+                    value: value.clone(),
+                }],
+            },
+            facet_context: Vec::new(),
+        };
+        state
+            .clauses
+            .insert(selection_clause_state_key(&external), external);
+
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::ToggleEqualityValue {
+                field_expr: field_expr.clone(),
+                value: value.clone(),
+                item_id: WidgetItemIdentityCodec::encode(&value).unwrap(),
+                scope: scope.clone(),
+                facet_context: Vec::new(),
+            }
+        ));
+        assert!(state.clauses.is_empty(), "matching arbitrary id is removed");
+
+        let occupied_id = equality_toggle_preferred_clause_id(
+            &selection_field_expr_fingerprint(&field_expr),
+            &scope,
+            &[],
+            &WidgetItemIdentityCodec::encode(&value).unwrap(),
+        );
+        let occupied = SelectionClause {
+            id: occupied_id.clone(),
+            scope: scope.clone(),
+            predicate: SelectionPredicateSpec::Equality {
+                dimensions: vec![SelectionEqualityDimensionValue {
+                    id: "country".to_string(),
+                    field_expr: other_field,
+                    value: value.clone(),
+                }],
+            },
+            facet_context: Vec::new(),
+        };
+        state
+            .clauses
+            .insert(selection_clause_state_key(&occupied), occupied);
+        assert!(apply_selection_update(
+            &mut state,
+            SelectionStateUpdate::ToggleEqualityValue {
+                field_expr,
+                value: value.clone(),
+                item_id: WidgetItemIdentityCodec::encode(&value).unwrap(),
+                scope,
+                facet_context: Vec::new(),
+            }
+        ));
+        assert_eq!(state.clauses.len(), 2);
+        assert!(
+            state
+                .clauses
+                .values()
+                .any(|clause| clause.id == occupied_id)
+        );
+        assert!(
+            state
+                .clauses
+                .values()
+                .any(|clause| clause.id == format!("{occupied_id}~1"))
+        );
     }
 
     #[test]

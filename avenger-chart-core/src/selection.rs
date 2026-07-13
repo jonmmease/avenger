@@ -202,6 +202,7 @@ impl SelectionClauseUpdate {
     }
 }
 
+#[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum SelectionUpdate {
     Clear,
@@ -220,6 +221,14 @@ pub enum SelectionUpdate {
     },
     ToggleClauses {
         clauses: Vec<SelectionClauseUpdate>,
+    },
+    ToggleEqualityValue {
+        #[serde_as(as = "FromInto<SerializableExpr>")]
+        field_expr: LogicalExprNode,
+        value: SelectionValueExpr,
+        item_id: SelectionValueExpr,
+        #[serde(default = "default_clause_facet_scope")]
+        facet_scope: CoordinationScope,
     },
     ReplaceAllFromSceneQuery {
         query: SelectionSceneQuery,
@@ -360,6 +369,21 @@ impl SelectionUpdate {
         Self::toggle_clauses([clause])
     }
 
+    /// Toggle one typed value in an equality selection without depending on a
+    /// caller-chosen clause id.
+    pub fn toggle_equality_value(
+        field_expr: impl IntoExpr,
+        value_expr: impl IntoExpr,
+        item_id_expr: impl IntoExpr,
+    ) -> Self {
+        Self::ToggleEqualityValue {
+            field_expr: expr_node(field_expr.into_expr(), "selection equality toggle field"),
+            value: SelectionValueExpr::new(value_expr),
+            item_id: SelectionValueExpr::new(item_id_expr),
+            facet_scope: CoordinationScope::Free,
+        }
+    }
+
     pub fn replace_all_from_scene_query(query: impl Into<SelectionSceneQuery>) -> Self {
         Self::ReplaceAllFromSceneQuery {
             query: query.into(),
@@ -432,6 +456,17 @@ impl SelectionUpdate {
             },
             Self::ToggleClauses { clauses } => Self::ToggleClauses {
                 clauses: map_clauses(clauses, f)?,
+            },
+            Self::ToggleEqualityValue {
+                field_expr,
+                value,
+                item_id,
+                facet_scope,
+            } => Self::ToggleEqualityValue {
+                field_expr: map_expr_node(field_expr, f, "selection equality toggle field")?,
+                value: value.map_exprs(f)?,
+                item_id: item_id.map_exprs(f)?,
+                facet_scope,
             },
             Self::ReplaceAllFromSceneQuery { query } => Self::ReplaceAllFromSceneQuery {
                 query: query.map_exprs(f)?,
@@ -1114,6 +1149,32 @@ mod tests {
             panic!("expected toggle clauses");
         };
         assert_eq!(clauses.len(), 1);
+    }
+
+    #[test]
+    fn toggle_equality_value_update_serializes_typed_inputs() {
+        let update = SelectionUpdate::toggle_equality_value(
+            col("category"),
+            event::datum("__value"),
+            event::datum("__item_id"),
+        );
+        let json = serde_json::to_string(&update).expect("serialize update");
+        let restored: SelectionUpdate = serde_json::from_str(&json).expect("deserialize update");
+        let SelectionUpdate::ToggleEqualityValue {
+            field_expr,
+            value,
+            item_id,
+            facet_scope,
+        } = restored
+        else {
+            panic!("expected equality value toggle");
+        };
+        assert_eq!(facet_scope, CoordinationScope::Free);
+        assert_eq!(
+            selection_field_expr_fingerprint(&field_expr),
+            selection_field_expr_fingerprint(&expr_node(col("category"), "test field"))
+        );
+        assert_ne!(value, item_id);
     }
 
     #[test]

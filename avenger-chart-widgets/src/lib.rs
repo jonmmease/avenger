@@ -16,3 +16,4 @@ pub mod text_input;
 
 pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
+pub use list::CheckboxList;

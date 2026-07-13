@@ -121,6 +121,7 @@ fn compile_widget_items(
     let mut source = items;
     let mut value_projection = None;
     let mut label_projection = None;
+    let mut identity = None;
     let mut configured_validations = Vec::new();
     loop {
         match source {
@@ -128,6 +129,7 @@ fn compile_widget_items(
                 source: inner,
                 value,
                 label,
+                identity: configured_identity,
                 validations,
             } => {
                 if (value_projection.is_some() && value.is_some())
@@ -139,6 +141,12 @@ fn compile_widget_items(
                 }
                 value_projection = value_projection.or(value);
                 label_projection = label_projection.or(label);
+                if identity.is_some() && configured_identity.is_some() {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Widget '{widget_id}' item source has more than one identity derivation"
+                    )));
+                }
+                identity = identity.or(configured_identity);
                 configured_validations.extend(validations);
                 source = *inner;
             }
@@ -278,12 +286,34 @@ fn compile_widget_items(
         projection.push(label.alias(LABEL));
         data = data.select(projection)?;
     }
+    if let Some(identity) = &identity {
+        if identity.output_column == ORDER || identity.output_column == INDEX {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget '{widget_id}' item identity cannot replace reserved column '{}'",
+                identity.output_column
+            )));
+        }
+        data.schema()
+            .field_with_unqualified_name(&identity.source_column)
+            .map_err(|_| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Widget '{widget_id}' item identity source column '{}' is missing",
+                    identity.source_column
+                ))
+            })?;
+        // Reserve the final string column in the logical schema so mark data
+        // and event-datum validation can see it. The prepared-base seam
+        // replaces these sentinels with typed codec output after the relation's
+        // one collect and before any consumer observes the batch.
+        data = data.with_column(&identity.output_column, lit(String::new()))?;
+    }
     data = data.with_column(INDEX, col(ORDER) - lit(1_u64))?;
     validations.extend(configured_validations);
 
     Ok(CompiledWidgetItemPlan {
         data: CompiledDataContext::new(Some(data), Vec::new(), IndexMap::new()),
         order_column: ORDER.to_string(),
+        identity,
         validations,
     })
 }
@@ -588,6 +618,14 @@ impl<C: CoordinateSystem> Plot<C> {
                 let id = widget.id().to_string();
                 validate_structural_id("widget", &id)?;
                 let expansion = widget.expand(WidgetExpansionContext::new(&id))?;
+                let items = expansion
+                    .items
+                    .clone()
+                    .map(|items| compile_widget_items(&id, items, session_context))
+                    .transpose()?;
+                let widget_item_dataframe = items
+                    .as_ref()
+                    .and_then(|items| items.data.dataframe_with_context(session_context));
                 let identity = widget as *const dyn ChartWidget as *const () as usize;
                 tool_context.register_widget_expansion(
                     &id,
@@ -636,7 +674,9 @@ impl<C: CoordinateSystem> Plot<C> {
                     }
                     let state = CompiledMarkState::from_mark_state(
                         mark.state(),
-                        mark.state().data.dataframe().cloned(),
+                        widget_item_dataframe
+                            .clone()
+                            .or_else(|| mark.state().data.dataframe().cloned()),
                     )
                     .with_mark_index(mark_index)
                     .with_public_target_path(Some(public_target_path))
@@ -658,10 +698,6 @@ impl<C: CoordinateSystem> Plot<C> {
                     &mut local_scale_channels,
                 )?;
                 widget_scale_specs.insert(id.clone(), local_scale_specs);
-                let items = expansion
-                    .items
-                    .map(|items| compile_widget_items(&id, items, session_context))
-                    .transpose()?;
                 let presentation = expansion.presentation.compile()?;
                 let compiled = CompiledWidget::Composed(CompiledComposedWidget {
                     id,

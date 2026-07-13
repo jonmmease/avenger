@@ -6,11 +6,18 @@ use std::{
     sync::Arc,
 };
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD};
 use datafusion::{
-    common::ScalarValue, dataframe::DataFrame, logical_expr::expr::Placeholder, prelude::Expr,
+    arrow::datatypes::{DataType, Field},
+    common::ScalarValue,
+    dataframe::DataFrame,
+    logical_expr::expr::Placeholder,
+    prelude::Expr,
 };
 use datafusion_proto::protobuf::LogicalExprNode;
+use datafusion_proto_common::protobuf_common::ScalarValue as ProtoScalarValue;
 use indexmap::IndexMap;
+use prost::Message;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
@@ -34,22 +41,28 @@ impl<'a> WidgetExpansionContext<'a> {
 
     /// Reference one resolved part style from a widget mark expression.
     pub fn part_style(&self, part: &str, property: WidgetStyleProperty) -> Expr {
-        widget_runtime_placeholder(&widget_style_input_name(Some(part), property))
+        widget_runtime_placeholder(
+            &widget_style_input_name(Some(part), property),
+            widget_style_input_data_type(property),
+        )
     }
 
     /// Reference one resolved host style from a widget mark expression.
     pub fn host_style(&self, property: WidgetStyleProperty) -> Expr {
-        widget_runtime_placeholder(&widget_style_input_name(None, property))
+        widget_runtime_placeholder(
+            &widget_style_input_name(None, property),
+            widget_style_input_data_type(property),
+        )
     }
 
     /// Reference the realized widget frame width from a mark expression.
     pub fn frame_width(&self) -> Expr {
-        widget_runtime_placeholder(WIDGET_FRAME_WIDTH_INPUT)
+        widget_runtime_placeholder(WIDGET_FRAME_WIDTH_INPUT, Some(DataType::Float32))
     }
 
     /// Reference the realized widget frame height from a mark expression.
     pub fn frame_height(&self) -> Expr {
-        widget_runtime_placeholder(WIDGET_FRAME_HEIGHT_INPUT)
+        widget_runtime_placeholder(WIDGET_FRAME_HEIGHT_INPUT, Some(DataType::Float32))
     }
 }
 
@@ -57,8 +70,22 @@ pub const WIDGET_RUNTIME_INPUT_PREFIX: &str = "__widget_";
 pub const WIDGET_FRAME_WIDTH_INPUT: &str = "__widget_frame_width";
 pub const WIDGET_FRAME_HEIGHT_INPUT: &str = "__widget_frame_height";
 
-fn widget_runtime_placeholder(name: &str) -> Expr {
-    Expr::Placeholder(Placeholder::new_with_field(format!("${name}"), None))
+fn widget_runtime_placeholder(name: &str, data_type: Option<DataType>) -> Expr {
+    Expr::Placeholder(Placeholder::new_with_field(
+        format!("${name}"),
+        data_type.map(|data_type| Arc::new(Field::new("", data_type, false))),
+    ))
+}
+
+fn widget_style_input_data_type(property: WidgetStyleProperty) -> Option<DataType> {
+    match property.value_type() {
+        WidgetStyleValueType::Number | WidgetStyleValueType::Length => Some(DataType::Float32),
+        WidgetStyleValueType::Color
+        | WidgetStyleValueType::String
+        | WidgetStyleValueType::Cursor => Some(DataType::Utf8),
+        // Font weights intentionally accept either numeric or keyword values.
+        WidgetStyleValueType::FontWeight => None,
+    }
 }
 
 pub fn widget_style_input_name(part: Option<&str>, property: WidgetStyleProperty) -> String {
@@ -167,8 +194,38 @@ pub enum WidgetItems {
         source: Box<WidgetItems>,
         value: Option<Expr>,
         label: Option<Expr>,
+        identity: Option<WidgetItemIdentityDerivation>,
         validations: Vec<WidgetItemValidation>,
     },
+}
+
+/// A serialized, engine-neutral instruction for deriving stable item ids once
+/// a widget's canonical item relation has materialized.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WidgetItemIdentityDerivation {
+    pub source_column: String,
+    pub output_column: String,
+}
+
+/// Type-preserving item identities shared by list widgets and semantic
+/// selection updates.
+pub struct WidgetItemIdentityCodec;
+
+impl WidgetItemIdentityCodec {
+    /// Encode a scalar using DataFusion's protobuf interchange representation.
+    /// The versioned prefix reserves room for a future codec migration without
+    /// conflating identities produced by two formats.
+    pub fn encode(value: &ScalarValue) -> Result<String, AvengerChartError> {
+        let proto = ProtoScalarValue::try_from(value).map_err(|error| {
+            AvengerChartError::SerializationError(format!(
+                "Failed to encode widget item identity: {error}"
+            ))
+        })?;
+        Ok(format!(
+            "wii1_{}",
+            BASE64_URL_SAFE_NO_PAD.encode(proto.encode_to_vec())
+        ))
+    }
 }
 
 impl WidgetItems {
@@ -178,18 +235,56 @@ impl WidgetItems {
         match self {
             Self::Configured {
                 source,
+                identity,
                 validations,
                 ..
             } => Self::Configured {
                 source,
                 value: Some(value.into_expr()),
                 label: Some(label.into_expr()),
+                identity,
                 validations,
             },
             source => Self::Configured {
                 source: Box::new(source),
                 value: Some(value.into_expr()),
                 label: Some(label.into_expr()),
+                identity: None,
+                validations: Vec::new(),
+            },
+        }
+    }
+
+    /// Derive a stable string identity from one canonical item column after
+    /// the relation's single materialization.
+    pub fn derive_identity(
+        self,
+        source_column: impl Into<String>,
+        output_column: impl Into<String>,
+    ) -> Self {
+        let identity = WidgetItemIdentityDerivation {
+            source_column: source_column.into(),
+            output_column: output_column.into(),
+        };
+        match self {
+            Self::Configured {
+                source,
+                value,
+                label,
+                validations,
+                ..
+            } => Self::Configured {
+                source,
+                value,
+                label,
+                identity: Some(identity),
+                validations,
+            },
+            source => Self::Configured {
+                source: Box::new(source),
+                value: None,
+                label: None,
+                identity: Some(identity),
                 validations: Vec::new(),
             },
         }
@@ -202,6 +297,7 @@ impl WidgetItems {
                 source,
                 value,
                 label,
+                identity,
                 mut validations,
             } => {
                 validations.push(validation);
@@ -209,6 +305,7 @@ impl WidgetItems {
                     source,
                     value,
                     label,
+                    identity,
                     validations,
                 }
             }
@@ -216,6 +313,7 @@ impl WidgetItems {
                 source: Box::new(source),
                 value: None,
                 label: None,
+                identity: None,
                 validations: vec![validation],
             },
         }
@@ -652,7 +750,10 @@ pub struct WidgetPartManifest {
 /// expand to the complete interactive surface without making focus and text
 /// editing decorations independently clickable.
 pub fn is_decorative_widget_part(name: &str) -> bool {
-    matches!(name, "focus-ring" | "selection" | "caret" | "preedit")
+    matches!(
+        name,
+        "focus-ring" | "selection" | "selected-box" | "caret" | "preedit"
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1165,6 +1266,8 @@ pub enum WidgetItemValidation {
 pub struct CompiledWidgetItemPlan {
     pub data: CompiledDataContext,
     pub order_column: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<WidgetItemIdentityDerivation>,
     pub validations: Vec<WidgetItemValidation>,
 }
 
@@ -1637,5 +1740,33 @@ mod tests {
             Err(AvengerChartError::InvalidArgument(message))
                 if message.contains("maximum 10") && message.contains("minimum 30")
         ));
+    }
+
+    #[test]
+    fn widget_item_identity_codec_is_stable_and_type_preserving() {
+        let values = [
+            ScalarValue::Int64(Some(1)),
+            ScalarValue::UInt64(Some(1)),
+            ScalarValue::Float64(Some(1.0)),
+            ScalarValue::Boolean(Some(true)),
+            ScalarValue::Utf8(Some("1".to_string())),
+            ScalarValue::LargeUtf8(Some("1".to_string())),
+        ];
+        let encoded = values
+            .iter()
+            .map(WidgetItemIdentityCodec::encode)
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            encoded.len(),
+            encoded
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+        );
+        for (value, identity) in values.iter().zip(&encoded) {
+            assert_eq!(WidgetItemIdentityCodec::encode(value).unwrap(), *identity);
+            assert!(identity.starts_with("wii1_"));
+        }
     }
 }

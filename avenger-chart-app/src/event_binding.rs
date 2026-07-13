@@ -291,6 +291,12 @@ enum CompiledSelectionUpdate {
     ToggleClauses {
         clauses: Vec<CompiledSelectionClause>,
     },
+    ToggleEqualityValue {
+        field_expr: datafusion_proto::protobuf::LogicalExprNode,
+        value: usize,
+        item_id: usize,
+        facet_scope: CoordinationScope,
+    },
     ReplaceAllFromSceneQuery {
         query: CompiledSelectionSceneQuery,
     },
@@ -420,6 +426,12 @@ enum SelectionExpressionUpdate {
     },
     ToggleClauses {
         clauses: Vec<SelectionExpressionClause>,
+    },
+    ToggleEqualityValue {
+        field_expr: datafusion_proto::protobuf::LogicalExprNode,
+        value: Expr,
+        item_id: Expr,
+        facet_scope: CoordinationScope,
     },
     ReplaceAllFromSceneQuery {
         query: SelectionSceneQueryExpression,
@@ -1034,6 +1046,17 @@ fn compile_selection_expression_update(
         SelectionUpdate::ToggleClauses { clauses } => SelectionExpressionUpdate::ToggleClauses {
             clauses: compile_selection_clauses(clauses, ctx)?,
         },
+        SelectionUpdate::ToggleEqualityValue {
+            field_expr,
+            value,
+            item_id,
+            facet_scope,
+        } => SelectionExpressionUpdate::ToggleEqualityValue {
+            field_expr: field_expr.clone(),
+            value: selection_value_expr_to_expr(value, ctx)?,
+            item_id: selection_value_expr_to_expr(item_id, ctx)?,
+            facet_scope: *facet_scope,
+        },
         SelectionUpdate::ReplaceAllFromSceneQuery { query } => {
             SelectionExpressionUpdate::ReplaceAllFromSceneQuery {
                 query: compile_selection_scene_query(query, ctx)?,
@@ -1387,6 +1410,10 @@ fn collect_selection_expression_update_exprs(
                 collect_selection_clause_exprs(clause, exprs);
             }
         }
+        SelectionExpressionUpdate::ToggleEqualityValue { value, item_id, .. } => {
+            exprs.push(value.clone());
+            exprs.push(item_id.clone());
+        }
         SelectionExpressionUpdate::DeleteClauses { ids } => {
             exprs.extend(ids.iter().cloned());
         }
@@ -1450,6 +1477,9 @@ fn selection_update_needs_scope(update: &SelectionExpressionUpdate) -> bool {
                 || clauses
                     .iter()
                     .any(|clause| clause.facet_scope.to_level() != u8::MAX)
+        }
+        SelectionExpressionUpdate::ToggleEqualityValue { facet_scope, .. } => {
+            facet_scope.to_level() != u8::MAX
         }
         SelectionExpressionUpdate::DeleteClauses { .. } => false,
         SelectionExpressionUpdate::DeleteClausesInScope { scope, .. } => {
@@ -1518,6 +1548,29 @@ fn append_selection_expression_update_specs(
                 ),
             }
         }
+        SelectionExpressionUpdate::ToggleEqualityValue {
+            field_expr,
+            value,
+            item_id,
+            facet_scope,
+        } => CompiledSelectionUpdate::ToggleEqualityValue {
+            field_expr,
+            value: append_selection_value_spec(
+                selection_id,
+                "toggle_equality_value",
+                value,
+                specs,
+                filter_count,
+            ),
+            item_id: append_selection_value_spec(
+                selection_id,
+                "toggle_equality_item_id",
+                item_id,
+                specs,
+                filter_count,
+            ),
+            facet_scope,
+        },
         SelectionExpressionUpdate::ReplaceAllFromSceneQuery { query } => {
             CompiledSelectionUpdate::ReplaceAllFromSceneQuery {
                 query: append_scene_query_selection_specs(selection_id, query, specs, filter_count),
@@ -2671,6 +2724,25 @@ fn selection_state_update_from_values(
                 root_owner_surface,
             )?,
         },
+        CompiledSelectionUpdate::ToggleEqualityValue {
+            field_expr,
+            value,
+            item_id,
+            facet_scope,
+        } => {
+            let owner_path = selection_owner_path(*facet_scope, scope, root_owner_surface)?;
+            let item_id = selection_clause_id_from_value(values.get(filter_count + *item_id)?)?;
+            SelectionStateUpdate::ToggleEqualityValue {
+                field_expr: field_expr.clone(),
+                value: values.get(filter_count + *value)?.clone(),
+                item_id,
+                scope: ResolvedSelectionClauseScope {
+                    sharing: *facet_scope,
+                    owner_path: owner_path.clone(),
+                },
+                facet_context: selection_facet_context_values(spec, &owner_path),
+            }
+        }
         CompiledSelectionUpdate::DeleteClauses { ids } => SelectionStateUpdate::DeleteClauses {
             ids: ids
                 .iter()

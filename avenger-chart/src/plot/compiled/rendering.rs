@@ -249,6 +249,50 @@ fn validate_widget_item_batch(
     Ok(())
 }
 
+fn derive_widget_item_identity_column(
+    widget_id: &str,
+    batch: RecordBatch,
+    derivation: &avenger_chart_core::WidgetItemIdentityDerivation,
+) -> Result<RecordBatch, AvengerChartError> {
+    use datafusion::arrow::array::StringArray;
+
+    let source = widget_item_column(
+        widget_id,
+        "item identity",
+        &batch,
+        &derivation.source_column,
+    )?;
+    let identities = (0..batch.num_rows())
+        .map(|row| {
+            let value = ScalarValue::try_from_array(source.as_ref(), row)?;
+            avenger_chart_core::WidgetItemIdentityCodec::encode(&value)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let identity: ArrayRef = Arc::new(StringArray::from(identities));
+
+    let mut fields = batch.schema().fields().iter().cloned().collect::<Vec<_>>();
+    let mut columns = batch.columns().to_vec();
+    if let Ok(index) = batch.schema().index_of(&derivation.output_column) {
+        fields[index] = Arc::new(datafusion::arrow::datatypes::Field::new(
+            &derivation.output_column,
+            identity.data_type().clone(),
+            false,
+        ));
+        columns[index] = identity;
+    } else {
+        fields.push(Arc::new(datafusion::arrow::datatypes::Field::new(
+            &derivation.output_column,
+            identity.data_type().clone(),
+            false,
+        )));
+        columns.push(identity);
+    }
+    Ok(RecordBatch::try_new(
+        Arc::new(datafusion::arrow::datatypes::Schema::new(fields)),
+        columns,
+    )?)
+}
+
 fn plot_contains_responsive_wrap_concat(plot: &CompiledPlot) -> bool {
     if plot
         .coord_transform
@@ -2794,11 +2838,14 @@ impl CompiledPlot {
                     let schema = Arc::new(dataframe.schema().as_arrow().clone());
                     let batches = dataframe.collect().await?;
                     eval_ctx.record_widget_item_collect();
-                    let batch = if batches.is_empty() {
+                    let mut batch = if batches.is_empty() {
                         RecordBatch::new_empty(schema)
                     } else {
                         concat_batches(&schema, &batches)?
                     };
+                    if let Some(identity) = &items.identity {
+                        batch = derive_widget_item_identity_column(&widget.id, batch, identity)?;
+                    }
                     validate_widget_item_batch(
                         &widget.id,
                         &batch,
@@ -8336,7 +8383,12 @@ mod tests {
             ),
         ] {
             let error =
-                validate_widget_item_batch("choices", &batch, &[unique.clone()], &IndexMap::new())
+                validate_widget_item_batch(
+                    "choices",
+                    &batch,
+                    std::slice::from_ref(&unique),
+                    &IndexMap::new(),
+                )
                     .expect_err("invalid total key");
             assert!(
                 matches!(&error, AvengerChartError::InvalidWidgetItems { widget_id, role, message }
@@ -8368,6 +8420,49 @@ mod tests {
                     if widget_id == "choices"
             ));
         }
+    }
+
+    #[test]
+    fn widget_item_identity_derivation_replaces_output_with_typed_ids()
+    -> Result<(), AvengerChartError> {
+        let batch = RecordBatch::try_new(
+            Arc::new(Schema::new(vec![
+                Field::new("__value", DataType::Int64, false),
+                Field::new("__item_id", DataType::Utf8, false),
+            ])),
+            vec![
+                Arc::new(Int64Array::from(vec![1, 2])),
+                Arc::new(StringArray::from(vec!["stale", "stale"])),
+            ],
+        )?;
+        let batch = derive_widget_item_identity_column(
+            "choices",
+            batch,
+            &avenger_chart_core::WidgetItemIdentityDerivation {
+                source_column: "__value".to_string(),
+                output_column: "__item_id".to_string(),
+            },
+        )?;
+        let identities = batch
+            .column_by_name("__item_id")
+            .expect("derived identity column")
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .expect("string identities");
+        assert_ne!(identities.value(0), identities.value(1));
+        assert_eq!(
+            identities.value(0),
+            avenger_chart_core::WidgetItemIdentityCodec::encode(&ScalarValue::Int64(Some(1)))?
+        );
+        validate_widget_item_batch(
+            "choices",
+            &batch,
+            &[WidgetItemValidation::NonNullUnique {
+                columns: vec!["__value".to_string(), "__item_id".to_string()],
+                role: "selection identity".to_string(),
+            }],
+            &IndexMap::new(),
+        )
     }
 
     #[test]

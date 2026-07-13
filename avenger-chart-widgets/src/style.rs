@@ -120,8 +120,15 @@ impl BuiltinWidgetKind {
                     true,
                 ),
                 part(
+                    "selected-box",
+                    "rect",
+                    &with_properties(control, &[P::ChoiceControlSize]),
+                    LIST_STATES,
+                    false,
+                ),
+                part(
                     "check",
-                    "rule",
+                    "symbol",
                     &[P::Stroke, P::StrokeWidth, P::Opacity, P::Cursor],
                     LIST_STATES,
                     true,
@@ -373,7 +380,14 @@ mod tests {
                 ("button", strings(&["box", "label", "focus-ring"])),
                 (
                     "checkbox-list",
-                    strings(&["row", "box", "check", "label", "focus-ring"])
+                    strings(&[
+                        "row",
+                        "box",
+                        "selected-box",
+                        "check",
+                        "label",
+                        "focus-ring",
+                    ])
                 ),
                 (
                     "radio-button-list",

@@ -1,7 +1,7 @@
 //! Convenient re-exports for widget authors.
 
 pub use crate::style::BuiltinWidgetKind;
-pub use crate::{Button, ButtonVariant, Checkbox};
+pub use crate::{Button, ButtonVariant, Checkbox, CheckboxList};
 pub use avenger_chart::pixel_frame::{
     PixelFrame, PixelFramePositionConfig, PixelFrameRectPositionChannels,
     PixelFrameRulePositionChannels, PixelFrameSymbolPositionChannels,
@@ -11,8 +11,8 @@ pub use avenger_chart::prelude::{
     CanonicalJson, ChartWidget, ChartWidgetPlacementExt, ChromePosition, NativeWidget,
     NativeWidgetMeasureSpec, NativeWidgetPlacementExt, NativeWidgetStateSpec,
     ResolvedWidgetAxisSize, ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAxisMeasureSpec,
-    WidgetExpansion, WidgetExpansionContext, WidgetItemRow, WidgetItemValidation, WidgetItems,
-    WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
-    WidgetPresentationBindings, WidgetPresentationState, WidgetStyleProperty, WidgetStyleValueType,
-    WidgetTextMeasureAxis,
+    WidgetExpansion, WidgetExpansionContext, WidgetItemIdentityCodec, WidgetItemIdentityDerivation,
+    WidgetItemRow, WidgetItemValidation, WidgetItems, WidgetMeasureExpr, WidgetMeasureSpec,
+    WidgetPartManifest, WidgetPlacement, WidgetPresentationBindings, WidgetPresentationState,
+    WidgetStyleProperty, WidgetStyleValueType, WidgetTextMeasureAxis,
 };

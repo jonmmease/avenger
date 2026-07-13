@@ -31,8 +31,8 @@ pub use avenger_chart_cartesian::{Cartesian, CartesianUnitAspect};
 pub use avenger_chart_core::time;
 pub use avenger_chart_core::{
     AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChildPlotSizeSpec, CoordinationScope,
-    CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, FormattingContext, IntoPlotMark,
-    MarkGroup, MaterializationIdentity, MaterializationKey, MaterializationKind,
+    CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, FormattingContext, IntoExpr,
+    IntoPlotMark, MarkGroup, MaterializationIdentity, MaterializationKey, MaterializationKind,
     MaterializationOutputKind, MaterializationPolicy, MaterializationRequest, PixelFrame,
     PixelFrameView, PlotMark, Selection, SelectionClauseUpdate, SelectionCombine,
     SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch, StoreFieldRef,
@@ -45,10 +45,11 @@ pub use avenger_chart_core::{
     CompiledWidgetItemPlan, CompiledWidgetPresentationSpec, NativeWidget, NativeWidgetMeasureSpec,
     NativeWidgetPlacementExt, NativeWidgetStateSpec, PositionedChartWidget, PositionedNativeWidget,
     ResolvedWidgetAxisSize, ResolvedWidgetPartStyle, ResolvedWidgetStyleSet, WidgetAttachment,
-    WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetItemRow,
-    WidgetItemValidation, WidgetItems, WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest,
-    WidgetPlacement, WidgetPresentationBindings, WidgetPresentationState, WidgetSource,
-    WidgetStyleProperty, WidgetStyleValueType, WidgetTextMeasureAxis, is_decorative_widget_part,
+    WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetItemIdentityCodec,
+    WidgetItemIdentityDerivation, WidgetItemRow, WidgetItemValidation, WidgetItems,
+    WidgetMeasureExpr, WidgetMeasureSpec, WidgetPartManifest, WidgetPlacement,
+    WidgetPresentationBindings, WidgetPresentationState, WidgetSource, WidgetStyleProperty,
+    WidgetStyleValueType, WidgetTextMeasureAxis, is_decorative_widget_part,
 };
 pub use avenger_chart_core::{
     NestScope, NestedBandLevelSpec, NestedBandSpec, PositionBoundary, nested,
