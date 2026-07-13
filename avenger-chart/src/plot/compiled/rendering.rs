@@ -34,10 +34,11 @@ use tracing::{Level, debug, trace};
 use avenger_chart_core::{
     AxisPosition, BasePlotAreaScene, CompiledGuide, DerivedScalarsByChannel, EmptyCoordMeasurement,
     FacetDataScope, FacetEmptyCellPolicy, FacetWrapColumnMode, GuideRenderContext, LegendPosition,
-    PixelFrame, ScalarValueHelpers, TextMeasurementService, WidgetPartManifest,
-    WidgetPresentationState, WidgetStyleProperty, WidgetTextMeasureAxis, eval_to_scalars,
-    evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe, params_to_datafusion,
-    resolve_widget_measure_spec, resolve_widget_style_set,
+    PixelFrame, ScalarValueHelpers, TextMeasurementService, WIDGET_FRAME_HEIGHT_INPUT,
+    WIDGET_FRAME_WIDTH_INPUT, WidgetPartManifest, WidgetPresentationState, WidgetStyleProperty,
+    WidgetTextMeasureAxis, eval_to_scalars, evaluate_bool_expr, evaluate_f32_expr, maybe::Maybe,
+    params_to_datafusion, resolve_widget_measure_spec, resolve_widget_style_set,
+    widget_style_evaluation_inputs,
 };
 use avenger_text::measurement::{TextBounds, TextMeasurementConfig};
 
@@ -2397,13 +2398,13 @@ impl CompiledPlot {
         renderer.data = None;
         renderer.widgets.clear();
         let scales = HashMap::new();
-        let style_snapshots = Arc::new(
-            measurements
-                .iter()
-                .map(|(id, measurement)| (id.clone(), measurement.styles.clone()))
-                .collect(),
-        );
-        let widget_eval_ctx = eval_ctx.with_widget_style_snapshots(style_snapshots);
+        let style_snapshots: Arc<IndexMap<String, avenger_chart_core::ResolvedWidgetStyleSet>> =
+            Arc::new(
+                measurements
+                    .iter()
+                    .map(|(id, measurement)| (id.clone(), measurement.styles.clone()))
+                    .collect(),
+            );
         let mut groups = Vec::new();
         for attachment in &self.widgets {
             let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
@@ -2444,6 +2445,24 @@ impl CompiledPlot {
                 height,
                 "rendering measured composed widget"
             );
+            let mut widget_params = eval_ctx.params().clone();
+            widget_params.extend(widget_style_evaluation_inputs(
+                self.get_theme().as_ref(),
+                &widget.id,
+                &measurement.styles,
+                eval_ctx.params(),
+            )?);
+            widget_params.insert(
+                WIDGET_FRAME_WIDTH_INPUT.to_string(),
+                ScalarValue::Float32(Some(width)),
+            );
+            widget_params.insert(
+                WIDGET_FRAME_HEIGHT_INPUT.to_string(),
+                ScalarValue::Float32(Some(height)),
+            );
+            let widget_eval_ctx = eval_ctx
+                .with_params(widget_params)
+                .with_widget_style_snapshots(style_snapshots.clone());
             let mut parts = Vec::new();
             for mark in &widget.marks {
                 let output = Box::pin(renderer.render_mark_with_plot_df(
@@ -2541,10 +2560,6 @@ impl CompiledPlot {
                 &WidgetPresentationState::default(),
                 &eval_ctx.params,
             )?;
-            let widget_eval_ctx = eval_ctx.with_widget_style_snapshots(Arc::new(
-                [(widget.id.clone(), styles.clone())].into_iter().collect(),
-            ));
-
             let prepared_items = if let Some(items) = &widget.items {
                 let dataframe = items
                     .data
@@ -2577,6 +2592,26 @@ impl CompiledPlot {
             };
 
             let (provisional_width, provisional_height) = widget.measure.provisional_frame_size();
+            let mut widget_params = eval_ctx.params().clone();
+            widget_params.extend(widget_style_evaluation_inputs(
+                theme.as_ref(),
+                &widget.id,
+                &styles,
+                eval_ctx.params(),
+            )?);
+            widget_params.insert(
+                WIDGET_FRAME_WIDTH_INPUT.to_string(),
+                ScalarValue::Float32(Some(provisional_width)),
+            );
+            widget_params.insert(
+                WIDGET_FRAME_HEIGHT_INPUT.to_string(),
+                ScalarValue::Float32(Some(provisional_height)),
+            );
+            let widget_eval_ctx = eval_ctx
+                .with_params(widget_params)
+                .with_widget_style_snapshots(Arc::new(
+                    [(widget.id.clone(), styles.clone())].into_iter().collect(),
+                ));
             let mut text_extents = HashMap::<String, (f32, f32)>::new();
             for mark in &widget.marks {
                 let part = mark

@@ -238,6 +238,37 @@ struct DataFrameContractWidget {
     data: DataFrame,
 }
 
+#[derive(Clone)]
+struct ThemedGeometryWidget;
+
+impl ChartWidget for ThemedGeometryWidget {
+    fn id(&self) -> &str {
+        "themed-geometry"
+    }
+
+    fn kind(&self) -> &'static str {
+        "themed-geometry-widget"
+    }
+
+    fn expand(
+        &self,
+        ctx: WidgetExpansionContext<'_>,
+    ) -> Result<WidgetExpansion, AvengerChartError> {
+        Ok(WidgetExpansion {
+            expansion: ToolExpansion::new().mark(
+                Rect::<PixelFrame>::new()
+                    .id("box")
+                    .x(0.0)
+                    .x2(ctx.part_style("box", WidgetStyleProperty::ChoiceControlSize))
+                    .y(0.0)
+                    .y2(ctx.frame_height()),
+            ),
+            items: None,
+            measure: WidgetMeasureSpec::fixed(40.0, 23.0),
+        })
+    }
+}
+
 impl ChartWidget for DataFrameContractWidget {
     fn id(&self) -> &str {
         "data-contract"
@@ -603,4 +634,35 @@ async fn widget_item_relation_bakes_and_evaluates_without_source_table() {
         .evaluate(&datafusion::prelude::SessionContext::new(), None)
         .await
         .expect("baked widget items should evaluate without the source table");
+}
+
+#[tokio::test]
+async fn widget_mark_geometry_reads_style_snapshot_and_realized_frame_inputs() {
+    let ctx = datafusion::prelude::SessionContext::new();
+    let theme = Theme::from_css(
+        "themed-geometry-widget::part(box) { choice-control-size: 17px; fill: #0072b2; }",
+    )
+    .unwrap();
+    let compiled = Chart::<Cartesian>::new()
+        .theme(theme)
+        .widget(ThemedGeometryWidget.position(ChromePosition::Left))
+        .compile(&ctx)
+        .await
+        .unwrap();
+    let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
+    let marks = find_group(&evaluated.scene_graph.marks, "themed-geometry").unwrap();
+    let rect = marks
+        .iter()
+        .find_map(|mark| match mark {
+            SceneMark::Rect(rect) if rect.name == "box" => Some(rect),
+            _ => None,
+        })
+        .unwrap();
+
+    assert_eq!(rect.x2.as_ref().unwrap().as_vec(1, None), vec![17.0]);
+    assert_eq!(rect.y2.as_ref().unwrap().as_vec(1, None), vec![23.0]);
+    assert_eq!(
+        rect.fill.as_vec(1, None)[0].color_or_transparent(),
+        avenger_color::parse_color_string("#0072b2").unwrap()
+    );
 }

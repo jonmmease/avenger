@@ -136,6 +136,14 @@ fn compile_widget_items(
                 .first()
                 .map(|row| row.values.keys().cloned().collect::<Vec<_>>())
                 .unwrap_or_default();
+            if let Some(name) = names
+                .iter()
+                .find(|name| name.starts_with(avenger_chart_core::WIDGET_RUNTIME_INPUT_PREFIX))
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Widget '{widget_id}' static items use reserved internal column prefix in '{name}'"
+                )));
+            }
             if names.iter().any(|name| name == ORDER || name == INDEX) {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Widget '{widget_id}' static items use reserved column '{ORDER}' or '{INDEX}'"
@@ -179,6 +187,16 @@ fn compile_widget_items(
             if order_key.is_empty() {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Widget '{widget_id}' DataFrame items require a nonempty total order key"
+                )));
+            }
+            if let Some(field) = data.schema().fields().iter().find(|field| {
+                field
+                    .name()
+                    .starts_with(avenger_chart_core::WIDGET_RUNTIME_INPUT_PREFIX)
+            }) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Widget '{widget_id}' DataFrame items use reserved internal column prefix in '{}'",
+                    field.name()
                 )));
             }
             for reserved in [ORDER, INDEX] {
@@ -852,6 +870,16 @@ impl<C: CoordinateSystem> Plot<C> {
 
         let mut param_specs: IndexMap<String, CompiledParamSpec> = IndexMap::new();
         for spec in &param_source_specs {
+            if spec
+                .name
+                .starts_with(avenger_chart_core::WIDGET_RUNTIME_INPUT_PREFIX)
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Plot parameter '{}' uses reserved widget runtime prefix '{}'",
+                    spec.name,
+                    avenger_chart_core::WIDGET_RUNTIME_INPUT_PREFIX
+                )));
+            }
             if param_specs.contains_key(&spec.name) {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Duplicate plot parameter '{}'",

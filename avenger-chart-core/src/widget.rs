@@ -6,7 +6,9 @@ use std::{
     sync::Arc,
 };
 
-use datafusion::{common::ScalarValue, dataframe::DataFrame, prelude::Expr};
+use datafusion::{
+    common::ScalarValue, dataframe::DataFrame, logical_expr::expr::Placeholder, prelude::Expr,
+};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
@@ -27,6 +29,40 @@ impl<'a> WidgetExpansionContext<'a> {
     pub const fn new(widget_id: &'a str) -> Self {
         Self { widget_id }
     }
+
+    /// Reference one resolved part style from a widget mark expression.
+    pub fn part_style(&self, part: &str, property: WidgetStyleProperty) -> Expr {
+        widget_runtime_placeholder(&widget_style_input_name(Some(part), property))
+    }
+
+    /// Reference one resolved host style from a widget mark expression.
+    pub fn host_style(&self, property: WidgetStyleProperty) -> Expr {
+        widget_runtime_placeholder(&widget_style_input_name(None, property))
+    }
+
+    /// Reference the realized widget frame width from a mark expression.
+    pub fn frame_width(&self) -> Expr {
+        widget_runtime_placeholder(WIDGET_FRAME_WIDTH_INPUT)
+    }
+
+    /// Reference the realized widget frame height from a mark expression.
+    pub fn frame_height(&self) -> Expr {
+        widget_runtime_placeholder(WIDGET_FRAME_HEIGHT_INPUT)
+    }
+}
+
+pub const WIDGET_RUNTIME_INPUT_PREFIX: &str = "__widget_";
+pub const WIDGET_FRAME_WIDTH_INPUT: &str = "__widget_frame_width";
+pub const WIDGET_FRAME_HEIGHT_INPUT: &str = "__widget_frame_height";
+
+fn widget_runtime_placeholder(name: &str) -> Expr {
+    Expr::Placeholder(Placeholder::new_with_field(format!("${name}"), None))
+}
+
+pub fn widget_style_input_name(part: Option<&str>, property: WidgetStyleProperty) -> String {
+    let part = part.unwrap_or("host").replace('-', "_");
+    let property = property.name().replace('-', "_");
+    format!("__widget_style_{part}_{property}")
 }
 
 pub struct WidgetExpansion {
@@ -540,6 +576,94 @@ pub struct ResolvedWidgetStyleSet {
     pub host: ResolvedWidgetPartStyle,
     pub parts: IndexMap<String, ResolvedWidgetPartStyle>,
     pub digest: u64,
+}
+
+/// Lower one resolved style snapshot to internal mark-evaluation inputs.
+/// These values are evaluation-local and never become document params.
+pub fn widget_style_evaluation_inputs(
+    theme: &crate::Theme,
+    widget_id: &str,
+    styles: &ResolvedWidgetStyleSet,
+    document_params: &IndexMap<String, ScalarValue>,
+) -> Result<IndexMap<String, ScalarValue>, AvengerChartError> {
+    let eval = crate::theme::eval::EvalContext::new(
+        document_params,
+        theme.get_base_font_size(document_params),
+    );
+    let mut inputs = IndexMap::new();
+    for (property, value) in &styles.host.values {
+        inputs.insert(
+            widget_style_input_name(None, *property),
+            widget_style_scalar(widget_id, *property, value, &eval)?,
+        );
+    }
+    for (part, style) in &styles.parts {
+        for (property, value) in &style.values {
+            inputs.insert(
+                widget_style_input_name(Some(part), *property),
+                widget_style_scalar(widget_id, *property, value, &eval)?,
+            );
+        }
+    }
+    Ok(inputs)
+}
+
+fn widget_style_scalar(
+    widget_id: &str,
+    property: WidgetStyleProperty,
+    value: &ThemeValue,
+    eval: &crate::theme::eval::EvalContext<'_>,
+) -> Result<ScalarValue, AvengerChartError> {
+    let invalid = |message: String| AvengerChartError::InvalidWidgetStyle {
+        widget_id: widget_id.to_string(),
+        property: property.name().to_string(),
+        message,
+    };
+    Ok(match property.value_type() {
+        WidgetStyleValueType::Color => {
+            let rgba = value
+                .eval_as_color(eval)
+                .map_err(|error| invalid(error.to_string()))?;
+            let text = if rgba.alpha == 255 {
+                format!("#{:02x}{:02x}{:02x}", rgba.red, rgba.green, rgba.blue)
+            } else {
+                format!(
+                    "rgba({}, {}, {}, {})",
+                    rgba.red,
+                    rgba.green,
+                    rgba.blue,
+                    rgba.alpha as f32 / 255.0
+                )
+            };
+            ScalarValue::Utf8(Some(text))
+        }
+        WidgetStyleValueType::Number => ScalarValue::Float32(Some(
+            value
+                .eval_as_number(eval)
+                .map_err(|error| invalid(error.to_string()))? as f32,
+        )),
+        WidgetStyleValueType::Length => ScalarValue::Float32(Some(
+            value
+                .eval_as_length(eval)
+                .map_err(|error| invalid(error.to_string()))? as f32,
+        )),
+        WidgetStyleValueType::String | WidgetStyleValueType::Cursor => ScalarValue::Utf8(Some(
+            value
+                .eval_as_string(eval)
+                .map_err(|error| invalid(error.to_string()))?,
+        )),
+        WidgetStyleValueType::FontWeight => {
+            if let Ok(number) = value.eval_as_number(eval) {
+                ScalarValue::Float32(Some(number as f32))
+            } else {
+                ScalarValue::Utf8(Some(
+                    value
+                        .eval_as_string(eval)
+                        .map_err(|error| invalid(error.to_string()))?,
+                ))
+            }
+        }
+    })
 }
 
 pub fn resolve_widget_style_set(
