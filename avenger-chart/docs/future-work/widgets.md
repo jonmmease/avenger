@@ -599,30 +599,35 @@ mark.transform_no_output(Filter::new(col("fare").gt_eq(min_fare.value())), |m| m
 
 - **State**: one numeric param. Accessor `value() -> Expr`.
 - **Marks**: track `Rect`; filled-portion `Rect` whose `x2` is
-  `(param - min) / (max - min) * frame_width()`; thumb `Symbol` at the
-  same position; optional value `Text` formatted via avenger-format-number.
+  `track_x0 + (param - min) / (max - min) * track_width`; circular handle
+  `Symbol` at the same position; title and value `Text`, with the value
+  formatted through avenger-format-number. Mark geometry reads typed,
+  evaluation-local frame dimensions and resolved CSS style inputs; these are
+  not document params.
 - **Bindings**: the box-select drag pattern —
   `mouse_down` on thumb or track anchors the gesture, `cursor_moved`
-  writes `set_param(id, clamp(round_to_step(px_to_value(...))))` using
-  frame-local coordinates, `mouse_up` ends it. Track clicks jump. Value
-  mapping is pure SQL arithmetic; `step` is a `round(x / step) * step`
-  wrapper.
-- **Implemented frame-local foundation (2026-07-13)**: frame-local event coordinates
+  writes the value using frame-local coordinates, and a surface-global
+  `mouse_up` ends it even after the pointer leaves the widget. Track clicks
+  jump. Mapping and min-anchored quantization are pure expression arithmetic:
+  `raw = min + ((frame_x - track_x0) / track_width) * (max - min)` and
+  `value = clamp(min + round((raw - min) / step) * step, min, max)`.
+  A nonpositive inner track collapses at frame center and ignores pointer
+  writes without evaluating the division.
+- **Frame-local foundation (implemented 2026-07-13)**: frame-local event coordinates
   (`ev::frame_x()`, `frame_y()`, `frame_width()`, `frame_height()`) over
   reserved `__frame_*` fields — the widget-frame analogs of the existing
   event/canvas helpers. A between gesture snapshots widget id + frame at
   gesture start and retains it through mouse-up, even if layout changes.
   Evaluation retains exact final mark-path-to-frame ownership for every
   widget descendant, and the app captures that ownership before authored
-  streams can consume the mouse-down. Non-widget events receive NULLs. These
-  helpers are now available for the slider; the slider itself remains to be
-  implemented.
+  streams can consume the mouse-down. Non-widget events receive NULLs.
 - **Update cadence**: bindings reuse existing `throttle_ms`; a
   `commit: on_release` option (write a preview param during drag, commit
   on `mouse_up`) is recorded as an open question shared with the dashboard
   layer's deferred-commit forms.
-- **Sizing**: `Fill` width (with a `Fixed` override) ×
-  `Content(thumb + label)`.
+- **Sizing**: CSS-derived `StyledFill` minimum/preferred width with positive
+  stretch × content height. Default geometry is a 32 px control, 2 px track,
+  16 px handle, 12 px labels, and 80 px minimum width.
 
 ### `TextInput` — native, single-line text
 
@@ -984,11 +989,13 @@ compound marks.
    `avenger-chart-app/examples/widget_region_cross_filter.rs`; the phase landed
    in `32090604a`, `4b3bf9857`, `06314afc2`, `c3fd116bb`, `d991252b6`,
    `7ee4bd823`, `e9c94f54c`, and `9c4145b64`.
-3. **Slider — in progress.** The frame-local coordinate helpers and stable
-   gesture-frame capture are complete. Remaining work is the slider marks,
-   min-anchored step normalization, drag bindings, formatting, and throttle.
-   Exit criterion: live range filtering of a scatter at interactive frame
-   rates.
+3. **Slider — complete (2026-07-13).** Frame-local event coordinates and
+   stable gesture-frame capture; typed mark-evaluation frame/style inputs;
+   CSS-driven track/fill/handle/label marks; min-anchored normalization;
+   click/drag bindings; formatting; throttling; visible widget overflow and
+   light/dark baselines. The exit example is
+   `avenger-chart-app/examples/widget_slider_live_filter.rs`, which live
+   range-filters a scatter at interactive cadence.
 4. **`WidgetCell` + content tracks.** Numeric hint plumbing, target/state
    rebasing, explicit-frame evaluation, and the sidebar control-panel
    example. The dashboard host remains deferred, but its frame contract lands.

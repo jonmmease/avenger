@@ -260,3 +260,7 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "widget_region_cross_filter"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "widget_slider_live_filter"
+required-features = ["winit-wgpu"]
