@@ -1666,6 +1666,7 @@ mod tool_app {
         app.update_with_status(
             &WindowEvent::KeyboardInput(WindowKeyboardInput {
                 key: Key::Named(NamedKey::Shift),
+                text: None,
                 state,
             }),
             instant,

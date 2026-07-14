@@ -173,6 +173,7 @@ impl EguiEventTranslator {
                     {
                         events.push(WindowEvent::KeyboardInput(WindowKeyboardInput {
                             key,
+                            text: None,
                             state: if *pressed {
                                 ElementState::Pressed
                             } else {

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use avenger_scenegraph::marks::mark::MarkInstance;
+use smol_str::SmolStr;
 
 use crate::window::{
     CanvasResizeEvent, Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent,
@@ -156,6 +157,9 @@ pub struct SceneMouseWheelEvent {
 pub struct SceneKeyPressEvent {
     pub position: [f32; 2],
     pub key: Key,
+    /// Text produced by the key press. This is the sole native keyboard text
+    /// insertion source and may contain multiple Unicode code points.
+    pub text: Option<SmolStr>,
     pub mark_instance: Option<MarkInstance>,
     pub modifiers: ModifiersState,
 }

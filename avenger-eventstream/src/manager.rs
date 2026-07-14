@@ -233,6 +233,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                         Some(SceneGraphEvent::KeyPress(SceneKeyPressEvent {
                             position,
                             key: e.key,
+                            text: e.text.clone(),
                             mark_instance,
                             modifiers: self.modifiers,
                         }))
@@ -717,6 +718,42 @@ mod tests {
                 size: [720.0, 420.0],
             })]
         );
+    }
+
+    #[tokio::test]
+    async fn key_press_preserves_full_text_separately_from_logical_key() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::KeyPress],
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let now = Instant::now();
+        dispatch_cursor(&mut manager, [0.5, 0.5], now).await;
+        let text = "e\u{301}🙂";
+        manager
+            .dispatch_event(
+                &WindowEvent::KeyboardInput(WindowKeyboardInput {
+                    key: Key::Character('e'),
+                    text: Some(text.into()),
+                    state: ElementState::Pressed,
+                }),
+                &empty_rtree(),
+                now,
+            )
+            .await;
+
+        let events = events.lock().unwrap();
+        let [SceneGraphEvent::KeyPress(event)] = events.as_slice() else {
+            panic!("expected one key-press event");
+        };
+        assert_eq!(event.key, Key::Character('e'));
+        assert_eq!(event.text.as_deref(), Some(text));
     }
 
     #[tokio::test]

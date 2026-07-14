@@ -86,6 +86,7 @@ impl WindowEvent {
                         }
                         _ => return None,
                     },
+                    text: event.text,
                 }))
             }
 

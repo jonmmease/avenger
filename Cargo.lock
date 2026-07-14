@@ -1095,6 +1095,7 @@ dependencies = [
  "avenger-common",
  "avenger-geometry",
  "avenger-scenegraph",
+ "smol_str",
  "tokio",
  "tracing",
  "winit",
