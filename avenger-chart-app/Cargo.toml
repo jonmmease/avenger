@@ -43,6 +43,7 @@ avenger-chart-widgets = { path = "../avenger-chart-widgets" }
 bincode = "1.3"
 image = { workspace = true }
 palette = { workspace = true }
+serde_json = { workspace = true }
 env_logger = "0.10"
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

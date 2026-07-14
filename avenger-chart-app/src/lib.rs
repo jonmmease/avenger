@@ -12,13 +12,15 @@ use avenger_app::{
 use avenger_chart::{
     layout::{ChartResizeAxisPolicy, ChartResizePolicy},
     plot::{
-        CompiledPlot, EvaluationRequest, NativeWidgetHostServices, NativeWidgetPlotId,
-        NativeWidgetRuntimeResources, PlotSession, PlotSessionOptions, ScopedParamAssignment,
+        CompiledPlot, EvaluationRequest, NativeWidgetDispatchOutcome, NativeWidgetEvaluationIntent,
+        NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetHostServices,
+        NativeWidgetHostTransform, NativeWidgetPlotId, NativeWidgetRuntimeResources, PlotSession,
+        PlotSessionOptions, ScopedParamAssignment,
     },
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
-        EvaluatedWidgetFrame, EvaluatedWidgetFrameState, EvaluationMetrics, EvaluationMode,
-        EvaluationOptions,
+        EvaluatedNativeWidgetState, EvaluatedWidgetFrame, EvaluatedWidgetFrameState,
+        EvaluationMetrics, EvaluationMode, EvaluationOptions,
     },
 };
 use avenger_chart_core::ScalarValueHelpers;
@@ -31,6 +33,7 @@ use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{SceneGraphEvent, SceneGraphEventType},
     stream::{EventStreamConfig, EventStreamContext, UpdateStatus},
+    window::MouseScrollDelta,
 };
 use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_image::{IMAGE_RESOURCE_KIND, ImageResourceCache, ImageResourceResolver};
@@ -128,11 +131,14 @@ impl ChartRuntimeResources {
         image_resource_resolver: Arc<dyn ImageResourceResolver>,
         render_invalidation_hub: RenderInvalidationHub,
     ) -> Self {
+        let native_widget_runtime = NativeWidgetRuntimeResources::in_memory();
+        let native_widget_host_services =
+            native_widget_runtime.host_services(NativeWidgetPlotId::chart_root());
         Self {
             image_resource_resolver,
             render_invalidation_hub,
-            native_widget_runtime: NativeWidgetRuntimeResources::in_memory(),
-            native_widget_host_services: NativeWidgetHostServices::new(),
+            native_widget_runtime,
+            native_widget_host_services,
         }
     }
 
@@ -140,6 +146,8 @@ impl ChartRuntimeResources {
         mut self,
         native_widget_runtime: NativeWidgetRuntimeResources,
     ) -> Self {
+        self.native_widget_host_services =
+            native_widget_runtime.host_services(NativeWidgetPlotId::chart_root());
         self.native_widget_runtime = native_widget_runtime;
         self
     }
@@ -148,6 +156,10 @@ impl ChartRuntimeResources {
         mut self,
         native_widget_host_services: NativeWidgetHostServices,
     ) -> Self {
+        self.native_widget_runtime.set_host_services(
+            NativeWidgetPlotId::chart_root(),
+            native_widget_host_services.clone(),
+        );
         self.native_widget_host_services = native_widget_host_services;
         self
     }
@@ -383,6 +395,7 @@ struct ChartAppRuntime {
     resize_binding: ChartResizeBinding,
     exact_on_resize_settle: bool,
     next_evaluation_mode: EvaluationMode,
+    evaluation_now: Option<Instant>,
     interaction_settle_exact_pending: bool,
     log_metrics: bool,
     trace_resize: bool,
@@ -403,6 +416,10 @@ struct ChartAppRuntime {
     last_event_datum_state: EvaluatedEventDatumState,
     /// Widget frames from the most recent evaluation, keyed by final mark path.
     last_widget_frame_state: EvaluatedWidgetFrameState,
+    /// Native attachment epochs and outcomes from the most recent evaluation.
+    last_native_widget_state: EvaluatedNativeWidgetState,
+    /// Pointer capture for a native widget, retained through outside drags.
+    active_native_widget_gesture: Option<NativeWidgetGestureCapture>,
     /// Widget frame captured before authored streams see a gesture start.
     active_widget_gesture_frame: Option<WidgetGestureFrameCapture>,
 }
@@ -411,6 +428,14 @@ struct ChartAppRuntime {
 struct WidgetGestureFrameCapture {
     start_instant: Instant,
     frame: EvaluatedWidgetFrame,
+}
+
+#[derive(Clone)]
+struct NativeWidgetGestureCapture {
+    route: NativeWidgetEventRoute,
+    frame: EvaluatedWidgetFrame,
+    start: [f32; 2],
+    previous: [f32; 2],
 }
 
 impl ChartAppState {
@@ -440,6 +465,7 @@ impl ChartAppState {
                 resize_binding: options.resize_binding,
                 exact_on_resize_settle: options.exact_on_resize_settle,
                 next_evaluation_mode: EvaluationMode::Exact,
+                evaluation_now: None,
                 interaction_settle_exact_pending: false,
                 log_metrics: options.log_metrics,
                 trace_resize: std::env::var_os("AVENGER_TRACE_RESIZE").is_some(),
@@ -456,6 +482,8 @@ impl ChartAppState {
                 last_interaction_state: EvaluatedInteractionState::default(),
                 last_event_datum_state: EvaluatedEventDatumState::default(),
                 last_widget_frame_state: EvaluatedWidgetFrameState::default(),
+                last_native_widget_state: EvaluatedNativeWidgetState::default(),
+                active_native_widget_gesture: None,
                 active_widget_gesture_frame: None,
             })),
         }
@@ -673,17 +701,20 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
             resize_seq = runtime.accepted_resize_count,
             "chart_app.scene_build start"
         );
-        let (evaluated, metrics) =
-            runtime
-                .session
-                .evaluate_with_metrics(EvaluationRequest::new().mode(mode).options(
-                    EvaluationOptions {
-                        build_scene_rtree: false,
-                        ..EvaluationOptions::default()
-                    },
-                ))
-                .await
-                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        let mut request = EvaluationRequest::new()
+            .mode(mode)
+            .options(EvaluationOptions {
+                build_scene_rtree: false,
+                ..EvaluationOptions::default()
+            });
+        if let Some(now) = runtime.evaluation_now.take() {
+            request = request.at(now);
+        }
+        let (evaluated, metrics) = runtime
+            .session
+            .evaluate_with_metrics(request)
+            .await
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
         let elapsed = start.elapsed();
         let scene_size = [evaluated.scene_graph.width, evaluated.scene_graph.height];
 
@@ -795,7 +826,222 @@ impl SceneGraphBuilder<ChartAppState> for ChartSceneGraphBuilder {
         runtime.last_interaction_state = evaluated.interaction;
         runtime.last_event_datum_state = evaluated.event_datums;
         runtime.last_widget_frame_state = evaluated.widget_frames;
+        runtime.last_native_widget_state = evaluated.native_widgets;
         Ok(evaluated.scene_graph)
+    }
+}
+
+/// Routes native-widget input ahead of authored streams. Pointer ownership is
+/// resolved from the same final mark paths used by the scene R-tree; focused
+/// keyboard/IME/clipboard input and wakes resolve through attachment epochs.
+struct NativeWidgetEventHandler;
+
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+impl EventStreamHandler<ChartAppState> for NativeWidgetEventHandler {
+    async fn handle(
+        &self,
+        _event: &SceneGraphEvent,
+        _state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        UpdateStatus::default()
+    }
+
+    async fn handle_with_context(
+        &self,
+        event: &SceneGraphEvent,
+        context: &EventStreamContext,
+        state: &mut ChartAppState,
+        _rtree: &SceneGraphRTree,
+    ) -> UpdateStatus {
+        let mut runtime = state.runtime.lock().await;
+        state.drain_pending_params_into_runtime(&mut runtime);
+        let now = context
+            .current_event
+            .as_ref()
+            .map_or_else(Instant::now, |snapshot| snapshot.instant);
+        runtime.evaluation_now = Some(now);
+
+        let pointer_event = matches!(
+            event,
+            SceneGraphEvent::MouseDown(_)
+                | SceneGraphEvent::MouseUp(_)
+                | SceneGraphEvent::Click(_)
+                | SceneGraphEvent::DoubleClick(_)
+                | SceneGraphEvent::MouseWheel(_)
+                | SceneGraphEvent::CursorMoved(_)
+                | SceneGraphEvent::MouseEnter(_)
+                | SceneGraphEvent::MouseLeave(_)
+        );
+        let current_mark = event.mark_instance().or(context.mark_instance.as_ref());
+
+        let captured = pointer_event
+            .then(|| runtime.active_native_widget_gesture.clone())
+            .flatten();
+        let direct = pointer_event.then(|| {
+            let frame = runtime
+                .last_widget_frame_state
+                .frame_for_mark_instance(current_mark)?
+                .clone();
+            let attachment = runtime
+                .last_native_widget_state
+                .by_widget_id
+                .get(&frame.widget_id)?;
+            Some((
+                NativeWidgetEventRoute {
+                    key: attachment.key.clone(),
+                    epoch: attachment.epoch,
+                },
+                frame,
+            ))
+        });
+        let direct = direct.flatten();
+
+        let routed = if let Some(capture) = captured.as_ref() {
+            Some((capture.route.clone(), capture.frame.clone()))
+        } else if let Some(direct) = direct.clone() {
+            Some(direct)
+        } else if !pointer_event {
+            runtime
+                .session
+                .route_native_widget_event(event)
+                .and_then(|route| {
+                    runtime
+                        .last_widget_frame_state
+                        .by_widget_id
+                        .get(route.key.widget_id())
+                        .cloned()
+                        .map(|frame| (route, frame))
+                })
+        } else {
+            None
+        };
+        let Some((route, frame)) = routed else {
+            return UpdateStatus::default();
+        };
+
+        let current = event.position().map(|point| frame.local_point(point));
+        let start = captured
+            .as_ref()
+            .map(|capture| capture.start)
+            .or_else(|| {
+                context
+                    .start_event
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.event.position())
+                    .map(|point| frame.local_point(point))
+            })
+            .or(current);
+        let previous = captured
+            .as_ref()
+            .map(|capture| capture.previous)
+            .or_else(|| {
+                context
+                    .previous_event
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.event.position())
+                    .map(|point| frame.local_point(point))
+            });
+        let wheel_delta = match event {
+            SceneGraphEvent::MouseWheel(wheel) => Some(match wheel.delta {
+                MouseScrollDelta::LineDelta(x, y) => [x, y],
+                MouseScrollDelta::PixelDelta(x, y) => [x as f32, y as f32],
+            }),
+            _ => None,
+        };
+        let hit_part = pointer_event
+            .then(|| {
+                direct
+                    .as_ref()
+                    .filter(|(direct_route, _)| direct_route == &route)?;
+                current_mark
+                    .map(|mark| mark.name.as_str())
+                    .filter(|name| !name.is_empty() && *name != frame.widget_id)
+                    .map(str::to_string)
+            })
+            .flatten();
+        let native_event = NativeWidgetEvent {
+            event: event.clone(),
+            hit_part,
+            current,
+            start,
+            previous,
+            wheel_delta,
+            frame_size: [frame.bounds.width, frame.bounds.height],
+        };
+        let transform = NativeWidgetHostTransform::from_offsets([[frame.bounds.x, frame.bounds.y]])
+            .expect("evaluated widget frame has finite origin");
+        let base_font_size = runtime.session.base_font_size();
+        let outcome = match runtime.session.dispatch_native_widget_event(
+            &route,
+            &native_event,
+            transform,
+            now,
+            base_font_size,
+        ) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                log::error!("native widget event dispatch failed: {error}");
+                if matches!(event, SceneGraphEvent::MouseUp(_)) {
+                    runtime.active_native_widget_gesture = None;
+                }
+                return UpdateStatus::default();
+            }
+        };
+
+        if matches!(event, SceneGraphEvent::MouseDown(_)) && outcome.consume {
+            if let Some(current) = current {
+                runtime.active_native_widget_gesture = Some(NativeWidgetGestureCapture {
+                    route: route.clone(),
+                    frame: frame.clone(),
+                    start: current,
+                    previous: current,
+                });
+            }
+        } else if let Some(current) = current
+            && let Some(capture) = runtime.active_native_widget_gesture.as_mut()
+            && capture.route == route
+        {
+            capture.previous = current;
+        }
+        if matches!(event, SceneGraphEvent::MouseUp(_)) {
+            runtime.active_native_widget_gesture = None;
+        }
+
+        native_widget_outcome_status(state, &mut runtime, outcome)
+    }
+}
+
+fn native_widget_outcome_status(
+    state: &ChartAppState,
+    runtime: &mut ChartAppRuntime,
+    outcome: NativeWidgetDispatchOutcome,
+) -> UpdateStatus {
+    let param_changed = !state
+        .apply_scoped_param_patch_to_runtime(runtime, outcome.param_assignments)
+        .is_empty();
+    match outcome.evaluation_intent {
+        NativeWidgetEvaluationIntent::None => {
+            if param_changed {
+                runtime.next_evaluation_mode = EvaluationMode::Exact;
+            }
+        }
+        NativeWidgetEvaluationIntent::Preview => {
+            runtime.next_evaluation_mode = EvaluationMode::Preview;
+        }
+        NativeWidgetEvaluationIntent::Exact => {
+            runtime.next_evaluation_mode = EvaluationMode::Exact;
+        }
+    }
+    UpdateStatus {
+        rerender: param_changed
+            || outcome.scene_dirty
+            || outcome.evaluation_intent != NativeWidgetEvaluationIntent::None,
+        rebuild_geometry: outcome.index_dirty,
+        cursor: outcome.cursor,
+        commands: outcome.commands,
+        consume: outcome.consume,
     }
 }
 
@@ -1019,15 +1265,41 @@ async fn chart_avenger_app_inner(
         options,
         runtime_resources,
     );
-    // Gesture-frame capture must precede authored streams because those streams
-    // may consume the mouse-down that establishes `between` state.
-    let mut streams = vec![(
-        EventStreamConfig {
-            types: vec![SceneGraphEventType::MouseDown],
-            ..Default::default()
-        },
-        Arc::new(WidgetGestureFrameCaptureHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
-    )];
+    // Native ownership and gesture capture must precede authored streams.
+    // Native consumption is dynamic and can stop propagation after the live
+    // instance accepts a particular event.
+    let mut streams = vec![
+        (
+            EventStreamConfig {
+                types: vec![
+                    SceneGraphEventType::MouseDown,
+                    SceneGraphEventType::MouseUp,
+                    SceneGraphEventType::Click,
+                    SceneGraphEventType::DoubleClick,
+                    SceneGraphEventType::MouseWheel,
+                    SceneGraphEventType::CursorMoved,
+                    SceneGraphEventType::MarkMouseEnter,
+                    SceneGraphEventType::MarkMouseLeave,
+                    SceneGraphEventType::KeyPress,
+                    SceneGraphEventType::KeyRelease,
+                    SceneGraphEventType::Ime,
+                    SceneGraphEventType::Clipboard,
+                    SceneGraphEventType::RuntimeWake,
+                    SceneGraphEventType::WindowFocused,
+                ],
+                ..Default::default()
+            },
+            Arc::new(NativeWidgetEventHandler) as Arc<dyn EventStreamHandler<ChartAppState>>,
+        ),
+        (
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(WidgetGestureFrameCaptureHandler)
+                as Arc<dyn EventStreamHandler<ChartAppState>>,
+        ),
+    ];
     streams.extend(event_streams);
     if exact_on_resize_settle {
         streams.push((
@@ -1331,10 +1603,12 @@ mod tests {
     use std::sync::Mutex as StdMutex;
 
     use avenger_chart::prelude::*;
+    #[cfg(feature = "winit-wgpu")]
+    use avenger_eventstream::runtime::RuntimeHostCommand;
     use avenger_eventstream::{
-        runtime::RuntimeHostCommand,
-        scene::SceneGraphEvent,
-        window::{CanvasResizeEvent, WindowResizeEvent},
+        scene::{ModifiersState, SceneGraphEvent, SceneMouseDownEvent, SceneMouseUpEvent},
+        stream::EventStreamEventSnapshot,
+        window::{CanvasResizeEvent, MouseButton, WindowResizeEvent},
     };
     use avenger_image::{ImageResourceResolver, ImageResourceState};
     use avenger_resource::{
@@ -1351,6 +1625,94 @@ mod tests {
     #[derive(Default)]
     struct RecordingImageResolver {
         requests: StdMutex<Vec<ResourceRequest>>,
+    }
+
+    struct RecordingNativeWidget;
+
+    struct RecordingNativeWidgetFactory {
+        events: Arc<StdMutex<Vec<NativeWidgetEvent>>>,
+    }
+
+    struct RecordingNativeWidgetInstance {
+        events: Arc<StdMutex<Vec<NativeWidgetEvent>>>,
+    }
+
+    impl NativeWidget for RecordingNativeWidget {
+        fn id(&self) -> &str {
+            "recording-native"
+        }
+
+        fn kind(&self) -> &'static str {
+            "recording-native"
+        }
+
+        fn schema_version(&self) -> u32 {
+            1
+        }
+
+        fn payload(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+
+        fn measure(&self) -> NativeWidgetMeasureSpec {
+            NativeWidgetMeasureSpec::Declarative(WidgetMeasureSpec::fixed(40.0, 24.0))
+        }
+
+        fn state(&self) -> NativeWidgetStateSpec {
+            NativeWidgetStateSpec::try_new(Vec::new()).unwrap()
+        }
+    }
+
+    impl NativeWidgetFactory for RecordingNativeWidgetFactory {
+        fn kind(&self) -> &'static str {
+            "recording-native"
+        }
+
+        fn supported_schema_versions(&self) -> std::ops::RangeInclusive<u32> {
+            1..=1
+        }
+
+        fn create(
+            &self,
+            _spec: &CompiledNativeWidgetSpec,
+            _payload: &serde_json::Value,
+        ) -> Result<Box<dyn NativeWidgetInstance>, AvengerChartError> {
+            Ok(Box::new(RecordingNativeWidgetInstance {
+                events: self.events.clone(),
+            }))
+        }
+    }
+
+    impl NativeWidgetInstance for RecordingNativeWidgetInstance {
+        fn on_event(
+            &mut self,
+            event: &NativeWidgetEvent,
+            ctx: &mut NativeWidgetCtx,
+        ) -> Result<(), AvengerChartError> {
+            self.events
+                .lock()
+                .expect("recorded native events lock poisoned")
+                .push(event.clone());
+            ctx.consume();
+            Ok(())
+        }
+
+        fn scene(
+            &mut self,
+            environment: &NativeWidgetEnvironment,
+            _ctx: &mut NativeWidgetCtx,
+        ) -> Result<NativeWidgetScene, AvengerChartError> {
+            NativeWidgetScene::try_from_iter([(
+                "body".to_string(),
+                SceneMark::Rect(avenger_scenegraph::marks::rect::SceneRectMark {
+                    x: 0.0.into(),
+                    y: 0.0.into(),
+                    width: Some(environment.frame_size[0].into()),
+                    height: Some(environment.frame_size[1].into()),
+                    ..Default::default()
+                }),
+            )])
+        }
     }
 
     impl RecordingImageResolver {
@@ -1456,6 +1818,119 @@ mod tests {
         assert_eq!(recorded_requests.len(), 2);
         assert_eq!(recorded_requests[0], image_request);
         assert_eq!(recorded_requests[1], prefetch_image_request);
+    }
+
+    #[tokio::test]
+    async fn native_handler_localizes_part_hits_and_keeps_outside_drag_capture() {
+        use avenger_app::app::SceneGraphBuilder;
+
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Chart::<ZeroDCoord>::new()
+            .native_widget(RecordingNativeWidget.position(LegendPosition::Bottom))
+            .compile(ctx.as_ref())
+            .await
+            .expect("compile native routing plot");
+        let resize_policy = compiled.resize_policy();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let registry = Arc::new(
+            NativeWidgetRegistry::new()
+                .with_factory(RecordingNativeWidgetFactory {
+                    events: events.clone(),
+                })
+                .expect("register recording native widget"),
+        );
+        let native_runtime = NativeWidgetRuntimeResources::new(
+            registry,
+            Arc::new(InMemoryNativeWidgetInstanceStore::new()),
+            NativeWidgetDocumentId::new(),
+        );
+        let resources = ChartRuntimeResources::new(
+            Arc::new(RecordingImageResolver::default()),
+            RenderInvalidationHub::default(),
+        )
+        .with_native_widget_runtime(native_runtime);
+        let mut session = Arc::new(compiled).instantiate(ctx);
+        session.set_options(PlotSessionOptions::from_native_widget_resources(
+            &resources.native_widget_runtime,
+            NativeWidgetPlotId::chart_root(),
+        ));
+        let mut state = ChartAppState::new_with_runtime_resources(
+            session,
+            resize_policy,
+            ChartAppOptions::default(),
+            Some(resources),
+        );
+        let scene = ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("build native routing scene");
+        let frame = state
+            .runtime
+            .lock()
+            .await
+            .last_widget_frame_state
+            .by_widget_id["recording-native"]
+            .clone();
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let down_point = [frame.bounds.x + 5.0, frame.bounds.y + 6.0];
+        let hit = rtree
+            .pick_top_mark_at_point(&down_point)
+            .expect("native body hit")
+            .clone();
+        assert_eq!(hit.name, "body");
+        let now = Instant::now();
+        let down = SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+            position: down_point,
+            button: MouseButton::Left,
+            mark_instance: Some(hit.clone()),
+            modifiers: ModifiersState::default(),
+        });
+        let down_context = EventStreamContext {
+            mark_instance: Some(hit.clone()),
+            current_event: Some(EventStreamEventSnapshot {
+                event: down.clone(),
+                mark_instance: Some(hit),
+                instant: now,
+            }),
+            ..Default::default()
+        };
+        let status = NativeWidgetEventHandler
+            .handle_with_context(&down, &down_context, &mut state, &rtree)
+            .await;
+        assert!(status.consume);
+
+        let up_point = [
+            frame.bounds.x + frame.bounds.width + 30.0,
+            frame.bounds.y - 20.0,
+        ];
+        let up = SceneGraphEvent::MouseUp(SceneMouseUpEvent {
+            position: up_point,
+            button: MouseButton::Left,
+            mark_instance: None,
+            modifiers: ModifiersState::default(),
+        });
+        let up_context = EventStreamContext {
+            current_event: Some(EventStreamEventSnapshot {
+                event: up.clone(),
+                mark_instance: None,
+                instant: now + avenger_common::time::Duration::from_millis(10),
+            }),
+            ..Default::default()
+        };
+        let status = NativeWidgetEventHandler
+            .handle_with_context(&up, &up_context, &mut state, &rtree)
+            .await;
+        assert!(status.consume);
+
+        let events = events.lock().expect("recorded native events lock poisoned");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].hit_part.as_deref(), Some("body"));
+        assert_eq!(events[0].current, Some([5.0, 6.0]));
+        assert_eq!(events[0].start, Some([5.0, 6.0]));
+        assert_eq!(events[1].hit_part, None);
+        assert_eq!(events[1].start, Some([5.0, 6.0]));
+        assert_eq!(events[1].current, Some([frame.bounds.width + 30.0, -20.0]));
+        assert_eq!(events[1].previous, Some([5.0, 6.0]));
     }
 
     #[cfg(feature = "winit-wgpu")]

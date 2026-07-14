@@ -76,11 +76,15 @@ pub use crate::layout::{
 };
 pub use crate::plot::{
     Chart, EvaluationRequest, InMemoryNativeWidgetInstanceStore, NativeWidgetAttachmentEpoch,
-    NativeWidgetCtx, NativeWidgetDocumentId, NativeWidgetEventRoute, NativeWidgetHostCommandSink,
-    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstanceKey,
-    NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetNamespace, NativeWidgetPlotId,
-    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetSlotTypeMismatch, Plot,
-    PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan,
+    NativeWidgetCtx, NativeWidgetDispatchOutcome, NativeWidgetDocumentId, NativeWidgetEnvironment,
+    NativeWidgetEvaluationIntent, NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetFactory,
+    NativeWidgetFactoryContext, NativeWidgetFocusRequest, NativeWidgetHostCommandSink,
+    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstance,
+    NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
+    NativeWidgetMeasurement, NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId,
+    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetScene,
+    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, Plot, PlotSession, PlotSessionOptions,
+    PlotSubtitle, PlotTitle, ResolvedNativeWidgetSpec, TitleAlign, TitleSpan,
 };
 pub use crate::render::{WidgetFrame, WidgetFrameAssignments};
 pub use avenger_chart_core::{

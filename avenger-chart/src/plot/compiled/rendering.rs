@@ -84,12 +84,12 @@ use crate::{
     },
     render::{
         CoordinationCheckpoint, EvaluatedEventDatumRows, EvaluatedEventDatumState,
-        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluatedPlot, EvaluatedWidgetFrame,
-        EvaluatedWidgetFrameState, EvaluationContext, EvaluationMetrics, EvaluationOptions,
-        FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId,
-        InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
-        PreviewProfileFallbackReason, RefinementCheckpoint, RenderContext, RenderState,
-        WholeChartSnapshot,
+        EvaluatedInteractionScope, EvaluatedInteractionState, EvaluatedNativeWidgetAttachment,
+        EvaluatedNativeWidgetState, EvaluatedPlot, EvaluatedWidgetFrame, EvaluatedWidgetFrameState,
+        EvaluationContext, EvaluationMetrics, EvaluationOptions, FacetSubtreeCheckpoint,
+        FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId, InteractionScopeKind,
+        LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution, PreviewProfileFallbackReason,
+        RefinementCheckpoint, RenderContext, RenderState, WholeChartSnapshot,
         debug::{FrameDebugOverlay, create_debug_layout_rects, create_debug_overlay_rects},
     },
     scales::ConfiguredScaleWithSpec,
@@ -2723,19 +2723,162 @@ impl CompiledPlot {
         renderer.coord_transform = Box::new(PixelFrame);
         renderer.data = None;
         renderer.widgets.clear();
-        let style_snapshots: Arc<IndexMap<String, avenger_chart_core::ResolvedWidgetStyleSet>> =
-            Arc::new(
-                measurements
-                    .iter()
-                    .map(|(id, measurement)| (id.clone(), measurement.styles.clone()))
-                    .collect(),
-            );
+        let style_snapshots: Arc<
+            IndexMap<String, Arc<avenger_chart_core::ResolvedWidgetStyleSet>>,
+        > = Arc::new(
+            measurements
+                .iter()
+                .map(|(id, measurement)| (id.clone(), measurement.styles.clone()))
+                .collect(),
+        );
         let mut groups = Vec::new();
         let mut event_datums = Vec::new();
         let mut runtime_inputs = IndexMap::new();
         for attachment in &self.widgets {
-            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+            if let avenger_chart_core::CompiledWidget::Native(widget) = &attachment.widget {
+                let measurement = measurements.get(&widget.id).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "Missing measurement for native widget '{}'",
+                        widget.id
+                    ))
+                })?;
+                let (origin, width, height) = match attachment.placement {
+                    avenger_chart_core::WidgetPlacement::Guide(_) => {
+                        let bounds = frame_layout
+                            .and_then(|layout| layout.widgets.get(&widget.id))
+                            .ok_or_else(|| {
+                                AvengerChartError::InternalError(format!(
+                                    "Missing realized chrome bounds for widget '{}'",
+                                    widget.id
+                                ))
+                            })?;
+                        ([bounds.x, bounds.y], bounds.width, bounds.height)
+                    }
+                    avenger_chart_core::WidgetPlacement::ExplicitFrame => {
+                        let frame = eval_ctx
+                            .widget_frame_assignments()
+                            .get(&widget.id)
+                            .ok_or_else(|| {
+                                AvengerChartError::InternalError(format!(
+                                    "Validated explicit widget '{}' has no frame assignment",
+                                    widget.id
+                                ))
+                            })?;
+                        let bounds = frame.bounds();
+                        ([bounds.x, bounds.y], bounds.width, bounds.height)
+                    }
+                };
+                let runtime = eval_ctx.native_widget_runtime().ok_or_else(|| {
+                    AvengerChartError::NativeWidgetRuntimeUnavailable {
+                        widget_id: widget.id.clone(),
+                        kind: widget.kind.clone(),
+                    }
+                })?;
+                let state_values = widget
+                    .state
+                    .params()
+                    .iter()
+                    .map(|spec| {
+                        (
+                            spec.name.clone(),
+                            eval_ctx
+                                .params()
+                                .get(&spec.name)
+                                .cloned()
+                                .unwrap_or_else(|| spec.default.clone()),
+                        )
+                    })
+                    .collect();
+                let params = Arc::new(eval_ctx.params().clone());
+                let styles = measurement.styles.clone();
+                let environment = super::NativeWidgetEnvironment::new(
+                    [width, height],
+                    params.clone(),
+                    styles,
+                    measurement.presentation.clone(),
+                    0,
+                    0,
+                    0,
+                )?;
+                let transform = super::NativeWidgetHostTransform::from_offsets([origin])
+                    .expect("validated finite widget origin");
+                let base_font_size = self.get_theme().get_base_font_size(eval_ctx.params());
+                let mut output = runtime.sync_and_render(
+                    widget,
+                    &state_values,
+                    &environment,
+                    transform,
+                    runtime.now(),
+                    base_font_size,
+                )?;
+                if output.render.parts_changed {
+                    let manifests = runtime.part_manifests(widget)?;
+                    let styles = Arc::new(resolve_widget_style_set(
+                        self.get_theme().as_ref(),
+                        &widget.kind,
+                        &widget.id,
+                        &manifests,
+                        &measurement.presentation,
+                        eval_ctx.params(),
+                    )?);
+                    let dynamic_environment = super::NativeWidgetEnvironment::new(
+                        [width, height],
+                        params,
+                        styles,
+                        measurement.presentation.clone(),
+                        0,
+                        0,
+                        0,
+                    )?;
+                    let mut resolved = runtime.sync_and_render(
+                        widget,
+                        &state_values,
+                        &dynamic_environment,
+                        transform,
+                        runtime.now(),
+                        base_font_size,
+                    )?;
+                    super::native_runtime::merge_native_widget_outcome(
+                        &mut resolved.render.outcome,
+                        output.render.outcome,
+                    );
+                    resolved.render.parts_changed = true;
+                    output = resolved;
+                }
+                let mut parts = vec![SceneMark::Rect(SceneRectMark {
+                    x: 0.0.into(),
+                    y: 0.0.into(),
+                    width: Some(width.into()),
+                    height: Some(height.into()),
+                    fill: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                    stroke: ColorOrGradient::Color([0.0, 0.0, 0.0, 0.0]).into(),
+                    stroke_width: 0.0.into(),
+                    interactive: true,
+                    ..Default::default()
+                })];
+                parts.extend(output.render.scene.parts.into_values());
+                let mut widget_runtime_inputs = IndexMap::new();
+                widget_runtime_inputs.insert(
+                    WIDGET_FRAME_WIDTH_INPUT.to_string(),
+                    ScalarValue::Float32(Some(width)),
+                );
+                widget_runtime_inputs.insert(
+                    WIDGET_FRAME_HEIGHT_INPUT.to_string(),
+                    ScalarValue::Float32(Some(height)),
+                );
+                runtime_inputs.insert(widget.id.clone(), widget_runtime_inputs);
+                groups.push(SceneMark::Group(SceneGroup {
+                    name: widget.id.clone(),
+                    interactive: false,
+                    origin,
+                    clip: Clip::None,
+                    marks: parts,
+                    ..Default::default()
+                }));
                 continue;
+            }
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+                unreachable!("compiled widget has a known variant")
             };
             let measurement = measurements.get(&widget.id).ok_or_else(|| {
                 AvengerChartError::InternalError(format!(
@@ -2902,8 +3045,71 @@ impl CompiledPlot {
         let mut measurements = IndexMap::new();
 
         for attachment in &self.widgets {
-            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+            if let avenger_chart_core::CompiledWidget::Native(widget) = &attachment.widget {
+                let runtime = eval_ctx.native_widget_runtime().ok_or_else(|| {
+                    AvengerChartError::NativeWidgetRuntimeUnavailable {
+                        widget_id: widget.id.clone(),
+                        kind: widget.kind.clone(),
+                    }
+                })?;
+                let manifests = runtime.part_manifests(widget)?;
+                let presentation = avenger_chart_core::WidgetPresentationState::default();
+                let styles = resolve_widget_style_set(
+                    &theme,
+                    &widget.kind,
+                    &widget.id,
+                    &manifests,
+                    &presentation,
+                    &eval_ctx.params,
+                )?;
+                let styles = Arc::new(styles);
+                let measurement = match &widget.measure {
+                    avenger_chart_core::NativeWidgetMeasureSpec::Declarative(spec) => {
+                        let (width, height) = resolve_widget_measure_spec(
+                            &widget.id,
+                            spec,
+                            styles.as_ref(),
+                            0,
+                            &eval_ctx.params,
+                            base_font_size,
+                            |part, _, _| {
+                                Err(AvengerChartError::InvalidArgument(format!(
+                                    "Native widget '{}' declarative measurement references text extent for part '{part}'; use registry measurement",
+                                    widget.id
+                                )))
+                            },
+                        )?;
+                        super::NativeWidgetMeasurement { width, height }
+                    }
+                    avenger_chart_core::NativeWidgetMeasureSpec::Registry => runtime.measure(
+                        widget,
+                        &super::NativeWidgetFactoryContext {
+                            params: eval_ctx.params(),
+                            styles: &styles,
+                            base_font_size,
+                        },
+                    )?,
+                };
+                measurements.insert(
+                    widget.id.clone(),
+                    WidgetMeasurement {
+                        position: match attachment.placement {
+                            avenger_chart_core::WidgetPlacement::Guide(position) => Some(position),
+                            avenger_chart_core::WidgetPlacement::ExplicitFrame => None,
+                        },
+                        declaration_order: attachment.declaration_order,
+                        width: measurement.width,
+                        height: measurement.height,
+                        styles,
+                        presentation,
+                        prepared_items: None,
+                        scales: HashMap::new(),
+                    },
+                );
                 continue;
+            }
+            let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+                unreachable!("compiled widget has a known variant")
             };
             let manifests = widget
                 .marks
@@ -2928,14 +3134,14 @@ impl CompiledPlot {
                 .collect::<Result<Vec<_>, AvengerChartError>>()?;
             let presentation =
                 resolve_widget_presentation_state(&widget.presentation, eval_ctx).await?;
-            let styles = resolve_widget_style_set(
+            let styles = Arc::new(resolve_widget_style_set(
                 &theme,
                 &widget.kind,
                 &widget.id,
                 &manifests,
                 &presentation,
                 &eval_ctx.params,
-            )?;
+            )?);
             let prepared_items = if let Some(items) = &widget.items {
                 let cache_key = widget_item_cache_key(
                     items,
@@ -3162,6 +3368,29 @@ impl CompiledPlot {
             })
     }
 
+    pub(crate) async fn measure_native_widget_cell(
+        &self,
+        widget: &avenger_chart_core::CompiledNativeWidgetSpec,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<WidgetMeasurement, AvengerChartError> {
+        let mut host = self.clone();
+        host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
+            widget: avenger_chart_core::CompiledWidget::Native(widget.clone()),
+            placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
+            declaration_order: 0,
+        }];
+        host.widget_scale_specs.clear();
+        host.measure_composed_widgets(eval_ctx)
+            .await?
+            .shift_remove(&widget.id)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "WidgetCell '{}' produced no native-widget measurement",
+                    widget.id
+                ))
+            })
+    }
+
     async fn render_composed_widget_cell(
         &self,
         cell: &crate::widget_cell::CompiledWidgetCell,
@@ -3183,29 +3412,26 @@ impl CompiledPlot {
             ))
         })?;
         let region = concat.child_frame_region(cell.child_index())?;
-        let avenger_chart_core::CompiledWidget::Composed(widget) = cell.widget() else {
-            let avenger_chart_core::CompiledWidget::Native(widget) = cell.widget() else {
-                unreachable!("compiled widget has a known variant")
-            };
-            return Err(AvengerChartError::NativeWidgetRuntimeUnavailable {
-                widget_id: widget.id.clone(),
-                kind: widget.kind.clone(),
-            });
-        };
+        let widget_id = cell.widget().id().to_string();
 
         let mut host = self.clone();
         host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
-            widget: avenger_chart_core::CompiledWidget::Composed(widget.clone()),
+            widget: cell.widget().clone(),
             placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
             declaration_order: 0,
         }];
-        host.widget_scale_specs = [(widget.id.clone(), cell.scale_specs().clone())]
-            .into_iter()
-            .collect();
+        host.widget_scale_specs = match cell.widget() {
+            avenger_chart_core::CompiledWidget::Composed(_) => {
+                [(widget_id.clone(), cell.scale_specs().clone())]
+                    .into_iter()
+                    .collect()
+            }
+            avenger_chart_core::CompiledWidget::Native(_) => HashMap::new(),
+        };
         let mut realized_measurement = measured.measurement.clone();
         realized_measurement.width.preferred_px = region.content.width;
         realized_measurement.height.preferred_px = region.content.height;
-        let measurements = [(widget.id.clone(), realized_measurement)]
+        let measurements = [(widget_id.clone(), realized_measurement)]
             .into_iter()
             .collect();
         let cell_frame = crate::render::WidgetFrame::try_new(
@@ -3214,10 +3440,8 @@ impl CompiledPlot {
             region.content.width,
             region.content.height,
         )?;
-        let cell_assignments = crate::render::WidgetFrameAssignments::try_from_iter([(
-            widget.id.clone(),
-            cell_frame,
-        )])?;
+        let cell_assignments =
+            crate::render::WidgetFrameAssignments::try_from_iter([(widget_id, cell_frame)])?;
         let widget_eval_ctx = eval_ctx.with_widget_frame_assignments(Arc::new(cell_assignments));
         let rendered = host
             .render_composed_widget_groups(&widget_eval_ctx, &measurements, None)
@@ -6088,7 +6312,15 @@ impl CompiledPlot {
         cached_components: &PlotComponents,
     ) -> Result<Option<PlotComponents>, AvengerChartError> {
         let build_start = Instant::now();
-        if self.has_render_stage_derived_marks() || self.has_view_scoped_marks() {
+        if self.has_render_stage_derived_marks()
+            || self.has_view_scoped_marks()
+            || self.widgets.iter().any(|attachment| {
+                matches!(
+                    &attachment.widget,
+                    avenger_chart_core::CompiledWidget::Native(_)
+                )
+            })
+        {
             return Ok(None);
         }
         if !self.can_reuse_plot_components_data_marks_and_chrome(
@@ -6612,13 +6844,10 @@ impl CompiledPlot {
             .downcast_ref::<crate::concat::ConcatCoordMeasurement>()
         {
             for cell in &concat.widget_cells {
-                let avenger_chart_core::CompiledWidget::Composed(widget) = cell.widget.widget()
-                else {
-                    continue;
-                };
+                let widget = cell.widget.widget();
                 let mut inputs = widget_style_evaluation_inputs(
                     self.get_theme().as_ref(),
-                    &widget.id,
+                    widget.id(),
                     &cell.measurement.styles,
                     mark_eval_ctx.params(),
                 )?;
@@ -6631,7 +6860,7 @@ impl CompiledPlot {
                     WIDGET_FRAME_HEIGHT_INPUT.to_string(),
                     ScalarValue::Float32(Some(region.content.height)),
                 );
-                widget_runtime_inputs.insert(widget.id.clone(), inputs);
+                widget_runtime_inputs.insert(widget.id().to_string(), inputs);
             }
         }
         let chrome_event_datums = if rendered_widgets.marks.is_empty() {
@@ -6889,6 +7118,39 @@ impl CompiledPlot {
         let event_datums = EvaluatedEventDatumState {
             rows: event_datum_rows,
         };
+        let native_widgets = eval_ctx
+            .native_widget_runtime()
+            .map(|runtime| {
+                let by_widget_id = runtime
+                    .evaluation_outputs()
+                    .into_iter()
+                    .map(|(widget_id, output)| {
+                        let render = output.render;
+                        (
+                            widget_id,
+                            EvaluatedNativeWidgetAttachment {
+                                key: output.key,
+                                epoch: output.epoch,
+                                outcome: render.outcome,
+                                scene_rebuilt: render.scene_rebuilt,
+                                index_rebuilt: render.index_rebuilt,
+                                parts_changed: render.parts_changed,
+                                scene_rebuilds: render.scene_rebuilds,
+                                index_rebuilds: render.index_rebuilds,
+                            },
+                        )
+                    })
+                    .collect::<IndexMap<_, _>>();
+                let host_commands = by_widget_id
+                    .values()
+                    .flat_map(|attachment| attachment.outcome.commands.iter().cloned())
+                    .collect();
+                EvaluatedNativeWidgetState {
+                    by_widget_id,
+                    host_commands,
+                }
+            })
+            .unwrap_or_default();
         let evaluated = EvaluatedPlot {
             scene_graph,
             resource_requests: eval_ctx.resource_requests_snapshot(),
@@ -6897,6 +7159,7 @@ impl CompiledPlot {
             interaction,
             event_datums,
             widget_frames,
+            native_widgets,
             prefetch_planners: eval_ctx.prefetch_planners_snapshot(),
         };
         let convert_elapsed = convert_start.elapsed();
@@ -7108,6 +7371,7 @@ impl CompiledPlot {
             interaction,
             event_datums,
             widget_frames,
+            native_widgets: evaluated.native_widgets,
             prefetch_planners: evaluated.prefetch_planners,
         }
     }
@@ -7354,7 +7618,14 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
-        self.validate_native_widget_runtime_available()?;
+        let resources = super::NativeWidgetRuntimeResources::in_memory();
+        let namespace = resources.namespace(super::NativeWidgetPlotId::chart_root());
+        let native_widget_runtime = super::NativeWidgetEvaluationRuntime::new(
+            resources.registry,
+            resources.instance_store,
+            namespace,
+            true,
+        );
         let (
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
@@ -7370,6 +7641,7 @@ impl CompiledPlot {
                 ctx,
                 params,
                 options,
+                native_widget_runtime,
                 scale_domain_cache,
                 facet_semantic_cache,
                 facet_scale_builder_precompute_cache,
@@ -7392,6 +7664,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
+        native_widget_runtime: super::NativeWidgetEvaluationRuntime,
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
         facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
@@ -7417,6 +7690,7 @@ impl CompiledPlot {
             ctx,
             params,
             options,
+            native_widget_runtime,
             Some(metrics.clone()),
             Some(scale_domain_cache),
             Some(facet_semantic_cache),
@@ -7444,6 +7718,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
+        native_widget_runtime: super::NativeWidgetEvaluationRuntime,
         evaluation_metrics: Option<Arc<Mutex<EvaluationMetrics>>>,
         scale_domain_cache: Option<ScaleDomainCacheHandle>,
         facet_semantic_cache: Option<FacetSemanticCacheHandle>,
@@ -7458,6 +7733,7 @@ impl CompiledPlot {
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<EvaluationOutcome, AvengerChartError> {
+        native_widget_runtime.begin_evaluation();
         crate::bake::register_baked_tables(ctx, &self.baked_tables)?;
 
         // Merge provided params with defaults
@@ -7632,6 +7908,7 @@ impl CompiledPlot {
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_widget_frame_assignments(Arc::new(options.widget_frames.clone()))
+        .with_native_widget_runtime(native_widget_runtime.clone())
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
             options.debug_layout_overlay,
         ));
@@ -7931,6 +8208,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
+        native_widget_runtime: super::NativeWidgetEvaluationRuntime,
         layout_profile: &LayoutProfileSnapshot,
         scale_domain_cache: ScaleDomainCacheHandle,
         facet_semantic_cache: FacetSemanticCacheHandle,
@@ -7944,6 +8222,7 @@ impl CompiledPlot {
         scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
         scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
+        native_widget_runtime.begin_evaluation();
         crate::bake::register_baked_tables(ctx, &self.baked_tables)?;
         self.validate_widget_frame_assignments(&options.widget_frames)?;
 
@@ -8099,6 +8378,7 @@ impl CompiledPlot {
                     ctx,
                     Some(merged_params),
                     reflow_options,
+                    native_widget_runtime.clone(),
                     Some(metrics.clone()),
                     Some(scale_domain_cache),
                     Some(facet_semantic_cache),
@@ -8194,6 +8474,7 @@ impl CompiledPlot {
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
         .with_widget_frame_assignments(Arc::new(options.widget_frames.clone()))
+        .with_native_widget_runtime(native_widget_runtime)
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
             options.debug_layout_overlay,
         ))

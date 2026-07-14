@@ -119,12 +119,17 @@ pub(crate) use self::mark_data_runtime::{
     schedule_view_materializations_for_mark,
 };
 pub(crate) use self::materialization::MaterializationCacheHandle;
+pub(crate) use self::native_runtime::NativeWidgetEvaluationRuntime;
 pub use self::native_runtime::{
     InMemoryNativeWidgetInstanceStore, NativeWidgetAttachmentEpoch, NativeWidgetCtx,
-    NativeWidgetDocumentId, NativeWidgetEventRoute, NativeWidgetHostCommandSink,
-    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstanceKey,
-    NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetNamespace, NativeWidgetPlotId,
-    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetSlotTypeMismatch,
+    NativeWidgetDispatchOutcome, NativeWidgetDocumentId, NativeWidgetEnvironment,
+    NativeWidgetEvaluationIntent, NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetFactory,
+    NativeWidgetFactoryContext, NativeWidgetFocusRequest, NativeWidgetHostCommandSink,
+    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstance,
+    NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
+    NativeWidgetMeasurement, NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId,
+    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetScene,
+    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, ResolvedNativeWidgetSpec,
 };
 #[cfg(test)]
 pub(crate) use self::session::TextMeasurementCache;
@@ -357,25 +362,6 @@ impl Clone for CompiledPlot {
 impl CompiledPlot {
     pub fn widgets(&self) -> &[avenger_chart_core::CompiledWidgetAttachment] {
         &self.widgets
-    }
-
-    pub(crate) fn validate_native_widget_runtime_available(&self) -> Result<(), AvengerChartError> {
-        if let Some(avenger_chart_core::CompiledWidgetAttachment {
-            widget: avenger_chart_core::CompiledWidget::Native(widget),
-            ..
-        }) = self.widgets.iter().find(|attachment| {
-            matches!(
-                attachment.widget,
-                avenger_chart_core::CompiledWidget::Native(_)
-            )
-        }) {
-            widget.payload.parse_for(&widget.id, &widget.kind)?;
-            return Err(AvengerChartError::NativeWidgetRuntimeUnavailable {
-                widget_id: widget.id.clone(),
-                kind: widget.kind.clone(),
-            });
-        }
-        Ok(())
     }
 
     pub(crate) fn validate_widget_frame_assignments(
@@ -1611,7 +1597,7 @@ pub(crate) struct WidgetMeasurement {
     pub(crate) declaration_order: u64,
     pub(crate) width: avenger_chart_core::ResolvedWidgetAxisSize,
     pub(crate) height: avenger_chart_core::ResolvedWidgetAxisSize,
-    pub(crate) styles: avenger_chart_core::ResolvedWidgetStyleSet,
+    pub(crate) styles: Arc<avenger_chart_core::ResolvedWidgetStyleSet>,
     pub(crate) presentation: avenger_chart_core::WidgetPresentationState,
     pub(crate) prepared_items: Option<WidgetPreparedBaseData>,
     pub(crate) scales: HashMap<String, ConfiguredScaleWithSpec>,

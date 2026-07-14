@@ -938,7 +938,7 @@ async fn guide_widgets_share_one_ordered_side_stack() {
 }
 
 #[tokio::test]
-async fn native_variants_round_trip_and_fail_structurally_before_w5() {
+async fn native_variants_round_trip_and_fail_with_unknown_kind_without_registry() {
     let ctx = datafusion::prelude::SessionContext::new();
     let guide = Chart::<Cartesian>::new()
         .native_widget(ContractNativeWidget.position(ChromePosition::Bottom))
@@ -970,14 +970,14 @@ async fn native_variants_round_trip_and_fail_structurally_before_w5() {
         );
         assert!(matches!(
             decoded.evaluate(&ctx, None).await,
-            Err(AvengerChartError::NativeWidgetRuntimeUnavailable { widget_id, kind })
+            Err(AvengerChartError::UnknownNativeWidgetKind { widget_id, kind })
                 if widget_id == "native-contract" && kind == "native-contract-widget"
         ));
         let session_ctx = Arc::new(datafusion::prelude::SessionContext::new());
         let mut session = Arc::new(decoded.clone()).instantiate(session_ctx);
         assert!(matches!(
             session.evaluate(EvaluationRequest::new()).await,
-            Err(AvengerChartError::NativeWidgetRuntimeUnavailable { widget_id, kind })
+            Err(AvengerChartError::UnknownNativeWidgetKind { widget_id, kind })
                 if widget_id == "native-contract" && kind == "native-contract-widget"
         ));
     }

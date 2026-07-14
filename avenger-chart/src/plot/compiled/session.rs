@@ -23,6 +23,7 @@ use avenger_chart_core::{
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
 use avenger_common::time::{Duration, Instant};
+use avenger_eventstream::scene::SceneGraphEvent;
 use avenger_scales::scales::ConfiguredScale;
 use avenger_text::{
     measurement::TextBounds,
@@ -63,7 +64,9 @@ use crate::{
 };
 
 use super::{
-    CompiledPlot, LayoutProfileSnapshot, NativeWidgetInstanceStore, NativeWidgetNamespace,
+    CompiledPlot, LayoutProfileSnapshot, NativeWidgetDispatchOutcome,
+    NativeWidgetEvaluationRuntime, NativeWidgetEvent, NativeWidgetEventRoute,
+    NativeWidgetHostTransform, NativeWidgetInstanceStore, NativeWidgetNamespace,
     NativeWidgetPlotId, NativeWidgetRegistry, NativeWidgetRuntimeResources, WidgetPreparedBaseData,
     compiled_subplot_payload_child_plot,
     legends::PreparedLegendGroup,
@@ -1459,6 +1462,7 @@ pub struct EvaluationRequest {
     param_patch: Option<IndexMap<String, ScalarValue>>,
     mode: EvaluationMode,
     options: EvaluationOptions,
+    now: Option<Instant>,
 }
 
 /// Runtime options owned by a reusable `PlotSession`.
@@ -1533,6 +1537,7 @@ impl EvaluationRequest {
             param_patch: None,
             mode: EvaluationMode::Exact,
             options: EvaluationOptions::default(),
+            now: None,
         }
     }
 
@@ -1553,6 +1558,13 @@ impl EvaluationRequest {
 
     pub fn options(mut self, options: EvaluationOptions) -> Self {
         self.options = options;
+        self
+    }
+
+    /// Supply the host clock instant used by native-widget callbacks during
+    /// this evaluation. Tests and deterministic hosts can avoid wall time.
+    pub fn at(mut self, now: Instant) -> Self {
+        self.now = Some(now);
         self
     }
 
@@ -1725,6 +1737,7 @@ pub struct PlotSession {
     layout_profile: Option<LayoutProfileSnapshot>,
     last_metrics: Option<EvaluationMetrics>,
     options: PlotSessionOptions,
+    native_widget_runtime: NativeWidgetEvaluationRuntime,
     native_widget_attachment_revision: u64,
     facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
     guide_overflow_cache: GuideOverflowCacheHandle,
@@ -1756,6 +1769,13 @@ impl PlotSession {
         let materialization_registry = MaterializationExecutorRegistry::default();
         materialization_registry.register(Rasterize2DExecutor);
         materialization_registry.register(avenger_chart_transforms::ScalarAggregateExecutor);
+        let options = PlotSessionOptions::default();
+        let native_widget_runtime = NativeWidgetEvaluationRuntime::new(
+            options.native_widget_registry.clone(),
+            options.native_widget_instance_store.clone(),
+            options.native_widget_namespace.clone(),
+            true,
+        );
         Self {
             program,
             ctx,
@@ -1766,7 +1786,8 @@ impl PlotSession {
             last_request: None,
             layout_profile: None,
             last_metrics: None,
-            options: PlotSessionOptions::default(),
+            options,
+            native_widget_runtime,
             native_widget_attachment_revision: 0,
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
@@ -1791,6 +1812,10 @@ impl PlotSession {
 
     pub fn params(&self) -> &IndexMap<String, ScalarValue> {
         &self.root_cache
+    }
+
+    pub fn base_font_size(&self) -> f32 {
+        self.program.get_theme().get_base_font_size(self.params())
     }
 
     pub fn set_params(&mut self, params: IndexMap<String, ScalarValue>) {
@@ -1909,6 +1934,52 @@ impl PlotSession {
 
     pub fn options(&self) -> &PlotSessionOptions {
         &self.options
+    }
+
+    /// Resolve a focused keyboard/IME/clipboard event or a namespaced runtime
+    /// wake to the live native-widget attachment that owns it.
+    pub fn route_native_widget_event(
+        &self,
+        event: &SceneGraphEvent,
+    ) -> Option<NativeWidgetEventRoute> {
+        self.native_widget_runtime.route_event(event)
+    }
+
+    /// Dispatch one already-localized event to a live native widget.
+    ///
+    /// The returned outcome is host-neutral: callers apply parameter
+    /// assignments and host commands transactionally after event routing.
+    pub fn dispatch_native_widget_event(
+        &self,
+        route: &NativeWidgetEventRoute,
+        event: &NativeWidgetEvent,
+        transform: NativeWidgetHostTransform,
+        now: Instant,
+        base_font_size: f32,
+    ) -> Result<NativeWidgetDispatchOutcome, AvengerChartError> {
+        self.native_widget_runtime
+            .dispatch(route, event, transform, now, base_font_size)
+    }
+
+    /// Notify a retained native widget that its owner is inactive while
+    /// preserving the live instance for later reactivation.
+    pub fn deactivate_native_widget(
+        &self,
+        route: &NativeWidgetEventRoute,
+        transform: NativeWidgetHostTransform,
+        now: Instant,
+        base_font_size: f32,
+    ) -> Result<NativeWidgetDispatchOutcome, AvengerChartError> {
+        self.native_widget_runtime
+            .deactivate(route, transform, now, base_font_size)
+    }
+
+    #[doc(hidden)]
+    pub fn native_widget_rebuild_counts(
+        &self,
+        route: &NativeWidgetEventRoute,
+    ) -> Option<(u64, u64)> {
+        self.native_widget_runtime.rebuild_counts(route)
     }
 
     #[allow(dead_code)]
@@ -2062,6 +2133,13 @@ impl PlotSession {
 
     pub fn set_options(&mut self, options: PlotSessionOptions) {
         if self.options != options {
+            self.native_widget_runtime.detach_all();
+            self.native_widget_runtime = NativeWidgetEvaluationRuntime::new(
+                options.native_widget_registry.clone(),
+                options.native_widget_instance_store.clone(),
+                options.native_widget_namespace.clone(),
+                false,
+            );
             self.options = options;
             self.native_widget_attachment_revision = self
                 .native_widget_attachment_revision
@@ -2140,7 +2218,6 @@ impl PlotSession {
         &mut self,
         request: EvaluationRequest,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
-        self.program.validate_native_widget_runtime_available()?;
         // Physical result cache: snapshot metrics for the per-evaluation
         // delta, and hold preview-mode evaluations to observe-only —
         // mid-interaction previews should serve hits without churning
@@ -2173,6 +2250,8 @@ impl PlotSession {
         request: EvaluationRequest,
     ) -> Result<(EvaluatedPlot, EvaluationMetrics), AvengerChartError> {
         self.clear_materialization_completion_invalidation_pending();
+        self.native_widget_runtime
+            .set_now(request.now.unwrap_or_else(Instant::now));
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
         let options = options_for_evaluation_mode(mode, request.options);
@@ -2196,6 +2275,7 @@ impl PlotSession {
                         self.ctx.as_ref(),
                         Some(next_params.clone()),
                         options.clone(),
+                        self.native_widget_runtime.clone(),
                         layout_profile,
                         scale_domain_cache.clone(),
                         facet_semantic_cache.clone(),
@@ -2238,6 +2318,7 @@ impl PlotSession {
                     self.ctx.as_ref(),
                     Some(next_params.clone()),
                     options,
+                    self.native_widget_runtime.clone(),
                     scale_domain_cache.clone(),
                     facet_semantic_cache.clone(),
                     self.facet_scale_builder_precompute_cache.clone(),
@@ -2283,6 +2364,7 @@ impl PlotSession {
                 self.ctx.as_ref(),
                 Some(next_params.clone()),
                 options,
+                self.native_widget_runtime.clone(),
                 scale_domain_cache,
                 facet_semantic_cache,
                 self.facet_scale_builder_precompute_cache.clone(),

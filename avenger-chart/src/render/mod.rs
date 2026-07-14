@@ -29,12 +29,13 @@ pub use svg::SvgRenderer;
 pub use types::{
     CoordinationCheckpoint, EvaluatedChildFrameKind, EvaluatedChildFrameSegment,
     EvaluatedEventDatumRows, EvaluatedEventDatumState, EvaluatedInteractionScope,
-    EvaluatedInteractionState, EvaluatedPlot, EvaluatedWidgetFrame, EvaluatedWidgetFrameState,
-    EvaluationMetrics, EvaluationMode, EvaluationOptions, FacetLayoutMetrics,
-    FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
-    InteractionScopeId, InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot,
-    LayoutSolution, LegendMeasurements, PreviewProfileFallbackReason, RefinementCheckpoint,
-    WholeChartSnapshot, WidgetFrame, WidgetFrameAssignments,
+    EvaluatedInteractionState, EvaluatedNativeWidgetAttachment, EvaluatedNativeWidgetState,
+    EvaluatedPlot, EvaluatedWidgetFrame, EvaluatedWidgetFrameState, EvaluationMetrics,
+    EvaluationMode, EvaluationOptions, FacetLayoutMetrics, FacetLayoutRefinement,
+    FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot, InteractionScopeId,
+    InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot, LayoutSolution,
+    LegendMeasurements, PreviewProfileFallbackReason, RefinementCheckpoint, WholeChartSnapshot,
+    WidgetFrame, WidgetFrameAssignments,
 };
 #[cfg(feature = "wgpu")]
 pub use wgpu::WgpuRenderer;

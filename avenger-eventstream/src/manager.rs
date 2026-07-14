@@ -351,20 +351,23 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 })
             };
 
-            if let Some(ready) = ready_event {
-                update_status = update_status.merge(
-                    &stream
-                        .handler
-                        .handle_with_context(&ready.event, &ready.context, &mut self.state, rtree)
-                        .await,
-                );
-            }
+            let dynamically_consumed = if let Some(ready) = ready_event {
+                let handled = stream
+                    .handler
+                    .handle_with_context(&ready.event, &ready.context, &mut self.state, rtree)
+                    .await;
+                let consume = handled.consume;
+                update_status = update_status.merge(&handled);
+                consume
+            } else {
+                false
+            };
 
             stream.mark_accepted(event, mark_instance.as_ref(), instant);
 
             // Debounced streams consume the originating event at match time,
             // even when their handler runs later on the wake-up.
-            if stream.config.consume {
+            if stream.config.consume || dynamically_consumed {
                 break;
             }
         }
@@ -618,6 +621,8 @@ mod tests {
     #[derive(Clone)]
     struct HandlerId(&'static str);
 
+    struct DynamicConsumeHandler(&'static str, bool);
+
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl EventStreamHandler<TestState> for HandlerId {
@@ -634,6 +639,49 @@ mod tests {
                 .push(format!("{}:{:?}", self.0, event.event_type()));
             Default::default()
         }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    impl EventStreamHandler<TestState> for DynamicConsumeHandler {
+        async fn handle(
+            &self,
+            _event: &SceneGraphEvent,
+            state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.labels.lock().unwrap().push(self.0.to_string());
+            UpdateStatus {
+                consume: self.1,
+                ..Default::default()
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn handler_can_decide_consumption_dynamically_after_accepting_event() {
+        let state = TestState::default();
+        let labels = state.labels.clone();
+        let mut manager = EventStreamManager::new(state);
+        let config = EventStreamConfig {
+            types: vec![SceneGraphEventType::CanvasResize],
+            ..Default::default()
+        };
+        manager.register_handler(
+            config.clone(),
+            Arc::new(DynamicConsumeHandler("first", true)),
+        );
+        manager.register_handler(config, Arc::new(DynamicConsumeHandler("second", false)));
+
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::CanvasResize(CanvasResizeEvent { size: [5.0, 6.0] }),
+                &empty_rtree(),
+                Instant::now(),
+            )
+            .await;
+        assert!(status.consume);
+        assert_eq!(labels.lock().unwrap().as_slice(), &["first"]);
     }
 
     fn empty_rtree() -> SceneGraphRTree {

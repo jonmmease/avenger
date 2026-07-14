@@ -1676,18 +1676,18 @@ async fn measure_concat_widget_cells(
         let Some(cell) = compiled_widget_cell(mark.as_ref()) else {
             continue;
         };
-        let avenger_chart_core::CompiledWidget::Composed(widget) = cell.widget() else {
-            let avenger_chart_core::CompiledWidget::Native(widget) = cell.widget() else {
-                unreachable!("compiled widget has a known variant")
-            };
-            return Err(AvengerChartError::NativeWidgetRuntimeUnavailable {
-                widget_id: widget.id.clone(),
-                kind: widget.kind.clone(),
-            });
+        let measurement = match cell.widget() {
+            avenger_chart_core::CompiledWidget::Composed(widget) => {
+                host_plot
+                    .measure_composed_widget_cell(widget, cell.scale_specs(), eval_ctx)
+                    .await?
+            }
+            avenger_chart_core::CompiledWidget::Native(widget) => {
+                host_plot
+                    .measure_native_widget_cell(widget, eval_ctx)
+                    .await?
+            }
         };
-        let measurement = host_plot
-            .measure_composed_widget_cell(widget, cell.scale_specs(), eval_ctx)
-            .await?;
         cells.push(ConcatWidgetCellMeasurement {
             child_index: cell.child_index(),
             name: cell.name().to_string(),

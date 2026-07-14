@@ -48,7 +48,7 @@ pub struct EvaluationContext {
     /// rendering share this snapshot so CSS cannot be queried through two
     /// semantically different paths.
     #[doc(hidden)]
-    pub widget_style_snapshots: Option<Arc<IndexMap<String, ResolvedWidgetStyleSet>>>,
+    pub widget_style_snapshots: Option<Arc<IndexMap<String, Arc<ResolvedWidgetStyleSet>>>>,
 }
 
 impl EvaluationContext {
@@ -196,7 +196,7 @@ impl EvaluationContext {
     #[doc(hidden)]
     pub fn with_widget_style_snapshots(
         &self,
-        snapshots: Arc<IndexMap<String, ResolvedWidgetStyleSet>>,
+        snapshots: Arc<IndexMap<String, Arc<ResolvedWidgetStyleSet>>>,
     ) -> Self {
         let mut context = self.clone();
         context.widget_style_snapshots = Some(snapshots);

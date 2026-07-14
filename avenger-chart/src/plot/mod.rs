@@ -15,13 +15,17 @@ pub use avenger_chart_core::IntoExpr;
 pub use chart::Chart;
 pub use compiled::{
     CompiledPlot, EvaluationRequest, InMemoryNativeWidgetInstanceStore,
-    NativeWidgetAttachmentEpoch, NativeWidgetCtx, NativeWidgetDocumentId, NativeWidgetEventRoute,
-    NativeWidgetHostCommandSink, NativeWidgetHostServices, NativeWidgetHostTransform,
-    NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
-    NativeWidgetNamespace, NativeWidgetPlotId, NativeWidgetRegistry, NativeWidgetRuntimeResources,
-    NativeWidgetSlotTypeMismatch, PlotSession, PlotSessionOptions, ScopedParamAssignment,
-    ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,
-    StoreStateUpdate,
+    NativeWidgetAttachmentEpoch, NativeWidgetCtx, NativeWidgetDispatchOutcome,
+    NativeWidgetDocumentId, NativeWidgetEnvironment, NativeWidgetEvaluationIntent,
+    NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetFactory, NativeWidgetFactoryContext,
+    NativeWidgetFocusRequest, NativeWidgetHostCommandSink, NativeWidgetHostServices,
+    NativeWidgetHostTransform, NativeWidgetInstance, NativeWidgetInstanceKey,
+    NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetMeasurement,
+    NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId, NativeWidgetRegistry,
+    NativeWidgetRuntimeResources, NativeWidgetScene, NativeWidgetSlotInitError,
+    NativeWidgetSlotTypeMismatch, PlotSession, PlotSessionOptions, ResolvedNativeWidgetSpec,
+    ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment,
+    SelectionStateUpdate, StoreStateUpdate,
 };
 pub use plot::Plot;
 pub(crate) use plot::{RootChartFurnishings, compile_composed_widget};

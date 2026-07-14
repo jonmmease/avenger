@@ -191,7 +191,7 @@ async fn widget_cell_css_change_remeasures_without_recompilation() {
 }
 
 #[tokio::test]
-async fn native_widget_cell_registers_state_and_reports_unavailable_runtime() {
+async fn native_widget_cell_registers_state_and_reports_unknown_kind_without_factory() {
     let ctx = SessionContext::new();
     let compiled = Chart::<HConcat>::new()
         .mark(WidgetCell::native_widget(TestNativeWidget).name("native_controls"))
@@ -206,7 +206,7 @@ async fn native_widget_cell_registers_state_and_reports_unavailable_runtime() {
     );
     assert!(matches!(
         compiled.evaluate(&ctx, None).await,
-        Err(AvengerChartError::NativeWidgetRuntimeUnavailable { widget_id, kind })
+        Err(AvengerChartError::UnknownNativeWidgetKind { widget_id, kind })
             if widget_id == "native" && kind == "test-native"
     ));
 }

@@ -45,9 +45,9 @@ use crate::{
     plot::compiled::{
         FacetCellRenderedComponentsProfileCapture, GroupViewDataCacheHandle,
         GuideOverflowCacheHandle, LayoutProfileSnapshot, LegendMeasurementCacheHandle,
-        MarkGroupDataCacheHandle, MaterializationCacheHandle, ScaleDomainCacheHandle,
-        ScopedParamStore, ScopedSelectionStore, ScopedStoreState, TextMeasurementCacheHandle,
-        TextMeasurementCacheKey, WidgetItemCacheHandle,
+        MarkGroupDataCacheHandle, MaterializationCacheHandle, NativeWidgetEvaluationRuntime,
+        ScaleDomainCacheHandle, ScopedParamStore, ScopedSelectionStore, ScopedStoreState,
+        TextMeasurementCacheHandle, TextMeasurementCacheKey, WidgetItemCacheHandle,
     },
     render::types::{
         EvaluatedEventDatumRows, EvaluatedInteractionScope, EvaluatedPlot, EvaluationMetrics,
@@ -329,6 +329,8 @@ pub struct EvaluationContext {
     pub(crate) scoped_store_state: Option<Arc<ScopedStoreState>>,
     /// Driver-owned frames for root explicit-frame widget attachments.
     pub(crate) widget_frame_assignments: Arc<crate::render::WidgetFrameAssignments>,
+    /// Session-owned native-widget factories, attachment epochs, and live instances.
+    pub(crate) native_widget_runtime: Option<NativeWidgetEvaluationRuntime>,
 }
 
 impl EvaluationContext {
@@ -377,6 +379,7 @@ impl EvaluationContext {
             scoped_selection_store: None,
             scoped_store_state: None,
             widget_frame_assignments: Arc::new(crate::render::WidgetFrameAssignments::default()),
+            native_widget_runtime: None,
         }
     }
 
@@ -391,6 +394,19 @@ impl EvaluationContext {
 
     pub(crate) fn widget_frame_assignments(&self) -> &crate::render::WidgetFrameAssignments {
         self.widget_frame_assignments.as_ref()
+    }
+
+    pub(crate) fn with_native_widget_runtime(
+        &self,
+        runtime: NativeWidgetEvaluationRuntime,
+    ) -> Self {
+        let mut ctx = self.clone();
+        ctx.native_widget_runtime = Some(runtime);
+        ctx
+    }
+
+    pub(crate) fn native_widget_runtime(&self) -> Option<&NativeWidgetEvaluationRuntime> {
+        self.native_widget_runtime.as_ref()
     }
 
     /// Create a context with a fresh interaction-scope sink installed.
@@ -559,12 +575,13 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
     pub(crate) fn with_widget_style_snapshots(
         &self,
-        snapshots: Arc<IndexMap<String, avenger_chart_core::ResolvedWidgetStyleSet>>,
+        snapshots: Arc<IndexMap<String, Arc<avenger_chart_core::ResolvedWidgetStyleSet>>>,
     ) -> Self {
         let mut context = self.clone();
         context.core = self.core.with_widget_style_snapshots(snapshots);
@@ -609,6 +626,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -655,6 +673,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -708,6 +727,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -748,6 +768,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -792,6 +813,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -836,6 +858,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -876,6 +899,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -923,6 +947,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -975,6 +1000,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1037,6 +1063,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1079,6 +1106,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1119,6 +1147,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1163,6 +1192,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1210,6 +1240,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1254,6 +1285,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1450,6 +1482,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1494,6 +1527,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1535,6 +1569,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1584,6 +1619,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1626,6 +1662,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1683,6 +1720,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 
@@ -1730,6 +1768,7 @@ impl EvaluationContext {
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
             widget_frame_assignments: self.widget_frame_assignments.clone(),
+            native_widget_runtime: self.native_widget_runtime.clone(),
         }
     }
 

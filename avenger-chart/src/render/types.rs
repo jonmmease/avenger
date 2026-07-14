@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use avenger_chart_core::MaterializationRequest;
 use avenger_chart_core::{AvengerChartError, CoordinateSystemTransform, SceneQueryDatumField};
+use avenger_eventstream::runtime::RuntimeHostCommand;
 use avenger_resource::ResourceRequest;
 use avenger_scales::scales::ConfiguredScale;
 use datafusion::{
@@ -24,6 +25,7 @@ use avenger_scenegraph::scene_graph::SceneGraph;
 use crate::{
     guide::OverflowSpaceRequirement,
     layout::{FrameLayout, LayoutBounds, LegendLayoutInfo},
+    plot::{NativeWidgetAttachmentEpoch, NativeWidgetDispatchOutcome, NativeWidgetInstanceKey},
 };
 
 /// Selects which layout snapshot to render during evaluation.
@@ -1410,6 +1412,24 @@ fn scalar_unique_key(value: &ScalarValue) -> Option<String> {
 }
 
 /// Result of evaluating a plot to scene graph components
+#[derive(Clone, Debug, PartialEq)]
+pub struct EvaluatedNativeWidgetAttachment {
+    pub key: NativeWidgetInstanceKey,
+    pub epoch: NativeWidgetAttachmentEpoch,
+    pub outcome: NativeWidgetDispatchOutcome,
+    pub scene_rebuilt: bool,
+    pub index_rebuilt: bool,
+    pub parts_changed: bool,
+    pub scene_rebuilds: u64,
+    pub index_rebuilds: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EvaluatedNativeWidgetState {
+    pub by_widget_id: IndexMap<String, EvaluatedNativeWidgetAttachment>,
+    pub host_commands: Vec<RuntimeHostCommand>,
+}
+
 pub struct EvaluatedPlot {
     /// The complete scene graph ready for rendering
     pub scene_graph: SceneGraph,
@@ -1425,6 +1445,8 @@ pub struct EvaluatedPlot {
     pub event_datums: EvaluatedEventDatumState,
     /// Realized widget frames keyed by final scene-mark paths.
     pub widget_frames: EvaluatedWidgetFrameState,
+    /// Live native-widget attachment descriptors and evaluation-time outcomes.
+    pub native_widgets: EvaluatedNativeWidgetState,
     /// Prefetch-retarget planners published by coordinate guides for this
     /// evaluation (hover-driven prefetch retargeting; one per scope).
     pub prefetch_planners: Vec<Arc<dyn avenger_resource::PrefetchRetargetPlanner>>,

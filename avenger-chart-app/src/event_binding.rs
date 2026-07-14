@@ -2477,6 +2477,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             rebuild_geometry: self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact,
             cursor,
             commands: Vec::new(),
+            consume: false,
         }
     }
 }

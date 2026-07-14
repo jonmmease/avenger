@@ -720,6 +720,20 @@ macro_rules! widget_style_properties {
                     | Self::PaddingInline | Self::PaddingBlock | Self::ItemGap)
             }
 
+            /// Whether this property can affect intrinsic size, painted or hit
+            /// geometry, or text metrics. The complement is paint-only.
+            pub const fn affects_geometry(self) -> bool {
+                !matches!(
+                    self,
+                    Self::Fill
+                        | Self::Stroke
+                        | Self::Opacity
+                        | Self::InputPlaceholderColor
+                        | Self::InputSelectionOpacity
+                        | Self::Cursor
+                )
+            }
+
             pub fn for_mark_channel(channel: &str) -> Option<Self> {
                 match channel {
                     // Text marks expose author-facing `color`/`font` channels,
@@ -873,6 +887,9 @@ pub struct ResolvedWidgetStyleSet {
     pub host: ResolvedWidgetPartStyle,
     pub parts: IndexMap<String, ResolvedWidgetPartStyle>,
     pub digest: u64,
+    /// Digest of only geometry/text-affecting resolved values. Paint-only
+    /// changes preserve registry measurement and spatial-index caches.
+    pub geometry_digest: u64,
 }
 
 /// Lower one resolved style snapshot to internal mark-evaluation inputs.
@@ -999,33 +1016,37 @@ pub fn resolve_widget_style_set(
     }
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    widget_kind.hash(&mut hasher);
-    widget_id.hash(&mut hasher);
-    theme.default_color_scheme.hash(&mut hasher);
-    for source in &theme.css_sources {
-        source.hash(&mut hasher);
+    let mut geometry_hasher = std::collections::hash_map::DefaultHasher::new();
+    for target in [&mut hasher, &mut geometry_hasher] {
+        widget_kind.hash(target);
+        widget_id.hash(target);
+        theme.default_color_scheme.hash(target);
     }
     let eval = crate::theme::eval::EvalContext::new(params, theme.get_base_font_size(params));
     for (property, value) in &resolved.host.values {
         property.hash(&mut hasher);
-        format!(
-            "{:?}",
-            widget_style_scalar(widget_id, *property, value, &eval)?
-        )
-        .hash(&mut hasher);
+        let scalar = widget_style_scalar(widget_id, *property, value, &eval)?;
+        format!("{scalar:?}").hash(&mut hasher);
+        if property.affects_geometry() {
+            property.hash(&mut geometry_hasher);
+            format!("{scalar:?}").hash(&mut geometry_hasher);
+        }
     }
     for (part, style) in &resolved.parts {
         part.hash(&mut hasher);
+        part.hash(&mut geometry_hasher);
         for (property, value) in &style.values {
             property.hash(&mut hasher);
-            format!(
-                "{:?}",
-                widget_style_scalar(widget_id, *property, value, &eval)?
-            )
-            .hash(&mut hasher);
+            let scalar = widget_style_scalar(widget_id, *property, value, &eval)?;
+            format!("{scalar:?}").hash(&mut hasher);
+            if property.affects_geometry() {
+                property.hash(&mut geometry_hasher);
+                format!("{scalar:?}").hash(&mut geometry_hasher);
+            }
         }
     }
     resolved.digest = hasher.finish();
+    resolved.geometry_digest = geometry_hasher.finish();
     Ok(resolved)
 }
 

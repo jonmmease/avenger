@@ -147,6 +147,9 @@ pub struct UpdateStatus {
     pub rebuild_geometry: bool,
     pub cursor: Option<CursorStyle>,
     pub commands: Vec<RuntimeHostCommand>,
+    /// Stop propagation after this handler. Unlike `EventStreamConfig::consume`,
+    /// this is decided dynamically from the accepted event.
+    pub consume: bool,
 }
 
 impl UpdateStatus {
@@ -161,6 +164,7 @@ impl UpdateStatus {
                 .chain(&other.commands)
                 .cloned()
                 .collect(),
+            consume: self.consume || other.consume,
         }
     }
 }
@@ -483,6 +487,7 @@ mod tests {
             commands: vec![RuntimeHostCommand::CancelWakeup {
                 key: first_key.clone(),
             }],
+            consume: false,
         };
         let second = UpdateStatus {
             rerender: false,
@@ -491,11 +496,13 @@ mod tests {
             commands: vec![RuntimeHostCommand::CancelWakeup {
                 key: second_key.clone(),
             }],
+            consume: true,
         };
 
         let merged = first.merge(&second);
         assert!(merged.rerender);
         assert!(merged.rebuild_geometry);
+        assert!(merged.consume);
         assert_eq!(merged.cursor, Some(CursorStyle::Grab));
         assert_eq!(
             merged.commands,

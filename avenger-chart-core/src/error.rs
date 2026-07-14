@@ -70,6 +70,18 @@ pub enum AvengerChartError {
     #[error("Native widget runtime is unavailable for '{widget_id}' (kind '{kind}')")]
     NativeWidgetRuntimeUnavailable { widget_id: String, kind: String },
 
+    #[error("No native widget factory is registered for '{widget_id}' (kind '{kind}')")]
+    UnknownNativeWidgetKind { widget_id: String, kind: String },
+
+    #[error(
+        "Native widget '{widget_id}' (kind '{kind}') uses unsupported schema version {schema_version}"
+    )]
+    UnsupportedNativeWidgetSchemaVersion {
+        widget_id: String,
+        kind: String,
+        schema_version: u32,
+    },
+
     #[error("Malformed native widget payload for '{widget_id}' (kind '{kind}'): {message}")]
     MalformedNativeWidgetPayload {
         widget_id: String,
