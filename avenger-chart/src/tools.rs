@@ -6,10 +6,11 @@ use std::{
 };
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, ChartEventBinding, CompiledParamSpec, CompiledSelectionSpec,
-    CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope,
-    DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup, FormattingContext,
-    Param, RepeatContext, Scale, Selection, Store, TimeContext, resolve_repeat_placeholders,
+    Auto, AvengerChartError, ChartEventBinding, ChartParamChangeBinding, CompiledParamSpec,
+    CompiledSelectionSpec, CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform,
+    CoordinationScope, DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup,
+    FormattingContext, Param, RepeatContext, Scale, Selection, Store, TimeContext,
+    resolve_repeat_placeholders,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -162,6 +163,7 @@ impl ToolCompileContext {
             }
             let mut expansion = tool.expand(expansion_context)?;
             self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
+            self.resolve_repeat_param_change_bindings(&mut expansion.param_change_bindings)?;
             self.localize_event_bindings(&mut expansion.event_bindings);
             let identity = Arc::as_ptr(tool) as *const () as usize;
             let active_expansion = ActiveToolExpansion {
@@ -192,6 +194,24 @@ impl ToolCompileContext {
             .expect("tool compile state lock poisoned")
             .event_bindings
             .extend(bindings);
+        Ok(())
+    }
+
+    pub(crate) fn register_local_param_change_bindings(
+        &self,
+        bindings: &[ChartParamChangeBinding],
+    ) -> Result<(), AvengerChartError> {
+        if bindings.is_empty() {
+            return Ok(());
+        }
+        let mut bindings = bindings.to_vec();
+        self.resolve_repeat_param_change_bindings(&mut bindings)?;
+        let mut state = self.state.lock().expect("tool compile state lock poisoned");
+        for binding in bindings {
+            if !state.param_change_bindings.contains(&binding) {
+                state.param_change_bindings.push(binding);
+            }
+        }
         Ok(())
     }
 
@@ -293,6 +313,7 @@ impl ToolCompileContext {
             }
         }
         self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
+        self.resolve_repeat_param_change_bindings(&mut expansion.param_change_bindings)?;
         let mut state = self.state.lock().expect("tool compile state lock poisoned");
         if let Some(target_paths) = target_paths {
             for (target, paths) in target_paths {
@@ -431,6 +452,21 @@ impl ToolCompileContext {
         }
         Ok(())
     }
+
+    fn resolve_repeat_param_change_bindings(
+        &self,
+        bindings: &mut [ChartParamChangeBinding],
+    ) -> Result<(), AvengerChartError> {
+        let Some(repeat_context) = &self.repeat_context else {
+            return Ok(());
+        };
+        for binding in bindings {
+            *binding = binding
+                .clone()
+                .map_exprs(&mut |expr| resolve_repeat_placeholders(expr, repeat_context))?;
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn discover_tool_scale_targets(
@@ -474,6 +510,7 @@ struct ToolCompileState {
     stores: IndexMap<String, CompiledStoreSpec>,
     selections: IndexMap<String, CompiledSelectionSpec>,
     event_bindings: Vec<ChartEventBinding>,
+    param_change_bindings: Vec<ChartParamChangeBinding>,
     metadata: Vec<ToolMetadata>,
     expected_targets: BTreeMap<(String, String, String), usize>,
     child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
@@ -562,6 +599,10 @@ impl ToolCompileState {
         }
         self.event_bindings
             .extend(expansion.event_bindings.iter().cloned());
+        if first_registration {
+            self.param_change_bindings
+                .extend(expansion.param_change_bindings.iter().cloned());
+        }
         if first_registration {
             self.metadata.extend(expansion.metadata.iter().cloned());
         }
@@ -752,6 +793,7 @@ impl ToolCompileState {
             store_specs: self.stores.values().cloned().collect(),
             selection_specs: self.selections.values().cloned().collect(),
             event_bindings: self.event_bindings.clone(),
+            param_change_bindings: self.param_change_bindings.clone(),
             metadata: self.metadata.clone(),
             child_widget_target_paths: self.child_widget_target_paths.clone(),
         })
@@ -773,6 +815,7 @@ pub(crate) struct ToolArtifacts {
     pub store_specs: Vec<CompiledStoreSpec>,
     pub selection_specs: Vec<CompiledSelectionSpec>,
     pub event_bindings: Vec<ChartEventBinding>,
+    pub param_change_bindings: Vec<ChartParamChangeBinding>,
     pub metadata: Vec<ToolMetadata>,
     pub child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
 }

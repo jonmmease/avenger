@@ -140,7 +140,7 @@ pub enum ChartEventAssignmentScope {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChartActionParamValue {
     Expr {
@@ -150,7 +150,7 @@ pub enum ChartActionParamValue {
     RegisteredDefault,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChartEventParamAssignment {
     pub param_name: String,
     pub value: ChartActionParamValue,
@@ -163,7 +163,7 @@ pub struct ChartEventParamAssignment {
     pub reject_null: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChartEventStoreAssignment {
     pub store_name: String,
     pub update: StoreUpdate,
@@ -173,7 +173,7 @@ pub struct ChartEventStoreAssignment {
     pub replace_scoped_values: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChartEventSelectionAssignment {
     pub selection_id: String,
     pub update: SelectionUpdate,
@@ -384,7 +384,7 @@ pub enum ChartEventEvaluationMode {
 }
 
 /// Ordered mutations and evaluation intent shared by event and parameter-change triggers.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ChartAction {
     #[serde(default)]
     pub assignments: Vec<ChartEventParamAssignment>,
@@ -396,6 +396,165 @@ pub struct ChartAction {
     pub evaluation_mode: ChartEventEvaluationMode,
     #[serde(default)]
     pub settle_exact: bool,
+}
+
+/// A serializable reaction that runs a chart action when a registered parameter changes.
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChartParamChangeBinding {
+    pub source_param_name: String,
+    #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
+    #[serde(default)]
+    pub filters: Vec<LogicalExprNode>,
+    #[serde(default)]
+    pub action: ChartAction,
+}
+
+impl ChartParamChangeBinding {
+    /// Create a reaction sourced by a registered parameter.
+    pub fn on(param: impl IntoParamName) -> Self {
+        Self {
+            source_param_name: param.into_param_name(),
+            filters: Vec::new(),
+            action: ChartAction::new(),
+        }
+    }
+
+    /// Run the reaction only when this expression evaluates to true.
+    pub fn filter(mut self, expr: impl IntoExpr) -> Self {
+        self.filters
+            .push(expr_node(expr.into_expr(), "parameter-change filter"));
+        self
+    }
+
+    pub fn set_param(mut self, param: impl IntoParamName, expr: impl IntoExpr) -> Self {
+        self.action = self.action.set_param(param, expr);
+        self
+    }
+
+    pub fn set_param_required(mut self, param: impl IntoParamName, expr: impl IntoExpr) -> Self {
+        self.action = self.action.set_param_required(param, expr);
+        self
+    }
+
+    pub fn reset_param(mut self, param: impl IntoParamName) -> Self {
+        self.action = self.action.reset_param(param);
+        self
+    }
+
+    pub fn set_store(mut self, store: impl Into<String>, update: StoreUpdate) -> Self {
+        self.action = self.action.set_store(store, update);
+        self
+    }
+
+    pub fn set_selection(
+        mut self,
+        selection: impl Into<String>,
+        update: impl Into<SelectionUpdate>,
+    ) -> Self {
+        self.action = self.action.set_selection(selection, update);
+        self
+    }
+
+    pub fn clear_selection(mut self, selection: impl Into<String>) -> Self {
+        self.action = self.action.clear_selection(selection);
+        self
+    }
+
+    pub fn then(mut self, action: ChartAction) -> Self {
+        self.action = self.action.then(action);
+        self
+    }
+
+    pub fn preview(mut self) -> Self {
+        self.action = self.action.preview();
+        self
+    }
+
+    pub fn exact(mut self) -> Self {
+        self.action = self.action.exact();
+        self
+    }
+
+    pub fn settle_exact(mut self) -> Self {
+        self.action = self.action.settle_exact();
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), AvengerChartError> {
+        if self.source_param_name.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(
+                "Parameter-change binding source must not be empty".to_string(),
+            ));
+        }
+        self.action.validate()?;
+        for assignment in &self.action.assignments {
+            if assignment.scope != ChartEventAssignmentScope::Current
+                || assignment.replace_scoped_values
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding action for param '{}' uses event-only scoped assignment semantics",
+                    assignment.param_name
+                )));
+            }
+            if assignment.param_name == self.source_param_name {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding source '{}' must not write itself",
+                    self.source_param_name
+                )));
+            }
+        }
+        for assignment in &self.action.store_assignments {
+            if assignment.scope != ChartEventAssignmentScope::Current
+                || assignment.replace_scoped_values
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding action for store '{}' uses event-only scoped assignment semantics",
+                    assignment.store_name
+                )));
+            }
+        }
+        for assignment in &self.action.selection_assignments {
+            if assignment.scope != ChartEventAssignmentScope::Current {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding action for selection '{}' uses event-only start-scope semantics",
+                    assignment.selection_id
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn map_exprs(
+        mut self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        self.filters = self
+            .filters
+            .into_iter()
+            .map(|filter| map_expr_node(filter, f, "parameter-change filter"))
+            .collect::<Result<_, AvengerChartError>>()?;
+        self.action = self.action.map_exprs(f)?;
+        Ok(self)
+    }
+}
+
+/// Reserved expression columns available while evaluating a parameter-change binding.
+pub mod param_change {
+    use datafusion::prelude::{Expr, col};
+
+    pub const VALUE_FIELD: &str = "__param_change_value";
+    pub const PREVIOUS_VALUE_FIELD: &str = "__param_change_previous_value";
+
+    /// The changed source parameter's new value.
+    pub fn value() -> Expr {
+        col(VALUE_FIELD)
+    }
+
+    /// The changed source parameter's value at transaction entry.
+    pub fn previous_value() -> Expr {
+        col(PREVIOUS_VALUE_FIELD)
+    }
 }
 
 impl ChartAction {
@@ -2515,6 +2674,41 @@ mod tests {
             ChartActionParamValue::RegisteredDefault
         ));
         assert_eq!(restored.evaluation_mode, ChartEventEvaluationMode::Exact);
+    }
+
+    #[test]
+    fn chart_param_change_binding_round_trips_and_maps_typed_value_helpers() {
+        let binding = ChartParamChangeBinding::on("source")
+            .filter(param_change::previous_value().not_eq(param_change::value()))
+            .set_param("mirror", param_change::value())
+            .reset_param("reset_me")
+            .exact();
+        binding.validate().expect("valid reaction");
+
+        let bytes = bincode::serialize(&binding).expect("serialize reaction");
+        let restored: ChartParamChangeBinding =
+            bincode::deserialize(&bytes).expect("deserialize reaction");
+        assert_eq!(restored, binding);
+        assert_eq!(restored.source_param_name, "source");
+        assert_eq!(restored.action.assignments.len(), 2);
+        assert_eq!(
+            restored.action.evaluation_mode,
+            ChartEventEvaluationMode::Exact
+        );
+    }
+
+    #[test]
+    fn chart_param_change_binding_rejects_event_only_action_semantics() {
+        let start_action = ChartAction::new().set_param_at_start_scope("mirror", lit(1_i64));
+        let error = ChartParamChangeBinding::on("source")
+            .then(start_action)
+            .validate()
+            .expect_err("start-scoped action should fail");
+        assert!(error.to_string().contains("event-only scoped"));
+
+        let self_write = ChartParamChangeBinding::on("source").set_param("source", lit(1_i64));
+        let error = self_write.validate().expect_err("self write should fail");
+        assert!(error.to_string().contains("must not write itself"));
     }
 
     #[test]

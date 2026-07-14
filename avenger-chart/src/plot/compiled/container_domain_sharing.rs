@@ -582,6 +582,7 @@ mod tests {
             param_specs: IndexMap::<String, CompiledParamSpec>::new(),
             store_specs: IndexMap::<String, CompiledStoreSpec>::new(),
             event_bindings: Vec::new(),
+            param_change_bindings: Vec::new(),
             event_datum_fields: Vec::<EventDatumFieldSpec>::new(),
             event_coord_fields: Vec::<EventDatumFieldSpec>::new(),
             selection_specs: IndexMap::<String, CompiledSelectionSpec>::new(),

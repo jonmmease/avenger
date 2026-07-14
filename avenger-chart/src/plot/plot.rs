@@ -9,7 +9,8 @@ use std::{
 use datafusion::{
     arrow::{
         array::{ArrayRef, RecordBatch, UInt64Array},
-        datatypes::{Field, Schema},
+        compute::can_cast_types,
+        datatypes::{DataType, Field, Schema},
     },
     common::ScalarValue,
     dataframe::DataFrame,
@@ -20,18 +21,20 @@ use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, Axis, AxisSpec, CanonicalJson, ChannelValue, ChartTool, ChartWidget,
-    ChildPlotFurnishings, CompileContext, CompiledComposedWidget, CompiledDataContext,
-    CompiledMark, CompiledMarkState, CompiledNativeWidgetSpec, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledSubplotChildPlot, CompiledViewSpec, CompiledWidget,
-    CompiledWidgetAttachment, CompiledWidgetItemPlan, CoordinateGuide, CoordinateSystem,
-    CoordinateSystemTransformCore, DataContext, DomainCoordination, DomainCoordinationGroup,
+    AvengerChartError, Axis, AxisSpec, CanonicalJson, ChannelValue, ChartParamChangeBinding,
+    ChartTool, ChartWidget, ChildPlotFurnishings, CompileContext, CompiledComposedWidget,
+    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledNativeWidgetSpec,
+    CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec,
+    CompiledSubplotChildPlot, CompiledViewSpec, CompiledWidget, CompiledWidgetAttachment,
+    CompiledWidgetItemPlan, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
+    DataContext, DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup,
     FormattingContext, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState,
-    NativeWidget, PixelFrame, PlotMark, PlotMarkKind, PositionedChartWidget,
-    PositionedNativeWidget, RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget,
-    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
-    TimeContext, WidgetAttachment, WidgetExpansionContext, WidgetItemValidation, WidgetItems,
-    WidgetPlacement, compile_selections, validate_structural_id,
+    NativeWidget, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PixelFrame,
+    PlaceholderColumn, PlotMark, PlotMarkKind, PositionedChartWidget, PositionedNativeWidget,
+    RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget, Selection,
+    SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme, TimeContext,
+    WidgetAttachment, WidgetExpansionContext, WidgetItemValidation, WidgetItems, WidgetPlacement,
+    compile_selections, schema_from_fields, validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -71,6 +74,9 @@ pub struct Plot<C: CoordinateSystem> {
 
     /// Plot-level event bindings that patch params in chart apps
     pub(crate) event_bindings: Vec<ChartEventBinding>,
+
+    /// Plot-level reactions that run when registered shared params change.
+    pub(crate) param_change_bindings: Vec<ChartParamChangeBinding>,
 
     /// Authoring-time tools that expand during compilation.
     pub(crate) tools: Vec<Arc<dyn ChartTool<C>>>,
@@ -520,10 +526,269 @@ impl<C: CoordinateSystem> Plot<C> {
             legends: IndexMap::new(),
             guide_config: None,
             event_bindings: Vec::new(),
+            param_change_bindings: Vec::new(),
             tools: Vec::new(),
             widgets: Vec::new(),
         }
     }
+}
+
+fn validate_param_change_binding_registry(
+    bindings: &[ChartParamChangeBinding],
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+    store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+) -> Result<(), AvengerChartError> {
+    let mut param_writers = HashMap::<&str, &str>::new();
+    for binding in bindings {
+        binding.validate()?;
+        let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "Parameter-change binding references unknown source param '{}'",
+                binding.source_param_name
+            ))
+        })?;
+        if !source.sharing.is_fully_shared() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Parameter-change binding source '{}' must be shared at root scope",
+                binding.source_param_name
+            )));
+        }
+        for assignment in &binding.action.assignments {
+            let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding from '{}' assigns unknown param '{}'",
+                    binding.source_param_name, assignment.param_name
+                ))
+            })?;
+            if !target.sharing.is_fully_shared() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding target '{}' must be shared at root scope",
+                    assignment.param_name
+                )));
+            }
+            if let Some(previous_source) =
+                param_writers.insert(&assignment.param_name, &binding.source_param_name)
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter '{}' has multiple reactive writers from '{}' and '{}'",
+                    assignment.param_name, previous_source, binding.source_param_name
+                )));
+            }
+        }
+        for assignment in &binding.action.store_assignments {
+            let target = store_specs.get(&assignment.store_name).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding from '{}' updates unknown store '{}'",
+                    binding.source_param_name, assignment.store_name
+                ))
+            })?;
+            if !target.sharing.is_fully_shared() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding store target '{}' must be shared at root scope",
+                    assignment.store_name
+                )));
+            }
+        }
+        for assignment in &binding.action.selection_assignments {
+            if !selection_specs.contains_key(&assignment.selection_id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding from '{}' updates unknown selection '{}'",
+                    binding.source_param_name, assignment.selection_id
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_param_change_binding_expressions(
+    bindings: &[ChartParamChangeBinding],
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+    session_context: &SessionContext,
+) -> Result<(), AvengerChartError> {
+    enum ExpectedResult {
+        BooleanFilter,
+        Assignment {
+            target_name: String,
+            target_type: DataType,
+        },
+        Any,
+    }
+
+    for binding in bindings {
+        let source = param_specs
+            .get(&binding.source_param_name)
+            .expect("parameter-change source validated");
+        let source_type = source.default.data_type();
+        let mut fields = param_specs
+            .iter()
+            .map(|(name, spec)| {
+                Field::new(
+                    avenger_chart_core::event::param_column_name(name),
+                    spec.default.data_type(),
+                    true,
+                )
+            })
+            .collect::<Vec<_>>();
+        fields.push(Field::new(
+            avenger_chart_core::param_change::VALUE_FIELD,
+            source_type.clone(),
+            true,
+        ));
+        fields.push(Field::new(
+            avenger_chart_core::param_change::PREVIOUS_VALUE_FIELD,
+            source_type,
+            true,
+        ));
+        let schema = schema_from_fields(fields);
+        let allowed_columns = schema
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>();
+        let placeholder_columns = param_specs
+            .keys()
+            .map(|name| {
+                PlaceholderColumn::new(
+                    format!("${name}"),
+                    avenger_chart_core::event::param_column_name(name),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut specs = Vec::new();
+        let mut expected_results = Vec::new();
+        for (index, filter) in binding.filters.iter().enumerate() {
+            let expr = filter.to_expr(session_context).map_err(|error| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding from '{}' has an invalid filter: {error}",
+                    binding.source_param_name
+                ))
+            })?;
+            specs.push(PhysicalScalarExpressionSpec::new(
+                format!("filter_{index}"),
+                expr,
+            ));
+            expected_results.push(ExpectedResult::BooleanFilter);
+        }
+        for assignment in &binding.action.assignments {
+            let avenger_chart_core::ChartActionParamValue::Expr { expr } = &assignment.value else {
+                continue;
+            };
+            let expr = expr.to_expr(session_context).map_err(|error| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Parameter-change binding from '{}' has an invalid assignment to '{}': {error}",
+                    binding.source_param_name, assignment.param_name
+                ))
+            })?;
+            let target_type = param_specs
+                .get(&assignment.param_name)
+                .expect("parameter-change target validated")
+                .default
+                .data_type();
+            specs.push(PhysicalScalarExpressionSpec::new(
+                format!("assign_{}", assignment.param_name),
+                expr,
+            ));
+            expected_results.push(ExpectedResult::Assignment {
+                target_name: assignment.param_name.clone(),
+                target_type,
+            });
+        }
+
+        // Store and selection updates can contain expressions too. They do not
+        // have one uniform result type, but compiling them into the same
+        // one-row schema rejects event/datum/coordinate columns here.
+        let mut side_effect_action = binding.action.clone();
+        side_effect_action.assignments.clear();
+        let mut side_effect_index = 0usize;
+        side_effect_action.map_exprs(&mut |expr| {
+            specs.push(PhysicalScalarExpressionSpec::new(
+                format!("side_effect_{side_effect_index}"),
+                expr.clone(),
+            ));
+            expected_results.push(ExpectedResult::Any);
+            side_effect_index += 1;
+            Ok(expr)
+        })?;
+
+        let program = CompiledScalarExpressionProgram::compile(
+            session_context,
+            schema,
+            specs,
+            PhysicalScalarProgramOptions::default()
+                .with_allowed_columns(allowed_columns)
+                .with_placeholder_columns(placeholder_columns),
+        )
+        .map_err(|error| {
+            AvengerChartError::InvalidArgument(format!(
+                "Parameter-change binding from '{}' failed expression validation: {error}",
+                binding.source_param_name
+            ))
+        })?;
+        let result_types = program.expression_data_types().map_err(|error| {
+            AvengerChartError::InvalidArgument(format!(
+                "Parameter-change binding from '{}' failed expression validation: {error}",
+                binding.source_param_name
+            ))
+        })?;
+        for (result_type, expected) in result_types.into_iter().zip(expected_results) {
+            match expected {
+                ExpectedResult::BooleanFilter if result_type != DataType::Boolean => {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Parameter-change binding from '{}' failed expression validation: filter result has type {result_type:?}, expected Boolean",
+                        binding.source_param_name
+                    )));
+                }
+                ExpectedResult::Assignment {
+                    target_name,
+                    target_type,
+                } if !param_change_types_compatible(&result_type, &target_type) => {
+                    return Err(AvengerChartError::InvalidArgument(format!(
+                        "Parameter-change binding from '{}' failed expression validation: assignment to '{}' has incompatible type {result_type:?}, expected {target_type:?}",
+                        binding.source_param_name, target_name
+                    )));
+                }
+                ExpectedResult::BooleanFilter
+                | ExpectedResult::Assignment { .. }
+                | ExpectedResult::Any => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn param_change_types_compatible(source: &DataType, target: &DataType) -> bool {
+    if source == target || matches!(source, DataType::Null) {
+        return true;
+    }
+    if source.is_numeric() || target.is_numeric() {
+        return source.is_numeric() && target.is_numeric() && can_cast_types(source, target);
+    }
+    if source.is_temporal() || target.is_temporal() {
+        return source.is_temporal() && target.is_temporal() && can_cast_types(source, target);
+    }
+    if source.is_nested() || target.is_nested() {
+        return source.is_nested() && target.is_nested() && can_cast_types(source, target);
+    }
+    let is_string = |data_type: &DataType| {
+        matches!(
+            data_type,
+            DataType::Utf8 | DataType::LargeUtf8 | DataType::Utf8View
+        )
+    };
+    let is_binary = |data_type: &DataType| {
+        matches!(
+            data_type,
+            DataType::Binary
+                | DataType::LargeBinary
+                | DataType::BinaryView
+                | DataType::FixedSizeBinary(_)
+        )
+    };
+    (is_string(source) && is_string(target) || is_binary(source) && is_binary(target))
+        && can_cast_types(source, target)
 }
 
 impl Plot<PixelFrame> {
@@ -791,6 +1056,7 @@ impl<C: CoordinateSystem> Plot<C> {
         }
         if !is_root {
             tool_context.register_local_event_bindings(&self.event_bindings)?;
+            tool_context.register_local_param_change_bindings(&self.param_change_bindings)?;
         }
         let erased_tool_context: CompileContext<'_> = &tool_context;
 
@@ -992,6 +1258,11 @@ impl<C: CoordinateSystem> Plot<C> {
         } else {
             Vec::new()
         };
+        let mut param_change_bindings = if is_root {
+            self.param_change_bindings.clone()
+        } else {
+            Vec::new()
+        };
         if is_root {
             event_bindings.extend(legend_event_bindings);
         }
@@ -1017,6 +1288,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 selection_specs.insert(spec.id.clone(), spec);
             }
             event_bindings.extend(artifacts.event_bindings);
+            param_change_bindings.extend(artifacts.param_change_bindings);
             tool_metadata.extend(artifacts.metadata);
             for (target, paths) in artifacts.child_widget_target_paths {
                 flat_marks.mark_target_registry.insert(target, paths)?;
@@ -1029,6 +1301,9 @@ impl<C: CoordinateSystem> Plot<C> {
             .collect::<Result<_, AvengerChartError>>()?;
 
         for binding in &event_bindings {
+            binding.validate()?;
+        }
+        for binding in &param_change_bindings {
             binding.validate()?;
         }
         event_bindings = event_bindings
@@ -1076,6 +1351,18 @@ impl<C: CoordinateSystem> Plot<C> {
             store_specs.insert(spec.name.clone(), spec);
         }
 
+        validate_param_change_binding_registry(
+            &param_change_bindings,
+            &param_specs,
+            &store_specs,
+            &selection_specs,
+        )?;
+        validate_param_change_binding_expressions(
+            &param_change_bindings,
+            &param_specs,
+            session_context,
+        )?;
+
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
         // rebuilt per evaluation using current params for correctness.)
         let mut compiled = CompiledPlot {
@@ -1101,6 +1388,7 @@ impl<C: CoordinateSystem> Plot<C> {
             param_specs,
             store_specs,
             event_bindings,
+            param_change_bindings,
             event_datum_fields: Vec::new(),
             event_coord_fields: Vec::new(),
             selection_specs,
@@ -1159,6 +1447,21 @@ impl<C: CoordinateSystem> Plot<C> {
     /// Add multiple plot-level event bindings.
     pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         self.event_bindings.extend(bindings);
+        self
+    }
+
+    /// Add a reaction to a registered shared parameter change.
+    pub fn param_change_binding(mut self, binding: ChartParamChangeBinding) -> Self {
+        self.param_change_bindings.push(binding);
+        self
+    }
+
+    /// Add multiple reactions to registered shared parameter changes.
+    pub fn param_change_bindings(
+        mut self,
+        bindings: impl IntoIterator<Item = ChartParamChangeBinding>,
+    ) -> Self {
+        self.param_change_bindings.extend(bindings);
         self
     }
 
@@ -1325,6 +1628,7 @@ struct RepeatPlotParts<C: CoordinateSystem> {
     scale_specs: HashMap<String, ScaleSpec>,
     legends: IndexMap<String, Legend>,
     event_bindings: Vec<ChartEventBinding>,
+    param_change_bindings: Vec<ChartParamChangeBinding>,
     _phantom: std::marker::PhantomData<fn() -> C>,
 }
 
@@ -1340,6 +1644,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         legends,
         guide_config,
         event_bindings,
+        param_change_bindings,
         tools,
         widgets,
     } = plot;
@@ -1370,6 +1675,7 @@ fn split_repeat_plot<C: CoordinateSystem>(
         scale_specs,
         legends,
         event_bindings,
+        param_change_bindings,
         _phantom: std::marker::PhantomData,
     })
 }
@@ -1391,6 +1697,7 @@ where
         legends: parts.legends,
         guide_config: None,
         event_bindings: parts.event_bindings,
+        param_change_bindings: parts.param_change_bindings,
         tools: Vec::new(),
         widgets: Vec::new(),
     }
@@ -2244,7 +2551,9 @@ mod tests {
     use super::*;
     use crate::cartesian::Cartesian;
     use crate::concat::{GridConcat, HConcat, VConcat, WrapConcat, compiled_subplot};
-    use crate::event::{ChartEventBinding, ChartEventStream, ChartEventType};
+    use crate::event::{
+        ChartEventBinding, ChartEventStream, ChartEventType, ChartParamChangeBinding, param_change,
+    };
     use crate::facet::coord::{FacetColumn, FacetWrap};
     use crate::facet::marks::{FacetColumnSubplotChannels, FacetWrapSubplotChannels};
     use crate::plot::{EvaluationRequest, SelectionAssignment, SelectionStateUpdate};
@@ -4801,5 +5110,204 @@ mod tests {
             Err(err) => err,
         };
         assert!(err.to_string().contains("repeat::column()"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn param_change_binding_compiles_and_round_trips_with_typed_value() {
+        let ctx = SessionContext::new();
+        let source = Param::new("source", 1_i64);
+        let mirror = Param::new("mirror", 0_i64);
+        let binding = ChartParamChangeBinding::on(&source)
+            .filter(param_change::previous_value().not_eq(param_change::value()))
+            .set_param(&mirror, param_change::value())
+            .exact();
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .param(source)
+            .param(mirror)
+            .param_change_binding(binding.clone())
+            .compile(&ctx)
+            .await
+            .expect("compile reaction");
+        assert_eq!(
+            compiled.param_change_bindings(),
+            std::slice::from_ref(&binding)
+        );
+
+        let bytes = bincode::serialize(&compiled).expect("serialize compiled reaction");
+        let restored: CompiledPlot =
+            bincode::deserialize(&bytes).expect("deserialize compiled reaction");
+        assert_eq!(restored.param_change_bindings(), &[binding]);
+    }
+
+    #[tokio::test]
+    async fn child_param_change_binding_merges_once_across_structural_copies() {
+        let ctx = SessionContext::new();
+        let source = Param::new("source", 1_i64);
+        let mirror = Param::new("mirror", 0_i64);
+        let binding = ChartParamChangeBinding::on(&source)
+            .set_param(&mirror, param_change::value())
+            .exact();
+        let child = crate::plot::Plot::<Cartesian>::new().param_change_binding(binding.clone());
+        let compiled = crate::plot::Chart::<HConcat>::new()
+            .param(source)
+            .param(mirror)
+            .mark(Subplot::new(child.clone()).name("left").id("left"))
+            .mark(Subplot::new(child).name("right").id("right"))
+            .compile(&ctx)
+            .await
+            .expect("compile child reactions");
+        assert_eq!(compiled.param_change_bindings(), &[binding]);
+    }
+
+    #[tokio::test]
+    async fn param_change_binding_rejects_unknown_and_non_shared_params() {
+        let ctx = SessionContext::new();
+        let source = Param::new("source", 1_i64);
+        let mirror = Param::new("mirror", 0_i64);
+
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(mirror.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on("missing").set_param(&mirror, param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("unknown source should fail");
+        assert!(error.to_string().contains("unknown source param 'missing'"));
+
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).set_param("missing", param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("unknown target should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("assigns unknown param 'missing'")
+        );
+
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param_with_sharing(source.clone(), CoordinationScope::Free)
+            .param(mirror.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).set_param(&mirror, param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("non-shared source should fail");
+        assert!(error.to_string().contains("source 'source' must be shared"));
+
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param_with_sharing(mirror.clone(), CoordinationScope::Free)
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).set_param(&mirror, param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("non-shared target should fail");
+        assert!(error.to_string().contains("target 'mirror' must be shared"));
+    }
+
+    #[tokio::test]
+    async fn param_change_binding_rejects_duplicate_writers_and_unknown_state_targets() {
+        let ctx = SessionContext::new();
+        let source_a = Param::new("source_a", 1_i64);
+        let source_b = Param::new("source_b", 2_i64);
+        let mirror = Param::new("mirror", 0_i64);
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source_a.clone())
+            .param(source_b.clone())
+            .param(mirror.clone())
+            .param_change_bindings([
+                ChartParamChangeBinding::on(&source_a).set_param(&mirror, param_change::value()),
+                ChartParamChangeBinding::on(&source_b).set_param(&mirror, param_change::value()),
+            ])
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("duplicate reactive writers should fail");
+        assert!(error.to_string().contains("multiple reactive writers"));
+
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source_a.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source_a).set_store("missing", StoreUpdate::clear()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("unknown store should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("updates unknown store 'missing'")
+        );
+
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source_a.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source_a).clear_selection("missing_selection"),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("unknown selection should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("updates unknown selection 'missing_selection'")
+        );
+    }
+
+    #[tokio::test]
+    async fn param_change_binding_rejects_incompatible_and_event_only_expressions() {
+        let ctx = SessionContext::new();
+        let source = Param::new("source", true);
+        let domain = Param::raw_domain("domain");
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(domain.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).set_param(&domain, param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("incompatible result type should fail");
+        assert!(error.to_string().contains("failed expression validation"));
+
+        let target = Param::new("target", 0.0_f64);
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(target.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source)
+                    .set_param(&target, avenger_chart_core::event::x()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("event-only column should fail");
+        assert!(error.to_string().contains("failed expression validation"));
+
+        let number_source = Param::new("number_source", 1_i64);
+        let error = crate::plot::Chart::<Cartesian>::new()
+            .param(number_source.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&number_source).filter(param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .err()
+            .expect("non-boolean filter should fail");
+        assert!(error.to_string().contains("failed expression validation"));
     }
 }

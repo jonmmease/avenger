@@ -1409,6 +1409,7 @@ fn build_physical_wrap_subplot(
         param_specs: compiled_subplot.param_specs.clone(),
         store_specs: compiled_subplot.store_specs.clone(),
         event_bindings: Vec::new(),
+        param_change_bindings: Vec::new(),
         event_datum_fields: compiled_subplot.event_datum_fields.clone(),
         event_coord_fields: compiled_subplot.event_coord_fields.clone(),
         selection_specs: Default::default(),

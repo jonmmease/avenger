@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     AvengerChartError, CoordinateMetricDescriptor, CoordinateSystemCore, CoordinationScope,
-    DomainCoordination, Mark, Param, RepeatContext, Selection, Store, event::ChartEventBinding,
+    DomainCoordination, Mark, Param, RepeatContext, Selection, Store,
+    event::{ChartEventBinding, ChartParamChangeBinding},
 };
 use serde::{Deserialize, Serialize};
 
@@ -111,6 +112,7 @@ pub struct ToolExpansion<C: CoordinateSystemCore> {
     pub stores: Vec<Store>,
     pub selections: Vec<Selection>,
     pub event_bindings: Vec<ChartEventBinding>,
+    pub param_change_bindings: Vec<ChartParamChangeBinding>,
     pub scale_edits: Vec<ToolScaleEdit>,
     pub marks: Vec<Arc<dyn Mark<C>>>,
     pub metadata: Vec<ToolMetadata>,
@@ -124,6 +126,7 @@ impl<C: CoordinateSystemCore> Clone for ToolExpansion<C> {
             stores: self.stores.clone(),
             selections: self.selections.clone(),
             event_bindings: self.event_bindings.clone(),
+            param_change_bindings: self.param_change_bindings.clone(),
             scale_edits: self.scale_edits.clone(),
             marks: self.marks.clone(),
             metadata: self.metadata.clone(),
@@ -139,6 +142,7 @@ impl<C: CoordinateSystemCore> Default for ToolExpansion<C> {
             stores: Vec::new(),
             selections: Vec::new(),
             event_bindings: Vec::new(),
+            param_change_bindings: Vec::new(),
             scale_edits: Vec::new(),
             marks: Vec::new(),
             metadata: Vec::new(),
@@ -175,6 +179,11 @@ impl<C: CoordinateSystemCore> ToolExpansion<C> {
 
     pub fn event_binding(mut self, binding: ChartEventBinding) -> Self {
         self.event_bindings.push(binding);
+        self
+    }
+
+    pub fn param_change_binding(mut self, binding: ChartParamChangeBinding) -> Self {
+        self.param_change_bindings.push(binding);
         self
     }
 

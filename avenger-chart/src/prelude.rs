@@ -23,7 +23,7 @@ pub use crate::bake::{BakePolicy, PlotBakeReport};
 pub use crate::concat::{ConcatGuide, GridConcat, HConcat, TrackSizing, VConcat, WrapConcat};
 pub use crate::event::{
     ChartAction, ChartActionParamValue, ChartEventBinding, ChartEventEvaluationMode,
-    ChartEventStream, ChartEventType,
+    ChartEventStream, ChartEventType, ChartParamChangeBinding, param_change,
 };
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use crate::repeat;

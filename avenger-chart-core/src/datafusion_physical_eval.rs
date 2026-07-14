@@ -167,6 +167,14 @@ impl CompiledScalarExpressionProgram {
         self.expressions.len()
     }
 
+    /// Return each compiled expression's result type against this program's input schema.
+    pub fn expression_data_types(&self) -> DataFusionResult<Vec<DataType>> {
+        self.expressions
+            .iter()
+            .map(|expression| expression.physical.data_type(self.schema.as_ref()))
+            .collect()
+    }
+
     pub fn evaluate(&self, batch: &RecordBatch) -> DataFusionResult<Vec<(String, ScalarValue)>> {
         self.expressions
             .iter()

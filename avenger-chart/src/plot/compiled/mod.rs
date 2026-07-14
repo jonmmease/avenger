@@ -56,7 +56,7 @@ use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, 
 
 use crate::{
     bake::{BakedTableManifestEntry, PlotBakeReport},
-    event::ChartEventBinding,
+    event::{ChartEventBinding, ChartParamChangeBinding},
     facet::evaluated_facet_tree::EvaluatedFacetTree,
     layout::{
         ChartResizePolicy, ChildFrameContentMeasurement, ChildFrameContentSolver,
@@ -286,6 +286,10 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) event_bindings: Vec<ChartEventBinding>,
 
+    /// Root/shared parameter-change reactions for chart apps.
+    #[serde(default)]
+    pub(crate) param_change_bindings: Vec<ChartParamChangeBinding>,
+
     /// Datum columns requested by event bindings, with their compile-time types.
     #[serde(default)]
     pub(crate) event_datum_fields: Vec<EventDatumFieldSpec>,
@@ -348,6 +352,7 @@ impl Clone for CompiledPlot {
             param_specs: self.param_specs.clone(),
             store_specs: self.store_specs.clone(),
             event_bindings: self.event_bindings.clone(),
+            param_change_bindings: self.param_change_bindings.clone(),
             event_datum_fields: self.event_datum_fields.clone(),
             event_coord_fields: self.event_coord_fields.clone(),
             selection_specs: self.selection_specs.clone(),
@@ -657,6 +662,11 @@ impl CompiledPlot {
     /// Get plot-level event bindings.
     pub fn event_bindings(&self) -> &[ChartEventBinding] {
         &self.event_bindings
+    }
+
+    /// Get root/shared parameter-change reactions.
+    pub fn param_change_bindings(&self) -> &[ChartParamChangeBinding] {
+        &self.param_change_bindings
     }
 
     pub fn event_datum_types(&self) -> IndexMap<String, DataType> {

@@ -17,7 +17,7 @@ use datafusion::{dataframe::DataFrame, prelude::SessionContext};
 
 use crate::{
     coords::CoordinateSystem,
-    event::ChartEventBinding,
+    event::{ChartEventBinding, ChartParamChangeBinding},
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
     legend::Legend,
     scales::Auto,
@@ -117,6 +117,21 @@ impl<C: CoordinateSystem> Chart<C> {
     /// Add multiple chart event bindings.
     pub fn event_bindings(mut self, bindings: impl IntoIterator<Item = ChartEventBinding>) -> Self {
         self.plot = self.plot.event_bindings(bindings);
+        self
+    }
+
+    /// Add one reaction to a registered shared parameter change.
+    pub fn param_change_binding(mut self, binding: ChartParamChangeBinding) -> Self {
+        self.plot = self.plot.param_change_binding(binding);
+        self
+    }
+
+    /// Add multiple reactions to registered shared parameter changes.
+    pub fn param_change_bindings(
+        mut self,
+        bindings: impl IntoIterator<Item = ChartParamChangeBinding>,
+    ) -> Self {
+        self.plot = self.plot.param_change_bindings(bindings);
         self
     }
 
