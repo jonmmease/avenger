@@ -4,11 +4,12 @@
 
 Active implementation, begun 2026-07-12 and synchronized 2026-07-13.
 The shared composed/native artifact contracts, PixelFrame host, CSS part
-machinery, mixed chrome solve, Checkbox, and Button are implemented; later
-data-encoded/native widgets and parameter-change reactions remain planned.
+machinery, mixed chrome solve, Checkbox, Button, CheckboxList,
+RadioButtonList, Slider, WidgetCell content tracks, and explicit-frame hosting
+are implemented; native widgets and parameter-change reactions remain planned.
 Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. Phase W1 is complete; W2-W6 remain planned
+in-repo Typst-based text stack. Phases W1-W4 are complete; W5-W6 remain planned
 in the active implementation plan at
 `scratch/2026-07-09/02-widgets/plan.md`.
 Rust-first implementation plan for the widget paradigm: interactive input
@@ -415,7 +416,7 @@ filters, and parameter controls that belong to one chart.
 Chart::<HConcat>::new()
     .selection(regions)
     .configure_coord(|c| c.widths([TrackSizing::Auto, TrackSizing::Flex(1.0)]))
-    .mark(WidgetCell::new(region_filter).name("filters"))
+    .mark(WidgetCell::widget(region_filter).name("filters"))
     .mark(Subplot::new(scatter).name("scatter"));
 ```
 
@@ -996,9 +997,14 @@ compound marks.
    light/dark baselines. The exit example is
    `avenger-chart-app/examples/widget_slider_live_filter.rs`, which live
    range-filters a scatter at interactive cadence.
-4. **`WidgetCell` + content tracks.** Numeric hint plumbing, target/state
-   rebasing, explicit-frame evaluation, and the sidebar control-panel
-   example. The dashboard host remains deferred, but its frame contract lands.
+4. **`WidgetCell` + content tracks — complete (2026-07-13).** Numeric hint
+   plumbing, target/state rebasing, data-encoded event-datum inference,
+   Auto/Flex/Px content sizing, and typed explicit-frame evaluation are
+   implemented. `widget_cell_sidebar` demonstrates an intrinsic filter panel
+   sharing a selection with a flexible scatter plot; its light/dark baselines
+   pin the neutral four-sided container and forbid an accent top stripe. The
+   dashboard host remains deferred, but phases 1–4 now provide its published
+   widget input and frame contracts.
 5. **`NativeWidget` + `TextInput`.** First the prior-art study pass
    (deliverable: notes answering the questions above, plus a design for
    the editing layer and the avenger-text editing-support API); then the

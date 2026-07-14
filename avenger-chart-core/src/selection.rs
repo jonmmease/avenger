@@ -376,11 +376,27 @@ impl SelectionUpdate {
         value_expr: impl IntoExpr,
         item_id_expr: impl IntoExpr,
     ) -> Self {
+        Self::toggle_equality_value_in_scope(
+            CoordinationScope::Free,
+            field_expr,
+            value_expr,
+            item_id_expr,
+        )
+    }
+
+    /// Toggle one typed value in an equality selection in the requested
+    /// coordination scope without depending on a caller-chosen clause id.
+    pub fn toggle_equality_value_in_scope(
+        scope: CoordinationScope,
+        field_expr: impl IntoExpr,
+        value_expr: impl IntoExpr,
+        item_id_expr: impl IntoExpr,
+    ) -> Self {
         Self::ToggleEqualityValue {
             field_expr: expr_node(field_expr.into_expr(), "selection equality toggle field"),
             value: SelectionValueExpr::new(value_expr),
             item_id: SelectionValueExpr::new(item_id_expr),
-            facet_scope: CoordinationScope::Free,
+            facet_scope: scope,
         }
     }
 
@@ -1114,6 +1130,23 @@ mod tests {
             dimensions[0].value, restored_id,
             "the clause id and equality value should be the same expression"
         );
+    }
+
+    #[test]
+    fn equality_value_toggle_accepts_explicit_scope() {
+        let update = SelectionUpdate::toggle_equality_value_in_scope(
+            CoordinationScope::Shared,
+            col("category"),
+            event::datum("__value"),
+            event::datum("__item_id"),
+        );
+        let json = serde_json::to_string(&update).expect("serialize selection update");
+        let restored: SelectionUpdate =
+            serde_json::from_str(&json).expect("deserialize selection update");
+        let SelectionUpdate::ToggleEqualityValue { facet_scope, .. } = restored else {
+            panic!("expected equality-value toggle");
+        };
+        assert_eq!(facet_scope, CoordinationScope::Shared);
     }
 
     #[test]

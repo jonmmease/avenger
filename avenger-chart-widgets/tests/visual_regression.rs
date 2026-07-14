@@ -5,12 +5,15 @@ use std::{
 };
 
 use avenger_chart::{
+    cartesian::CartesianSymbolPositionChannels,
     channel::LegendableChannel,
     marks::symbol::Symbol,
     plot::{Chart, CompiledPlot, EvaluationRequest, SelectionAssignment, SelectionStateUpdate},
     prelude::{
-        ChartWidgetPlacementExt, ChromePosition, LegendPosition, Theme, WidgetItemRow, WidgetItems,
+        Cartesian, ChartWidgetPlacementExt, ChromePosition, HConcat, LegendPosition, Plot,
+        Selection, Subplot, Theme, TrackSizing, WidgetCell, WidgetItemRow, WidgetItems,
     },
+    transforms::Filter,
     zerod::ZeroDCoord,
 };
 use avenger_chart_core::{
@@ -21,7 +24,10 @@ use avenger_chart_widgets::{
     Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList, Slider,
 };
 use avenger_common::canvas::CanvasDimensions;
-use avenger_scenegraph::scene_graph::SceneGraph;
+use avenger_scenegraph::{
+    marks::{group::SceneGroup, mark::SceneMark, rect::SceneRectMark},
+    scene_graph::SceneGraph,
+};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::prelude::SessionContext;
 use datafusion::prelude::col;
@@ -386,6 +392,229 @@ async fn custom_slider_baselines() {
         assert_compiled_visual_match(&compiled, &ctx, &format!("theming/custom_slider_{scheme}"))
             .await;
     }
+}
+
+#[tokio::test]
+async fn widget_cell_sidebar_baselines() {
+    for (scheme, mut theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        theme
+            .append_css(
+                r#"
+                checkbox-list#regions {
+                    min-width: 148px;
+                    height: 32px;
+                    padding-inline: 12px;
+                    padding-block: 10px;
+                    item-gap: 0px;
+                }
+                checkbox-list#regions::part(container) {
+                    fill: var(--widget-surface);
+                    stroke: var(--widget-border);
+                    stroke-width: 1px;
+                    corner-radius: 4px;
+                }
+                "#,
+            )
+            .expect("append sidebar widget CSS");
+        let ctx = Arc::new(SessionContext::new());
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North', 1.0, 6.0), ('North', 2.0, 7.5), ('North', 3.0, 6.8),
+                    ('South', 2.2, 2.0), ('South', 3.4, 3.1), ('South', 4.2, 2.4),
+                    ('West',  5.0, 5.8), ('West',  6.1, 4.9), ('West',  7.0, 6.4)
+                ) AS t(region, x_value, y_value)",
+            )
+            .await
+            .expect("build sidebar scatter data");
+        let regions = Selection::new("regions").empty_selects_all();
+        let selected = regions.predicate();
+        let scatter = Plot::<Cartesian>::new()
+            .data(data)
+            .mark(
+                Symbol::new()
+                    .x_with(col("x_value"), |x| x.axis(|axis| axis.title("X")))
+                    .y_with(col("y_value"), |y| {
+                        y.axis(|axis| axis.title("Y").grid(true))
+                    })
+                    .size(140.0)
+                    .fill("#C8CDD2")
+                    .stroke("#FFFFFF")
+                    .stroke_width(1.0),
+            )
+            .mark(
+                Symbol::new()
+                    .transform_no_output(Filter::new(selected), |mark| mark)
+                    .x(col("x_value"))
+                    .y(col("y_value"))
+                    .size(140.0)
+                    .fill("#0072B2")
+                    .stroke("#FFFFFF")
+                    .stroke_width(1.0),
+            );
+        let compiled = Chart::<HConcat>::new()
+            .theme(theme)
+            .title("Regional performance")
+            .canvas_size(800.0, 440.0)
+            .plot_size(748.0, 332.0)
+            .configure_coord(|coord| {
+                coord
+                    .widths([TrackSizing::Auto, TrackSizing::Flex(1.0)])
+                    .spacing(24.0)
+            })
+            .mark(
+                WidgetCell::widget(
+                    CheckboxList::new("regions", region_items())
+                        .value(col("region"))
+                        .label(col("label"))
+                        .selection(&regions),
+                )
+                .name("filters"),
+            )
+            .mark(Subplot::new(scatter).name("scatter"))
+            .compile(ctx.as_ref())
+            .await
+            .expect("compile widget-cell sidebar baseline");
+        let encoded = bincode::serialize(&compiled).expect("serialize sidebar baseline");
+        let decoded: CompiledPlot =
+            bincode::deserialize(&encoded).expect("deserialize sidebar baseline");
+        let mut session = Arc::new(decoded).instantiate(ctx);
+        seed_region_selection(&mut session);
+        let evaluated = session
+            .evaluate(EvaluationRequest::new())
+            .await
+            .expect("evaluate sidebar baseline");
+        assert_sidebar_container_contract(&evaluated, scheme);
+        let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
+        assert_visual_match(&format!("cell/widget_cell_sidebar_{scheme}"), &image);
+    }
+}
+
+fn region_items() -> WidgetItems {
+    WidgetItems::Static(
+        ["North", "South", "West"]
+            .into_iter()
+            .map(|region| {
+                WidgetItemRow::new([
+                    (
+                        "region".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some(region.to_string())),
+                    ),
+                    (
+                        "label".to_string(),
+                        datafusion::common::ScalarValue::Utf8(Some(region.to_string())),
+                    ),
+                ])
+            })
+            .collect(),
+    )
+}
+
+fn seed_region_selection(session: &mut avenger_chart::plot::PlotSession) {
+    let field_expr = match SelectionClauseUpdate::equality("seed")
+        .dimension(col("region"), "North")
+        .build()
+        .predicate
+    {
+        SelectionPredicateUpdate::Equality { mut dimensions } => dimensions.remove(0).field_expr,
+        _ => unreachable!("equality builder produced another predicate"),
+    };
+    session
+        .apply_selection_patch(vec![SelectionAssignment {
+            selection_id: "regions".to_string(),
+            update: SelectionStateUpdate::ReplaceAllClauses {
+                clauses: vec![SelectionClause {
+                    id: "seed-north".to_string(),
+                    scope: ResolvedSelectionClauseScope {
+                        sharing: CoordinationScope::Shared,
+                        owner_path: Vec::new(),
+                    },
+                    predicate: SelectionPredicateSpec::Equality {
+                        dimensions: vec![SelectionEqualityDimensionValue {
+                            id: "region".to_string(),
+                            field_expr,
+                            value: datafusion::common::ScalarValue::Utf8(Some("North".to_string())),
+                        }],
+                    },
+                    facet_context: Vec::new(),
+                }],
+            },
+        }])
+        .expect("seed sidebar region selection");
+}
+
+fn assert_sidebar_container_contract(
+    evaluated: &avenger_chart::render::EvaluatedPlot,
+    scheme: &str,
+) {
+    let controls = find_group(&evaluated.scene_graph.marks, "filters").expect("filters cell");
+    let list = find_group(&controls.marks, "regions").expect("regions widget");
+    let container = find_rect(&list.marks, "container").expect("list container");
+    let frame = &evaluated.widget_frames.by_widget_id["regions"].bounds;
+    assert_eq!(container.x_vec(), vec![0.0]);
+    assert_eq!(container.y_vec(), vec![0.0]);
+    assert_eq!(container.x2_vec(), vec![frame.width]);
+    assert_eq!(container.y2_vec(), vec![frame.height]);
+    assert_eq!(container.stroke_width.as_vec(1, None), vec![1.0]);
+
+    let expected_edge = match scheme {
+        "light" => "#D7D7D7",
+        "dark" => "#505050",
+        _ => unreachable!("known color scheme"),
+    };
+    assert!(matches!(
+        container.stroke.as_vec(1, None)[0],
+        avenger_color::ColorOrGradient::Color(color)
+            if color == avenger_color::parse_color_string(expected_edge).unwrap()
+    ));
+
+    let accent = avenger_color::parse_color_string("#0072B2").unwrap();
+    assert!(
+        list.marks.iter().all(|mark| {
+            let SceneMark::Rect(rect) = mark else {
+                return true;
+            };
+            let spans_width = rect
+                .x_vec()
+                .iter()
+                .zip(rect.x2_vec())
+                .any(|(x, x2)| (*x).abs() < f32::EPSILON && (x2 - frame.width).abs() < 0.01);
+            let is_accent = rect.fill.as_vec(1, None).iter().any(|fill| {
+            matches!(fill, avenger_color::ColorOrGradient::Color(color) if *color == accent)
+        });
+            !(spans_width && is_accent)
+        }),
+        "sidebar must not contain a full-width accent stripe"
+    );
+}
+
+fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneGroup> {
+    for mark in marks {
+        if let SceneMark::Group(group) = mark {
+            if group.name == name {
+                return Some(group);
+            }
+            if let Some(found) = find_group(&group.marks, name) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_rect<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneRectMark> {
+    for mark in marks {
+        match mark {
+            SceneMark::Rect(rect) if rect.name == name => return Some(rect),
+            SceneMark::Group(group) => {
+                if let Some(found) = find_rect(&group.marks, name) {
+                    return Some(found);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 async fn assert_compiled_visual_match(compiled: &CompiledPlot, ctx: &SessionContext, name: &str) {

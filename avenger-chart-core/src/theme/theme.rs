@@ -351,6 +351,7 @@ impl Theme {
             /* === Widget host geometry === */
             checkbox, button, checkbox-list, radio-button-list, slider, text-input {
                 height: var(--widget-control-height);
+                min-width: 0px;
                 min-height: var(--widget-control-height);
                 padding-inline: 0px;
                 padding-block: 0px;
@@ -459,6 +460,12 @@ impl Theme {
             checkbox[checked="true"]::part(check),
             checkbox-list[selected="true"]::part(check) { opacity: 1; }
             checkbox-list::part(row) { fill: transparent; cursor: pointer; }
+            checkbox-list::part(container), radio-button-list::part(container) {
+                fill: transparent;
+                stroke: transparent;
+                stroke-width: 0px;
+                corner-radius: 0px;
+            }
 
             /* === RadioButtonList === */
             radio-button-list::part(row) { fill: transparent; cursor: pointer; }

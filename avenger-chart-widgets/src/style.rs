@@ -106,6 +106,13 @@ impl BuiltinWidgetKind {
             ],
             Self::CheckboxList => vec![
                 part(
+                    "container",
+                    "rect",
+                    &[P::Fill, P::Stroke, P::StrokeWidth, P::CornerRadius],
+                    LIST_STATES,
+                    false,
+                ),
+                part(
                     "row",
                     "rect",
                     &[P::Fill, P::Opacity, P::Cursor],
@@ -137,6 +144,13 @@ impl BuiltinWidgetKind {
                 part("focus-ring", "rect", focus, LIST_STATES, false),
             ],
             Self::RadioButtonList => vec![
+                part(
+                    "container",
+                    "rect",
+                    &[P::Fill, P::Stroke, P::StrokeWidth, P::CornerRadius],
+                    LIST_STATES,
+                    false,
+                ),
                 part(
                     "row",
                     "rect",
@@ -387,11 +401,20 @@ mod tests {
                 ("button", strings(&["box", "label", "focus-ring"])),
                 (
                     "checkbox-list",
-                    strings(&["row", "box", "selected-box", "check", "label", "focus-ring",])
+                    strings(&[
+                        "container",
+                        "row",
+                        "box",
+                        "selected-box",
+                        "check",
+                        "label",
+                        "focus-ring",
+                    ])
                 ),
                 (
                     "radio-button-list",
                     strings(&[
+                        "container",
                         "row",
                         "control",
                         "selected-control",

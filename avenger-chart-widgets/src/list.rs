@@ -94,7 +94,9 @@ impl ChartWidget for CheckboxList {
 
         let row_height = ctx.host_style(WidgetStyleProperty::Height);
         let item_gap = ctx.host_style(WidgetStyleProperty::ItemGap);
-        let row_y = col("__idx") * (row_height.clone() + item_gap.clone());
+        let inline_padding = ctx.host_style(WidgetStyleProperty::PaddingInline);
+        let block_padding = ctx.host_style(WidgetStyleProperty::PaddingBlock);
+        let row_y = block_padding.clone() + col("__idx") * (row_height.clone() + item_gap.clone());
         let size = ctx.part_style("box", WidgetStyleProperty::ChoiceControlSize);
         let box_y = row_y.clone() + (row_height.clone() - size.clone()) / lit(2.0_f32);
         let label_gap = ctx.part_style("label", WidgetStyleProperty::ControlLabelGap);
@@ -103,6 +105,12 @@ impl ChartWidget for CheckboxList {
             .selection
             .contains_equality_value(self.value.clone(), col(VALUE));
 
+        let container = Rect::<PixelFrame>::new()
+            .id("container")
+            .x(0.0)
+            .x2(ctx.frame_width())
+            .y(0.0)
+            .y2(ctx.frame_height());
         let row = Rect::<PixelFrame>::new()
             .id("row")
             .x(0.0)
@@ -111,20 +119,20 @@ impl ChartWidget for CheckboxList {
             .y2(row_y.clone() + row_height.clone());
         let box_mark = Rect::<PixelFrame>::new()
             .id("box")
-            .x(0.0)
-            .x2(size.clone())
+            .x(inline_padding.clone())
+            .x2(inline_padding.clone() + size.clone())
             .y(box_y.clone())
             .y2(box_y.clone() + size.clone());
         let selected_box = Rect::<PixelFrame>::new()
             .id("selected-box")
-            .x(0.0)
-            .x2(size.clone())
+            .x(inline_padding.clone())
+            .x2(inline_padding.clone() + size.clone())
             .y(box_y.clone())
             .y2(box_y.clone() + size.clone())
             .transform_no_output(Filter::new(checked.clone()), |mark| mark);
         let check = Symbol::<PixelFrame>::new()
             .id("check")
-            .x(size.clone() / lit(2.0_f32))
+            .x(inline_padding.clone() + size.clone() / lit(2.0_f32))
             .y(box_y.clone() + size.clone() * lit(0.48_f32))
             .size(ChannelExpr::value(
                 size.clone() * size.clone() * lit(0.42_f32),
@@ -134,15 +142,15 @@ impl ChartWidget for CheckboxList {
             .transform_no_output(Filter::new(checked), |mark| mark);
         let label = Text::<PixelFrame>::new()
             .id("label")
-            .x(size.clone() + label_gap)
+            .x(inline_padding.clone() + size.clone() + label_gap)
             .y(row_y.clone() + row_height.clone() / lit(2.0_f32))
             .text(col(LABEL))
             .align("left")
             .baseline("middle");
         let focus = Rect::<PixelFrame>::new()
             .id("focus-ring")
-            .x(-focus_gap.clone())
-            .x2(ctx.frame_width() + focus_gap.clone())
+            .x(inline_padding.clone() - focus_gap.clone())
+            .x2(ctx.frame_width() - inline_padding.clone() + focus_gap.clone())
             .y(row_y.clone() - focus_gap.clone())
             .y2(row_y + row_height.clone() + focus_gap)
             .fill("transparent");
@@ -155,6 +163,7 @@ impl ChartWidget for CheckboxList {
         let expansion = ToolExpansion::new()
             .selection(self.selection.clone())
             .cursor_param(cursor.clone(), shared)
+            .mark(container)
             .mark(row)
             .mark(box_mark)
             .mark(selected_box)
@@ -166,7 +175,8 @@ impl ChartWidget for CheckboxList {
                     .mark(format!("{}.row", self.id))
                     .set_selection(
                         &self.selection.id,
-                        SelectionUpdate::toggle_equality_value(
+                        SelectionUpdate::toggle_equality_value_in_scope(
+                            CoordinationScope::Shared,
                             self.value.clone(),
                             event::datum(VALUE),
                             event::datum(ITEM_ID),
@@ -203,35 +213,65 @@ impl ChartWidget for CheckboxList {
             items: Some(items),
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {
-                    expr: WidgetMeasureExpr::Add(vec![
+                    expr: WidgetMeasureExpr::Max(vec![
                         WidgetMeasureExpr::StyleLength {
-                            part: Some("box".to_string()),
-                            property: WidgetStyleProperty::ChoiceControlSize,
+                            part: None,
+                            property: WidgetStyleProperty::MinWidth,
                         },
-                        WidgetMeasureExpr::StyleLength {
-                            part: Some("label".to_string()),
-                            property: WidgetStyleProperty::ControlLabelGap,
-                        },
-                        WidgetMeasureExpr::TextExtent {
-                            part: "label".to_string(),
-                            axis: WidgetTextMeasureAxis::Width,
-                            data_encoded: true,
-                        },
+                        WidgetMeasureExpr::Add(vec![
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingInline,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingInline,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: Some("box".to_string()),
+                                property: WidgetStyleProperty::ChoiceControlSize,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: Some("label".to_string()),
+                                property: WidgetStyleProperty::ControlLabelGap,
+                            },
+                            WidgetMeasureExpr::TextExtent {
+                                part: "label".to_string(),
+                                axis: WidgetTextMeasureAxis::Width,
+                                data_encoded: true,
+                            },
+                        ]),
                     ]),
                     min_px: 1.0,
                     max_px: None,
                 },
                 height: WidgetAxisMeasureSpec::Content {
-                    expr: WidgetMeasureExpr::ItemCount {
-                        extent: Box::new(WidgetMeasureExpr::StyleLength {
+                    expr: WidgetMeasureExpr::Max(vec![
+                        WidgetMeasureExpr::StyleLength {
                             part: None,
-                            property: WidgetStyleProperty::Height,
-                        }),
-                        gap: Box::new(WidgetMeasureExpr::StyleLength {
-                            part: None,
-                            property: WidgetStyleProperty::ItemGap,
-                        }),
-                    },
+                            property: WidgetStyleProperty::MinHeight,
+                        },
+                        WidgetMeasureExpr::Add(vec![
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingBlock,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingBlock,
+                            },
+                            WidgetMeasureExpr::ItemCount {
+                                extent: Box::new(WidgetMeasureExpr::StyleLength {
+                                    part: None,
+                                    property: WidgetStyleProperty::Height,
+                                }),
+                                gap: Box::new(WidgetMeasureExpr::StyleLength {
+                                    part: None,
+                                    property: WidgetStyleProperty::ItemGap,
+                                }),
+                            },
+                        ]),
+                    ]),
                     min_px: 0.0,
                     max_px: None,
                 },
@@ -363,17 +403,25 @@ impl ChartWidget for RadioButtonList {
         let selected_value = self.resolved_param()?;
         let row_height = ctx.host_style(WidgetStyleProperty::Height);
         let item_gap = ctx.host_style(WidgetStyleProperty::ItemGap);
-        let row_y = col("__idx") * (row_height.clone() + item_gap.clone());
+        let inline_padding = ctx.host_style(WidgetStyleProperty::PaddingInline);
+        let block_padding = ctx.host_style(WidgetStyleProperty::PaddingBlock);
+        let row_y = block_padding.clone() + col("__idx") * (row_height.clone() + item_gap.clone());
         let size = ctx.part_style("control", WidgetStyleProperty::ChoiceControlSize);
         let center_size = ctx.part_style("control", WidgetStyleProperty::RadioCenterSize);
         let selected_border =
             ctx.part_style("control", WidgetStyleProperty::RadioSelectedBorderWidth);
         let control_y = row_y.clone() + row_height.clone() / lit(2.0_f32);
-        let control_x = size.clone() / lit(2.0_f32);
+        let control_x = inline_padding.clone() + size.clone() / lit(2.0_f32);
         let label_gap = ctx.part_style("label", WidgetStyleProperty::ControlLabelGap);
         let focus_gap = ctx.part_style("focus-ring", WidgetStyleProperty::FocusGap);
         let selected = col(VALUE).eq(selected_value.expr());
 
+        let container = Rect::<PixelFrame>::new()
+            .id("container")
+            .x(0.0)
+            .x2(ctx.frame_width())
+            .y(0.0)
+            .y2(ctx.frame_height());
         let row = Rect::<PixelFrame>::new()
             .id("row")
             .x(0.0)
@@ -403,7 +451,7 @@ impl ChartWidget for RadioButtonList {
             .transform_no_output(Filter::new(selected), |mark| mark);
         let label = Text::<PixelFrame>::new()
             .id("label")
-            .x(size.clone() + label_gap)
+            .x(inline_padding.clone() + size.clone() + label_gap)
             .y(row_y.clone() + row_height.clone() / lit(2.0_f32))
             .text(col(LABEL))
             .align("left")
@@ -411,7 +459,7 @@ impl ChartWidget for RadioButtonList {
         let focus_size = size.clone() + focus_gap.clone() * lit(2.0_f32);
         let focus = Symbol::<PixelFrame>::new()
             .id("focus-ring")
-            .x(size.clone() / lit(2.0_f32))
+            .x(inline_padding.clone() + size.clone() / lit(2.0_f32))
             .y(row_y.clone() + row_height.clone() / lit(2.0_f32))
             .size(ChannelExpr::value(focus_size.clone() * focus_size))
             .shape("circle")
@@ -422,6 +470,7 @@ impl ChartWidget for RadioButtonList {
         let expansion = ToolExpansion::new()
             .param(selected_value.clone(), shared.clone())
             .cursor_param(cursor.clone(), shared)
+            .mark(container)
             .mark(row)
             .mark(control)
             .mark(selected_control)
@@ -473,35 +522,65 @@ impl ChartWidget for RadioButtonList {
             items: Some(items),
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {
-                    expr: WidgetMeasureExpr::Add(vec![
+                    expr: WidgetMeasureExpr::Max(vec![
                         WidgetMeasureExpr::StyleLength {
-                            part: Some("control".to_string()),
-                            property: WidgetStyleProperty::ChoiceControlSize,
+                            part: None,
+                            property: WidgetStyleProperty::MinWidth,
                         },
-                        WidgetMeasureExpr::StyleLength {
-                            part: Some("label".to_string()),
-                            property: WidgetStyleProperty::ControlLabelGap,
-                        },
-                        WidgetMeasureExpr::TextExtent {
-                            part: "label".to_string(),
-                            axis: WidgetTextMeasureAxis::Width,
-                            data_encoded: true,
-                        },
+                        WidgetMeasureExpr::Add(vec![
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingInline,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingInline,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: Some("control".to_string()),
+                                property: WidgetStyleProperty::ChoiceControlSize,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: Some("label".to_string()),
+                                property: WidgetStyleProperty::ControlLabelGap,
+                            },
+                            WidgetMeasureExpr::TextExtent {
+                                part: "label".to_string(),
+                                axis: WidgetTextMeasureAxis::Width,
+                                data_encoded: true,
+                            },
+                        ]),
                     ]),
                     min_px: 1.0,
                     max_px: None,
                 },
                 height: WidgetAxisMeasureSpec::Content {
-                    expr: WidgetMeasureExpr::ItemCount {
-                        extent: Box::new(WidgetMeasureExpr::StyleLength {
+                    expr: WidgetMeasureExpr::Max(vec![
+                        WidgetMeasureExpr::StyleLength {
                             part: None,
-                            property: WidgetStyleProperty::Height,
-                        }),
-                        gap: Box::new(WidgetMeasureExpr::StyleLength {
-                            part: None,
-                            property: WidgetStyleProperty::ItemGap,
-                        }),
-                    },
+                            property: WidgetStyleProperty::MinHeight,
+                        },
+                        WidgetMeasureExpr::Add(vec![
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingBlock,
+                            },
+                            WidgetMeasureExpr::StyleLength {
+                                part: None,
+                                property: WidgetStyleProperty::PaddingBlock,
+                            },
+                            WidgetMeasureExpr::ItemCount {
+                                extent: Box::new(WidgetMeasureExpr::StyleLength {
+                                    part: None,
+                                    property: WidgetStyleProperty::Height,
+                                }),
+                                gap: Box::new(WidgetMeasureExpr::StyleLength {
+                                    part: None,
+                                    property: WidgetStyleProperty::ItemGap,
+                                }),
+                            },
+                        ]),
+                    ]),
                     min_px: 0.0,
                     max_px: None,
                 },
@@ -555,11 +634,14 @@ mod tests {
             .expand(WidgetExpansionContext::new("regions"))
             .expect("checkbox list expansion");
 
-        assert_eq!(expanded.expansion.marks.len(), 6);
+        assert_eq!(expanded.expansion.marks.len(), 7);
         assert_eq!(expanded.expansion.selections.len(), 1);
         assert!(matches!(
             expanded.expansion.event_bindings[0].selection_assignments[0].update,
-            SelectionUpdate::ToggleEqualityValue { .. }
+            SelectionUpdate::ToggleEqualityValue {
+                facet_scope: CoordinationScope::Shared,
+                ..
+            }
         ));
         let Some(WidgetItems::Configured {
             identity,
@@ -600,7 +682,7 @@ mod tests {
             .expand(WidgetExpansionContext::new("numbers"))
             .expect("radio-button list expansion");
 
-        assert_eq!(expanded.expansion.marks.len(), 6);
+        assert_eq!(expanded.expansion.marks.len(), 7);
         assert_eq!(expanded.expansion.params[0].param.name, "numbers__value");
         assert_eq!(
             expanded.expansion.params[0].param.default,

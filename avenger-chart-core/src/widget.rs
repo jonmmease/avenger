@@ -811,7 +811,13 @@ pub struct WidgetPartManifest {
 pub fn is_decorative_widget_part(name: &str) -> bool {
     matches!(
         name,
-        "focus-ring" | "selection" | "selected-box" | "selected-control" | "caret" | "preedit"
+        "container"
+            | "focus-ring"
+            | "selection"
+            | "selected-box"
+            | "selected-control"
+            | "caret"
+            | "preedit"
     )
 }
 

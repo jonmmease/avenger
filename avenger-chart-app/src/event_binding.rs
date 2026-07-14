@@ -4743,7 +4743,7 @@ mod tests {
         TreemapPadding,
         event::{self as treemap_event, HIERARCHY_PATH_ID_FIELD},
     };
-    use avenger_chart_widgets::{Button, Checkbox, Slider};
+    use avenger_chart_widgets::{Button, Checkbox, CheckboxList, Slider};
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -7291,6 +7291,51 @@ mod tests {
             .expect("retained event datum row")
     }
 
+    async fn retained_named_event_datum_mark_instance(
+        state: &ChartAppState,
+        scene: &SceneGraph,
+        mark_name: &str,
+        field: &str,
+        target: ScalarValue,
+    ) -> MarkInstance {
+        let runtime = state.runtime.lock().await;
+        runtime
+            .last_event_datum_state
+            .rows
+            .iter()
+            .find_map(|rows| {
+                let (mark, _) =
+                    scene_mark_at_path_with_origin(&scene.marks, &rows.mark_path, scene.origin)?;
+                let actual_name = match mark {
+                    SceneMark::Arc(mark) => &mark.name,
+                    SceneMark::Area(mark) => &mark.name,
+                    SceneMark::Image(mark) => &mark.name,
+                    SceneMark::Line(mark) => &mark.name,
+                    SceneMark::Path(mark) => &mark.name,
+                    SceneMark::Rect(mark) => &mark.name,
+                    SceneMark::Rule(mark) => &mark.name,
+                    SceneMark::Symbol(mark) => &mark.name,
+                    SceneMark::Text(mark) => &mark.name,
+                    SceneMark::Group(mark) => &mark.name,
+                    SceneMark::Trail(mark) => &mark.name,
+                    SceneMark::WarpedImage(mark) => &mark.name,
+                };
+                if actual_name != mark_name {
+                    return None;
+                }
+                let column = rows.rows.column_by_name(field)?;
+                (0..column.len()).find_map(|index| {
+                    let value = ScalarValue::try_from_array(column, index).ok()?;
+                    (value == target).then(|| MarkInstance {
+                        name: mark_name.to_string(),
+                        mark_path: rows.mark_path.clone(),
+                        instance_index: Some(index),
+                    })
+                })
+            })
+            .expect("retained named event datum row")
+    }
+
     async fn retained_rect_event_datum_mark_instance(
         state: &ChartAppState,
         scene: &SceneGraph,
@@ -9316,6 +9361,130 @@ mod tests {
         assert_eq!(
             state.params().await.get("clear__activations"),
             Some(&ScalarValue::UInt64(Some(1)))
+        );
+    }
+
+    #[tokio::test]
+    async fn widget_cell_checkbox_list_cross_filters_sibling_subplot() {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('North', 1.0, 6.0),
+                    ('South', 2.0, 2.0),
+                    ('West', 3.0, 5.0)
+                ) AS t(region, x_value, y_value)",
+            )
+            .await
+            .expect("build widget-cell cross-filter data");
+        let regions = Selection::new("regions").empty_selects_all();
+        let selected = regions.predicate();
+        let items = WidgetItems::Static(
+            ["North", "South", "West"]
+                .into_iter()
+                .map(|region| {
+                    WidgetItemRow::new([
+                        (
+                            "region".to_string(),
+                            ScalarValue::Utf8(Some(region.to_string())),
+                        ),
+                        (
+                            "label".to_string(),
+                            ScalarValue::Utf8(Some(region.to_string())),
+                        ),
+                    ])
+                })
+                .collect(),
+        );
+        let scatter = Plot::<Cartesian>::new()
+            .data(data)
+            .mark(
+                Symbol::new()
+                    .x(col("x_value"))
+                    .y(col("y_value"))
+                    .size(100.0)
+                    .fill("#C8CDD2"),
+            )
+            .mark(
+                Symbol::new()
+                    .transform_no_output(Filter::new(selected), |mark| mark)
+                    .x(col("x_value"))
+                    .y(col("y_value"))
+                    .size(100.0)
+                    .fill("#0072B2"),
+            );
+        let compiled = Chart::<HConcat>::new()
+            .canvas_size(520.0, 280.0)
+            .plot_size(480.0, 220.0)
+            .configure_coord(|coord| {
+                coord
+                    .widths([TrackSizing::Auto, TrackSizing::Flex(1.0)])
+                    .spacing(16.0)
+            })
+            .mark(
+                WidgetCell::widget(
+                    CheckboxList::new("regions", items)
+                        .value(col("region"))
+                        .label(col("label"))
+                        .selection(&regions),
+                )
+                .name("filters"),
+            )
+            .mark(Subplot::new(scatter).name("scatter"))
+            .compile(&ctx)
+            .await
+            .expect("compile widget-cell cross-filter");
+        let binding_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| {
+                binding.event_type == ChartEventType::Click
+                    && binding
+                        .mark_ids()
+                        .iter()
+                        .any(|target| target == "filters.regions.row")
+            })
+            .expect("rebased checkbox-list click binding");
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, binding_index);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial widget-cell cross-filter scene");
+        let blue = [0.0, 114.0 / 255.0, 178.0 / 255.0, 1.0];
+        assert_eq!(
+            collect_symbol_fills(&scene)
+                .iter()
+                .filter(|fill| **fill == blue)
+                .count(),
+            3,
+            "empty_selects_all should initially retain every foreground point"
+        );
+
+        let north = retained_named_event_datum_mark_instance(
+            &state,
+            &scene,
+            "row",
+            "__value",
+            ScalarValue::Utf8(Some("North".to_string())),
+        )
+        .await;
+        let status = click_mark(&mut state, &handler, Some(north), [0.0, 0.0], false).await;
+        assert!(status.rerender);
+
+        let updated = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("selected widget-cell cross-filter scene");
+        assert_eq!(
+            collect_symbol_fills(&updated)
+                .iter()
+                .filter(|fill| **fill == blue)
+                .count(),
+            1,
+            "the WidgetCell selection should filter the sibling subplot"
         );
     }
 
