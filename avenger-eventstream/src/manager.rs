@@ -6,6 +6,7 @@ use avenger_geometry::rtree::SceneGraphRTree;
 use avenger_scenegraph::marks::mark::MarkInstance;
 
 use crate::{
+    runtime::RuntimeWakeKey,
     scene::{
         ModifiersState, SceneClickEvent, SceneCursorMovedEvent, SceneDoubleClickEvent,
         SceneFileChangedEvent, SceneGraphEvent, SceneGraphEventType, SceneKeyPressEvent,
@@ -76,7 +77,12 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) {
-        let stream = EventStream::new(config, handler);
+        let wake_key = RuntimeWakeKey::new(
+            "event-stream-manager",
+            0,
+            format!("stream-{}-debounce", self.streams.len()),
+        );
+        let stream = EventStream::new_with_wake_key(config, handler, wake_key);
         self.streams.push(stream);
     }
 
@@ -251,6 +257,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             }
             WindowEvent::Ime(event) => Some(SceneGraphEvent::Ime(event.clone())),
             WindowEvent::Clipboard(event) => Some(SceneGraphEvent::Clipboard(event.clone())),
+            WindowEvent::RuntimeWake(event) => Some(SceneGraphEvent::RuntimeWake(event.clone())),
             WindowEvent::WindowResize(e) => Some(SceneGraphEvent::WindowResize(e.clone())),
             WindowEvent::WindowResizeSettled(e) => {
                 Some(SceneGraphEvent::WindowResizeSettled(e.clone()))
@@ -305,23 +312,60 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
         let mut update_status = UpdateStatus::default();
 
         for stream in &mut self.streams {
-            if let Some(context) =
+            if let SceneGraphEvent::RuntimeWake(wake) = event {
+                let Some(debounced) = stream.handle_runtime_wakeup(wake, instant) else {
+                    continue;
+                };
+                update_status.commands.extend(debounced.commands);
+                if let Some(ready) = debounced.commit {
+                    update_status = update_status.merge(
+                        &stream
+                            .handler
+                            .handle_with_context(
+                                &ready.event,
+                                &ready.context,
+                                &mut self.state,
+                                rtree,
+                            )
+                            .await,
+                    );
+                }
+                continue;
+            }
+
+            let Some(context) =
                 stream.matches_and_update(event, mark_instance.as_ref(), rtree, instant)
+            else {
+                continue;
+            };
+
+            let ready_event = if let Some(debounced) =
+                stream.debounce_submission(event, context.clone(), instant)
             {
-                // Call handler and merge update status
+                update_status.commands.extend(debounced.commands);
+                debounced.commit
+            } else {
+                Some(crate::stream::DebouncedEvent {
+                    event: event.clone(),
+                    context,
+                })
+            };
+
+            if let Some(ready) = ready_event {
                 update_status = update_status.merge(
                     &stream
                         .handler
-                        .handle_with_context(event, &context, &mut self.state, rtree)
+                        .handle_with_context(&ready.event, &ready.context, &mut self.state, rtree)
                         .await,
                 );
+            }
 
-                stream.mark_accepted(event, mark_instance.as_ref(), instant);
+            stream.mark_accepted(event, mark_instance.as_ref(), instant);
 
-                // Handle consume flag
-                if stream.config.consume {
-                    break;
-                }
+            // Debounced streams consume the originating event at match time,
+            // even when their handler runs later on the wake-up.
+            if stream.config.consume {
+                break;
             }
         }
 
@@ -508,7 +552,8 @@ mod tests {
 
     use super::*;
     use crate::{
-        stream::{EventStreamConfig, EventStreamFilter},
+        runtime::{RuntimeHostCommand, RuntimeWakeEvent},
+        stream::{DebounceConfig, EventStreamConfig, EventStreamFilter},
         window::{CanvasResizeEvent, WindowCursorMoved, WindowEvent, WindowMouseInput},
     };
 
@@ -803,6 +848,81 @@ mod tests {
         assert!(!WindowEvent::Ime(crate::window::ImeEvent::Enabled).skip_if_render_pending());
         assert!(
             !WindowEvent::Clipboard(crate::window::ClipboardEvent::Copy).skip_if_render_pending()
+        );
+    }
+
+    #[tokio::test]
+    async fn event_stream_debounce_commits_only_latest_event_on_matching_wake() {
+        let state = TestState::default();
+        let events = state.events.clone();
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::CanvasResize],
+                debounce: Some(DebounceConfig::new(20)),
+                ..Default::default()
+            },
+            Arc::new(RecordingHandler),
+        );
+
+        let start = Instant::now();
+        let first = manager
+            .dispatch_event(
+                &WindowEvent::CanvasResize(CanvasResizeEvent { size: [1.0, 1.0] }),
+                &empty_rtree(),
+                start,
+            )
+            .await;
+        let second = manager
+            .dispatch_event(
+                &WindowEvent::CanvasResize(CanvasResizeEvent { size: [2.0, 2.0] }),
+                &empty_rtree(),
+                start + Duration::from_millis(5),
+            )
+            .await;
+        assert!(events.lock().unwrap().is_empty());
+
+        let request = |status: &UpdateStatus| {
+            let [RuntimeHostCommand::RequestWakeup {
+                key,
+                deadline,
+                generation,
+            }] = status.commands.as_slice()
+            else {
+                panic!("expected one wakeup request")
+            };
+            (key.clone(), *deadline, *generation)
+        };
+        let (first_key, _, first_generation) = request(&first);
+        let (key, deadline, generation) = request(&second);
+        assert_eq!(first_key, key);
+        assert!(generation > first_generation);
+
+        manager
+            .dispatch_event(
+                &WindowEvent::RuntimeWake(RuntimeWakeEvent {
+                    key: key.clone(),
+                    generation: first_generation,
+                }),
+                &empty_rtree(),
+                deadline,
+            )
+            .await;
+        assert!(events.lock().unwrap().is_empty());
+
+        let ready = manager
+            .dispatch_event(
+                &WindowEvent::RuntimeWake(RuntimeWakeEvent { key, generation }),
+                &empty_rtree(),
+                deadline,
+            )
+            .await;
+        assert!(ready.rerender);
+        assert_eq!(
+            events.lock().unwrap().as_slice(),
+            &[SceneGraphEvent::CanvasResize(CanvasResizeEvent {
+                size: [2.0, 2.0],
+            })]
         );
     }
 

@@ -1,6 +1,10 @@
 use avenger_app::app::AvengerApp;
 use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instant};
 #[cfg(not(target_arch = "wasm32"))]
+use avenger_eventstream::runtime::{
+    LogicalRect, RuntimeHostCommand, RuntimeWakeEvent, RuntimeWakeKey,
+};
+#[cfg(not(target_arch = "wasm32"))]
 use avenger_eventstream::window::ClipboardEvent;
 use avenger_eventstream::window::{
     CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
@@ -21,6 +25,10 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use std::{collections::HashMap, sync::Mutex};
+#[cfg(not(target_arch = "wasm32"))]
+use winit::dpi::PhysicalPosition;
 use winit::{
     application::ApplicationHandler,
     dpi::{PhysicalSize, Size},
@@ -83,6 +91,86 @@ fn send_render_invalidation_event(
                 callback.forget();
             }
         }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct NativeRuntimeWakeScheduler {
+    active: Arc<Mutex<HashMap<RuntimeWakeKey, u64>>>,
+    event_proxy: EventLoopProxy<WinitWgpuEvent>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeRuntimeWakeScheduler {
+    fn new(event_proxy: EventLoopProxy<WinitWgpuEvent>) -> Self {
+        Self {
+            active: Arc::new(Mutex::new(HashMap::new())),
+            event_proxy,
+        }
+    }
+
+    fn request(&self, key: RuntimeWakeKey, deadline: Instant, generation: u64) {
+        self.active
+            .lock()
+            .expect("runtime wake scheduler lock")
+            .insert(key.clone(), generation);
+        let active = self.active.clone();
+        let event_proxy = self.event_proxy.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+            let should_dispatch = claim_runtime_wakeup(&active, &key, generation);
+            if should_dispatch {
+                let _ = event_proxy.send_event(WinitWgpuEvent::App(
+                    AvengerWindowEvent::RuntimeWake(RuntimeWakeEvent { key, generation }),
+                ));
+            }
+        });
+    }
+
+    fn cancel(&self, key: &RuntimeWakeKey) {
+        self.active
+            .lock()
+            .expect("runtime wake scheduler lock")
+            .remove(key);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn claim_runtime_wakeup(
+    active: &Mutex<HashMap<RuntimeWakeKey, u64>>,
+    key: &RuntimeWakeKey,
+    generation: u64,
+) -> bool {
+    let mut active = active.lock().expect("runtime wake scheduler lock");
+    if active.get(key) == Some(&generation) {
+        active.remove(key);
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn physical_ime_cursor_area(
+    rect: LogicalRect,
+    scale: f64,
+) -> (PhysicalPosition<f64>, PhysicalSize<u32>) {
+    (
+        PhysicalPosition::new(f64::from(rect.x()) * scale, f64::from(rect.y()) * scale),
+        PhysicalSize::new(
+            (f64::from(rect.width()) * scale).round().max(0.0) as u32,
+            (f64::from(rect.height()) * scale).round().max(0.0) as u32,
+        ),
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for NativeRuntimeWakeScheduler {
+    fn drop(&mut self) {
+        self.active
+            .lock()
+            .expect("runtime wake scheduler lock")
+            .clear();
     }
 }
 
@@ -499,6 +587,8 @@ where
     clipboard: Option<arboard::Clipboard>,
     #[cfg(not(target_arch = "wasm32"))]
     modifiers: keyboard::ModifiersState,
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime_wake_scheduler: NativeRuntimeWakeScheduler,
 
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
     /// used to log inter-frame delta / fps alongside surface_render_ms.
@@ -567,6 +657,9 @@ where
         #[cfg(target_arch = "wasm32")]
         let file_watcher = None;
 
+        #[cfg(not(target_arch = "wasm32"))]
+        let runtime_wake_scheduler = NativeRuntimeWakeScheduler::new(event_proxy.clone());
+
         let winit_app = Self {
             canvas: std::rc::Rc::new(std::cell::RefCell::new(None)),
             scale: options.scale,
@@ -596,6 +689,8 @@ where
             clipboard: None,
             #[cfg(not(target_arch = "wasm32"))]
             modifiers: keyboard::ModifiersState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            runtime_wake_scheduler,
             #[cfg(not(target_arch = "wasm32"))]
             last_redraw: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -678,7 +773,7 @@ where
                     .render_invalidation_hub
                     .as_ref()
                     .map(|hub| hub.epoch());
-                let scene_graph_opt = {
+                let mut scene_graph_opt = {
                     let mut app = self.avenger_app.borrow_mut();
                     self.tokio_runtime
                         .block_on(app.update_with_status(&event, Instant::now()))
@@ -693,6 +788,8 @@ where
                 if let Some(cursor) = scene_graph_opt.status.cursor {
                     self.set_cursor(cursor_style_to_winit(cursor));
                 }
+                let commands = std::mem::take(&mut scene_graph_opt.status.commands);
+                self.apply_runtime_host_commands(commands);
                 let rerender = scene_graph_opt.scene_graph.is_some();
 
                 if let Some(scene_graph) = scene_graph_opt.scene_graph {
@@ -1120,6 +1217,64 @@ where
     fn set_cursor(&self, cursor: CursorIcon) {
         if let Some(canvas) = self.canvas.borrow().as_ref() {
             canvas.window().set_cursor(cursor);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn apply_runtime_host_commands(&mut self, commands: Vec<RuntimeHostCommand>) {
+        for command in commands {
+            match command {
+                RuntimeHostCommand::RequestWakeup {
+                    key,
+                    deadline,
+                    generation,
+                } => self
+                    .runtime_wake_scheduler
+                    .request(key, deadline, generation),
+                RuntimeHostCommand::CancelWakeup { key } => {
+                    self.runtime_wake_scheduler.cancel(&key)
+                }
+                RuntimeHostCommand::SetImeAllowed { allowed } => {
+                    if let Some(canvas) = self.canvas.borrow().as_ref() {
+                        canvas.window().set_ime_allowed(allowed);
+                    }
+                }
+                RuntimeHostCommand::SetImeCursorArea { rect } => {
+                    if let Some(canvas) = self.canvas.borrow().as_ref() {
+                        let scale = canvas.window().scale_factor();
+                        let rect = rect.unwrap_or_else(|| {
+                            LogicalRect::new(0.0, 0.0, 0.0, 0.0)
+                                .expect("zero IME rectangle is finite")
+                        });
+                        let (position, size) = physical_ime_cursor_area(rect, scale);
+                        canvas.window().set_ime_cursor_area(position, size);
+                    }
+                }
+                RuntimeHostCommand::WriteClipboard { text } => {
+                    if self.clipboard.is_none() {
+                        match arboard::Clipboard::new() {
+                            Ok(clipboard) => self.clipboard = Some(clipboard),
+                            Err(err) => {
+                                tracing::warn!(
+                                    target: "avenger_winit_wgpu::clipboard",
+                                    ?err,
+                                    "native clipboard unavailable"
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                    if let Some(clipboard) = self.clipboard.as_mut() {
+                        if let Err(err) = clipboard.set_text(text) {
+                            tracing::warn!(
+                                target: "avenger_winit_wgpu::clipboard",
+                                ?err,
+                                "failed to write native clipboard text"
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1592,6 +1747,7 @@ fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
         AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
         AvengerWindowEvent::Ime(_) => "Ime",
         AvengerWindowEvent::Clipboard(_) => "Clipboard",
+        AvengerWindowEvent::RuntimeWake(_) => "RuntimeWake",
         AvengerWindowEvent::Touch(_) => "Touch",
         AvengerWindowEvent::InteractionSettled { .. } => "InteractionSettled",
         AvengerWindowEvent::WindowResize(_) => "WindowResize",
@@ -1770,5 +1926,28 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn runtime_wake_claim_rejects_replaced_and_cancelled_generations() {
+        let key = RuntimeWakeKey::new("widget", 4, "commit");
+        let active = Mutex::new(HashMap::from([(key.clone(), 2)]));
+        assert!(!claim_runtime_wakeup(&active, &key, 1));
+        assert!(claim_runtime_wakeup(&active, &key, 2));
+        assert!(!claim_runtime_wakeup(&active, &key, 2));
+
+        active.lock().unwrap().insert(key.clone(), 3);
+        active.lock().unwrap().remove(&key);
+        assert!(!claim_runtime_wakeup(&active, &key, 3));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn ime_cursor_area_scales_root_logical_pixels_to_physical_pixels() {
+        let rect = LogicalRect::new(10.0, 20.0, 30.0, 12.0).unwrap();
+        let (position, size) = physical_ime_cursor_area(rect, 2.0);
+        assert_eq!(position, PhysicalPosition::new(20.0, 40.0));
+        assert_eq!(size, PhysicalSize::new(60, 24));
     }
 }

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use avenger_scenegraph::marks::mark::MarkInstance;
 use smol_str::SmolStr;
 
+use crate::runtime::RuntimeWakeEvent;
 use crate::window::{
     CanvasResizeEvent, ClipboardEvent, ImeEvent, Key, MouseButton, MouseScrollDelta,
     WindowMovedEvent, WindowResizeEvent,
@@ -20,6 +21,7 @@ pub enum SceneGraphEvent {
     KeyRelease(SceneKeyReleaseEvent),
     Ime(ImeEvent),
     Clipboard(ClipboardEvent),
+    RuntimeWake(RuntimeWakeEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
@@ -78,6 +80,7 @@ impl SceneGraphEvent {
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
             Self::Ime(..) => SceneGraphEventType::Ime,
             Self::Clipboard(..) => SceneGraphEventType::Clipboard,
+            Self::RuntimeWake(..) => SceneGraphEventType::RuntimeWake,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
@@ -107,6 +110,7 @@ pub enum SceneGraphEventType {
     KeyRelease,
     Ime,
     Clipboard,
+    RuntimeWake,
     CursorMoved,
     MarkMouseEnter,
     MarkMouseLeave,

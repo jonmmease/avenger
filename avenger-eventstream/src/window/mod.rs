@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use smol_str::SmolStr;
 
+use crate::runtime::RuntimeWakeEvent;
+
 mod winit;
 
 /// Native window events, in logical coordinates
@@ -22,6 +24,7 @@ pub enum WindowEvent {
     KeyboardInput(WindowKeyboardInput),
     Ime(ImeEvent),
     Clipboard(ClipboardEvent),
+    RuntimeWake(RuntimeWakeEvent),
     Touch(WindowTouch),
     InteractionSettled { generation: u64 },
     FileChanged(WindowFileChangedEvent),
@@ -43,6 +46,7 @@ impl WindowEvent {
                 | Self::KeyboardInput(_)
                 | Self::Ime(_)
                 | Self::Clipboard(_)
+                | Self::RuntimeWake(_)
                 | Self::FileChanged(_)
                 | Self::InteractionSettled { .. }
                 | Self::WindowResizeSettled(_)

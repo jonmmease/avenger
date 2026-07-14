@@ -32,6 +32,9 @@ fn render_pending_event_key(event: &WindowEvent) -> RenderPendingEventKey {
         WindowEvent::Touch(_) => RenderPendingEventKey::Touch,
         WindowEvent::MouseInput(_)
         | WindowEvent::KeyboardInput(_)
+        | WindowEvent::Ime(_)
+        | WindowEvent::Clipboard(_)
+        | WindowEvent::RuntimeWake(_)
         | WindowEvent::FileChanged(_)
         | WindowEvent::WindowResizeSettled(_)
         | WindowEvent::CanvasResizeSettled(_)

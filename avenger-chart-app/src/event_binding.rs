@@ -2476,6 +2476,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             rerender: true,
             rebuild_geometry: self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact,
             cursor,
+            commands: Vec::new(),
         }
     }
 }
@@ -4688,6 +4689,7 @@ fn event_type_name(event_type: SceneGraphEventType) -> &'static str {
         SceneGraphEventType::KeyRelease => "key_release",
         SceneGraphEventType::Ime => "ime",
         SceneGraphEventType::Clipboard => "clipboard",
+        SceneGraphEventType::RuntimeWake => "runtime-wake",
         SceneGraphEventType::CursorMoved => "cursor_moved",
         SceneGraphEventType::MarkMouseEnter => "mark_mouse_enter",
         SceneGraphEventType::MarkMouseLeave => "mark_mouse_leave",

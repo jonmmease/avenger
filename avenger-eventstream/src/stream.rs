@@ -10,28 +10,14 @@ use avenger_scenegraph::marks::mark::MarkInstance;
 
 use crate::{
     manager::EventStreamHandler,
+    runtime::{
+        DebouncedCommit, DebouncedCommitUpdate, RuntimeHostCommand, RuntimeWakeEvent,
+        RuntimeWakeKey,
+    },
     scene::{SceneGraphEvent, SceneGraphEventType},
 };
 
-#[derive(Clone, Default)]
-pub struct DebounceConfig {
-    /// The number of milliseconds to delay
-    pub wait: u64,
-    /// The maximum time func is allowed to be delayed before it's invoked
-    pub max_wait: Option<u64>,
-    /// Specify invoking on the leading edge of the timeout
-    pub leading: bool,
-}
-
-impl DebounceConfig {
-    pub fn new(wait: u64) -> Self {
-        Self {
-            wait,
-            leading: false,
-            max_wait: None,
-        }
-    }
-}
+pub use crate::runtime::DebounceConfig;
 
 #[derive(Clone, Debug)]
 pub struct EventStreamEventSnapshot {
@@ -150,13 +136,17 @@ pub struct EventStreamConfig {
 
     /// Minimum time (in milliseconds) between events
     pub throttle: Option<u64>,
+
+    /// Debounce matching events through the host's exact wake-up scheduler.
+    pub debounce: Option<DebounceConfig>,
 }
 
-#[derive(Clone, Default, Debug, Copy)]
+#[derive(Clone, Default, Debug)]
 pub struct UpdateStatus {
     pub rerender: bool,
     pub rebuild_geometry: bool,
     pub cursor: Option<CursorStyle>,
+    pub commands: Vec<RuntimeHostCommand>,
 }
 
 impl UpdateStatus {
@@ -165,6 +155,12 @@ impl UpdateStatus {
             rerender: self.rerender || other.rerender,
             rebuild_geometry: self.rebuild_geometry || other.rebuild_geometry,
             cursor: other.cursor.or(self.cursor),
+            commands: self
+                .commands
+                .iter()
+                .chain(&other.commands)
+                .cloned()
+                .collect(),
         }
     }
 }
@@ -177,6 +173,14 @@ pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
     pub(crate) last_handled_time: Option<Instant>,
     pub(crate) previous_event: Option<EventStreamEventSnapshot>,
     pub(crate) handler: Arc<dyn EventStreamHandler<State>>,
+    debounce: Option<DebouncedCommit<DebouncedEvent>>,
+    wake_key: RuntimeWakeKey,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DebouncedEvent {
+    pub(crate) event: SceneGraphEvent,
+    pub(crate) context: EventStreamContext,
 }
 
 #[derive(Clone)]
@@ -202,6 +206,18 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         config: EventStreamConfig,
         handler: Arc<dyn EventStreamHandler<State>>,
     ) -> Self {
+        Self::new_with_wake_key(
+            config,
+            handler,
+            RuntimeWakeKey::new("event-stream", 0, "standalone"),
+        )
+    }
+
+    pub(crate) fn new_with_wake_key(
+        config: EventStreamConfig,
+        handler: Arc<dyn EventStreamHandler<State>>,
+        wake_key: RuntimeWakeKey,
+    ) -> Self {
         // Initialize between_state if config.between is specified
         let between_state = config
             .between
@@ -218,13 +234,47 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
                 )),
             });
 
+        let debounce = config.debounce.clone().map(DebouncedCommit::new);
         Self {
             config,
             between_state,
             last_handled_time: None,
             previous_event: None,
             handler,
+            debounce,
+            wake_key,
         }
+    }
+
+    pub(crate) fn debounce_submission(
+        &mut self,
+        event: &SceneGraphEvent,
+        context: EventStreamContext,
+        now: Instant,
+    ) -> Option<DebouncedCommitUpdate<DebouncedEvent>> {
+        self.debounce.as_mut().map(|debounce| {
+            debounce.submit(
+                DebouncedEvent {
+                    event: event.clone(),
+                    context,
+                },
+                now,
+                &self.wake_key,
+            )
+        })
+    }
+
+    pub(crate) fn handle_runtime_wakeup(
+        &mut self,
+        wake: &RuntimeWakeEvent,
+        now: Instant,
+    ) -> Option<DebouncedCommitUpdate<DebouncedEvent>> {
+        if wake.key != self.wake_key {
+            return None;
+        }
+        self.debounce
+            .as_mut()
+            .map(|debounce| debounce.handle_wakeup(wake, now))
     }
 
     pub(crate) fn matches_and_update(
@@ -424,21 +474,36 @@ mod tests {
 
     #[test]
     fn update_status_merge_prefers_newer_cursor() {
+        let first_key = RuntimeWakeKey::new("test", 1, "first");
+        let second_key = RuntimeWakeKey::new("test", 1, "second");
         let first = UpdateStatus {
             rerender: true,
             rebuild_geometry: false,
             cursor: Some(CursorStyle::Crosshair),
+            commands: vec![RuntimeHostCommand::CancelWakeup {
+                key: first_key.clone(),
+            }],
         };
         let second = UpdateStatus {
             rerender: false,
             rebuild_geometry: true,
             cursor: Some(CursorStyle::Grab),
+            commands: vec![RuntimeHostCommand::CancelWakeup {
+                key: second_key.clone(),
+            }],
         };
 
         let merged = first.merge(&second);
         assert!(merged.rerender);
         assert!(merged.rebuild_geometry);
         assert_eq!(merged.cursor, Some(CursorStyle::Grab));
+        assert_eq!(
+            merged.commands,
+            vec![
+                RuntimeHostCommand::CancelWakeup { key: first_key },
+                RuntimeHostCommand::CancelWakeup { key: second_key },
+            ]
+        );
     }
 
     #[test]
