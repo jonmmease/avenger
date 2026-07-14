@@ -7,10 +7,10 @@ The shared composed/native artifact contracts, PixelFrame host, CSS part
 machinery, mixed chrome solve, Checkbox, Button, CheckboxList,
 RadioButtonList, Slider, WidgetCell content tracks, and explicit-frame hosting
 and the native-widget/TextInput runtime are implemented; parameter-change
-reactions remain planned.
+reactions are now in active implementation.
 Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. Phases W1-W5 are complete; W6 remains planned
+in-repo Typst-based text stack. Phases W1-W5 are complete; W6 is active
 in the active implementation plan at
 `scratch/2026-07-09/02-widgets/plan.md`.
 Rust-first implementation plan for the widget paradigm: interactive input
@@ -838,6 +838,17 @@ both `ChartParamChangeBinding::on(clear.activation_param())` and
 expressions can also copy or transform one parameter into another. A separate
 runtime-only host subscription may be added later, but no serialized
 `on_param_change` Rust closure is part of this contract.
+
+Execution receipt (2026-07-14): the pre-W6 implementation has one flattened
+action path in `avenger-chart-core::event::ChartEventBinding`; Plot and compiled
+artifacts serialize that binding directly, while `avenger-chart-app` compiles
+its filter/param/store/selection expressions into one physical scalar program.
+Root values are mirrored by `ChartParamState`, busy-runtime host writes are
+currently coalesced in one `IndexMap`, and event, resize, composed-widget, and
+native-widget writes enter through separate application seams. W6 therefore
+extracts the action payload first, preserves legacy flattened JSON through an
+explicit migration fixture, and only then replaces those seams with the pinned
+root/shared FIFO transaction coordinator.
 
 ## Theming And Testing
 
