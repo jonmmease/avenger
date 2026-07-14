@@ -237,7 +237,8 @@ impl ChartState {
 #[derive(Clone, Debug)]
 struct IrisSceneGraphBuilder;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl SceneGraphBuilder<ChartState> for IrisSceneGraphBuilder {
     async fn build(&self, state: &mut ChartState) -> Result<SceneGraph, AvengerAppError> {
         Ok(make_scene_graph(state))
@@ -452,7 +453,8 @@ pub async fn run() {
 // Panning (record click anchor)
 struct PanningClick;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for PanningClick {
     async fn handle(
         &self,
@@ -499,7 +501,8 @@ impl EventStreamHandler<ChartState> for PanningClick {
 // Panning (dragging)
 struct PanningDrag;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for PanningDrag {
     async fn handle(
         &self,
@@ -553,7 +556,8 @@ impl EventStreamHandler<ChartState> for PanningDrag {
 // Panning (release)
 struct PanningRelease;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for PanningRelease {
     async fn handle(
         &self,
@@ -573,7 +577,8 @@ impl EventStreamHandler<ChartState> for PanningRelease {
 // wheel zoom
 struct WheelZoom;
 
-#[async_trait::async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 impl EventStreamHandler<ChartState> for WheelZoom {
     async fn handle(
         &self,

@@ -41,6 +41,11 @@ use winit::{
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen_futures::spawn_local;
 
+#[cfg(any(test, target_arch = "wasm32"))]
+mod text_agent;
+#[cfg(target_arch = "wasm32")]
+pub use text_agent::TextAgentHost;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod file_watcher;
 #[cfg(not(target_arch = "wasm32"))]
@@ -589,6 +594,8 @@ where
     modifiers: keyboard::ModifiersState,
     #[cfg(not(target_arch = "wasm32"))]
     runtime_wake_scheduler: NativeRuntimeWakeScheduler,
+    #[cfg(target_arch = "wasm32")]
+    text_agent: std::rc::Rc<std::cell::RefCell<Option<TextAgentHost>>>,
 
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
     /// used to log inter-frame delta / fps alongside surface_render_ms.
@@ -691,6 +698,8 @@ where
             modifiers: keyboard::ModifiersState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             runtime_wake_scheduler,
+            #[cfg(target_arch = "wasm32")]
+            text_agent: std::rc::Rc::new(std::cell::RefCell::new(None)),
             #[cfg(not(target_arch = "wasm32"))]
             last_redraw: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -729,6 +738,7 @@ where
                 let app_clone = self.avenger_app.clone();
                 let event_clone = event.clone();
                 let canvas_shared = self.canvas.clone();
+                let text_agent = self.text_agent.clone();
 
                 #[allow(clippy::await_holding_refcell_ref)]
                 let update_future = async move {
@@ -738,8 +748,14 @@ where
                         .await;
 
                     match update_result {
-                        Ok(update) => {
+                        Ok(mut update) => {
+                            if let Some(host) = text_agent.borrow_mut().as_mut() {
+                                host.apply_commands(std::mem::take(&mut update.status.commands));
+                            }
                             if let Some(scene_graph) = update.scene_graph {
+                                if let Some(host) = text_agent.borrow_mut().as_mut() {
+                                    host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
+                                }
                                 let mut canvas_borrowed = canvas_shared.borrow_mut();
                                 if let Some(canvas) = canvas_borrowed.as_mut() {
                                     if let Err(e) = install_scene_graph(
@@ -753,7 +769,6 @@ where
                                     }
                                 }
                             }
-                            let _ = update.status;
                         }
                         Err(e) => {
                             log::error!("Failed to update app: {:?}", e);
@@ -924,6 +939,7 @@ where
             if #[cfg(target_arch = "wasm32")] {
                 let app_clone = self.avenger_app.clone();
                 let canvas_shared = self.canvas.clone();
+                let text_agent = self.text_agent.clone();
                 let invalidation_epoch = invalidation.epoch;
                 let hub_epoch_before = self
                     .render_invalidation_hub
@@ -942,6 +958,9 @@ where
                             return;
                         }
                     };
+                    if let Some(host) = text_agent.borrow_mut().as_mut() {
+                        host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
+                    }
                     let mut canvas_borrowed = canvas_shared.borrow_mut();
                     let Some(canvas) = canvas_borrowed.as_mut() else {
                         return;
@@ -1341,15 +1360,18 @@ where
     fn setup_wasm_canvas(&self, window: &winit::window::Window) {
         use winit::platform::web::WindowExtWebSys;
 
-        web_sys::window()
+        let canvas = web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
                 let dst = doc.get_element_by_id("wasm-example")?;
-                let canvas = web_sys::Element::from(window.canvas().expect("Failed to get canvas"));
+                let canvas = window.canvas().expect("Failed to get canvas");
                 dst.append_child(&canvas).ok()?;
-                Some(())
+                Some(canvas)
             })
             .expect("Couldn't append canvas to document body.");
+        let host = TextAgentHost::new(canvas, self.event_proxy.clone())
+            .expect("failed to install wasm text agent");
+        *self.text_agent.borrow_mut() = Some(host);
     }
 }
 
@@ -1385,6 +1407,11 @@ where
             };
             (scene_graph, dimensions)
         };
+
+        #[cfg(target_arch = "wasm32")]
+        if let Some(host) = self.text_agent.borrow_mut().as_mut() {
+            host.set_logical_canvas_size([scene_graph.width, scene_graph.height]);
+        }
 
         let canvas_future = WindowCanvas::new(window, dimensions, self.canvas_config.clone());
 
