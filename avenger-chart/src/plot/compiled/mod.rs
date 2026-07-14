@@ -549,6 +549,17 @@ impl CompiledPlot {
             .unwrap_or_else(|| Arc::new(Theme::light()))
     }
 
+    /// Append CSS to this compiled chart's theme for subsequent evaluations.
+    ///
+    /// Widget styles and intrinsic measurements are resolved per evaluation,
+    /// so this does not require recompiling data plans or widget expansions.
+    pub fn append_css(&mut self, css: &str) -> Result<(), AvengerChartError> {
+        let theme = self.theme.get_or_insert_with(|| Arc::new(Theme::light()));
+        Arc::make_mut(theme)
+            .append_css(css)
+            .map_err(AvengerChartError::InvalidArgument)
+    }
+
     /// Get title if configured
     pub fn get_title(&self) -> Option<&PlotTitle> {
         self.title.as_ref()

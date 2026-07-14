@@ -40,7 +40,7 @@ use crate::{
     plot::compiled::{
         ChildFrameCoordinateDomainGroupKind, ChildFrameDataSelection, ChildFrameDomainSharingInput,
         ChildFrameLayoutSlot, ChildFrameRegion, ChildFrameRuntime, CompiledPlot,
-        ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot,
+        ComponentsMeasurement, ContainerLabelPlacement, PreparedChildFramePlot, WidgetMeasurement,
         child_frame_container_view_from_concat, child_frame_coordinate_domain_node_for_scale,
         container_path_without_facet_segments, coordinated_child_frame_domain_extents,
         measure_child_frame_container_guide_overflow, render_child_frame_container_guide_labels,
@@ -49,6 +49,7 @@ use crate::{
     render::EvaluationContext,
     scales::{DomainExtent, ScaleRangeBinding},
     theme::Theme,
+    widget_cell::{CompiledWidgetCell, compiled_widget_cell},
 };
 use avenger_chart_core::{
     AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, CoordinateDomainCellKey,
@@ -822,6 +823,8 @@ impl ConcatChildPlacement {
 #[derive(Clone)]
 pub struct ConcatCoordMeasurement {
     pub(crate) children: Vec<ConcatChildMeasurement>,
+    pub(crate) widget_cells: Vec<ConcatWidgetCellMeasurement>,
+    layout_children: Vec<ConcatLayoutChild>,
     pub(crate) placement: ConcatChildPlacement,
     pub(crate) fallback_content_size: Size,
     /// Configured minimum gap between adjacent children (0 when unset).
@@ -842,6 +845,16 @@ impl ConcatCoordMeasurement {
             .find(|child| child.child_index == child_index)
     }
 
+    pub(crate) fn widget_cell(&self, child_index: usize) -> Option<&ConcatWidgetCellMeasurement> {
+        self.widget_cells
+            .iter()
+            .find(|child| child.child_index == child_index)
+    }
+
+    pub(crate) fn member_count(&self) -> usize {
+        self.layout_children.len()
+    }
+
     pub(crate) fn child_scope_key(&self, child_index: usize) -> Option<ChildFrameScopeKey> {
         self.child(child_index)
             .map(ConcatChildMeasurement::scope_key)
@@ -855,7 +868,7 @@ impl ConcatCoordMeasurement {
     }
 
     pub(crate) fn child_frame_regions(&self) -> Result<Vec<ChildFrameRegion>, AvengerChartError> {
-        self.children
+        self.layout_children
             .iter()
             .enumerate()
             .map(|(slot_index, child)| {
@@ -887,6 +900,21 @@ impl ConcatCoordMeasurement {
                 })
             })
             .collect()
+    }
+
+    pub(crate) fn plot_child_frame_regions(
+        &self,
+    ) -> Result<Vec<ChildFrameRegion>, AvengerChartError> {
+        let plot_indices = self
+            .children
+            .iter()
+            .map(|child| child.child_index)
+            .collect::<std::collections::HashSet<_>>();
+        Ok(self
+            .child_frame_regions()?
+            .into_iter()
+            .filter(|region| plot_indices.contains(&region.child_index))
+            .collect())
     }
 
     pub(crate) fn child_frame_region(
@@ -923,7 +951,7 @@ impl ConcatCoordMeasurement {
             plot_height / shape.rows.max(1) as f32,
         );
         let solution = grid_child_frame_solution(
-            &self.children,
+            &self.layout_children,
             *shape,
             base_child_content_size,
             self.min_gap,
@@ -952,10 +980,10 @@ impl ConcatCoordMeasurement {
             ConcatChildPlacement::Band { orientation, .. } => match orientation {
                 Orientation::Horizontal => Some(GridShape {
                     rows: 1,
-                    columns: self.children.len().max(1),
+                    columns: self.layout_children.len().max(1),
                 }),
                 Orientation::Vertical => Some(GridShape {
-                    rows: self.children.len().max(1),
+                    rows: self.layout_children.len().max(1),
                     columns: 1,
                 }),
             },
@@ -980,14 +1008,17 @@ impl ConcatCoordMeasurement {
         if self.layout_coordination_shape().is_none() {
             return Ok(Vec::new());
         }
-        self.children
+        self.layout_children
             .iter()
             .enumerate()
             .map(|child| {
                 let (slot_index, child) = child;
                 Ok(ChildFrameLayoutSlot {
                     child_index: child.child_index,
-                    child_key: child.scope_key().child_key,
+                    child_key: ChildFrameKey::ConcatChild {
+                        index: child.child_index,
+                        key: child.key.clone(),
+                    },
                     slot: self.layout_coordination_slot_for_child(slot_index, child)?,
                 })
             })
@@ -1085,7 +1116,7 @@ impl ConcatCoordMeasurement {
     fn layout_coordination_slot_for_child(
         &self,
         slot_index: usize,
-        child: &ConcatChildMeasurement,
+        child: &ConcatLayoutChild,
     ) -> Result<GridSlot, AvengerChartError> {
         match self.band_direction() {
             Some(Orientation::Horizontal) => Ok(GridSlot {
@@ -1113,21 +1144,14 @@ impl ConcatCoordMeasurement {
     }
 
     fn layout_coordination_grid_items(&self) -> Result<Vec<GridCell>, AvengerChartError> {
-        self.children
+        self.layout_children
             .iter()
             .enumerate()
             .map(|(slot_index, child)| {
-                let frame_demand = child.measurement.frame_demand();
                 Ok(GridCell {
                     slot: self.layout_coordination_slot_for_child(slot_index, child)?,
-                    content_size: Size::new(
-                        child.measurement.plot_area_width,
-                        child.measurement.plot_area_height,
-                    ),
-                    edges: layered_cell_edges(
-                        layout_edges(frame_demand.guide_slabs),
-                        layout_edges(frame_demand.legend_slabs),
-                    ),
+                    content_size: child.content_size,
+                    edges: child.edges,
                 })
             })
             .collect()
@@ -1161,6 +1185,23 @@ pub(crate) struct ConcatChildMeasurement {
     pub(crate) sharing_levels: Vec<ChildFrameSharingLevel>,
     pub(crate) compiled_subplot: Arc<CompiledPlot>,
     pub(crate) measurement: ComponentsMeasurement,
+}
+
+#[derive(Clone)]
+pub(crate) struct ConcatWidgetCellMeasurement {
+    pub(crate) child_index: usize,
+    pub(crate) name: String,
+    pub(crate) widget: CompiledWidgetCell,
+    pub(crate) measurement: WidgetMeasurement,
+}
+
+#[derive(Clone)]
+struct ConcatLayoutChild {
+    child_index: usize,
+    key: Option<String>,
+    grid_placement: Option<GridPlacementConfig>,
+    content_size: Size,
+    edges: Edges<EdgeDemand>,
 }
 
 impl ConcatChildMeasurement {
@@ -1209,43 +1250,32 @@ fn concat_label_placement(concat: &ConcatCoordMeasurement) -> Option<ContainerLa
     }
 }
 
-fn boundary_demand_for_child(
-    direction: Orientation,
-    measurement: &ComponentsMeasurement,
-) -> BoundaryDemand {
-    let slabs = measurement.frame_demand().rendered_envelope;
-    match direction {
-        Orientation::Horizontal => BoundaryDemand {
-            before: slabs.left,
-            after: slabs.right,
-        },
-        Orientation::Vertical => BoundaryDemand {
-            before: slabs.top,
-            after: slabs.bottom,
-        },
-    }
-}
-
 /// (child id, main size, cross size, sibling boundary) for one concat
 /// child on the band axis.
 fn band_input_for_child(
     direction: Orientation,
-    child: &ConcatChildMeasurement,
+    child: &ConcatLayoutChild,
 ) -> (usize, f32, f32, BoundaryDemand) {
     let main_size = match direction {
-        Orientation::Horizontal => child.measurement.plot_area_width,
-        Orientation::Vertical => child.measurement.plot_area_height,
+        Orientation::Horizontal => child.content_size.width,
+        Orientation::Vertical => child.content_size.height,
     };
     let cross_size = match direction {
-        Orientation::Horizontal => child.measurement.plot_area_height,
-        Orientation::Vertical => child.measurement.plot_area_width,
+        Orientation::Horizontal => child.content_size.height,
+        Orientation::Vertical => child.content_size.width,
     };
-    (
-        child.child_index,
-        main_size,
-        cross_size,
-        boundary_demand_for_child(direction, &child.measurement),
-    )
+    let demand = |edge: EdgeDemand| edge.guide + edge.legend;
+    let boundary = match direction {
+        Orientation::Horizontal => BoundaryDemand {
+            before: demand(child.edges.left),
+            after: demand(child.edges.right),
+        },
+        Orientation::Vertical => BoundaryDemand {
+            before: demand(child.edges.top),
+            after: demand(child.edges.bottom),
+        },
+    };
+    (child.child_index, main_size, cross_size, boundary)
 }
 
 struct PreparedConcatChild<'a> {
@@ -1620,6 +1650,97 @@ async fn measure_prepared_concat_child(
     })
 }
 
+async fn measure_concat_widget_cells(
+    compiled_marks: &[Arc<dyn CompiledMark>],
+    host_plot: &CompiledPlot,
+    eval_ctx: &EvaluationContext,
+) -> Result<Vec<ConcatWidgetCellMeasurement>, AvengerChartError> {
+    let mut cells = Vec::new();
+    for mark in compiled_marks {
+        let Some(cell) = compiled_widget_cell(mark.as_ref()) else {
+            continue;
+        };
+        let avenger_chart_core::CompiledWidget::Composed(widget) = cell.widget() else {
+            let avenger_chart_core::CompiledWidget::Native(widget) = cell.widget() else {
+                unreachable!("compiled widget has a known variant")
+            };
+            return Err(AvengerChartError::NativeWidgetRuntimeUnavailable {
+                widget_id: widget.id.clone(),
+                kind: widget.kind.clone(),
+            });
+        };
+        let measurement = host_plot
+            .measure_composed_widget_cell(widget, cell.scale_specs(), eval_ctx)
+            .await?;
+        cells.push(ConcatWidgetCellMeasurement {
+            child_index: cell.child_index(),
+            name: cell.name().to_string(),
+            widget: cell.clone(),
+            measurement,
+        });
+    }
+    Ok(cells)
+}
+
+fn concat_layout_children(
+    children: &[ConcatChildMeasurement],
+    widget_cells: &[ConcatWidgetCellMeasurement],
+) -> Vec<ConcatLayoutChild> {
+    let mut layout_children = children
+        .iter()
+        .map(|child| {
+            let frame_demand = child.measurement.frame_demand();
+            ConcatLayoutChild {
+                child_index: child.child_index,
+                key: child.key.clone(),
+                grid_placement: child.grid_placement,
+                content_size: Size::new(
+                    child.measurement.plot_area_width,
+                    child.measurement.plot_area_height,
+                ),
+                edges: layered_cell_edges(
+                    layout_edges(frame_demand.guide_slabs),
+                    layout_edges(frame_demand.legend_slabs),
+                ),
+            }
+        })
+        .chain(widget_cells.iter().map(|child| {
+            let placement = widget_cell_grid_placement(&child.widget).ok().flatten();
+            ConcatLayoutChild {
+                child_index: child.child_index,
+                key: Some(child.name.clone()),
+                grid_placement: placement,
+                content_size: Size::new(
+                    child.measurement.width.preferred_px,
+                    child.measurement.height.preferred_px,
+                ),
+                edges: Edges::default(),
+            }
+        }))
+        .collect::<Vec<_>>();
+    layout_children.sort_by_key(|child| child.child_index);
+    layout_children
+}
+
+fn widget_cell_grid_placement(
+    cell: &CompiledWidgetCell,
+) -> Result<Option<GridPlacementConfig>, AvengerChartError> {
+    let placement = cell.grid_placement();
+    match (placement.row, placement.column) {
+        (Some(row), Some(column)) => Ok(Some(GridPlacementConfig {
+            row,
+            column,
+            row_span: placement.row_span,
+            column_span: placement.column_span,
+        })),
+        (None, None) => Ok(None),
+        _ => Err(AvengerChartError::InvalidArgument(format!(
+            "WidgetCell '{}' must configure both grid row and column",
+            cell.name()
+        ))),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn measure_concat_coord_system(
     direction: Orientation,
@@ -1632,14 +1753,25 @@ pub(crate) async fn measure_concat_coord_system(
     data: Option<&DataFrame>,
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
+    host_plot: &CompiledPlot,
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
     let subplots = compiled_marks
         .iter()
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
+    let member_indices = compiled_marks
+        .iter()
+        .filter_map(|mark| {
+            compiled_subplot(mark.as_ref())
+                .map(CompiledConcatSubplot::child_index)
+                .or_else(|| {
+                    compiled_widget_cell(mark.as_ref()).map(CompiledWidgetCell::child_index)
+                })
+        })
+        .collect::<Vec<_>>();
     validate_track_sizing(
         main_sizes,
-        subplots.len(),
+        member_indices.len(),
         match direction {
             Orientation::Horizontal => "hconcat widths",
             Orientation::Vertical => "vconcat heights",
@@ -1649,7 +1781,7 @@ pub(crate) async fn measure_concat_coord_system(
         Orientation::Horizontal => plot_width,
         Orientation::Vertical => plot_height,
     };
-    let track_budgets = seeded_track_budgets(main_sizes, subplots.len(), main_budget);
+    let track_budgets = seeded_track_budgets(main_sizes, member_indices.len(), main_budget);
 
     let mut prepared_children = Vec::with_capacity(subplots.len());
     for subplot in subplots {
@@ -1658,9 +1790,12 @@ pub(crate) async fn measure_concat_coord_system(
 
     let child_plot_areas = prepared_children
         .iter()
-        .enumerate()
-        .map(|(index, _)| {
-            let track_budget = track_budgets.get(index).copied().unwrap_or(0.0);
+        .map(|prepared| {
+            let slot = member_indices
+                .iter()
+                .position(|index| *index == prepared.child_index())
+                .unwrap_or(0);
+            let track_budget = track_budgets.get(slot).copied().unwrap_or(0.0);
             match direction {
                 Orientation::Horizontal => Size::new(track_budget, plot_height),
                 Orientation::Vertical => Size::new(plot_width, track_budget),
@@ -1675,7 +1810,7 @@ pub(crate) async fn measure_concat_coord_system(
     )
     .await?;
     let mut children = Vec::with_capacity(prepared_children.len());
-    let child_count = prepared_children.len();
+    let child_count = member_indices.len();
     for (((prepared, coordinated_extents), coordinate_domain_overrides), child_plot_area) in
         prepared_children
             .iter()
@@ -1704,13 +1839,16 @@ pub(crate) async fn measure_concat_coord_system(
         );
     }
 
+    let widget_cells = measure_concat_widget_cells(compiled_marks, host_plot, eval_ctx).await?;
+    let layout_children = concat_layout_children(&children, &widget_cells);
+
     let layout_sizes = layout_track_sizes(main_sizes);
     let (column_sizes, row_sizes) = match direction {
         Orientation::Horizontal => (layout_sizes, None),
         Orientation::Vertical => (None, layout_sizes),
     };
     let solution = band_child_frame_solution(
-        &children,
+        &layout_children,
         direction,
         spacing,
         column_sizes.as_deref(),
@@ -1718,6 +1856,8 @@ pub(crate) async fn measure_concat_coord_system(
     )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
+        widget_cells,
+        layout_children,
         placement: ConcatChildPlacement::Band {
             solution,
             orientation: direction,
@@ -1737,12 +1877,22 @@ pub(crate) async fn measure_grid_concat_coord_system(
     data: Option<&DataFrame>,
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
+    host_plot: &CompiledPlot,
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
     let subplots = compiled_marks
         .iter()
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
-    let grid_shape = resolve_grid_shape(grid, &subplots)?;
+    let widget_cells = measure_concat_widget_cells(compiled_marks, host_plot, eval_ctx).await?;
+    let mut grid_members = subplots
+        .iter()
+        .map(|subplot| (subplot.child_index(), subplot.grid_placement()))
+        .collect::<Vec<_>>();
+    for cell in &widget_cells {
+        grid_members.push((cell.child_index, widget_cell_grid_placement(&cell.widget)?));
+    }
+    grid_members.sort_by_key(|(child_index, _)| *child_index);
+    let grid_shape = resolve_grid_shape(grid, &grid_members)?;
     validate_track_sizing(
         grid.column_widths_config(),
         grid_shape.columns,
@@ -1860,8 +2010,9 @@ pub(crate) async fn measure_grid_concat_coord_system(
 
     let column_sizes = layout_track_sizes(grid.column_widths_config());
     let row_sizes = layout_track_sizes(grid.row_heights_config());
+    let layout_children = concat_layout_children(&children, &widget_cells);
     let solution = grid_child_frame_solution(
-        &children,
+        &layout_children,
         grid_shape,
         base_child_content_size,
         grid.spacing_px(),
@@ -1870,6 +2021,8 @@ pub(crate) async fn measure_grid_concat_coord_system(
     )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
+        widget_cells,
+        layout_children,
         placement: ConcatChildPlacement::Grid {
             solution,
             shape: grid_shape,
@@ -1890,12 +2043,24 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     data: Option<&DataFrame>,
     compiled_marks: &[Arc<dyn CompiledMark>],
     facet_path: &[ScalarValue],
+    host_plot: &CompiledPlot,
 ) -> Result<Box<dyn CoordMeasurement>, AvengerChartError> {
     let subplots = compiled_marks
         .iter()
         .filter_map(|mark| compiled_subplot(mark.as_ref()))
         .collect::<Vec<_>>();
-    let child_count = subplots.len();
+    let widget_cells = measure_concat_widget_cells(compiled_marks, host_plot, eval_ctx).await?;
+    let member_indices = compiled_marks
+        .iter()
+        .filter_map(|mark| {
+            compiled_subplot(mark.as_ref())
+                .map(CompiledConcatSubplot::child_index)
+                .or_else(|| {
+                    compiled_widget_cell(mark.as_ref()).map(CompiledWidgetCell::child_index)
+                })
+        })
+        .collect::<Vec<_>>();
+    let child_count = member_indices.len();
     let columns = resolve_wrap_concat_columns(
         wrap.column_mode(),
         child_count,
@@ -1926,12 +2091,19 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     }
     let semantic_children = prepared_children
         .iter()
-        .enumerate()
-        .map(|(slot_index, prepared)| GridSemanticChild {
+        .map(|prepared| GridSemanticChild {
             child_index: prepared.child_index(),
             placement: GridPlacementConfig {
-                row: slot_index / columns,
-                column: slot_index % columns,
+                row: member_indices
+                    .iter()
+                    .position(|index| *index == prepared.child_index())
+                    .unwrap_or_default()
+                    / columns,
+                column: member_indices
+                    .iter()
+                    .position(|index| *index == prepared.child_index())
+                    .unwrap_or_default()
+                    % columns,
                 row_span: 1,
                 column_span: 1,
             },
@@ -1952,16 +2124,17 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     )
     .await?;
     let mut children = Vec::with_capacity(prepared_children.len());
-    for (
-        slot_index,
-        (((prepared, coordinated_extents), coordinate_domain_overrides), child_plot_area),
-    ) in prepared_children
-        .iter()
-        .zip(domain_coordination.coordinated_domain_extents.iter())
-        .zip(domain_coordination.coordinate_domain_overrides.iter())
-        .zip(child_plot_areas.iter().copied())
-        .enumerate()
+    for (((prepared, coordinated_extents), coordinate_domain_overrides), child_plot_area) in
+        prepared_children
+            .iter()
+            .zip(domain_coordination.coordinated_domain_extents.iter())
+            .zip(domain_coordination.coordinate_domain_overrides.iter())
+            .zip(child_plot_areas.iter().copied())
     {
+        let slot_index = member_indices
+            .iter()
+            .position(|index| *index == prepared.child_index())
+            .unwrap_or_default();
         let facet_scoped_extents = eval_ctx
             .facet_scale_builder_precompute_store()
             .coordinated_child_frame_domain_extents(
@@ -2003,8 +2176,17 @@ pub(crate) async fn measure_wrap_concat_coord_system(
         children.push(child);
     }
 
+    let mut layout_children = concat_layout_children(&children, &widget_cells);
+    for (slot_index, child) in layout_children.iter_mut().enumerate() {
+        child.grid_placement = Some(GridPlacementConfig {
+            row: slot_index / columns,
+            column: slot_index % columns,
+            row_span: 1,
+            column_span: 1,
+        });
+    }
     let solution = grid_child_frame_solution(
-        &children,
+        &layout_children,
         grid_shape,
         child_plot_area,
         wrap.spacing_px(),
@@ -2013,6 +2195,8 @@ pub(crate) async fn measure_wrap_concat_coord_system(
     )?;
     Ok(Box::new(ConcatCoordMeasurement {
         children,
+        widget_cells,
+        layout_children,
         placement: ConcatChildPlacement::Grid {
             solution,
             shape: grid_shape,
@@ -2334,7 +2518,7 @@ impl GridGuideSharingSlots {
 
 fn resolve_grid_shape(
     grid: &GridConcat,
-    subplots: &[&CompiledConcatSubplot],
+    members: &[(usize, Option<GridPlacementConfig>)],
 ) -> Result<GridShape, AvengerChartError> {
     if matches!(grid.rows_config(), Some(0)) || matches!(grid.columns_config(), Some(0)) {
         return Err(AvengerChartError::InvalidArgument(
@@ -2345,11 +2529,11 @@ fn resolve_grid_shape(
     let mut inferred_rows = 0usize;
     let mut inferred_columns = 0usize;
     let mut occupied = std::collections::HashSet::new();
-    for subplot in subplots {
-        let placement = subplot.grid_placement().ok_or_else(|| {
-            AvengerChartError::InvalidArgument(
-                "GridConcat subplots require `.at(row, column)`".to_string(),
-            )
+    for (child_index, placement) in members {
+        let placement = placement.ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "GridConcat child {child_index} requires `.at(row, column)`"
+            ))
         })?;
         if placement.row_span == 0 || placement.column_span == 0 {
             return Err(AvengerChartError::InvalidArgument(
@@ -2389,8 +2573,8 @@ fn resolve_grid_shape(
 
     let rows = grid.rows_config().unwrap_or(inferred_rows);
     let columns = grid.columns_config().unwrap_or(inferred_columns);
-    for subplot in subplots {
-        let placement = subplot.grid_placement().expect("validated above");
+    for (_, placement) in members {
+        let placement = placement.expect("validated above");
         let row_end = placement.row + placement.row_span;
         let column_end = placement.column + placement.column_span;
         if row_end > rows || column_end > columns {
@@ -2427,7 +2611,7 @@ fn layout_bounds_from_rect(rect: avenger_layout::Rect) -> LayoutBounds {
 
 #[allow(clippy::too_many_arguments)]
 fn grid_child_frame_solution(
-    children: &[ConcatChildMeasurement],
+    children: &[ConcatLayoutChild],
     shape: GridShape,
     base_cell_size: Size,
     min_gap: f32,
@@ -2452,7 +2636,7 @@ fn grid_child_frame_solution(
 }
 
 fn band_child_frame_solution(
-    children: &[ConcatChildMeasurement],
+    children: &[ConcatLayoutChild],
     direction: Orientation,
     min_gap: f32,
     column_sizes: Option<&[avenger_layout::TrackSize]>,
@@ -2485,7 +2669,7 @@ fn band_child_frame_solution(
     .map_err(AvengerChartError::InvalidArgument)
 }
 
-fn band_child_items(children: &[ConcatChildMeasurement], direction: Orientation) -> Vec<GridCell> {
+fn band_child_items(children: &[ConcatLayoutChild], direction: Orientation) -> Vec<GridCell> {
     children
         .iter()
         .enumerate()
@@ -2544,9 +2728,7 @@ fn band_child_items(children: &[ConcatChildMeasurement], direction: Orientation)
         .collect()
 }
 
-fn grid_child_items(
-    children: &[ConcatChildMeasurement],
-) -> Result<Vec<GridCell>, AvengerChartError> {
+fn grid_child_items(children: &[ConcatLayoutChild]) -> Result<Vec<GridCell>, AvengerChartError> {
     children
         .iter()
         .map(|child| {
@@ -2558,14 +2740,8 @@ fn grid_child_items(
             })?;
             Ok(GridCell {
                 slot: grid_slot_from_placement(placement),
-                content_size: Size::new(
-                    child.measurement.plot_area_width,
-                    child.measurement.plot_area_height,
-                ),
-                edges: layered_cell_edges(
-                    layout_edges(child.measurement.frame_demand().guide_slabs),
-                    layout_edges(child.measurement.frame_demand().legend_slabs),
-                ),
+                content_size: child.content_size,
+                edges: child.edges,
             })
         })
         .collect()

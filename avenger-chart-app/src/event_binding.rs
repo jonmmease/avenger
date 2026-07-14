@@ -9243,6 +9243,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn widget_cell_button_click_uses_prefixed_target_and_frame_inputs() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<HConcat>::new()
+            .mark(WidgetCell::widget(Button::new("clear").label("Clear")).name("controls"))
+            .compile(&ctx)
+            .await
+            .expect("compile WidgetCell button chart");
+        let compiled: CompiledPlot = bincode::deserialize(
+            &bincode::serialize(&compiled).expect("serialize WidgetCell chart"),
+        )
+        .expect("deserialize WidgetCell chart");
+        let click_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| binding.event_type == ChartEventType::Click)
+            .expect("button click binding");
+        assert_eq!(
+            compiled.event_bindings()[click_index].mark_ids(),
+            &["controls.clear.box", "controls.clear.label"]
+        );
+        let handler = compile_handler_for_binding_index(&compiled, &ctx, click_index);
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial WidgetCell button scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let box_instance = rtree
+            .iter()
+            .find(|geometry| geometry.mark_instance.name == "box")
+            .map(|geometry| geometry.mark_instance.clone())
+            .expect("WidgetCell button box hit target");
+        let click = click_mark(&mut state, &handler, Some(box_instance), [0.0, 0.0], false).await;
+        assert!(click.rerender);
+        assert_eq!(
+            state.params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(1)))
+        );
+    }
+
+    #[tokio::test]
     async fn decorated_treemap_header_click_zooms_and_double_click_resets() {
         let ctx = SessionContext::new();
         let cursor = Param::cursor("decorated_treemap_cursor", CursorStyle::Default);

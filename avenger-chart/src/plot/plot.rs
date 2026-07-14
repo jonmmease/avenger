@@ -14,7 +14,7 @@ use datafusion::{
     common::ScalarValue,
     dataframe::DataFrame,
     functions_window::expr_fn::row_number,
-    prelude::{col, lit},
+    prelude::{SessionContext, col, lit},
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
@@ -108,7 +108,7 @@ fn child_layout_spec(furnishings: &ChildPlotFurnishings) -> LayoutSpec {
     }
 }
 
-fn compile_widget_items(
+pub(crate) fn compile_widget_items(
     widget_id: &str,
     items: WidgetItems,
     session_context: &datafusion::prelude::SessionContext,
@@ -318,6 +318,141 @@ fn compile_widget_items(
         order_column: ORDER.to_string(),
         identity,
         validations,
+    })
+}
+
+pub(crate) struct CompiledComposedWidgetOutput {
+    pub(crate) widget: CompiledComposedWidget,
+    pub(crate) scale_specs: HashMap<String, ScaleSpec>,
+}
+
+pub(crate) async fn compile_composed_widget(
+    widget: &dyn ChartWidget,
+    public_widget_path: &str,
+    session_context: &SessionContext,
+    tool_context: &ToolCompileContext,
+    widget_scene_index: usize,
+    target_path_prefix: Option<&[usize]>,
+) -> Result<CompiledComposedWidgetOutput, AvengerChartError> {
+    let id = widget.id().to_string();
+    validate_structural_id("widget", &id)?;
+    let expansion = widget.expand(WidgetExpansionContext::new(&id))?;
+    let items = expansion
+        .items
+        .clone()
+        .map(|items| compile_widget_items(&id, items, session_context))
+        .transpose()?;
+    let widget_item_dataframe = items
+        .as_ref()
+        .and_then(|items| items.data.dataframe_with_context(session_context));
+    let identity = widget as *const dyn ChartWidget as *const () as usize;
+    let target_paths = target_path_prefix.map(|prefix| {
+        expansion
+            .expansion
+            .marks
+            .iter()
+            .enumerate()
+            .filter_map(|(mark_index, mark)| {
+                mark.state().id.as_deref().map(|part| {
+                    let mut path = Vec::with_capacity(prefix.len() + 1);
+                    path.extend_from_slice(prefix);
+                    path.push(mark_index);
+                    (format!("{public_widget_path}.{part}"), vec![path])
+                })
+            })
+            .collect()
+    });
+    if target_paths.is_some() || public_widget_path != id {
+        tool_context.register_widget_expansion_with_public_path(
+            &id,
+            public_widget_path,
+            identity,
+            &expansion.expansion,
+            target_paths,
+        )?;
+    } else {
+        tool_context.register_widget_expansion(
+            &id,
+            identity,
+            widget_scene_index,
+            &expansion.expansion,
+        )?;
+    }
+
+    let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
+    let mut local_scale_specs = HashMap::new();
+    let mut suppressed_axes = HashMap::new();
+    let mut suppressed_legends = IndexMap::new();
+    let mut local_scale_channels = HashMap::new();
+    let mut relative_target_paths = std::collections::BTreeMap::new();
+    for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
+        let part = mark.state().id.as_ref().ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!(
+                "Widget '{id}' marks must declare stable part ids"
+            ))
+        })?;
+        validate_structural_id("widget part", part)?;
+        if matches!(
+            mark.state().view.as_ref().map(|view| &view.spec),
+            Some(CompiledViewSpec::Cartesian(_))
+        ) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget '{id}' part '{part}' uses a Cartesian view; PixelFrame widget parts must use View::pixel_frame()"
+            )));
+        }
+        crate::plot::channel::extract_channel_configs_from_state(
+            mark.state(),
+            session_context,
+            &PixelFrame,
+            &mut suppressed_axes,
+            &mut suppressed_legends,
+            &mut local_scale_specs,
+            &mut local_scale_channels,
+        )?;
+        let public_target_path = format!("{public_widget_path}.{part}");
+        if relative_target_paths
+            .insert(public_target_path.clone(), vec![vec![mark_index]])
+            .is_some()
+        {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget '{id}' declares duplicate part '{part}'"
+            )));
+        }
+        let state = CompiledMarkState::from_mark_state(
+            mark.state(),
+            widget_item_dataframe
+                .clone()
+                .or_else(|| mark.state().data.dataframe().cloned()),
+        )
+        .with_mark_index(mark_index)
+        .with_public_target_path(Some(public_target_path))
+        .with_widget_theme(avenger_chart_core::WidgetThemeProvenance {
+            widget_kind: widget.kind().to_string(),
+            widget_id: id.clone(),
+            part: part.clone(),
+        });
+        compiled_marks.push(mark.compile(state, session_context).await?);
+    }
+    crate::plot::channel::extract_channel_configs_from_compiled_domain_channels(
+        &compiled_marks,
+        &PixelFrame,
+        &mut suppressed_axes,
+        &mut suppressed_legends,
+        &mut local_scale_specs,
+        &mut local_scale_channels,
+    )?;
+    let presentation = expansion.presentation.compile()?;
+    Ok(CompiledComposedWidgetOutput {
+        widget: CompiledComposedWidget {
+            id,
+            kind: widget.kind().to_string(),
+            marks: compiled_marks,
+            relative_target_paths,
+            measure: expansion.measure,
+            items,
+            presentation,
+        },
+        scale_specs: local_scale_specs,
     })
 }
 
@@ -614,110 +749,27 @@ impl<C: CoordinateSystem> Plot<C> {
         }
         let mut compiled_widgets = Vec::with_capacity(self.widgets.len());
         let mut widget_scale_specs = HashMap::new();
-        let mut native_widget_param_specs = Vec::new();
         let mut composed_widget_scene_index = 0usize;
         for (declaration_order, attachment) in self.widgets.iter().enumerate() {
             let compiled_widget = if let Some(widget) = attachment.source.composed_widget() {
-                let id = widget.id().to_string();
-                validate_structural_id("widget", &id)?;
-                let expansion = widget.expand(WidgetExpansionContext::new(&id))?;
-                let items = expansion
-                    .items
-                    .clone()
-                    .map(|items| compile_widget_items(&id, items, session_context))
-                    .transpose()?;
-                let widget_item_dataframe = items
-                    .as_ref()
-                    .and_then(|items| items.data.dataframe_with_context(session_context));
-                let identity = widget as *const dyn ChartWidget as *const () as usize;
-                tool_context.register_widget_expansion(
-                    &id,
-                    identity,
+                let output = compile_composed_widget(
+                    widget,
+                    widget.id(),
+                    session_context,
+                    &tool_context,
                     composed_widget_scene_index,
-                    &expansion.expansion,
-                )?;
-                let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
-                let mut local_scale_specs = HashMap::new();
-                let mut suppressed_axes = HashMap::new();
-                let mut suppressed_legends = IndexMap::new();
-                let mut local_scale_channels = HashMap::new();
-                let mut relative_target_paths = std::collections::BTreeMap::new();
-                for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
-                    let part = mark.state().id.as_ref().ok_or_else(|| {
-                        AvengerChartError::InvalidArgument(format!(
-                            "Widget '{id}' marks must declare stable part ids"
-                        ))
-                    })?;
-                    validate_structural_id("widget part", part)?;
-                    if matches!(
-                        mark.state().view.as_ref().map(|view| &view.spec),
-                        Some(CompiledViewSpec::Cartesian(_))
-                    ) {
-                        return Err(AvengerChartError::InvalidArgument(format!(
-                            "Widget '{id}' part '{part}' uses a Cartesian view; PixelFrame widget parts must use View::pixel_frame()"
-                        )));
-                    }
-                    crate::plot::channel::extract_channel_configs_from_state(
-                        mark.state(),
-                        session_context,
-                        &PixelFrame,
-                        &mut suppressed_axes,
-                        &mut suppressed_legends,
-                        &mut local_scale_specs,
-                        &mut local_scale_channels,
-                    )?;
-                    let public_target_path = format!("{id}.{part}");
-                    if relative_target_paths
-                        .insert(public_target_path.clone(), vec![vec![mark_index]])
-                        .is_some()
-                    {
-                        return Err(AvengerChartError::InvalidArgument(format!(
-                            "Widget '{id}' declares duplicate part '{part}'"
-                        )));
-                    }
-                    let state = CompiledMarkState::from_mark_state(
-                        mark.state(),
-                        widget_item_dataframe
-                            .clone()
-                            .or_else(|| mark.state().data.dataframe().cloned()),
-                    )
-                    .with_mark_index(mark_index)
-                    .with_public_target_path(Some(public_target_path))
-                    .with_widget_theme(
-                        avenger_chart_core::WidgetThemeProvenance {
-                            widget_kind: widget.kind().to_string(),
-                            widget_id: id.clone(),
-                            part: part.clone(),
-                        },
-                    );
-                    compiled_marks.push(mark.compile(state, session_context).await?);
-                }
-                crate::plot::channel::extract_channel_configs_from_compiled_domain_channels(
-                    &compiled_marks,
-                    &PixelFrame,
-                    &mut suppressed_axes,
-                    &mut suppressed_legends,
-                    &mut local_scale_specs,
-                    &mut local_scale_channels,
-                )?;
-                widget_scale_specs.insert(id.clone(), local_scale_specs);
-                let presentation = expansion.presentation.compile()?;
-                let compiled = CompiledWidget::Composed(CompiledComposedWidget {
-                    id,
-                    kind: widget.kind().to_string(),
-                    marks: compiled_marks,
-                    relative_target_paths,
-                    measure: expansion.measure,
-                    items,
-                    presentation,
-                });
+                    None,
+                )
+                .await?;
+                widget_scale_specs.insert(output.widget.id.clone(), output.scale_specs);
                 composed_widget_scene_index += 1;
-                compiled
+                CompiledWidget::Composed(output.widget)
             } else if let Some(widget) = attachment.source.native_widget() {
                 let id = widget.id().to_string();
                 validate_structural_id("widget", &id)?;
                 let state = widget.state();
-                native_widget_param_specs.extend(state.params().iter().cloned());
+                let identity = widget as *const dyn NativeWidget as *const () as usize;
+                tool_context.register_native_widget(&id, identity, &state)?;
                 CompiledWidget::Native(CompiledNativeWidgetSpec {
                     id,
                     kind: widget.kind().to_string(),
@@ -921,7 +973,6 @@ impl<C: CoordinateSystem> Plot<C> {
         // Build param specs in stable declaration order and reject duplicates
         // across explicit root declarations and tool-generated state.
         let mut param_source_specs = root_param_specs;
-        param_source_specs.extend(native_widget_param_specs);
         let mut store_source_specs = Vec::new();
         let legend_colorbar_overlays = compile_colorbar_overlays(&legends, session_context).await?;
         for legend in legends.values_mut() {
@@ -949,6 +1000,7 @@ impl<C: CoordinateSystem> Plot<C> {
         if is_root {
             let artifacts = tool_context.finalize_root()?;
             param_source_specs.extend(artifacts.param_specs);
+            param_source_specs.extend(artifacts.native_widget_param_specs);
             for cursor_param in artifacts.cursor_params {
                 if !cursor_params.contains(&cursor_param) {
                     cursor_params.push(cursor_param);

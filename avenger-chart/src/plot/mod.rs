@@ -19,7 +19,7 @@ pub use compiled::{
     StoreStateUpdate,
 };
 pub use plot::Plot;
-pub(crate) use plot::RootChartFurnishings;
+pub(crate) use plot::{RootChartFurnishings, compile_composed_widget};
 
 // Re-export title types
 pub use avenger_chart_core::{TitleAlign, TitleSpan};

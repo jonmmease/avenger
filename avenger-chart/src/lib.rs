@@ -145,6 +145,7 @@ pub mod transforms {
     pub use avenger_chart_transforms::*;
 }
 pub mod utils;
+pub mod widget_cell;
 pub mod zerod;
 
 #[cfg(feature = "parallel")]

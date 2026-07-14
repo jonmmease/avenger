@@ -5,7 +5,7 @@ use datafusion::{common::ScalarValue, dataframe::DataFrame};
 use crate::{
     error::AvengerChartError,
     marks::CompiledMark,
-    plot::compiled::ComponentsMeasurement,
+    plot::compiled::{CompiledPlot, ComponentsMeasurement},
     render::{CoordinationCheckpoint, EvaluationContext},
     scales::{ConfiguredScaleWithSpec, domain_extent::DomainExtent},
 };
@@ -74,6 +74,7 @@ pub async fn coordinate_overflow_for_guides_until(
 /// every coordinate-system implementation again.
 #[derive(Clone, Copy)]
 pub struct CoordMeasureRequest<'a> {
+    plot: &'a CompiledPlot,
     scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
     plot_width: f32,
     plot_height: f32,
@@ -85,6 +86,7 @@ pub struct CoordMeasureRequest<'a> {
 
 impl<'a> CoordMeasureRequest<'a> {
     pub(crate) fn new(
+        plot: &'a CompiledPlot,
         scales: &'a HashMap<String, ConfiguredScaleWithSpec>,
         plot_width: f32,
         plot_height: f32,
@@ -94,6 +96,7 @@ impl<'a> CoordMeasureRequest<'a> {
         facet_path: &'a [ScalarValue],
     ) -> Self {
         Self {
+            plot,
             scales,
             plot_width,
             plot_height,
@@ -102,6 +105,10 @@ impl<'a> CoordMeasureRequest<'a> {
             compiled_marks,
             facet_path,
         }
+    }
+
+    pub(crate) fn plot(&self) -> &'a CompiledPlot {
+        self.plot
     }
 
     pub(crate) fn scales(&self) -> &'a HashMap<String, ConfiguredScaleWithSpec> {
@@ -209,6 +216,7 @@ pub(crate) async fn measure_coordinate_system_transform(
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
+            request.plot(),
         ))
         .await;
     }
@@ -225,6 +233,7 @@ pub(crate) async fn measure_coordinate_system_transform(
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
+            request.plot(),
         ))
         .await;
     }
@@ -238,6 +247,7 @@ pub(crate) async fn measure_coordinate_system_transform(
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
+            request.plot(),
         ))
         .await;
     }
@@ -251,6 +261,7 @@ pub(crate) async fn measure_coordinate_system_transform(
             request.data(),
             request.compiled_marks(),
             request.facet_path(),
+            request.plot(),
         ))
         .await;
     }

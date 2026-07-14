@@ -550,7 +550,7 @@ impl CompiledConcatSubplot {
 
             let child_scopes = std::mem::take(&mut components.interaction_scopes);
             if !child_scopes.is_empty() {
-                let child_count = concat_measurement.children().len();
+                let child_count = concat_measurement.member_count();
                 let child_frame_segment =
                     self.interaction_child_frame_segment(concat_measurement, child, child_count)?;
                 let translated = child_scopes.into_iter().map(|mut scope| {

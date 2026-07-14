@@ -119,6 +119,26 @@ impl ToolCompileContext {
         }
     }
 
+    pub(crate) fn target_path_with_child(&self, child_index: usize) -> Vec<usize> {
+        let mut path = self.coord_node_path.clone();
+        path.push(child_index);
+        path
+    }
+
+    pub(crate) fn register_native_widget(
+        &self,
+        id: &str,
+        identity: usize,
+        state_spec: &avenger_chart_core::NativeWidgetStateSpec,
+    ) -> Result<(), AvengerChartError> {
+        let mut state = self.state.lock().expect("tool compile state lock poisoned");
+        state.register_widget_identity(id, identity)?;
+        state
+            .native_widget_param_specs
+            .extend(state_spec.params().iter().cloned());
+        Ok(())
+    }
+
     pub(crate) fn expand_local_tools<C: CoordinateSystemCore>(
         &self,
         tools: &[Arc<dyn ChartTool<C>>],
@@ -182,6 +202,37 @@ impl ToolCompileContext {
         widget_scene_index: usize,
         expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
     ) -> Result<(), AvengerChartError> {
+        self.register_widget_expansion_with_public_path(
+            id,
+            id,
+            identity,
+            expansion,
+            (!self.coord_node_path.is_empty()).then(|| {
+                expansion
+                    .marks
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(mark_index, mark)| {
+                        mark.state().id.as_deref().map(|part| {
+                            (
+                                format!("{id}.{part}"),
+                                vec![vec![widget_scene_index, mark_index]],
+                            )
+                        })
+                    })
+                    .collect()
+            }),
+        )
+    }
+
+    pub(crate) fn register_widget_expansion_with_public_path(
+        &self,
+        id: &str,
+        public_widget_path: &str,
+        identity: usize,
+        expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
+        target_paths: Option<BTreeMap<String, Vec<Vec<usize>>>>,
+    ) -> Result<(), AvengerChartError> {
         let mut expansion = expansion.clone();
         let mut all_targets = HashSet::new();
         let mut interactive_targets = Vec::new();
@@ -211,17 +262,41 @@ impl ToolCompileContext {
                 // pointer leaves the widget that owns the captured start.
             }
         }
+        let public_target = |target: &str| {
+            target
+                .strip_prefix(&format!("{id}."))
+                .map(|part| format!("{public_widget_path}.{part}"))
+                .unwrap_or_else(|| target.to_string())
+        };
+        for binding in &mut expansion.event_bindings {
+            *binding = binding.clone().marks(
+                binding
+                    .mark_ids()
+                    .iter()
+                    .map(|target| public_target(target)),
+            );
+            if let Some(between) = &mut binding.between {
+                between.start = between.start.clone().marks(
+                    between
+                        .start
+                        .mark_ids()
+                        .iter()
+                        .map(|target| public_target(target)),
+                );
+                between.end = between.end.clone().marks(
+                    between
+                        .end
+                        .mark_ids()
+                        .iter()
+                        .map(|target| public_target(target)),
+                );
+            }
+        }
         self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
         let mut state = self.state.lock().expect("tool compile state lock poisoned");
-        if !self.coord_node_path.is_empty() {
-            for (mark_index, mark) in expansion.marks.iter().enumerate() {
-                let Some(part) = mark.state().id.as_deref() else {
-                    continue;
-                };
-                state.register_child_widget_target(
-                    format!("{id}.{part}"),
-                    vec![vec![widget_scene_index, mark_index]],
-                )?;
+        if let Some(target_paths) = target_paths {
+            for (target, paths) in target_paths {
+                state.register_child_widget_target(target, paths)?;
             }
         }
         state.register_expansion(id, identity, &expansion)
@@ -402,9 +477,27 @@ struct ToolCompileState {
     metadata: Vec<ToolMetadata>,
     expected_targets: BTreeMap<(String, String, String), usize>,
     child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
+    native_widget_param_specs: Vec<CompiledParamSpec>,
 }
 
 impl ToolCompileState {
+    fn register_widget_identity(
+        &mut self,
+        id: &str,
+        identity: usize,
+    ) -> Result<(), AvengerChartError> {
+        match self.tool_ids.get(id) {
+            Some(existing) if *existing == identity => Ok(()),
+            Some(_) => Err(AvengerChartError::InvalidArgument(format!(
+                "Duplicate chart tool or widget id '{id}'"
+            ))),
+            None => {
+                self.tool_ids.insert(id.to_string(), identity);
+                Ok(())
+            }
+        }
+    }
+
     fn register_child_widget_target(
         &mut self,
         target: String,
@@ -654,6 +747,7 @@ impl ToolCompileState {
         }
         Ok(ToolArtifacts {
             param_specs,
+            native_widget_param_specs: self.native_widget_param_specs.clone(),
             cursor_params: self.cursor_params.clone(),
             store_specs: self.stores.values().cloned().collect(),
             selection_specs: self.selections.values().cloned().collect(),
@@ -674,6 +768,7 @@ struct GeneratedParamState {
 
 pub(crate) struct ToolArtifacts {
     pub param_specs: Vec<CompiledParamSpec>,
+    pub native_widget_param_specs: Vec<CompiledParamSpec>,
     pub cursor_params: Vec<String>,
     pub store_specs: Vec<CompiledStoreSpec>,
     pub selection_specs: Vec<CompiledSelectionSpec>,

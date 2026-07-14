@@ -27,6 +27,7 @@ pub use crate::event::{
 pub use crate::facet::coord::{FacetColumn, FacetRow, FacetWrap};
 pub use crate::repeat;
 pub use crate::repeat::{RepeatCell, RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap};
+pub use crate::widget_cell::{WidgetCell, WidgetCellCoordinate};
 pub use avenger_chart_cartesian::{Cartesian, CartesianUnitAspect};
 pub use avenger_chart_core::time;
 pub use avenger_chart_core::{

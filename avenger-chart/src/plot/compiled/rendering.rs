@@ -628,51 +628,62 @@ fn collect_widget_descendant_frame_paths(
 }
 
 fn evaluated_widget_frames(
-    widget_container: &SceneMark,
-    widget_container_index: usize,
+    marks: &[SceneMark],
     runtime_inputs: &IndexMap<String, IndexMap<String, ScalarValue>>,
 ) -> EvaluatedWidgetFrameState {
     let mut state = EvaluatedWidgetFrameState::default();
-    let SceneMark::Group(container) = widget_container else {
-        return state;
-    };
-    for (widget_index, mark) in container.marks.iter().enumerate() {
-        let SceneMark::Group(widget) = mark else {
-            continue;
+    fn visit(
+        mark: &SceneMark,
+        path: &mut Vec<usize>,
+        parent_origin: [f32; 2],
+        runtime_inputs: &IndexMap<String, IndexMap<String, ScalarValue>>,
+        state: &mut EvaluatedWidgetFrameState,
+    ) {
+        let SceneMark::Group(group) = mark else {
+            return;
         };
-        let Some(widget_runtime_inputs) = runtime_inputs.get(&widget.name) else {
-            continue;
-        };
-        let Some(width) = widget_runtime_inputs
-            .get(WIDGET_FRAME_WIDTH_INPUT)
-            .and_then(|value| match value {
-                ScalarValue::Float32(Some(value)) => Some(*value),
-                _ => None,
-            })
-        else {
-            continue;
-        };
-        let Some(height) = widget_runtime_inputs
-            .get(WIDGET_FRAME_HEIGHT_INPUT)
-            .and_then(|value| match value {
-                ScalarValue::Float32(Some(value)) => Some(*value),
-                _ => None,
-            })
-        else {
-            continue;
-        };
-        let frame = EvaluatedWidgetFrame {
-            widget_id: widget.name.clone(),
-            bounds: LayoutBounds {
-                x: container.origin[0] + widget.origin[0],
-                y: container.origin[1] + widget.origin[1],
-                width,
-                height,
-            },
-            runtime_inputs: widget_runtime_inputs.clone(),
-        };
-        let mut path = vec![0, widget_container_index, widget_index];
-        collect_widget_descendant_frame_paths(mark, &mut path, &frame, &mut state);
+        let origin = [
+            parent_origin[0] + group.origin[0],
+            parent_origin[1] + group.origin[1],
+        ];
+        if let Some(widget_runtime_inputs) = runtime_inputs.get(&group.name) {
+            let width = widget_runtime_inputs
+                .get(WIDGET_FRAME_WIDTH_INPUT)
+                .and_then(|value| match value {
+                    ScalarValue::Float32(Some(value)) => Some(*value),
+                    _ => None,
+                });
+            let height = widget_runtime_inputs
+                .get(WIDGET_FRAME_HEIGHT_INPUT)
+                .and_then(|value| match value {
+                    ScalarValue::Float32(Some(value)) => Some(*value),
+                    _ => None,
+                });
+            if let (Some(width), Some(height)) = (width, height) {
+                let frame = EvaluatedWidgetFrame {
+                    widget_id: group.name.clone(),
+                    bounds: LayoutBounds {
+                        x: origin[0],
+                        y: origin[1],
+                        width,
+                        height,
+                    },
+                    runtime_inputs: widget_runtime_inputs.clone(),
+                };
+                collect_widget_descendant_frame_paths(mark, path, &frame, state);
+                return;
+            }
+        }
+        for (index, child) in group.marks.iter().enumerate() {
+            path.push(index);
+            visit(child, path, origin, runtime_inputs, state);
+            path.pop();
+        }
+    }
+
+    for (index, mark) in marks.iter().enumerate() {
+        let mut path = vec![index];
+        visit(mark, &mut path, [0.0, 0.0], runtime_inputs, &mut state);
     }
     state
 }
@@ -2589,6 +2600,15 @@ impl CompiledPlot {
                 .map(RenderedMarkOutput::marks_only);
         }
 
+        if let Some(cell) = crate::widget_cell::compiled_widget_cell(mark) {
+            if phase == MarkRenderPhase::Derived {
+                return Ok(RenderedMarkOutput::marks_only(vec![]));
+            }
+            return self
+                .render_composed_widget_cell(cell, eval_ctx, coord_measurement)
+                .await;
+        }
+
         if let Some(overlay) = mark.as_coordinate_slot_overlay() {
             if phase == MarkRenderPhase::Derived {
                 return Ok(RenderedMarkOutput::marks_only(vec![]));
@@ -2694,7 +2714,7 @@ impl CompiledPlot {
         &self,
         eval_ctx: &EvaluationContext,
         measurements: &IndexMap<String, WidgetMeasurement>,
-        frame_layout: &FrameLayout,
+        frame_layout: Option<&FrameLayout>,
     ) -> Result<RenderedWidgetGroups, AvengerChartError> {
         let mut renderer = self.clone();
         renderer.coord_transform = Box::new(PixelFrame);
@@ -2721,12 +2741,14 @@ impl CompiledPlot {
                 ))
             })?;
             let (origin, width, height) = if measurement.position.is_some() {
-                let bounds = frame_layout.widgets.get(&widget.id).ok_or_else(|| {
-                    AvengerChartError::InternalError(format!(
-                        "Missing realized chrome bounds for widget '{}'",
-                        widget.id
-                    ))
-                })?;
+                let bounds = frame_layout
+                    .and_then(|layout| layout.widgets.get(&widget.id))
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "Missing realized chrome bounds for widget '{}'",
+                            widget.id
+                        ))
+                    })?;
                 ([bounds.x, bounds.y], bounds.width, bounds.height)
             } else {
                 (
@@ -3068,6 +3090,94 @@ impl CompiledPlot {
             );
         }
         Ok(measurements)
+    }
+
+    pub(crate) async fn measure_composed_widget_cell(
+        &self,
+        widget: &avenger_chart_core::CompiledComposedWidget,
+        scale_specs: &HashMap<String, avenger_chart_scales::PlotScaleSpec>,
+        eval_ctx: &EvaluationContext,
+    ) -> Result<WidgetMeasurement, AvengerChartError> {
+        let mut host = self.clone();
+        host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
+            widget: avenger_chart_core::CompiledWidget::Composed(widget.clone()),
+            placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
+            declaration_order: 0,
+        }];
+        host.widget_scale_specs = [(widget.id.clone(), scale_specs.clone())]
+            .into_iter()
+            .collect();
+        host.measure_composed_widgets(eval_ctx)
+            .await?
+            .shift_remove(&widget.id)
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "WidgetCell '{}' produced no composed-widget measurement",
+                    widget.id
+                ))
+            })
+    }
+
+    async fn render_composed_widget_cell(
+        &self,
+        cell: &crate::widget_cell::CompiledWidgetCell,
+        eval_ctx: &EvaluationContext,
+        coord_measurement: &dyn CoordMeasurement,
+    ) -> Result<RenderedMarkOutput, AvengerChartError> {
+        let concat = coord_measurement
+            .as_any()
+            .downcast_ref::<crate::concat::ConcatCoordMeasurement>()
+            .ok_or_else(|| {
+                AvengerChartError::InternalError(
+                    "WidgetCell requires ConcatCoordMeasurement".to_string(),
+                )
+            })?;
+        let measured = concat.widget_cell(cell.child_index()).ok_or_else(|| {
+            AvengerChartError::InternalError(format!(
+                "Missing WidgetCell measurement for child {}",
+                cell.child_index()
+            ))
+        })?;
+        let region = concat.child_frame_region(cell.child_index())?;
+        let avenger_chart_core::CompiledWidget::Composed(widget) = cell.widget() else {
+            let avenger_chart_core::CompiledWidget::Native(widget) = cell.widget() else {
+                unreachable!("compiled widget has a known variant")
+            };
+            return Err(AvengerChartError::NativeWidgetRuntimeUnavailable {
+                widget_id: widget.id.clone(),
+                kind: widget.kind.clone(),
+            });
+        };
+
+        let mut host = self.clone();
+        host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
+            widget: avenger_chart_core::CompiledWidget::Composed(widget.clone()),
+            placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
+            declaration_order: 0,
+        }];
+        host.widget_scale_specs = [(widget.id.clone(), cell.scale_specs().clone())]
+            .into_iter()
+            .collect();
+        let mut realized_measurement = measured.measurement.clone();
+        realized_measurement.width.preferred_px = region.content.width;
+        realized_measurement.height.preferred_px = region.content.height;
+        let measurements = [(widget.id.clone(), realized_measurement)]
+            .into_iter()
+            .collect();
+        let rendered = host
+            .render_composed_widget_groups(eval_ctx, &measurements, None)
+            .await?;
+        Ok(RenderedMarkOutput {
+            marks: vec![SceneMark::Group(SceneGroup {
+                name: cell.name().to_string(),
+                origin: [region.content.x, region.content.y],
+                clip: Clip::None,
+                interactive: false,
+                marks: rendered.marks,
+                ..Default::default()
+            })],
+            event_datums: prefix_event_datum_rows(rendered.event_datums, &[0]),
+        })
     }
 
     async fn build_composed_widget_scale_builder(
@@ -5628,6 +5738,7 @@ impl CompiledPlot {
         Box::pin(measure_coordinate_system_transform(
             self.coord_transform.as_ref(),
             CoordMeasureRequest::new(
+                self,
                 scales,
                 plot_area_width,
                 plot_area_height,
@@ -6436,9 +6547,38 @@ impl CompiledPlot {
             .render_composed_widget_groups(
                 &mark_eval_ctx,
                 &measurement.widget_measurements,
-                &measurement.layout.frame_layout,
+                Some(&measurement.layout.frame_layout),
             )
             .await?;
+        let mut widget_runtime_inputs = rendered_widgets.runtime_inputs;
+        if let Some(concat) = measurement
+            .coord_measurement
+            .as_any()
+            .downcast_ref::<crate::concat::ConcatCoordMeasurement>()
+        {
+            for cell in &concat.widget_cells {
+                let avenger_chart_core::CompiledWidget::Composed(widget) = cell.widget.widget()
+                else {
+                    continue;
+                };
+                let mut inputs = widget_style_evaluation_inputs(
+                    self.get_theme().as_ref(),
+                    &widget.id,
+                    &cell.measurement.styles,
+                    mark_eval_ctx.params(),
+                )?;
+                let region = concat.child_frame_region(cell.child_index)?;
+                inputs.insert(
+                    WIDGET_FRAME_WIDTH_INPUT.to_string(),
+                    ScalarValue::Float32(Some(region.content.width)),
+                );
+                inputs.insert(
+                    WIDGET_FRAME_HEIGHT_INPUT.to_string(),
+                    ScalarValue::Float32(Some(region.content.height)),
+                );
+                widget_runtime_inputs.insert(widget.id.clone(), inputs);
+            }
+        }
         let chrome_event_datums = if rendered_widgets.marks.is_empty() {
             chrome_event_datums
         } else {
@@ -6451,7 +6591,7 @@ impl CompiledPlot {
             guide_marks,
             legend_marks,
             widget_marks: rendered_widgets.marks,
-            widget_runtime_inputs: rendered_widgets.runtime_inputs,
+            widget_runtime_inputs,
             title_marks,
             subtitle_marks,
             plot_bounds: plot_bounds_struct,
@@ -6652,29 +6792,19 @@ impl CompiledPlot {
 
         let data_group_index = all_marks.len();
         all_marks.push(SceneMark::Group(data_marks_group));
-        let widget_container_index = if components.widget_marks.is_empty() {
-            None
-        } else {
-            let index = all_marks.len();
+        if !components.widget_marks.is_empty() {
             all_marks.push(SceneMark::Group(SceneGroup {
                 name: "__widgets".to_string(),
                 interactive: false,
                 marks: components.widget_marks,
                 ..Default::default()
             }));
-            Some(index)
-        };
+        }
         all_marks.extend(components.guide_marks);
         all_marks.extend(components.legend_marks);
         all_marks.extend(components.title_marks);
         all_marks.extend(components.subtitle_marks);
         all_marks.extend(components.debug_marks);
-
-        let widget_frames = widget_container_index
-            .map(|index| {
-                evaluated_widget_frames(&all_marks[index], index, &components.widget_runtime_inputs)
-            })
-            .unwrap_or_default();
 
         let root_group = SceneGroup {
             marks: all_marks,
@@ -6687,6 +6817,8 @@ impl CompiledPlot {
             height: final_height,
             origin: [0.0, 0.0],
         };
+        let widget_frames =
+            evaluated_widget_frames(&scene_graph.marks, &components.widget_runtime_inputs);
 
         let rtree = if build_scene_rtree {
             Some(SceneGraphRTree::from_scene_graph(&scene_graph))

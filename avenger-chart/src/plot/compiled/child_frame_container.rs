@@ -243,7 +243,7 @@ pub(crate) fn child_frame_container_view_from_concat(
             })
         })
         .collect::<Result<Vec<_>, AvengerChartError>>()?;
-    let regions = concat.child_frame_regions()?;
+    let regions = concat.plot_child_frame_regions()?;
     validate_child_regions(&regions, &children, Some(&child_debug_labels))?;
     let content_size = concat.child_frame_content_size()?;
     let view = ChildFrameContainerView::new(children, content_size, regions);
