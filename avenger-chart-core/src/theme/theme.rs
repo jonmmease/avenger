@@ -541,6 +541,11 @@ impl Theme {
                 opacity: var(--widget-input-selection-opacity);
                 input-selection-opacity: var(--widget-input-selection-opacity);
             }
+            text-input::part(preedit) {
+                stroke: var(--widget-text);
+                stroke-width: var(--widget-border-width);
+                opacity: 1;
+            }
             text-input::part(caret) {
                 stroke: var(--widget-text);
                 stroke-width: var(--widget-input-caret-width);

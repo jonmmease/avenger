@@ -246,6 +246,14 @@ impl BuiltinWidgetKind {
                     INPUT_STATES,
                     true,
                 ),
+                part("focus-ring", "rect", focus, INPUT_STATES, false),
+                part(
+                    "selection",
+                    "rect",
+                    &[P::Fill, P::Opacity, P::InputSelectionOpacity],
+                    INPUT_STATES,
+                    false,
+                ),
                 part("text", "text", label, INPUT_STATES, true),
                 part(
                     "placeholder",
@@ -255,13 +263,12 @@ impl BuiltinWidgetKind {
                     true,
                 ),
                 part(
-                    "selection",
-                    "rect",
-                    &[P::Fill, P::Opacity, P::InputSelectionOpacity],
+                    "preedit",
+                    "rule",
+                    &[P::Stroke, P::StrokeWidth, P::Opacity],
                     INPUT_STATES,
                     false,
                 ),
-                part("preedit", "text", label, INPUT_STATES, false),
                 part(
                     "caret",
                     "rule",
@@ -269,7 +276,6 @@ impl BuiltinWidgetKind {
                     INPUT_STATES,
                     false,
                 ),
-                part("focus-ring", "rect", focus, INPUT_STATES, false),
             ],
         }
     }
@@ -438,12 +444,12 @@ mod tests {
                     "text-input",
                     strings(&[
                         "box",
+                        "focus-ring",
+                        "selection",
                         "text",
                         "placeholder",
-                        "selection",
                         "preedit",
-                        "caret",
-                        "focus-ring"
+                        "caret"
                     ])
                 ),
             ]

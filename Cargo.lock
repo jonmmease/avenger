@@ -1009,16 +1009,20 @@ dependencies = [
  "avenger-common",
  "avenger-eventstream",
  "avenger-format-number",
+ "avenger-pdf",
  "avenger-scenegraph",
+ "avenger-text",
  "avenger-wgpu",
  "bincode",
  "datafusion",
  "image",
  "image-compare",
  "indexmap 2.14.0",
+ "pdf-extract",
  "serde",
  "serde_json",
  "tokio",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -8,19 +8,23 @@ avenger-chart = { path = "../avenger-chart" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-chart-transforms = { path = "../avenger-chart-transforms" }
+avenger-color = { path = "../avenger-color" }
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-format-number = { path = "../avenger-format-number" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-text = { path = "../avenger-text" }
 datafusion = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+unicode-segmentation = "1.12.0"
 
 [dev-dependencies]
-avenger-color = { path = "../avenger-color" }
-avenger-common = { path = "../avenger-common" }
-avenger-eventstream = { path = "../avenger-eventstream" }
-avenger-scenegraph = { path = "../avenger-scenegraph" }
+avenger-pdf = { path = "../avenger-pdf" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 bincode = "1.3"
 image = { workspace = true }
 image-compare = "0.4"
+pdf-extract = "0.10.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

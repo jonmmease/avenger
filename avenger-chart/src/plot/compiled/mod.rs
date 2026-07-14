@@ -129,7 +129,8 @@ pub use self::native_runtime::{
     NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
     NativeWidgetMeasurement, NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId,
     NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetScene,
-    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, ResolvedNativeWidgetSpec,
+    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, NativeWidgetStateSnapshot,
+    ResolvedNativeWidgetSpec,
 };
 #[cfg(test)]
 pub(crate) use self::session::TextMeasurementCache;

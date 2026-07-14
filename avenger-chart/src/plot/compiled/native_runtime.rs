@@ -594,12 +594,44 @@ pub struct NativeWidgetDispatchOutcome {
     pub consume: bool,
 }
 
+/// One evaluation's authoritative native-widget parameter values and their
+/// monotonically increasing document revisions.
+#[derive(Clone, Copy, Debug)]
+pub struct NativeWidgetStateSnapshot<'a> {
+    values: &'a IndexMap<String, ScalarValue>,
+    revisions: &'a IndexMap<String, u64>,
+}
+
+impl<'a> NativeWidgetStateSnapshot<'a> {
+    fn new(
+        values: &'a IndexMap<String, ScalarValue>,
+        revisions: &'a IndexMap<String, u64>,
+    ) -> Self {
+        Self { values, revisions }
+    }
+
+    /// Read an authoritative parameter value.
+    pub fn get(&self, name: &str) -> Option<&'a ScalarValue> {
+        self.values.get(name)
+    }
+
+    /// Read the document revision paired with a parameter value.
+    pub fn revision(&self, name: &str) -> u64 {
+        self.revisions.get(name).copied().unwrap_or(0)
+    }
+
+    /// Iterate over authoritative parameter values in declaration order.
+    pub fn values(&self) -> &'a IndexMap<String, ScalarValue> {
+        self.values
+    }
+}
+
 /// Stateful live side of a native widget. Implementations may retain editor,
 /// gesture, and undo state, but document state remains in registered params.
 pub trait NativeWidgetInstance: Send {
     fn on_state_sync(
         &mut self,
-        _state: &IndexMap<String, ScalarValue>,
+        _state: NativeWidgetStateSnapshot<'_>,
         _ctx: &mut NativeWidgetCtx,
     ) -> Result<(), AvengerChartError> {
         Ok(())
@@ -782,7 +814,7 @@ impl fmt::Debug for NativeWidgetRegistry {
 
 struct NativeWidgetLiveState {
     instance: Box<dyn NativeWidgetInstance>,
-    state_fingerprint: Option<Vec<(String, String)>>,
+    state_fingerprint: Option<Vec<(String, u64, String)>>,
     environment_digest: Option<u64>,
     environment: Option<NativeWidgetEnvironment>,
     base_font_size: f32,
@@ -891,12 +923,19 @@ impl NativeWidgetInstanceHandle {
     pub fn sync_and_render(
         &self,
         state_values: &IndexMap<String, ScalarValue>,
+        state_revisions: &IndexMap<String, u64>,
         environment: &NativeWidgetEnvironment,
         ctx: &mut NativeWidgetCtx,
     ) -> Result<NativeWidgetRuntimeRender, AvengerChartError> {
         let state_fingerprint = state_values
             .iter()
-            .map(|(name, value)| (name.clone(), format!("{value:?}")))
+            .map(|(name, value)| {
+                (
+                    name.clone(),
+                    state_revisions.get(name).copied().unwrap_or(0),
+                    format!("{value:?}"),
+                )
+            })
             .collect::<Vec<_>>();
         let mut state = self
             .state
@@ -916,7 +955,10 @@ impl NativeWidgetInstanceHandle {
         state.pending_scene_dirty = false;
         state.pending_index_dirty = false;
         if state.state_fingerprint.as_ref() != Some(&state_fingerprint) {
-            state.instance.on_state_sync(state_values, ctx)?;
+            state.instance.on_state_sync(
+                NativeWidgetStateSnapshot::new(state_values, state_revisions),
+                ctx,
+            )?;
             state.state_fingerprint = Some(state_fingerprint);
         }
         let environment_changed = state.environment_digest != Some(environment.digest());
@@ -1259,6 +1301,7 @@ struct NativeWidgetEvaluationRuntimeInner {
     sink: Arc<Mutex<Vec<RuntimeHostCommand>>>,
     evaluation_outputs: Mutex<IndexMap<String, NativeWidgetEvaluationOutput>>,
     measurement_cache: Mutex<HashMap<NativeWidgetMeasurementCacheKey, NativeWidgetMeasurement>>,
+    param_revisions: Mutex<IndexMap<String, u64>>,
     now: Mutex<Instant>,
     remove_namespace_on_drop: bool,
 }
@@ -1298,6 +1341,7 @@ impl NativeWidgetEvaluationRuntime {
                 sink: Arc::new(Mutex::new(Vec::new())),
                 evaluation_outputs: Mutex::new(IndexMap::new()),
                 measurement_cache: Mutex::new(HashMap::new()),
+                param_revisions: Mutex::new(IndexMap::new()),
                 now: Mutex::new(Instant::now()),
                 remove_namespace_on_drop,
             }),
@@ -1323,6 +1367,14 @@ impl NativeWidgetEvaluationRuntime {
             .now
             .lock()
             .expect("native widget runtime clock lock poisoned") = now;
+    }
+
+    pub(crate) fn set_param_revisions(&self, revisions: IndexMap<String, u64>) {
+        *self
+            .inner
+            .param_revisions
+            .lock()
+            .expect("native widget parameter revision lock poisoned") = revisions;
     }
 
     pub(crate) fn now(&self) -> Instant {
@@ -1446,6 +1498,15 @@ impl NativeWidgetEvaluationRuntime {
         self.inner.services.route_event(event)
     }
 
+    pub(crate) fn focused_route(&self) -> Option<NativeWidgetEventRoute> {
+        let (key, epoch) = self.inner.services.focused_attachment()?;
+        self.routed_attachment(&NativeWidgetEventRoute { key, epoch })
+            .map(|attachment| NativeWidgetEventRoute {
+                key: attachment.slot.key().clone(),
+                epoch: attachment.epoch,
+            })
+    }
+
     pub(crate) fn dispatch(
         &self,
         route: &NativeWidgetEventRoute,
@@ -1532,9 +1593,15 @@ impl NativeWidgetEvaluationRuntime {
             environment.params.clone(),
             base_font_size,
         );
-        let render = attachment
-            .instance
-            .sync_and_render(state_values, environment, &mut ctx)?;
+        let revisions = self
+            .inner
+            .param_revisions
+            .lock()
+            .expect("native widget parameter revision lock poisoned");
+        let render =
+            attachment
+                .instance
+                .sync_and_render(state_values, &revisions, environment, &mut ctx)?;
         let output = NativeWidgetEvaluationOutput {
             key: attachment.slot.key().clone(),
             epoch: attachment.epoch,
@@ -2041,6 +2108,26 @@ impl<'a> NativeWidgetPartTheme<'a> {
             .transpose()
     }
 
+    pub fn color(
+        &self,
+        property: WidgetStyleProperty,
+    ) -> Result<Option<[f32; 4]>, AvengerChartError> {
+        if property.value_type() != WidgetStyleValueType::Color {
+            return Err(self.type_error(property, "color"));
+        }
+        self.value(property)
+            .map(|value| {
+                value
+                    .eval_as_color(&avenger_chart_core::theme::eval::EvalContext::new(
+                        self.params,
+                        self.base_font_size,
+                    ))
+                    .map(|color| color.to_array())
+                    .map_err(|error| self.invalid(property, error.to_string()))
+            })
+            .transpose()
+    }
+
     pub fn string(
         &self,
         property: WidgetStyleProperty,
@@ -2357,6 +2444,13 @@ impl NativeWidgetCtx {
         if self.is_active() {
             self.services
                 .set_clipboard_payload(self.slot.key(), self.epoch, payload.into());
+        }
+    }
+
+    pub fn write_clipboard(&self, text: impl Into<String>) {
+        if self.is_active() {
+            self.outcome_sink()
+                .push(RuntimeHostCommand::WriteClipboard { text: text.into() });
         }
     }
 

@@ -10,8 +10,12 @@ use avenger_chart::{
     marks::symbol::Symbol,
     plot::{Chart, CompiledPlot, EvaluationRequest, SelectionAssignment, SelectionStateUpdate},
     prelude::{
-        Cartesian, ChartWidgetPlacementExt, ChromePosition, HConcat, LegendPosition, Plot,
-        Selection, Subplot, Theme, TrackSizing, WidgetCell, WidgetItemRow, WidgetItems,
+        Cartesian, ChartWidgetPlacementExt, ChromePosition, HConcat,
+        InMemoryNativeWidgetInstanceStore, LegendPosition, NativeWidgetDocumentId,
+        NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetHostTransform,
+        NativeWidgetPlacementExt, NativeWidgetPlotId, NativeWidgetRegistry,
+        NativeWidgetRuntimeResources, Plot, PlotSessionOptions, Selection, Subplot, Theme,
+        TrackSizing, WidgetCell, WidgetItemRow, WidgetItems,
     },
     transforms::Filter,
     zerod::ZeroDCoord,
@@ -21,9 +25,14 @@ use avenger_chart_core::{
     SelectionEqualityDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
 };
 use avenger_chart_widgets::{
-    Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList, Slider,
+    Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList, Slider, TextInput,
+    TextInputFactory,
 };
-use avenger_common::canvas::CanvasDimensions;
+use avenger_common::{canvas::CanvasDimensions, time::Instant};
+use avenger_eventstream::{
+    scene::{ModifiersState, SceneGraphEvent, SceneKeyPressEvent, SceneMouseDownEvent},
+    window::{Key, MouseButton},
+};
 use avenger_scenegraph::{
     marks::{group::SceneGroup, mark::SceneMark, rect::SceneRectMark},
     scene_graph::SceneGraph,
@@ -392,6 +401,171 @@ async fn custom_slider_baselines() {
         assert_compiled_visual_match(&compiled, &ctx, &format!("theming/custom_slider_{scheme}"))
             .await;
     }
+}
+
+#[derive(Clone, Copy)]
+enum TextInputVisualState {
+    Empty,
+    Focused,
+    Selection,
+}
+
+#[tokio::test]
+async fn text_input_baselines_and_vector_pdf_contract() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        for (name, state) in [
+            ("empty_placeholder", TextInputVisualState::Empty),
+            ("focused_caret", TextInputVisualState::Focused),
+            ("selection", TextInputVisualState::Selection),
+        ] {
+            let evaluated = evaluate_text_input_visual(theme.clone(), state).await;
+            let image = render_scene_graph_to_wgpu_image(&evaluated.scene_graph).await;
+            assert_visual_match(&format!("text_input/{name}_{scheme}"), &image);
+        }
+    }
+
+    let evaluated =
+        evaluate_text_input_visual(Theme::light(), TextInputVisualState::Selection).await;
+    let pdf = avenger_pdf::PdfRenderer::new()
+        .with_options(avenger_pdf::PdfRenderOptions {
+            compress: false,
+            font_resolution: avenger_chart::fonts::default_font_resolution(),
+            ..Default::default()
+        })
+        .render_scene_graph(&evaluated.scene_graph)
+        .expect("render vector TextInput PDF");
+    let extracted = pdf_extract::extract_text_from_mem(&pdf).expect("extract TextInput PDF text");
+    assert!(extracted.contains("Search the chart"), "{extracted:?}");
+    assert!(
+        pdf.windows(2).any(|bytes| bytes == b"BT")
+            && (pdf.windows(2).any(|bytes| bytes == b"Tj")
+                || pdf.windows(2).any(|bytes| bytes == b"TJ")),
+        "TextInput PDF must retain text operators"
+    );
+    assert!(
+        !pdf.windows(b"/Subtype /Image".len())
+            .any(|bytes| bytes == b"/Subtype /Image"),
+        "TextInput control must not be rasterized into an image XObject"
+    );
+}
+
+async fn evaluate_text_input_visual(
+    theme: Theme,
+    state: TextInputVisualState,
+) -> avenger_chart::render::EvaluatedPlot {
+    let ctx = Arc::new(SessionContext::new());
+    let input = match state {
+        TextInputVisualState::Empty => TextInput::new("search").placeholder("Filter by name…"),
+        TextInputVisualState::Focused | TextInputVisualState::Selection => {
+            TextInput::new("search").initial_value("Search the chart")
+        }
+    };
+    let compiled = Chart::<ZeroDCoord>::new()
+        .theme(theme)
+        .canvas_size(360.0, 124.0)
+        .plot_size(280.0, 56.0)
+        .mark(Symbol::new().size(144.0).fill("#0072B2"))
+        .native_widget(input.position(ChromePosition::Top))
+        .compile(ctx.as_ref())
+        .await
+        .expect("compile TextInput baseline");
+    let decoded: CompiledPlot =
+        bincode::deserialize(&bincode::serialize(&compiled).expect("serialize TextInput baseline"))
+            .expect("deserialize TextInput baseline");
+    let registry = Arc::new(
+        NativeWidgetRegistry::new()
+            .with_factory(TextInputFactory)
+            .expect("register TextInput factory"),
+    );
+    let resources = NativeWidgetRuntimeResources::new(
+        registry,
+        Arc::new(InMemoryNativeWidgetInstanceStore::new()),
+        NativeWidgetDocumentId::new(),
+    );
+    let mut session = Arc::new(decoded).instantiate(ctx);
+    session.set_options(PlotSessionOptions::from_native_widget_resources(
+        &resources,
+        NativeWidgetPlotId::from_member_path("text-input-visual"),
+    ));
+    let now = Instant::now();
+    let mut evaluated = session
+        .evaluate(EvaluationRequest::new().at(now))
+        .await
+        .expect("evaluate initial TextInput baseline");
+    if matches!(
+        state,
+        TextInputVisualState::Focused | TextInputVisualState::Selection
+    ) {
+        let attachment = &evaluated.native_widgets.by_widget_id["search"];
+        let route = NativeWidgetEventRoute {
+            key: attachment.key.clone(),
+            epoch: attachment.epoch,
+        };
+        let frame = &evaluated.widget_frames.by_widget_id["search"].bounds;
+        let point = [frame.width * 0.55, frame.height * 0.5];
+        session
+            .dispatch_native_widget_event(
+                &route,
+                &NativeWidgetEvent {
+                    event: SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+                        position: point,
+                        button: MouseButton::Left,
+                        mark_instance: None,
+                        modifiers: ModifiersState::default(),
+                    }),
+                    hit_part: Some("box".to_string()),
+                    current: Some(point),
+                    start: Some(point),
+                    previous: None,
+                    wheel_delta: None,
+                    frame_size: [frame.width, frame.height],
+                },
+                NativeWidgetHostTransform::default(),
+                now,
+                session.base_font_size(),
+            )
+            .expect("focus TextInput baseline");
+        if matches!(state, TextInputVisualState::Selection) {
+            session
+                .dispatch_native_widget_event(
+                    &route,
+                    &NativeWidgetEvent {
+                        event: SceneGraphEvent::KeyPress(SceneKeyPressEvent {
+                            position: [0.0, 0.0],
+                            key: Key::Character('a'),
+                            text: None,
+                            mark_instance: None,
+                            modifiers: if cfg!(target_os = "macos") {
+                                ModifiersState {
+                                    meta: true,
+                                    ..Default::default()
+                                }
+                            } else {
+                                ModifiersState {
+                                    control: true,
+                                    ..Default::default()
+                                }
+                            },
+                        }),
+                        hit_part: None,
+                        current: None,
+                        start: None,
+                        previous: None,
+                        wheel_delta: None,
+                        frame_size: [frame.width, frame.height],
+                    },
+                    NativeWidgetHostTransform::default(),
+                    now,
+                    session.base_font_size(),
+                )
+                .expect("select TextInput baseline text");
+        }
+        evaluated = session
+            .evaluate(EvaluationRequest::new().at(now))
+            .await
+            .expect("evaluate interactive TextInput baseline");
+    }
+    evaluated
 }
 
 #[tokio::test]

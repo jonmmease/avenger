@@ -23,9 +23,9 @@ pub use compiled::{
     NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetMeasurement,
     NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId, NativeWidgetRegistry,
     NativeWidgetRuntimeResources, NativeWidgetScene, NativeWidgetSlotInitError,
-    NativeWidgetSlotTypeMismatch, PlotSession, PlotSessionOptions, ResolvedNativeWidgetSpec,
-    ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment,
-    SelectionStateUpdate, StoreStateUpdate,
+    NativeWidgetSlotTypeMismatch, NativeWidgetStateSnapshot, PlotSession, PlotSessionOptions,
+    ResolvedNativeWidgetSpec, ScopedParamAssignment, ScopedParamStoreSnapshot,
+    ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
 };
 pub use plot::Plot;
 pub(crate) use plot::{RootChartFurnishings, compile_composed_widget};

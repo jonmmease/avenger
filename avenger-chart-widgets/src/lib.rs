@@ -18,3 +18,4 @@ pub use button::{Button, ButtonVariant};
 pub use checkbox::Checkbox;
 pub use list::{CheckboxList, RadioButtonList};
 pub use slider::Slider;
+pub use text_input::{TextCommit, TextInput, TextInputFactory, register_native_widgets};

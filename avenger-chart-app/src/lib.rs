@@ -898,6 +898,56 @@ impl EventStreamHandler<ChartAppState> for NativeWidgetEventHandler {
         });
         let direct = direct.flatten();
 
+        // A focused native editor must see pointer focus leave even when the
+        // new target is an ordinary mark or another native widget. Dispatch
+        // that loss first; its non-consuming outcome is then merged with the
+        // new target's outcome below.
+        let mut prior_status = UpdateStatus::default();
+        if matches!(event, SceneGraphEvent::MouseDown(_))
+            && let Some(focused_route) = runtime.session.focused_native_widget_event_route()
+            && direct
+                .as_ref()
+                .is_none_or(|(direct_route, _)| direct_route != &focused_route)
+            && let Some(focused_frame) = runtime
+                .last_widget_frame_state
+                .by_widget_id
+                .get(focused_route.key.widget_id())
+                .cloned()
+        {
+            let current = event
+                .position()
+                .map(|point| focused_frame.local_point(point));
+            let blur_event = NativeWidgetEvent {
+                event: event.clone(),
+                hit_part: None,
+                current,
+                start: current,
+                previous: None,
+                wheel_delta: None,
+                frame_size: [focused_frame.bounds.width, focused_frame.bounds.height],
+            };
+            let transform = NativeWidgetHostTransform::from_offsets([[
+                focused_frame.bounds.x,
+                focused_frame.bounds.y,
+            ]])
+            .expect("evaluated widget frame has finite origin");
+            let base_font_size = runtime.session.base_font_size();
+            match runtime.session.dispatch_native_widget_event(
+                &focused_route,
+                &blur_event,
+                transform,
+                now,
+                base_font_size,
+            ) {
+                Ok(outcome) => {
+                    prior_status = native_widget_outcome_status(state, &mut runtime, outcome);
+                }
+                Err(error) => {
+                    log::error!("focused native widget blur dispatch failed: {error}");
+                }
+            }
+        }
+
         let routed = if let Some(capture) = captured.as_ref() {
             Some((capture.route.clone(), capture.frame.clone()))
         } else if let Some(direct) = direct.clone() {
@@ -918,7 +968,7 @@ impl EventStreamHandler<ChartAppState> for NativeWidgetEventHandler {
             None
         };
         let Some((route, frame)) = routed else {
-            return UpdateStatus::default();
+            return prior_status;
         };
 
         let current = event.position().map(|point| frame.local_point(point));
@@ -1009,7 +1059,7 @@ impl EventStreamHandler<ChartAppState> for NativeWidgetEventHandler {
             runtime.active_native_widget_gesture = None;
         }
 
-        native_widget_outcome_status(state, &mut runtime, outcome)
+        prior_status.merge(&native_widget_outcome_status(state, &mut runtime, outcome))
     }
 }
 
@@ -1693,7 +1743,14 @@ mod tests {
                 .lock()
                 .expect("recorded native events lock poisoned")
                 .push(event.clone());
-            ctx.consume();
+            match &event.event {
+                SceneGraphEvent::MouseDown(_) if event.hit_part.is_some() => {
+                    ctx.focus(None, "recording selection");
+                    ctx.consume();
+                }
+                SceneGraphEvent::MouseDown(_) => ctx.blur(),
+                _ => ctx.consume(),
+            }
             Ok(())
         }
 
@@ -1922,8 +1979,27 @@ mod tests {
             .await;
         assert!(status.consume);
 
+        let outside_down = SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+            position: up_point,
+            button: MouseButton::Left,
+            mark_instance: None,
+            modifiers: ModifiersState::default(),
+        });
+        let outside_context = EventStreamContext {
+            current_event: Some(EventStreamEventSnapshot {
+                event: outside_down.clone(),
+                mark_instance: None,
+                instant: now + avenger_common::time::Duration::from_millis(20),
+            }),
+            ..Default::default()
+        };
+        let status = NativeWidgetEventHandler
+            .handle_with_context(&outside_down, &outside_context, &mut state, &rtree)
+            .await;
+        assert!(!status.consume);
+
         let events = events.lock().expect("recorded native events lock poisoned");
-        assert_eq!(events.len(), 2);
+        assert_eq!(events.len(), 3);
         assert_eq!(events[0].hit_part.as_deref(), Some("body"));
         assert_eq!(events[0].current, Some([5.0, 6.0]));
         assert_eq!(events[0].start, Some([5.0, 6.0]));
@@ -1931,6 +2007,8 @@ mod tests {
         assert_eq!(events[1].start, Some([5.0, 6.0]));
         assert_eq!(events[1].current, Some([frame.bounds.width + 30.0, -20.0]));
         assert_eq!(events[1].previous, Some([5.0, 6.0]));
+        assert_eq!(events[2].hit_part, None);
+        assert_eq!(events[2].current, Some([frame.bounds.width + 30.0, -20.0]));
     }
 
     #[cfg(feature = "winit-wgpu")]

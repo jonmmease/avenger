@@ -1,7 +1,7 @@
 //! Reusable evaluation session for a compiled plot.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fmt,
     sync::{Arc, Mutex},
 };
@@ -499,8 +499,16 @@ impl ScopedParamStore {
 
     /// Replace root values with `params`, clearing prior root values first.
     fn set_root_params(&mut self, params: IndexMap<String, ScalarValue>) {
+        let previous_root = self
+            .values
+            .iter()
+            .filter(|(key, _)| key.owner_path.is_empty())
+            .map(|(key, value)| (key.name.clone(), value.clone()))
+            .collect::<IndexMap<_, _>>();
+        let next_names = params.keys().cloned().collect::<HashSet<_>>();
         self.values.retain(|key, _| !key.owner_path.is_empty());
         for (name, value) in params {
+            let changed = previous_root.get(&name) != Some(&value);
             self.values.insert(
                 ScopedParamKey {
                     name: name.clone(),
@@ -508,8 +516,40 @@ impl ScopedParamStore {
                 },
                 value,
             );
-            self.bump_revision(&name);
+            if changed {
+                self.bump_revision(&name);
+            }
         }
+        for removed in previous_root
+            .keys()
+            .filter(|name| !next_names.contains(*name))
+        {
+            self.bump_revision(removed);
+        }
+    }
+
+    fn revisions_after_root_params(
+        &self,
+        params: &IndexMap<String, ScalarValue>,
+    ) -> IndexMap<String, u64> {
+        let mut revisions = self.revisions.clone();
+        let previous_root = self
+            .values
+            .iter()
+            .filter(|(key, _)| key.owner_path.is_empty())
+            .map(|(key, value)| (key.name.as_str(), value))
+            .collect::<HashMap<_, _>>();
+        for (name, value) in params {
+            if previous_root.get(name.as_str()).copied() != Some(value) {
+                *revisions.entry(name.clone()).or_insert(0) += 1;
+            }
+        }
+        for name in previous_root.keys() {
+            if !params.contains_key(*name) {
+                *revisions.entry((*name).to_string()).or_insert(0) += 1;
+            }
+        }
+        revisions
     }
 
     /// Patch root values from `patch`, leaving unrelated root values intact.
@@ -1945,6 +1985,14 @@ impl PlotSession {
         self.native_widget_runtime.route_event(event)
     }
 
+    /// Return the live native widget that currently owns keyboard focus.
+    ///
+    /// Hosts use this before a pointer-down outside that widget so the
+    /// instance can apply its focus-loss policy before the new target runs.
+    pub fn focused_native_widget_event_route(&self) -> Option<NativeWidgetEventRoute> {
+        self.native_widget_runtime.focused_route()
+    }
+
     /// Dispatch one already-localized event to a live native widget.
     ///
     /// The returned outcome is host-neutral: callers apply parameter
@@ -2254,6 +2302,8 @@ impl PlotSession {
             .set_now(request.now.unwrap_or_else(Instant::now));
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
+        self.native_widget_runtime
+            .set_param_revisions(self.scoped_params.revisions_after_root_params(&next_params));
         let options = options_for_evaluation_mode(mode, request.options);
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
         let scoped_store = self.scoped_param_store_handle();
@@ -3332,6 +3382,36 @@ mod tests {
     use crate::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn root_param_revisions_only_advance_for_actual_changes() {
+        let mut store = ScopedParamStore::new(IndexMap::new());
+        let initial = IndexMap::from([
+            ("stable".to_string(), ScalarValue::Int64(Some(1))),
+            ("changed".to_string(), ScalarValue::Int64(Some(2))),
+            ("removed".to_string(), ScalarValue::Int64(Some(3))),
+        ]);
+        store.set_root_params(initial.clone());
+        let initial_revisions = store.revisions.clone();
+
+        store.set_root_params(initial);
+        assert_eq!(store.revisions, initial_revisions);
+
+        let next = IndexMap::from([
+            ("stable".to_string(), ScalarValue::Int64(Some(1))),
+            ("changed".to_string(), ScalarValue::Int64(Some(20))),
+            ("added".to_string(), ScalarValue::Int64(Some(4))),
+        ]);
+        let projected = store.revisions_after_root_params(&next);
+        assert_eq!(projected["stable"], initial_revisions["stable"]);
+        assert_eq!(projected["changed"], initial_revisions["changed"] + 1);
+        assert_eq!(projected["removed"], initial_revisions["removed"] + 1);
+        assert_eq!(projected["added"], 1);
+        assert_eq!(store.revisions, initial_revisions);
+
+        store.set_root_params(next);
+        assert_eq!(store.revisions, projected);
+    }
 
     fn collect_symbol_positions(scene: &SceneGraph) -> Vec<(f32, f32)> {
         fn collect_from_mark(mark: &SceneMark, origin: [f32; 2], positions: &mut Vec<(f32, f32)>) {

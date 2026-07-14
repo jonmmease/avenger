@@ -83,8 +83,9 @@ pub use crate::plot::{
     NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
     NativeWidgetMeasurement, NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId,
     NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetScene,
-    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, Plot, PlotSession, PlotSessionOptions,
-    PlotSubtitle, PlotTitle, ResolvedNativeWidgetSpec, TitleAlign, TitleSpan,
+    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, NativeWidgetStateSnapshot, Plot,
+    PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle, ResolvedNativeWidgetSpec, TitleAlign,
+    TitleSpan,
 };
 pub use crate::render::{WidgetFrame, WidgetFrameAssignments};
 pub use avenger_chart_core::{
