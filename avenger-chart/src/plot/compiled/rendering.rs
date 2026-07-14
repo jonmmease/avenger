@@ -425,6 +425,7 @@ struct RenderedMarkOutput {
 struct RenderedWidgetGroups {
     marks: Vec<SceneMark>,
     event_datums: Vec<EvaluatedEventDatumRows>,
+    runtime_inputs: IndexMap<String, IndexMap<String, ScalarValue>>,
 }
 
 impl RenderedMarkOutput {
@@ -629,6 +630,7 @@ fn collect_widget_descendant_frame_paths(
 fn evaluated_widget_frames(
     widget_container: &SceneMark,
     widget_container_index: usize,
+    runtime_inputs: &IndexMap<String, IndexMap<String, ScalarValue>>,
 ) -> EvaluatedWidgetFrameState {
     let mut state = EvaluatedWidgetFrameState::default();
     let SceneMark::Group(container) = widget_container else {
@@ -638,7 +640,25 @@ fn evaluated_widget_frames(
         let SceneMark::Group(widget) = mark else {
             continue;
         };
-        let Clip::Rect { width, height, .. } = &widget.clip else {
+        let Some(widget_runtime_inputs) = runtime_inputs.get(&widget.name) else {
+            continue;
+        };
+        let Some(width) = widget_runtime_inputs
+            .get(WIDGET_FRAME_WIDTH_INPUT)
+            .and_then(|value| match value {
+                ScalarValue::Float32(Some(value)) => Some(*value),
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        let Some(height) = widget_runtime_inputs
+            .get(WIDGET_FRAME_HEIGHT_INPUT)
+            .and_then(|value| match value {
+                ScalarValue::Float32(Some(value)) => Some(*value),
+                _ => None,
+            })
+        else {
             continue;
         };
         let frame = EvaluatedWidgetFrame {
@@ -646,9 +666,10 @@ fn evaluated_widget_frames(
             bounds: LayoutBounds {
                 x: container.origin[0] + widget.origin[0],
                 y: container.origin[1] + widget.origin[1],
-                width: *width,
-                height: *height,
+                width,
+                height,
             },
+            runtime_inputs: widget_runtime_inputs.clone(),
         };
         let mut path = vec![0, widget_container_index, widget_index];
         collect_widget_descendant_frame_paths(mark, &mut path, &frame, &mut state);
@@ -2688,6 +2709,7 @@ impl CompiledPlot {
             );
         let mut groups = Vec::new();
         let mut event_datums = Vec::new();
+        let mut runtime_inputs = IndexMap::new();
         for attachment in &self.widgets {
             let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
                 continue;
@@ -2722,21 +2744,23 @@ impl CompiledPlot {
                 height,
                 "rendering measured composed widget"
             );
-            let mut widget_params = eval_ctx.params().clone();
-            widget_params.extend(widget_style_evaluation_inputs(
+            let mut widget_runtime_inputs = widget_style_evaluation_inputs(
                 self.get_theme().as_ref(),
                 &widget.id,
                 &measurement.styles,
                 eval_ctx.params(),
-            )?);
-            widget_params.insert(
+            )?;
+            widget_runtime_inputs.insert(
                 WIDGET_FRAME_WIDTH_INPUT.to_string(),
                 ScalarValue::Float32(Some(width)),
             );
-            widget_params.insert(
+            widget_runtime_inputs.insert(
                 WIDGET_FRAME_HEIGHT_INPUT.to_string(),
                 ScalarValue::Float32(Some(height)),
             );
+            let mut widget_params = eval_ctx.params().clone();
+            widget_params.extend(widget_runtime_inputs.clone());
+            runtime_inputs.insert(widget.id.clone(), widget_runtime_inputs);
             let widget_eval_ctx = eval_ctx
                 .with_params(widget_params)
                 .with_widget_style_snapshots(style_snapshots.clone());
@@ -2787,12 +2811,7 @@ impl CompiledPlot {
                 name: widget.id.clone(),
                 interactive: false,
                 origin,
-                clip: Clip::Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    width,
-                    height,
-                },
+                clip: Clip::None,
                 marks: parts,
                 ..Default::default()
             }));
@@ -2800,6 +2819,7 @@ impl CompiledPlot {
         Ok(RenderedWidgetGroups {
             marks: groups,
             event_datums,
+            runtime_inputs,
         })
     }
 
@@ -5946,6 +5966,7 @@ impl CompiledPlot {
             guide_marks: cached_components.guide_marks.clone(),
             legend_marks: cached_components.legend_marks.clone(),
             widget_marks: cached_components.widget_marks.clone(),
+            widget_runtime_inputs: cached_components.widget_runtime_inputs.clone(),
             title_marks: cached_components.title_marks.clone(),
             subtitle_marks: cached_components.subtitle_marks.clone(),
             plot_bounds: local_scope_bounds,
@@ -6430,6 +6451,7 @@ impl CompiledPlot {
             guide_marks,
             legend_marks,
             widget_marks: rendered_widgets.marks,
+            widget_runtime_inputs: rendered_widgets.runtime_inputs,
             title_marks,
             subtitle_marks,
             plot_bounds: plot_bounds_struct,
@@ -6649,7 +6671,9 @@ impl CompiledPlot {
         all_marks.extend(components.debug_marks);
 
         let widget_frames = widget_container_index
-            .map(|index| evaluated_widget_frames(&all_marks[index], index))
+            .map(|index| {
+                evaluated_widget_frames(&all_marks[index], index, &components.widget_runtime_inputs)
+            })
             .unwrap_or_default();
 
         let root_group = SceneGroup {

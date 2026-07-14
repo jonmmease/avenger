@@ -17,7 +17,9 @@ use avenger_chart_core::{
     CoordinationScope, ResolvedSelectionClauseScope, SelectionClause, SelectionClauseUpdate,
     SelectionEqualityDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
 };
-use avenger_chart_widgets::{Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList};
+use avenger_chart_widgets::{
+    Button, ButtonVariant, Checkbox, CheckboxList, RadioButtonList, Slider,
+};
 use avenger_common::canvas::CanvasDimensions;
 use avenger_scenegraph::scene_graph::SceneGraph;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
@@ -116,6 +118,30 @@ async fn button_baselines() {
             &format!("button/clear_selection_button_{scheme}"),
         )
         .await;
+    }
+}
+
+#[tokio::test]
+async fn slider_baselines() {
+    for (scheme, theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(340.0, 112.0)
+            .plot_size(128.0, 72.0)
+            .mark(Symbol::new().size(196.0).fill("#0072B2"))
+            .widget(
+                Slider::new("volume", 0.0, 100.0)
+                    .step(5.0)
+                    .default(65.0)
+                    .title("Volume")
+                    .format(".0f")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile slider baseline");
+        assert_compiled_visual_match(&compiled, &ctx, &format!("slider/slider_{scheme}")).await;
     }
 }
 
@@ -312,6 +338,53 @@ async fn custom_checkbox_button_baselines() {
             &format!("theming/custom_checkbox_button_{scheme}"),
         )
         .await;
+    }
+}
+
+#[tokio::test]
+async fn custom_slider_baselines() {
+    for (scheme, mut theme) in [("light", Theme::light()), ("dark", Theme::dark())] {
+        theme
+            .append_css(
+                r#"
+                slider#custom-slider {
+                    height: 42px;
+                    padding-inline: 6px;
+                    --widget-accent: #D55E00;
+                }
+                slider#custom-slider::part(track) {
+                    slider-min-width: 140px;
+                    slider-track-height: 5px;
+                }
+                slider#custom-slider::part(handle) {
+                    slider-handle-size: 22px;
+                    slider-handle-border-width: 3px;
+                }
+                slider#custom-slider::part(label),
+                slider#custom-slider::part(value-label) { font-size: 14px; }
+                slider#custom-slider::part(value-label) { slider-value-padding: 18px; }
+                "#,
+            )
+            .expect("append custom slider CSS");
+        let ctx = SessionContext::new();
+        let compiled = Chart::<ZeroDCoord>::new()
+            .theme(theme)
+            .canvas_size(400.0, 128.0)
+            .plot_size(128.0, 80.0)
+            .mark(Symbol::new().size(196.0).fill("#0072B2"))
+            .widget(
+                Slider::new("custom-slider", -20.0, 40.0)
+                    .step(5.0)
+                    .default(15.0)
+                    .title("Temperature")
+                    .format(".0f")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile custom slider baseline");
+        assert_compiled_visual_match(&compiled, &ctx, &format!("theming/custom_slider_{scheme}"))
+            .await;
     }
 }
 

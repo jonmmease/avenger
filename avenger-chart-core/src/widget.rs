@@ -88,6 +88,28 @@ fn widget_style_input_data_type(property: WidgetStyleProperty) -> Option<DataTyp
     }
 }
 
+/// Data type for a typed, evaluation-local widget runtime input.
+///
+/// Event hosts use this to lower widget style placeholders onto columns whose
+/// values come from the evaluated frame that owns the event target. Untyped
+/// font-weight inputs intentionally remain mark-only until their union type is
+/// represented by the event expression runtime.
+pub fn widget_runtime_input_data_type(name: &str) -> Option<DataType> {
+    if matches!(name, WIDGET_FRAME_WIDTH_INPUT | WIDGET_FRAME_HEIGHT_INPUT) {
+        return Some(DataType::Float32);
+    }
+    name.strip_prefix("__widget_style_")?;
+    WidgetStyleProperty::ALL
+        .iter()
+        .copied()
+        .find_map(|property| {
+            let suffix = format!("_{}", property.name().replace('-', "_"));
+            name.ends_with(&suffix)
+                .then(|| widget_style_input_data_type(property))
+                .flatten()
+        })
+}
+
 pub fn widget_style_input_name(part: Option<&str>, property: WidgetStyleProperty) -> String {
     let part = part.unwrap_or("host").replace('-', "_");
     let property = property.name().replace('-', "_");
@@ -345,6 +367,7 @@ impl WidgetMeasureSpec {
                 WidgetAxisMeasureSpec::Fixed { px } => *px,
                 WidgetAxisMeasureSpec::Content { min_px, .. }
                 | WidgetAxisMeasureSpec::Fill { min_px, .. } => *min_px,
+                WidgetAxisMeasureSpec::StyledFill { .. } => 1.0,
             }
         }
         (axis(&self.width), axis(&self.height))
@@ -370,6 +393,15 @@ pub enum WidgetAxisMeasureSpec {
     Fill {
         expr: WidgetMeasureExpr,
         min_px: f32,
+        max_px: Option<f32>,
+        stretch: f32,
+    },
+    /// A fill axis whose minimum and preferred extents both come from the
+    /// resolved style snapshot. The one-pixel provisional frame is replaced
+    /// before final rendering and keeps pre-measure mark evaluation defined.
+    StyledFill {
+        preferred: WidgetMeasureExpr,
+        min: WidgetMeasureExpr,
         max_px: Option<f32>,
         stretch: f32,
     },
@@ -480,6 +512,33 @@ where
             evaluate_widget_measure_expr(
                 widget_id,
                 expr,
+                styles,
+                item_count,
+                params,
+                base_font_size,
+                text_extent,
+            )?,
+            *max_px,
+            *stretch,
+        ),
+        WidgetAxisMeasureSpec::StyledFill {
+            preferred,
+            min,
+            max_px,
+            stretch,
+        } => (
+            evaluate_widget_measure_expr(
+                widget_id,
+                min,
+                styles,
+                item_count,
+                params,
+                base_font_size,
+                text_extent,
+            )?,
+            evaluate_widget_measure_expr(
+                widget_id,
+                preferred,
                 styles,
                 item_count,
                 params,
@@ -1266,7 +1325,7 @@ pub enum WidgetItemValidation {
 pub struct CompiledWidgetItemPlan {
     pub data: CompiledDataContext,
     pub order_column: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub identity: Option<WidgetItemIdentityDerivation>,
     pub validations: Vec<WidgetItemValidation>,
 }
@@ -1327,6 +1386,28 @@ pub struct CompiledWidgetAttachment {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn widget_axis_measure_variants_round_trip_through_bincode() {
+        for spec in [
+            WidgetAxisMeasureSpec::Content {
+                expr: WidgetMeasureExpr::Px(24.0),
+                min_px: 12.0,
+                max_px: Some(48.0),
+            },
+            WidgetAxisMeasureSpec::StyledFill {
+                preferred: WidgetMeasureExpr::Px(40.0),
+                min: WidgetMeasureExpr::Px(20.0),
+                max_px: None,
+                stretch: 1.0,
+            },
+        ] {
+            let bytes = bincode::serialize(&spec).expect("serialize widget axis measure");
+            let decoded: WidgetAxisMeasureSpec =
+                bincode::deserialize(&bytes).expect("deserialize widget axis measure");
+            assert_eq!(decoded, spec);
+        }
+    }
 
     #[test]
     fn canonical_json_sorts_nested_objects_and_round_trips_bincode() {

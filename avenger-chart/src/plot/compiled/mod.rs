@@ -1601,6 +1601,9 @@ pub struct PlotComponents {
     /// Compiler-owned widget groups, one per composed attachment.
     pub widget_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
 
+    /// Typed, evaluation-local inputs associated with each composed widget.
+    pub widget_runtime_inputs: IndexMap<String, IndexMap<String, datafusion::common::ScalarValue>>,
+
     /// Title scene graph elements
     pub title_marks: Vec<avenger_scenegraph::marks::mark::SceneMark>,
 

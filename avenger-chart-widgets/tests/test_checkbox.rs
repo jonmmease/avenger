@@ -152,7 +152,14 @@ async fn checkbox_css_geometry_drives_frame_and_parts() {
         .unwrap();
 
     let group = find_group(&evaluated.scene_graph.marks, "custom").unwrap();
-    assert!(matches!(group.clip, Clip::Rect { height, .. } if height == 40.0));
+    assert_eq!(group.clip, Clip::None);
+    let frame = evaluated
+        .widget_frames
+        .frames
+        .values()
+        .find(|frame| frame.widget_id == "custom")
+        .unwrap();
+    assert_eq!(frame.bounds.height, 40.0);
 
     let box_mark = find_rect(&group.marks, "box").unwrap();
     assert_eq!(box_mark.x_vec(), vec![0.0]);

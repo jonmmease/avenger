@@ -14,6 +14,7 @@ use datafusion::{
     },
     common::ScalarValue,
 };
+use indexmap::IndexMap;
 
 pub use avenger_chart_legend::{LegendMeasurement, LegendMeasurements};
 use avenger_geometry::rtree::SceneGraphRTree;
@@ -1263,6 +1264,10 @@ impl EvaluatedEventDatumState {
 pub struct EvaluatedWidgetFrame {
     pub widget_id: String,
     pub bounds: LayoutBounds,
+    /// Typed evaluation-local inputs resolved for this widget revision.
+    /// Event bindings may reference these through reserved widget placeholders;
+    /// document parameters remain in the ordinary parameter store.
+    pub runtime_inputs: IndexMap<String, ScalarValue>,
 }
 
 impl EvaluatedWidgetFrame {

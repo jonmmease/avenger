@@ -111,10 +111,14 @@ async fn button_css_geometry_drives_minimum_frame_and_centered_parts() {
         .unwrap();
 
     let group = find_group(&evaluated.scene_graph.marks, "go").unwrap();
-    assert!(matches!(
-        group.clip,
-        Clip::Rect { width, height, .. } if width == 90.0 && height == 38.0
-    ));
+    assert_eq!(group.clip, Clip::None);
+    let frame = evaluated
+        .widget_frames
+        .frames
+        .values()
+        .find(|frame| frame.widget_id == "go")
+        .unwrap();
+    assert_eq!((frame.bounds.width, frame.bounds.height), (90.0, 38.0));
     let box_mark = find_rect(&group.marks, "box").unwrap();
     assert_eq!(box_mark.x_vec(), vec![0.0]);
     assert_eq!(box_mark.x2_vec(), vec![90.0]);

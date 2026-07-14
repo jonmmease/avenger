@@ -33,6 +33,7 @@ use avenger_chart_core::{
     SelectionPredicateValue, SelectionPredicateValueUpdate, SelectionSceneQuery, SelectionUpdate,
     SelectionValueExpr, StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate,
     StoreValueExpr, collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
+    widget_runtime_input_data_type,
 };
 use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
@@ -660,6 +661,20 @@ impl CompiledChartEventBinding {
         for assignment in &selection_exprs {
             scan_exprs.extend(selection_expression_update_exprs(&assignment.update));
         }
+        let mut widget_runtime_inputs = IndexMap::new();
+        for expr in &scan_exprs {
+            let placeholders = collect_placeholder_ids(expr)
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+            for placeholder in placeholders {
+                let Some(name) = placeholder.strip_prefix('$') else {
+                    continue;
+                };
+                if let Some(data_type) = widget_runtime_input_data_type(name) {
+                    widget_runtime_inputs.insert(name.to_string(), data_type);
+                }
+            }
+        }
+        widget_runtime_inputs.sort_keys();
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
         for assignment in &selection_exprs {
             for field in selection_expression_update_datum_fields(&assignment.update) {
@@ -693,20 +708,39 @@ impl CompiledChartEventBinding {
             }
         }
 
-        let schema = event_schema(
+        let base_schema = event_schema(
             param_specs,
             &interaction_requests,
             event_datum_types,
             event_coord_types,
         );
+        let mut fields = base_schema
+            .fields()
+            .iter()
+            .map(|field| field.as_ref().clone())
+            .collect::<Vec<_>>();
+        fields.extend(
+            widget_runtime_inputs
+                .iter()
+                .map(|(name, data_type)| Field::new(name, data_type.clone(), true)),
+        );
+        let schema = schema_from_fields(fields);
         let allowed_columns = schema
             .fields()
             .iter()
             .map(|field| field.name().clone())
             .collect::<HashSet<_>>();
-        let placeholder_columns = param_specs.keys().map(|param| {
-            PlaceholderColumn::new(format!("${param}"), event::param_column_name(param))
-        });
+        let mut placeholder_columns = param_specs
+            .keys()
+            .map(|param| {
+                PlaceholderColumn::new(format!("${param}"), event::param_column_name(param))
+            })
+            .collect::<Vec<_>>();
+        placeholder_columns.extend(
+            widget_runtime_inputs
+                .keys()
+                .map(|name| PlaceholderColumn::new(format!("${name}"), name.clone())),
+        );
         let mut specs = Vec::new();
         for (index, expr) in filter_exprs.into_iter().enumerate() {
             specs.push(
@@ -2049,6 +2083,9 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 .frame_for_mark_instance(event_mark_instance)
                 .cloned()
         });
+        if let Some(frame) = widget_frame.as_ref() {
+            interaction_values.extend(frame.runtime_inputs.clone());
+        }
         if let (Some(frame), Some(position)) = (widget_frame.as_ref(), event.position()) {
             let local = frame.local_point(position);
             interaction_values.insert(
@@ -4706,7 +4743,7 @@ mod tests {
         TreemapPadding,
         event::{self as treemap_event, HIERARCHY_PATH_ID_FIELD},
     };
-    use avenger_chart_widgets::{Button, Checkbox};
+    use avenger_chart_widgets::{Button, Checkbox, Slider};
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -8715,6 +8752,234 @@ mod tests {
         assert_eq!(
             params["frame_height"],
             ScalarValue::Float64(Some(f64::from(original_frame.bounds.height)))
+        );
+    }
+
+    #[tokio::test]
+    async fn slider_drag_uses_resolved_inner_track_and_stops_on_mouse_up() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .widget(
+                Slider::new("volume", 0.0, 100.0)
+                    .step(10.0)
+                    .default(0.0)
+                    .title("Volume")
+                    .format(".0f")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile slider chart");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("slider streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial slider scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let origin = rtree.named_group_origin("volume").expect("slider origin");
+        let frame = {
+            let runtime = state.runtime.lock().await;
+            runtime
+                .last_widget_frame_state
+                .frames
+                .values()
+                .find(|frame| frame.widget_id == "volume")
+                .cloned()
+                .expect("slider frame")
+        };
+        let track_x0 = origin[0] + 8.0;
+        let track_width = frame.bounds.width - 16.0;
+        let start = [track_x0, origin[1] + 24.0];
+        assert_eq!(
+            rtree
+                .pick_top_mark_at_point(&start)
+                .expect("slider handle hit")
+                .name,
+            "handle"
+        );
+
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(crate::WidgetGestureFrameCaptureHandler),
+        );
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: start }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+
+        let middle = [track_x0 + track_width * 0.54, start[1]];
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: middle }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+        assert_eq!(
+            manager.state().params().await["volume__value"],
+            ScalarValue::Float64(Some(50.0))
+        );
+
+        let past_end = [track_x0 + track_width + 80.0, start[1]];
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: past_end }),
+                &rtree,
+                instant + Duration::from_millis(3),
+            )
+            .await;
+        assert_eq!(
+            manager.state().params().await["volume__value"],
+            ScalarValue::Float64(Some(100.0))
+        );
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(4),
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [track_x0, start[1]],
+                }),
+                &rtree,
+                instant + Duration::from_millis(5),
+            )
+            .await;
+        assert_eq!(
+            manager.state().params().await["volume__value"],
+            ScalarValue::Float64(Some(100.0))
+        );
+    }
+
+    #[tokio::test]
+    async fn slider_zero_width_inner_track_ignores_pointer_gesture() {
+        let ctx = SessionContext::new();
+        let mut theme = Theme::light();
+        theme
+            .append_css("slider#volume { padding-inline: 50px; }")
+            .expect("zero-track slider theme");
+        let compiled = Chart::<Cartesian>::new()
+            .theme(theme)
+            .widget(
+                Slider::new("volume", 0.0, 100.0)
+                    .step(10.0)
+                    .default(40.0)
+                    .title("Volume")
+                    .format(".0f")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile zero-track slider");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("slider streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("zero-track slider scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let origin = rtree.named_group_origin("volume").expect("slider origin");
+        let frame = {
+            let runtime = state.runtime.lock().await;
+            runtime
+                .last_widget_frame_state
+                .frames
+                .values()
+                .find(|frame| frame.widget_id == "volume")
+                .cloned()
+                .expect("slider frame")
+        };
+        let start = [origin[0] + frame.bounds.width / 2.0, origin[1] + 24.0];
+        assert_eq!(
+            rtree
+                .pick_top_mark_at_point(&start)
+                .expect("collapsed slider handle hit")
+                .name,
+            "handle"
+        );
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(crate::WidgetGestureFrameCaptureHandler),
+        );
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved { position: start }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: [start[0] + 500.0, start[1]],
+                }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(3),
+            )
+            .await;
+        assert_eq!(
+            manager.state().params().await["volume__value"],
+            ScalarValue::Float64(Some(40.0))
         );
     }
 

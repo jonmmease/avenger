@@ -206,9 +206,9 @@ impl ToolCompileContext {
                 if between.start.mark_ids().is_empty() {
                     between.start = between.start.clone().marks(interactive_targets.clone());
                 }
-                if between.end.mark_ids().is_empty() {
-                    between.end = between.end.clone().marks(interactive_targets.clone());
-                }
+                // An untargeted end stream is intentionally surface-global.
+                // Pointer gestures must terminate on mouse-up even after the
+                // pointer leaves the widget that owns the captured start.
             }
         }
         self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;

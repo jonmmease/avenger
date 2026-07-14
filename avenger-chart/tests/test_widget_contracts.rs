@@ -754,11 +754,18 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
         widget_group.origin[0] > 0.0,
         "right-side widget must be translated into reserved chrome"
     );
-    assert!(matches!(
+    assert_eq!(
         widget_group.clip,
-        avenger_scenegraph::marks::group::Clip::Rect { width, height, .. }
-            if width > 24.0 && width <= 200.0 && height == 24.0
-    ));
+        avenger_scenegraph::marks::group::Clip::None
+    );
+    let widget_frame = evaluated
+        .widget_frames
+        .frames
+        .values()
+        .find(|frame| frame.widget_id == "contract")
+        .expect("contract widget frame");
+    assert!(widget_frame.bounds.width > 24.0 && widget_frame.bounds.width <= 200.0);
+    assert_eq!(widget_frame.bounds.height, 24.0);
     assert!(
         widget_children
             .iter()
