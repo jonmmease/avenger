@@ -1,5 +1,6 @@
 use avenger_chart::prelude::{
-    Cartesian, Chart, ChartEventType, ChartWidgetPlacementExt, ChromePosition, Theme,
+    Cartesian, Chart, ChartEventType, ChartWidgetPlacementExt, ChromePosition, GridConcat, HConcat,
+    Theme, TrackSizing, WidgetCell,
 };
 use avenger_chart_widgets::Slider;
 use avenger_scenegraph::marks::{
@@ -22,6 +23,86 @@ fn find_group<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneGroup> 
         }
     }
     None
+}
+
+async fn slider_cell_frame_width(
+    track: Option<TrackSizing>,
+) -> (f32, avenger_chart::render::EvaluatedPlot) {
+    let ctx = SessionContext::new();
+    let mut chart = Chart::<HConcat>::new().plot_size(300.0, 80.0);
+    if let Some(track) = track {
+        chart = chart.configure_coord(|coord| coord.widths([track]));
+    }
+    let evaluated = chart
+        .mark(WidgetCell::widget(Slider::new("amount", 0.0, 10.0).title("Amount")).name("controls"))
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+    let width = evaluated
+        .widget_frames
+        .frames
+        .values()
+        .find(|frame| frame.widget_id == "amount")
+        .unwrap()
+        .bounds
+        .width;
+    (width, evaluated)
+}
+
+#[tokio::test]
+async fn slider_widget_cell_stretches_in_auto_and_flex_tracks() {
+    for track in [None, Some(TrackSizing::Flex(1.0))] {
+        let (width, evaluated) = slider_cell_frame_width(track).await;
+        assert_eq!(width, 300.0);
+        let slider = find_group(&evaluated.scene_graph.marks, "amount").unwrap();
+        let track = find_rect(&slider.marks, "track").unwrap();
+        assert!(track.x2_vec()[0] > 250.0);
+    }
+}
+
+#[tokio::test]
+async fn slider_widget_cell_overflows_rigid_px_track_at_intrinsic_minimum() {
+    let (width, evaluated) = slider_cell_frame_width(Some(TrackSizing::Px(40.0))).await;
+    assert_eq!(width, 80.0);
+    let slider = find_group(&evaluated.scene_graph.marks, "amount").unwrap();
+    assert!(find_rect(&slider.marks, "track").unwrap().x2_vec()[0] > 40.0);
+
+    let (wide_width, _) = slider_cell_frame_width(Some(TrackSizing::Px(200.0))).await;
+    assert_eq!(wide_width, 80.0);
+}
+
+#[tokio::test]
+async fn slider_widget_cell_stretches_across_grid_span() {
+    let ctx = SessionContext::new();
+    let evaluated = Chart::<GridConcat>::new()
+        .configure_coord(|grid| {
+            grid.rows(1)
+                .columns(2)
+                .column_widths([TrackSizing::Flex(1.0), TrackSizing::Flex(1.0)])
+        })
+        .plot_size(300.0, 80.0)
+        .mark(
+            WidgetCell::widget(Slider::new("amount", 0.0, 10.0).title("Amount"))
+                .name("controls")
+                .at(0, 0)
+                .grid_column_span(2),
+        )
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+    let frame = evaluated
+        .widget_frames
+        .frames
+        .values()
+        .find(|frame| frame.widget_id == "amount")
+        .unwrap();
+    assert_eq!(frame.bounds.width, 300.0);
 }
 
 fn find_rect<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneRectMark> {

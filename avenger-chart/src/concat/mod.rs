@@ -873,12 +873,26 @@ impl ConcatCoordMeasurement {
             .enumerate()
             .map(|(slot_index, child)| {
                 let solution = self.placement.solution();
-                let content = solution
+                let mut content = solution
                     .child_content_rect_relative_to_member(slot_index)
                     .map_err(AvengerChartError::InternalError)?;
                 let slot = solution
                     .child_slot_rect_relative_to_member(slot_index)
                     .map_err(AvengerChartError::InternalError)?;
+                if child.is_widget_cell && child.stretch[0] > 0.0 {
+                    content.x = slot.x;
+                    content.width = child.content_size.width.max(slot.width);
+                } else if child.is_widget_cell && content.width < child.content_size.width {
+                    content.x = slot.x;
+                    content.width = child.content_size.width;
+                }
+                if child.is_widget_cell && child.stretch[1] > 0.0 {
+                    content.y = slot.y;
+                    content.height = child.content_size.height.max(slot.height);
+                } else if child.is_widget_cell && content.height < child.content_size.height {
+                    content.y = slot.y;
+                    content.height = child.content_size.height;
+                }
                 let content_size_override = self
                     .placement
                     .retarget_plot_area_size()
@@ -1202,6 +1216,8 @@ struct ConcatLayoutChild {
     grid_placement: Option<GridPlacementConfig>,
     content_size: Size,
     edges: Edges<EdgeDemand>,
+    stretch: [f32; 2],
+    is_widget_cell: bool,
 }
 
 impl ConcatChildMeasurement {
@@ -1702,6 +1718,8 @@ fn concat_layout_children(
                     layout_edges(frame_demand.guide_slabs),
                     layout_edges(frame_demand.legend_slabs),
                 ),
+                stretch: [0.0, 0.0],
+                is_widget_cell: false,
             }
         })
         .chain(widget_cells.iter().map(|child| {
@@ -1715,6 +1733,11 @@ fn concat_layout_children(
                     child.measurement.height.preferred_px,
                 ),
                 edges: Edges::default(),
+                stretch: [
+                    child.measurement.width.stretch,
+                    child.measurement.height.stretch,
+                ],
+                is_widget_cell: true,
             }
         }))
         .collect::<Vec<_>>();
@@ -1840,7 +1863,41 @@ pub(crate) async fn measure_concat_coord_system(
     }
 
     let widget_cells = measure_concat_widget_cells(compiled_marks, host_plot, eval_ctx).await?;
-    let layout_children = concat_layout_children(&children, &widget_cells);
+    let mut layout_children = concat_layout_children(&children, &widget_cells);
+    for (slot, child) in layout_children.iter_mut().enumerate() {
+        let main_can_stretch = !matches!(
+            main_sizes.and_then(|sizes| sizes.get(slot)),
+            Some(TrackSizing::Px(_))
+        );
+        match direction {
+            Orientation::Horizontal => {
+                if main_can_stretch && child.stretch[0] > 0.0 {
+                    child.content_size.width = child
+                        .content_size
+                        .width
+                        .max(track_budgets.get(slot).copied().unwrap_or_default());
+                } else if !main_can_stretch {
+                    child.stretch[0] = 0.0;
+                }
+                if child.stretch[1] > 0.0 {
+                    child.content_size.height = child.content_size.height.max(plot_height);
+                }
+            }
+            Orientation::Vertical => {
+                if main_can_stretch && child.stretch[1] > 0.0 {
+                    child.content_size.height = child
+                        .content_size
+                        .height
+                        .max(track_budgets.get(slot).copied().unwrap_or_default());
+                } else if !main_can_stretch {
+                    child.stretch[1] = 0.0;
+                }
+                if child.stretch[0] > 0.0 {
+                    child.content_size.width = child.content_size.width.max(plot_width);
+                }
+            }
+        }
+    }
 
     let layout_sizes = layout_track_sizes(main_sizes);
     let (column_sizes, row_sizes) = match direction {
@@ -2010,7 +2067,44 @@ pub(crate) async fn measure_grid_concat_coord_system(
 
     let column_sizes = layout_track_sizes(grid.column_widths_config());
     let row_sizes = layout_track_sizes(grid.row_heights_config());
-    let layout_children = concat_layout_children(&children, &widget_cells);
+    let mut layout_children = concat_layout_children(&children, &widget_cells);
+    for child in &mut layout_children {
+        let Some(placement) = child.grid_placement else {
+            continue;
+        };
+        let width_can_stretch =
+            (placement.column..placement.column + placement.column_span).any(|column| {
+                !matches!(
+                    grid.column_widths_config()
+                        .and_then(|sizes| sizes.get(column)),
+                    Some(TrackSizing::Px(_))
+                )
+            });
+        let height_can_stretch = (placement.row..placement.row + placement.row_span).any(|row| {
+            !matches!(
+                grid.row_heights_config().and_then(|sizes| sizes.get(row)),
+                Some(TrackSizing::Px(_))
+            )
+        });
+        if width_can_stretch && child.stretch[0] > 0.0 {
+            child.content_size.width = child.content_size.width.max(span_budget(
+                &column_budgets,
+                placement.column,
+                placement.column_span,
+            ));
+        } else if !width_can_stretch {
+            child.stretch[0] = 0.0;
+        }
+        if height_can_stretch && child.stretch[1] > 0.0 {
+            child.content_size.height = child.content_size.height.max(span_budget(
+                &row_budgets,
+                placement.row,
+                placement.row_span,
+            ));
+        } else if !height_can_stretch {
+            child.stretch[1] = 0.0;
+        }
+    }
     let solution = grid_child_frame_solution(
         &layout_children,
         grid_shape,
@@ -2184,6 +2278,12 @@ pub(crate) async fn measure_wrap_concat_coord_system(
             row_span: 1,
             column_span: 1,
         });
+        if child.stretch[0] > 0.0 {
+            child.content_size.width = child.content_size.width.max(child_plot_area.width);
+        }
+        if child.stretch[1] > 0.0 {
+            child.content_size.height = child.content_size.height.max(child_plot_area.height);
+        }
     }
     let solution = grid_child_frame_solution(
         &layout_children,

@@ -1,7 +1,7 @@
 use avenger_chart::prelude::{
     AvengerChartError, Cartesian, Chart, ChartEventType, ChartWidgetPlacementExt, ChromePosition,
     CompiledParamSpec, GridConcat, HConcat, NativeWidget, NativeWidgetMeasureSpec,
-    NativeWidgetStateSpec, Param, Theme, WidgetCell, WidgetMeasureSpec,
+    NativeWidgetStateSpec, Param, Theme, TrackSizing, WidgetCell, WidgetMeasureSpec,
 };
 use avenger_chart_core::CompiledWidget;
 use avenger_chart_widgets::{Button, ButtonVariant};
@@ -198,6 +198,43 @@ async fn widget_cells_use_explicit_grid_placement() {
         .find(|frame| frame.widget_id == "second")
         .unwrap();
     assert!(second.bounds.x > first.bounds.x + first.bounds.width);
+}
+
+#[tokio::test]
+async fn content_widget_cell_keeps_preferred_size_in_flex_track() {
+    let ctx = SessionContext::new();
+    let auto = Chart::<HConcat>::new()
+        .plot_size(300.0, 80.0)
+        .mark(WidgetCell::widget(Button::new("auto").label("Button")).name("auto_cell"))
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+    let flex = Chart::<HConcat>::new()
+        .configure_coord(|coord| coord.widths([TrackSizing::Flex(1.0)]))
+        .plot_size(300.0, 80.0)
+        .mark(WidgetCell::widget(Button::new("flex").label("Button")).name("flex_cell"))
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+    let frame_width = |evaluated: &avenger_chart::render::EvaluatedPlot, id: &str| {
+        evaluated
+            .widget_frames
+            .frames
+            .values()
+            .find(|frame| frame.widget_id == id)
+            .unwrap()
+            .bounds
+            .width
+    };
+    let auto_width = frame_width(&auto, "auto");
+    assert_eq!(frame_width(&flex, "flex"), auto_width);
+    assert!(auto_width < 300.0);
 }
 
 fn find_rect<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneRectMark> {
