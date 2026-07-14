@@ -991,18 +991,29 @@ fn value_from_label_param(value: &LabelParamValue) -> Value {
 }
 
 fn glyphs_from_pdf_text(pdf_text: Option<&PdfTextLayer>, source_offset: usize) -> Vec<Glyph> {
-    pdf_text
-        .into_iter()
-        .flat_map(|pdf_text| pdf_text.glyph_runs.iter())
-        .flat_map(|run| {
-            run.glyphs.iter().map(move |glyph| {
-                let mut glyph = Glyph::from(glyph);
-                glyph.text_range.start += source_offset;
-                glyph.text_range.end += source_offset;
-                glyph
-            })
-        })
-        .collect()
+    let Some(pdf_text) = pdf_text else {
+        return Vec::new();
+    };
+    let mut run_search_start = 0;
+    let mut glyphs = Vec::new();
+    for run in &pdf_text.glyph_runs {
+        let relative_run_start = pdf_text
+            .semantic_text
+            .get(run_search_start..)
+            .and_then(|tail| tail.find(&run.text))
+            .map(|offset| run_search_start + offset)
+            .or_else(|| pdf_text.semantic_text.find(&run.text))
+            .unwrap_or(run_search_start);
+        run_search_start = relative_run_start.saturating_add(run.text.len());
+        glyphs.extend(run.glyphs.iter().map(|glyph| {
+            let mut glyph = Glyph::from(glyph);
+            let offset = source_offset + relative_run_start;
+            glyph.text_range.start += offset;
+            glyph.text_range.end += offset;
+            glyph
+        }));
+    }
+    glyphs
 }
 
 fn validate_source_limits(source: &str, limits: LabelLimits) -> Result<(), LabelError> {

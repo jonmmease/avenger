@@ -7,6 +7,7 @@ pub mod measurement;
 pub mod path;
 pub mod pdf;
 pub mod rasterization;
+pub mod text_edit;
 mod text_line;
 pub mod types;
 

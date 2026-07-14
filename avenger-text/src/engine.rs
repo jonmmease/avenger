@@ -13,6 +13,7 @@ use crate::{
     rasterization::{
         TextRasterCacheKey, TextRasterCacheValue, TextRasterizationBuffer, TextRasterizationConfig,
     },
+    text_edit::ShapedLine,
     text_line::{TextLineMeasurer, TextLineRasterizer},
     types::TextSyntaxMode,
 };
@@ -163,6 +164,14 @@ impl TextEngine {
 
     pub fn font_metrics(&self, config: &FontMetricsConfig) -> FontMetrics {
         TextLineMeasurer::new(self.typst.clone(), self.math.clone()).measure_font_metrics(config)
+    }
+
+    /// Shape one editable plain-text line and retain source byte geometry.
+    pub fn shape_line(
+        &self,
+        config: &TextMeasurementConfig,
+    ) -> Result<ShapedLine, AvengerTextError> {
+        crate::text_edit::shaped_line::shape_line(&self.typst, &self.math, config)
     }
 
     pub fn rasterize<CacheValue>(
