@@ -329,6 +329,7 @@ fn try_typeset_mixed_metrics_text_line(
                         kind: PositionedTextLineRunKind::Plain,
                         text: decorated.text.clone(),
                         byte_range: decorated.byte_range.clone(),
+                        is_rtl: false,
                         text_style: Some(run_style),
                         x: 0.0,
                         y: glyph_baseline_y,
@@ -444,6 +445,7 @@ fn try_typeset_mixed_metrics_text_line(
                         kind: part.kind,
                         text: part.text.clone(),
                         byte_range: part.byte_range.clone(),
+                        is_rtl: false,
                         text_style: part.text_style.clone(),
                         x,
                         y: metrics.baseline + part.baseline_shift,
@@ -690,7 +692,9 @@ fn positioned_plain_runs_from_segmented(
             PositionedTextLineRun {
                 kind: PositionedTextLineRunKind::Plain,
                 text: run.text.clone(),
-                byte_range: plain.byte_range.clone(),
+                byte_range: (plain.byte_range.start + run.byte_range.start)
+                    ..(plain.byte_range.start + run.byte_range.end),
+                is_rtl: run.is_rtl,
                 text_style: Some(run_style),
                 x: run.x,
                 y: baseline,
@@ -709,23 +713,25 @@ fn merge_adjacent_positioned_plain_runs(
 ) -> Vec<PositionedTextLineRun> {
     let mut merged: Vec<PositionedTextLineRun> = Vec::new();
     for run in runs {
-        if let Some(previous) = merged.last_mut() {
-            if previous.text_style == run.text_style
-                && previous.paths.is_none()
-                && previous.pdf_text.is_none()
-                && run.paths.is_none()
-                && run.pdf_text.is_none()
-                && (previous.y - run.y).abs() <= f32::EPSILON
-            {
-                previous.text.push_str(&run.text);
-                let right = (run.x + run.metrics.width).max(previous.x + previous.metrics.width);
-                previous.metrics.width = right - previous.x;
-                previous.metrics.ascent = previous.metrics.ascent.max(run.metrics.ascent);
-                previous.metrics.descent = previous.metrics.descent.max(run.metrics.descent);
-                previous.metrics.height = previous.metrics.ascent + previous.metrics.descent;
-                previous.metrics.baseline = previous.metrics.ascent;
-                continue;
-            }
+        if let Some(previous) = merged.last_mut()
+            && previous.text_style == run.text_style
+            && previous.is_rtl == run.is_rtl
+            && previous.paths.is_none()
+            && previous.pdf_text.is_none()
+            && run.paths.is_none()
+            && run.pdf_text.is_none()
+            && (previous.y - run.y).abs() <= f32::EPSILON
+        {
+            previous.text.push_str(&run.text);
+            previous.byte_range.start = previous.byte_range.start.min(run.byte_range.start);
+            previous.byte_range.end = previous.byte_range.end.max(run.byte_range.end);
+            let right = (run.x + run.metrics.width).max(previous.x + previous.metrics.width);
+            previous.metrics.width = right - previous.x;
+            previous.metrics.ascent = previous.metrics.ascent.max(run.metrics.ascent);
+            previous.metrics.descent = previous.metrics.descent.max(run.metrics.descent);
+            previous.metrics.height = previous.metrics.ascent + previous.metrics.descent;
+            previous.metrics.baseline = previous.metrics.ascent;
+            continue;
         }
         merged.push(run);
     }
@@ -1610,6 +1616,7 @@ fn typeset_plain_text_line(
         kind: PositionedTextLineRunKind::Plain,
         text: plain.text.clone(),
         byte_range: plain.byte_range.clone(),
+        is_rtl: false,
         text_style: Some(text_style.clone()),
         x: 0.0,
         y: metrics.baseline,

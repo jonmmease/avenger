@@ -105,6 +105,35 @@ fn compile_text_unicode_emoji_bidi_complex_script_matches_escaped_compile() {
 }
 
 #[test]
+fn compile_text_exposes_source_relative_glyph_ranges_and_run_direction() {
+    let source = "abc אבג xyz";
+    let label = engine()
+        .compile_text(source, &LabelOptions::default())
+        .unwrap();
+    let runs = label
+        .frame
+        .items
+        .iter()
+        .filter_map(|(_, item)| match item {
+            LabelFrameItem::Text(text) if text.kind == TextItemKind::Plain => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(runs.iter().any(|run| run.is_rtl));
+    assert!(runs.iter().any(|run| !run.is_rtl));
+    for run in runs {
+        assert_eq!(&source[run.byte_range.clone()], run.text);
+        for glyph in &run.glyphs {
+            assert!(run.byte_range.start <= glyph.text_range.start);
+            assert!(glyph.text_range.end <= run.byte_range.end);
+            assert!(source.is_char_boundary(glyph.text_range.start));
+            assert!(source.is_char_boundary(glyph.text_range.end));
+        }
+    }
+}
+
+#[test]
 fn compile_markup_style_wrappers_handle_emoji_bidi_and_complex_script() {
     let samples = [
         "#underline[Revenue 🚀 שלום नमस्ते]",

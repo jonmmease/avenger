@@ -87,6 +87,9 @@ pub struct PositionedTextLineRun {
     pub kind: PositionedTextLineRunKind,
     pub text: String,
     pub byte_range: std::ops::Range<usize>,
+    /// Whether logical text in this visually positioned run flows right-to-left.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub is_rtl: bool,
     /// Style for native plain-text output. Math runs leave this empty because
     /// their SVG/PDF representation is carried by paths/PDF glyph metadata.
     pub text_style: Option<TextStyle>,

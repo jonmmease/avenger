@@ -508,9 +508,10 @@ fn push_text_item(
             kind,
             text: run.text.clone(),
             byte_range: run.byte_range.clone(),
+            is_rtl: run.is_rtl,
             style: run.text_style.clone(),
             metrics: LabelMetrics::from(run.metrics),
-            glyphs: glyphs_from_pdf_text(pdf_text.as_ref()),
+            glyphs: glyphs_from_pdf_text(pdf_text.as_ref(), run.byte_range.start),
             pdf_text,
             font_resources,
         }),
@@ -702,6 +703,8 @@ pub struct TextItem {
     pub kind: TextItemKind,
     pub text: String,
     pub byte_range: Range<usize>,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub is_rtl: bool,
     pub style: Option<TextStyle>,
     pub metrics: LabelMetrics,
     pub glyphs: Vec<Glyph>,
@@ -987,11 +990,18 @@ fn value_from_label_param(value: &LabelParamValue) -> Value {
     }
 }
 
-fn glyphs_from_pdf_text(pdf_text: Option<&PdfTextLayer>) -> Vec<Glyph> {
+fn glyphs_from_pdf_text(pdf_text: Option<&PdfTextLayer>, source_offset: usize) -> Vec<Glyph> {
     pdf_text
         .into_iter()
         .flat_map(|pdf_text| pdf_text.glyph_runs.iter())
-        .flat_map(|run| run.glyphs.iter().map(Glyph::from))
+        .flat_map(|run| {
+            run.glyphs.iter().map(move |glyph| {
+                let mut glyph = Glyph::from(glyph);
+                glyph.text_range.start += source_offset;
+                glyph.text_range.end += source_offset;
+                glyph
+            })
+        })
         .collect()
 }
 

@@ -70,6 +70,7 @@ pub(crate) struct ShapedTextRun {
     pub(crate) text: String,
     #[allow(dead_code)]
     pub(crate) byte_range: Range<usize>,
+    pub(crate) is_rtl: bool,
     pub(crate) x: f32,
     pub(crate) shaped: ShapedText,
 }
@@ -95,6 +96,7 @@ impl SegmentedText {
                 face,
                 text: text.to_string(),
                 byte_range: 0..text.len(),
+                is_rtl: false,
                 x: 0.0,
                 shaped,
             }],
@@ -485,9 +487,10 @@ pub(crate) fn shape_plain_text_with_fallback(
     }
 
     let mut spans = Vec::<TextMarkupSpan>::new();
-    for visual_range in bidi_visual_ranges(text) {
-        for (relative_start, grapheme) in text[visual_range.clone()].grapheme_indices(true) {
-            let start = visual_range.start + relative_start;
+    for visual_run in bidi_visual_runs(text) {
+        for (relative_start, grapheme) in text[visual_run.byte_range.clone()].grapheme_indices(true)
+        {
+            let start = visual_run.byte_range.start + relative_start;
             let end = start + grapheme.len();
             let grapheme_script = script_for_grapheme(grapheme);
             let script = if is_neutral_script(grapheme_script) {
@@ -508,17 +511,17 @@ pub(crate) fn shape_plain_text_with_fallback(
                     .unwrap_or_else(|| primary.clone())
             };
 
-            if let Some(span) = spans.last_mut() {
-                if span.face.same_font(&face)
-                    && span.script == script
-                    && span.byte_range.end == start
-                    && span.visual_range.end == start
-                {
-                    span.byte_range.end = end;
-                    span.visual_range.end = end;
-                    span.text.push_str(grapheme);
-                    continue;
-                }
+            if let Some(span) = spans.last_mut()
+                && span.face.same_font(&face)
+                && span.script == script
+                && span.is_rtl == visual_run.is_rtl
+                && span.byte_range.end == start
+                && span.visual_range.end == start
+            {
+                span.byte_range.end = end;
+                span.visual_range.end = end;
+                span.text.push_str(grapheme);
+                continue;
             }
 
             spans.push(TextMarkupSpan {
@@ -527,6 +530,7 @@ pub(crate) fn shape_plain_text_with_fallback(
                 byte_range: start..end,
                 visual_range: start..end,
                 script,
+                is_rtl: visual_run.is_rtl,
             });
         }
     }
@@ -546,6 +550,7 @@ pub(crate) fn shape_plain_text_with_fallback(
             face: span.face,
             text: span.text,
             byte_range: span.byte_range,
+            is_rtl: span.is_rtl,
             x,
             shaped,
         });
@@ -573,18 +578,30 @@ struct TextMarkupSpan {
     byte_range: Range<usize>,
     visual_range: Range<usize>,
     script: Script,
+    is_rtl: bool,
 }
 
-fn bidi_visual_ranges(text: &str) -> Vec<Range<usize>> {
+struct BidiVisualRun {
+    byte_range: Range<usize>,
+    is_rtl: bool,
+}
+
+fn bidi_visual_runs(text: &str) -> Vec<BidiVisualRun> {
     let bidi = BidiInfo::new(text, None);
     if !bidi.has_rtl() {
-        return vec![0..text.len()];
+        return vec![BidiVisualRun {
+            byte_range: 0..text.len(),
+            is_rtl: false,
+        }];
     }
 
     let mut ranges = Vec::new();
     for paragraph in &bidi.paragraphs {
-        let (_, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
-        ranges.extend(runs);
+        let (levels, runs) = bidi.visual_runs(paragraph, paragraph.range.clone());
+        ranges.extend(runs.into_iter().map(|byte_range| BidiVisualRun {
+            is_rtl: levels[byte_range.start].is_rtl(),
+            byte_range,
+        }));
     }
     ranges
 }
