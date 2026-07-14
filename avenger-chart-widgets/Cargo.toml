@@ -17,6 +17,7 @@ serde_json = { workspace = true }
 [dev-dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 bincode = "1.3"

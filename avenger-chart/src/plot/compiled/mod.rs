@@ -17,6 +17,7 @@ mod layout_profile;
 mod legends;
 mod mark_data_runtime;
 mod materialization;
+mod native_runtime;
 pub(crate) mod rendering;
 pub mod scale_provider;
 pub(crate) mod scales; // Made public so plot.rs can call build_scale_builder_from_marks
@@ -118,6 +119,13 @@ pub(crate) use self::mark_data_runtime::{
     schedule_view_materializations_for_mark,
 };
 pub(crate) use self::materialization::MaterializationCacheHandle;
+pub use self::native_runtime::{
+    InMemoryNativeWidgetInstanceStore, NativeWidgetAttachmentEpoch, NativeWidgetCtx,
+    NativeWidgetDocumentId, NativeWidgetEventRoute, NativeWidgetHostCommandSink,
+    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstanceKey,
+    NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetNamespace, NativeWidgetPlotId,
+    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetSlotTypeMismatch,
+};
 #[cfg(test)]
 pub(crate) use self::session::TextMeasurementCache;
 pub use self::session::{

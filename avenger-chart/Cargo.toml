@@ -31,6 +31,7 @@ visual-tests = [
 [dependencies]
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-legend = { path = "../avenger-chart-legend" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }

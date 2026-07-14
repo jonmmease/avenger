@@ -11,7 +11,10 @@ use avenger_app::{
 };
 use avenger_chart::{
     layout::{ChartResizeAxisPolicy, ChartResizePolicy},
-    plot::{CompiledPlot, EvaluationRequest, PlotSession, ScopedParamAssignment},
+    plot::{
+        CompiledPlot, EvaluationRequest, NativeWidgetHostServices, NativeWidgetPlotId,
+        NativeWidgetRuntimeResources, PlotSession, PlotSessionOptions, ScopedParamAssignment,
+    },
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
         EvaluatedWidgetFrame, EvaluatedWidgetFrameState, EvaluationMetrics, EvaluationMode,
@@ -116,6 +119,8 @@ impl Default for ChartAppOptions {
 pub struct ChartRuntimeResources {
     pub image_resource_resolver: Arc<dyn ImageResourceResolver>,
     pub render_invalidation_hub: RenderInvalidationHub,
+    pub native_widget_runtime: NativeWidgetRuntimeResources,
+    pub native_widget_host_services: NativeWidgetHostServices,
 }
 
 impl ChartRuntimeResources {
@@ -126,13 +131,52 @@ impl ChartRuntimeResources {
         Self {
             image_resource_resolver,
             render_invalidation_hub,
+            native_widget_runtime: NativeWidgetRuntimeResources::in_memory(),
+            native_widget_host_services: NativeWidgetHostServices::new(),
         }
+    }
+
+    pub fn with_native_widget_runtime(
+        mut self,
+        native_widget_runtime: NativeWidgetRuntimeResources,
+    ) -> Self {
+        self.native_widget_runtime = native_widget_runtime;
+        self
+    }
+
+    pub fn with_native_widget_host_services(
+        mut self,
+        native_widget_host_services: NativeWidgetHostServices,
+    ) -> Self {
+        self.native_widget_host_services = native_widget_host_services;
+        self
+    }
+
+    #[cfg(feature = "winit-wgpu")]
+    pub fn configure_winit_options(
+        &self,
+        options: WinitWgpuAvengerAppOptions,
+    ) -> WinitWgpuAvengerAppOptions {
+        let services = self.native_widget_host_services.clone();
+        options
+            .render_invalidation_hub(self.render_invalidation_hub.clone())
+            .clipboard_payload_provider(Arc::new(move || services.focused_clipboard_payload()))
     }
 }
 
 pub struct ChartAppBundle {
     pub app: AvengerApp<ChartAppState>,
     pub runtime_resources: ChartRuntimeResources,
+}
+
+impl ChartAppBundle {
+    #[cfg(feature = "winit-wgpu")]
+    pub fn configure_winit_options(
+        &self,
+        options: WinitWgpuAvengerAppOptions,
+    ) -> WinitWgpuAvengerAppOptions {
+        self.runtime_resources.configure_winit_options(options)
+    }
 }
 
 /// Cloneable app state wrapper around the stateful chart session runtime.
@@ -958,7 +1002,13 @@ async fn chart_avenger_app_inner(
         &[],
         &IndexMap::new(),
     )?);
-    let session = Arc::new(compiled_plot).instantiate(ctx);
+    let mut session = Arc::new(compiled_plot).instantiate(ctx);
+    if let Some(resources) = runtime_resources.as_ref() {
+        session.set_options(PlotSessionOptions::from_native_widget_resources(
+            &resources.native_widget_runtime,
+            NativeWidgetPlotId::chart_root(),
+        ));
+    }
     let exact_on_resize_settle = options.exact_on_resize_settle;
     let hover_resolver = runtime_resources
         .as_ref()
@@ -1282,6 +1332,7 @@ mod tests {
 
     use avenger_chart::prelude::*;
     use avenger_eventstream::{
+        runtime::RuntimeHostCommand,
         scene::SceneGraphEvent,
         window::{CanvasResizeEvent, WindowResizeEvent},
     };
@@ -1405,6 +1456,36 @@ mod tests {
         assert_eq!(recorded_requests.len(), 2);
         assert_eq!(recorded_requests[0], image_request);
         assert_eq!(recorded_requests[1], prefetch_image_request);
+    }
+
+    #[cfg(feature = "winit-wgpu")]
+    #[test]
+    fn runtime_resources_configure_winit_with_synchronous_widget_clipboard_provider() {
+        let resources = ChartRuntimeResources::new(
+            Arc::new(RecordingImageResolver::default()),
+            RenderInvalidationHub::default(),
+        );
+        let namespace = resources
+            .native_widget_runtime
+            .namespace(NativeWidgetPlotId::chart_root());
+        let slot = resources
+            .native_widget_runtime
+            .instance_store
+            .slot(NativeWidgetInstanceKey::new(namespace, "editor"));
+        let sink = Arc::new(StdMutex::new(Vec::<RuntimeHostCommand>::new()));
+        let ctx = NativeWidgetCtx::attach(
+            slot,
+            resources.native_widget_host_services.clone(),
+            sink,
+            NativeWidgetHostTransform::default(),
+        );
+        ctx.focus(None, "focused selection");
+        let options = resources.configure_winit_options(WinitWgpuAvengerAppOptions::new(2.0));
+        assert!(options.render_invalidation_hub.is_some());
+        let provider = options
+            .clipboard_payload_provider
+            .expect("widget clipboard provider");
+        assert_eq!(provider().as_deref(), Some("focused selection"));
     }
 
     async fn compile_tiny_async_raster_plot(ctx: &SessionContext) -> CompiledPlot {

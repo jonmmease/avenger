@@ -46,6 +46,10 @@ mod text_agent;
 #[cfg(target_arch = "wasm32")]
 pub use text_agent::TextAgentHost;
 
+/// Synchronous text supplied to a browser copy/cut callback for the currently
+/// focused canvas control.
+pub type ClipboardPayloadProvider = Arc<dyn Fn() -> Option<String> + Send + Sync>;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod file_watcher;
 #[cfg(not(target_arch = "wasm32"))]
@@ -496,6 +500,7 @@ pub struct WinitWgpuAvengerAppOptions {
     pub canvas_frame: Option<CanvasFrameOptions>,
     pub canvas_config: CanvasConfig,
     pub render_invalidation_hub: Option<RenderInvalidationHub>,
+    pub clipboard_payload_provider: Option<ClipboardPayloadProvider>,
 }
 
 impl WinitWgpuAvengerAppOptions {
@@ -509,6 +514,7 @@ impl WinitWgpuAvengerAppOptions {
             canvas_frame: None,
             canvas_config: CanvasConfig::default(),
             render_invalidation_hub: None,
+            clipboard_payload_provider: None,
         }
     }
 
@@ -544,6 +550,11 @@ impl WinitWgpuAvengerAppOptions {
 
     pub fn render_invalidation_hub(mut self, hub: RenderInvalidationHub) -> Self {
         self.render_invalidation_hub = Some(hub);
+        self
+    }
+
+    pub fn clipboard_payload_provider(mut self, provider: ClipboardPayloadProvider) -> Self {
+        self.clipboard_payload_provider = Some(provider);
         self
     }
 }
@@ -596,6 +607,8 @@ where
     runtime_wake_scheduler: NativeRuntimeWakeScheduler,
     #[cfg(target_arch = "wasm32")]
     text_agent: std::rc::Rc<std::cell::RefCell<Option<TextAgentHost>>>,
+    #[cfg(target_arch = "wasm32")]
+    clipboard_payload_provider: Option<ClipboardPayloadProvider>,
 
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
     /// used to log inter-frame delta / fps alongside surface_render_ms.
@@ -700,6 +713,8 @@ where
             runtime_wake_scheduler,
             #[cfg(target_arch = "wasm32")]
             text_agent: std::rc::Rc::new(std::cell::RefCell::new(None)),
+            #[cfg(target_arch = "wasm32")]
+            clipboard_payload_provider: options.clipboard_payload_provider,
             #[cfg(not(target_arch = "wasm32"))]
             last_redraw: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1369,8 +1384,12 @@ where
                 Some(canvas)
             })
             .expect("Couldn't append canvas to document body.");
-        let host = TextAgentHost::new(canvas, self.event_proxy.clone())
-            .expect("failed to install wasm text agent");
+        let host = TextAgentHost::new_with_clipboard_payload_provider(
+            canvas,
+            self.event_proxy.clone(),
+            self.clipboard_payload_provider.clone(),
+        )
+        .expect("failed to install wasm text agent");
         *self.text_agent.borrow_mut() = Some(host);
     }
 }
@@ -1754,6 +1773,7 @@ fn cursor_style_to_winit(style: CursorStyle) -> CursorIcon {
     match style {
         CursorStyle::Default => CursorIcon::Default,
         CursorStyle::Pointer => CursorIcon::Pointer,
+        CursorStyle::Text => CursorIcon::Text,
         CursorStyle::Crosshair => CursorIcon::Crosshair,
         CursorStyle::Grab => CursorIcon::Grab,
         CursorStyle::Grabbing => CursorIcon::Grabbing,
@@ -1882,6 +1902,7 @@ mod tests {
             cursor_style_to_winit(CursorStyle::Pointer),
             CursorIcon::Pointer
         );
+        assert_eq!(cursor_style_to_winit(CursorStyle::Text), CursorIcon::Text);
         assert_eq!(cursor_style_to_winit(CursorStyle::Grab), CursorIcon::Grab);
         assert_eq!(
             cursor_style_to_winit(CursorStyle::Grabbing),

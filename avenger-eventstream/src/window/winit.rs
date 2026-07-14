@@ -9,6 +9,12 @@ use ::winit::{
 
 use super::*;
 
+fn is_ime_consumed_key(key: &WinitKey) -> bool {
+    // Windows reports VK_PROCESSKEY while the IME owns the physical key. It
+    // must not also enter the editor's ordinary keybinding/text path.
+    matches!(key, WinitKey::Named(WinitNamedKey::Process))
+}
+
 impl WindowEvent {
     /// Convert a winit WindowEvent into an Avenger WindowEvent
     ///
@@ -71,6 +77,9 @@ impl WindowEvent {
             }
 
             WinitEvent::KeyboardInput { event, .. } => {
+                if is_ime_consumed_key(&event.logical_key) {
+                    return None;
+                }
                 Some(Self::KeyboardInput(WindowKeyboardInput {
                     state: match event.state {
                         WinitElementState::Pressed => ElementState::Pressed,
@@ -203,5 +212,15 @@ mod tests {
             ),
             Some(WindowEvent::Ime(ImeEvent::Commit("仮名".into())))
         );
+    }
+
+    #[test]
+    fn process_key_consumed_by_windows_ime_is_filtered() {
+        assert!(is_ime_consumed_key(&WinitKey::Named(
+            WinitNamedKey::Process
+        )));
+        assert!(!is_ime_consumed_key(&WinitKey::Named(
+            WinitNamedKey::ArrowLeft
+        )));
     }
 }

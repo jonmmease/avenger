@@ -14,7 +14,12 @@ mod title;
 pub use avenger_chart_core::IntoExpr;
 pub use chart::Chart;
 pub use compiled::{
-    CompiledPlot, EvaluationRequest, PlotSession, PlotSessionOptions, ScopedParamAssignment,
+    CompiledPlot, EvaluationRequest, InMemoryNativeWidgetInstanceStore,
+    NativeWidgetAttachmentEpoch, NativeWidgetCtx, NativeWidgetDocumentId, NativeWidgetEventRoute,
+    NativeWidgetHostCommandSink, NativeWidgetHostServices, NativeWidgetHostTransform,
+    NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
+    NativeWidgetNamespace, NativeWidgetPlotId, NativeWidgetRegistry, NativeWidgetRuntimeResources,
+    NativeWidgetSlotTypeMismatch, PlotSession, PlotSessionOptions, ScopedParamAssignment,
     ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,
     StoreStateUpdate,
 };

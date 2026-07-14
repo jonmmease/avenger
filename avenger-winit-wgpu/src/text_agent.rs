@@ -2,6 +2,8 @@ use avenger_eventstream::{
     runtime::LogicalRect,
     window::{ElementState, ImeEvent, Key, NamedKey, WindowEvent, WindowKeyboardInput},
 };
+
+use crate::ClipboardPayloadProvider;
 #[derive(Debug, Default)]
 struct TextAgentInputState {
     suppress_input_once: Option<String>,
@@ -122,6 +124,15 @@ fn browser_clipboard_event(name: &str, paste_text: Option<String>) -> Option<Win
     Some(WindowEvent::Clipboard(event))
 }
 
+fn resolved_clipboard_payload(
+    provider: Option<&ClipboardPayloadProvider>,
+    fallback: &str,
+) -> String {
+    provider
+        .and_then(|provider| provider())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 fn logical_to_client_rect(
     rect: LogicalRect,
     logical_size: [f32; 2],
@@ -185,6 +196,14 @@ mod wasm {
             canvas: HtmlCanvasElement,
             event_proxy: EventLoopProxy<WinitWgpuEvent>,
         ) -> Result<Self, JsValue> {
+            Self::new_with_clipboard_payload_provider(canvas, event_proxy, None)
+        }
+
+        pub fn new_with_clipboard_payload_provider(
+            canvas: HtmlCanvasElement,
+            event_proxy: EventLoopProxy<WinitWgpuEvent>,
+            clipboard_payload_provider: Option<ClipboardPayloadProvider>,
+        ) -> Result<Self, JsValue> {
             let window = web_sys::window().ok_or_else(|| JsValue::from_str("missing window"))?;
             let document = window
                 .document()
@@ -224,7 +243,7 @@ mod wasm {
                 logical_canvas_size: [1.0, 1.0],
             };
             host.install_input_listeners()?;
-            host.install_clipboard_listeners(document.as_ref())?;
+            host.install_clipboard_listeners(document.as_ref(), clipboard_payload_provider)?;
             Ok(host)
         }
 
@@ -360,10 +379,15 @@ mod wasm {
             Ok(())
         }
 
-        fn install_clipboard_listeners(&mut self, document: &EventTarget) -> Result<(), JsValue> {
+        fn install_clipboard_listeners(
+            &mut self,
+            document: &EventTarget,
+            clipboard_payload_provider: Option<ClipboardPayloadProvider>,
+        ) -> Result<(), JsValue> {
             for name in ["copy", "cut"] {
                 let proxy = self.event_proxy.clone();
                 let payload = self.clipboard_payload.clone();
+                let provider = clipboard_payload_provider.clone();
                 let active = self.active.clone();
                 self.add_listener(document, name, move |event| {
                     if !active.get() {
@@ -371,7 +395,9 @@ mod wasm {
                     }
                     let event = event.unchecked_into::<DomClipboardEvent>();
                     if let Some(data) = event.clipboard_data() {
-                        let _ = data.set_data("text/plain", &payload.borrow());
+                        let fallback = payload.borrow().clone();
+                        let payload = resolved_clipboard_payload(provider.as_ref(), &fallback);
+                        let _ = data.set_data("text/plain", &payload);
                         event.prevent_default();
                     }
                     if let Some(output) = browser_clipboard_event(name, None) {
@@ -559,6 +585,21 @@ mod tests {
             Some(WindowEvent::Clipboard(ClipboardEvent::Paste(
                 "value".into()
             )))
+        );
+    }
+
+    #[test]
+    fn synchronous_clipboard_provider_overrides_cached_fallback() {
+        let provider: ClipboardPayloadProvider =
+            std::sync::Arc::new(|| Some("focused selection".to_string()));
+        assert_eq!(
+            resolved_clipboard_payload(Some(&provider), "stale cache"),
+            "focused selection"
+        );
+        let empty: ClipboardPayloadProvider = std::sync::Arc::new(|| None);
+        assert_eq!(
+            resolved_clipboard_payload(Some(&empty), "cached selection"),
+            "cached selection"
         );
     }
 }

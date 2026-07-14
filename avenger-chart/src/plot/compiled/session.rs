@@ -2,6 +2,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    fmt,
     sync::{Arc, Mutex},
 };
 
@@ -62,7 +63,8 @@ use crate::{
 };
 
 use super::{
-    CompiledPlot, LayoutProfileSnapshot, WidgetPreparedBaseData,
+    CompiledPlot, LayoutProfileSnapshot, NativeWidgetInstanceStore, NativeWidgetNamespace,
+    NativeWidgetPlotId, NativeWidgetRegistry, NativeWidgetRuntimeResources, WidgetPreparedBaseData,
     compiled_subplot_payload_child_plot,
     legends::PreparedLegendGroup,
     materialization::{MaterializationCache, MaterializationCacheHandle, MaterializationStart},
@@ -1460,8 +1462,63 @@ pub struct EvaluationRequest {
 }
 
 /// Runtime options owned by a reusable `PlotSession`.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct PlotSessionOptions {}
+#[derive(Clone)]
+pub struct PlotSessionOptions {
+    pub native_widget_registry: Arc<NativeWidgetRegistry>,
+    pub native_widget_instance_store: Arc<dyn NativeWidgetInstanceStore>,
+    pub native_widget_namespace: NativeWidgetNamespace,
+}
+
+impl PlotSessionOptions {
+    pub fn from_native_widget_resources(
+        resources: &NativeWidgetRuntimeResources,
+        plot_id: NativeWidgetPlotId,
+    ) -> Self {
+        Self {
+            native_widget_registry: resources.registry.clone(),
+            native_widget_instance_store: resources.instance_store.clone(),
+            native_widget_namespace: resources.namespace(plot_id),
+        }
+    }
+}
+
+impl Default for PlotSessionOptions {
+    fn default() -> Self {
+        let resources = NativeWidgetRuntimeResources::in_memory();
+        Self::from_native_widget_resources(&resources, NativeWidgetPlotId::chart_root())
+    }
+}
+
+impl fmt::Debug for PlotSessionOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let registry = Arc::as_ptr(&self.native_widget_registry) as *const () as usize;
+        let store = Arc::as_ptr(&self.native_widget_instance_store) as *const () as usize;
+        f.debug_struct("PlotSessionOptions")
+            .field(
+                "native_widget_registry",
+                &format_args!("opaque@{registry:x}"),
+            )
+            .field(
+                "native_widget_instance_store",
+                &format_args!("opaque@{store:x}"),
+            )
+            .field("native_widget_namespace", &self.native_widget_namespace)
+            .finish()
+    }
+}
+
+impl PartialEq for PlotSessionOptions {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.native_widget_registry, &other.native_widget_registry)
+            && Arc::ptr_eq(
+                &self.native_widget_instance_store,
+                &other.native_widget_instance_store,
+            )
+            && self.native_widget_namespace == other.native_widget_namespace
+    }
+}
+
+impl Eq for PlotSessionOptions {}
 
 impl Default for EvaluationRequest {
     fn default() -> Self {
@@ -1668,6 +1725,7 @@ pub struct PlotSession {
     layout_profile: Option<LayoutProfileSnapshot>,
     last_metrics: Option<EvaluationMetrics>,
     options: PlotSessionOptions,
+    native_widget_attachment_revision: u64,
     facet_scale_builder_precompute_cache: FacetScaleBuilderPrecomputeCacheHandle,
     guide_overflow_cache: GuideOverflowCacheHandle,
     legend_measurement_cache: LegendMeasurementCacheHandle,
@@ -1709,6 +1767,7 @@ impl PlotSession {
             layout_profile: None,
             last_metrics: None,
             options: PlotSessionOptions::default(),
+            native_widget_attachment_revision: 0,
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
             legend_measurement_cache,
@@ -2004,9 +2063,18 @@ impl PlotSession {
     pub fn set_options(&mut self, options: PlotSessionOptions) {
         if self.options != options {
             self.options = options;
+            self.native_widget_attachment_revision = self
+                .native_widget_attachment_revision
+                .checked_add(1)
+                .expect("native widget attachment revision exhausted");
             self.layout_profile = None;
             self.last_request = None;
         }
+    }
+
+    #[doc(hidden)]
+    pub fn native_widget_attachment_revision(&self) -> u64 {
+        self.native_widget_attachment_revision
     }
 
     pub fn with_options(mut self, options: PlotSessionOptions) -> Self {

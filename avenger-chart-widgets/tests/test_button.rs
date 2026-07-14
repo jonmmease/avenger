@@ -1,19 +1,22 @@
 use avenger_chart::prelude::{
     AvengerChartError, Cartesian, Chart, ChartEventType, ChartWidgetPlacementExt, ChromePosition,
-    CompiledParamSpec, EvaluationRequest, GridConcat, HConcat, NativeWidget,
-    NativeWidgetMeasureSpec, NativeWidgetStateSpec, Param, PixelFrame, Theme, TrackSizing,
-    WidgetCell, WidgetFrame, WidgetFrameAssignments, WidgetMeasureSpec,
+    CompiledParamSpec, EvaluationRequest, GridConcat, HConcat, NativeWidget, NativeWidgetCtx,
+    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstanceKey,
+    NativeWidgetInstanceStore, NativeWidgetMeasureSpec, NativeWidgetNamespace, NativeWidgetPlotId,
+    NativeWidgetStateSpec, Param, PixelFrame, Theme, TrackSizing, WidgetCell, WidgetFrame,
+    WidgetFrameAssignments, WidgetMeasureSpec,
 };
 use avenger_chart_core::CompiledWidget;
 use avenger_chart_widgets::{Button, ButtonVariant};
 use avenger_color::ColorOrGradient;
+use avenger_eventstream::runtime::{LogicalRect, RuntimeHostCommand};
 use avenger_scenegraph::marks::{
     group::{Clip, SceneGroup},
     mark::SceneMark,
     rect::SceneRectMark,
 };
 use datafusion::{common::ScalarValue, prelude::SessionContext};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 struct TestNativeWidget;
 
@@ -102,6 +105,48 @@ async fn button_widget_cell_round_trips_and_uses_intrinsic_size() {
         .find(|frame| frame.widget_id == "clear")
         .unwrap();
     assert_eq!((frame.bounds.width, frame.bounds.height), (width, height));
+}
+
+#[tokio::test]
+async fn nested_widget_cell_caret_composes_frame_and_host_offsets() {
+    let ctx = SessionContext::new();
+    let evaluated = Chart::<HConcat>::new()
+        .mark(WidgetCell::widget(Button::new("clear").label("Clear")).name("controls"))
+        .compile(&ctx)
+        .await
+        .unwrap()
+        .evaluate(&ctx, None)
+        .await
+        .unwrap();
+    let frame = evaluated.widget_frames.by_widget_id.get("clear").unwrap();
+    let namespace = NativeWidgetNamespace::new(
+        Default::default(),
+        NativeWidgetPlotId::from_member_path("root/controls"),
+    );
+    let store = avenger_chart::prelude::InMemoryNativeWidgetInstanceStore::new();
+    let slot = store.slot(NativeWidgetInstanceKey::new(namespace, "clear"));
+    let services = NativeWidgetHostServices::new();
+    let sink = Arc::new(Mutex::new(Vec::new()));
+    let transform = NativeWidgetHostTransform::from_offsets([
+        [frame.bounds.x, frame.bounds.y],
+        [30.0, 40.0],
+        [-2.0, 3.0],
+    ])
+    .unwrap();
+    let widget_ctx = NativeWidgetCtx::attach(slot, services, sink.clone(), transform);
+    widget_ctx.focus(
+        Some(LogicalRect::new(4.0, 5.0, 1.0, 12.0).unwrap()),
+        "selection",
+    );
+    assert_eq!(
+        sink.lock().unwrap().as_slice(),
+        [
+            RuntimeHostCommand::SetImeAllowed { allowed: true },
+            RuntimeHostCommand::SetImeCursorArea {
+                rect: LogicalRect::new(frame.bounds.x + 32.0, frame.bounds.y + 48.0, 1.0, 12.0,),
+            },
+        ]
+    );
 }
 
 #[tokio::test]

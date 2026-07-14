@@ -75,8 +75,12 @@ pub use crate::layout::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, PlotConstraint,
 };
 pub use crate::plot::{
-    Chart, EvaluationRequest, Plot, PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle,
-    TitleAlign, TitleSpan,
+    Chart, EvaluationRequest, InMemoryNativeWidgetInstanceStore, NativeWidgetAttachmentEpoch,
+    NativeWidgetCtx, NativeWidgetDocumentId, NativeWidgetEventRoute, NativeWidgetHostCommandSink,
+    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstanceKey,
+    NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetNamespace, NativeWidgetPlotId,
+    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetSlotTypeMismatch, Plot,
+    PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle, TitleAlign, TitleSpan,
 };
 pub use crate::render::{WidgetFrame, WidgetFrameAssignments};
 pub use avenger_chart_core::{

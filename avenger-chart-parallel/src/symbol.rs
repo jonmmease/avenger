@@ -727,6 +727,7 @@ mod tests {
             zindex: Some(12),
             geometry_space: None,
             axis_configs: HashMap::new(),
+            widget_theme: None,
         }
     }
 

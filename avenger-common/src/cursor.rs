@@ -7,6 +7,7 @@ pub enum CursorStyle {
     #[default]
     Default,
     Pointer,
+    Text,
     Crosshair,
     Grab,
     Grabbing,
@@ -21,6 +22,7 @@ impl CursorStyle {
         match self {
             Self::Default => "default",
             Self::Pointer => "pointer",
+            Self::Text => "text",
             Self::Crosshair => "crosshair",
             Self::Grab => "grab",
             Self::Grabbing => "grabbing",
@@ -35,6 +37,7 @@ impl CursorStyle {
         match name {
             "default" => Some(Self::Default),
             "pointer" => Some(Self::Pointer),
+            "text" => Some(Self::Text),
             "crosshair" => Some(Self::Crosshair),
             "grab" => Some(Self::Grab),
             "grabbing" => Some(Self::Grabbing),
