@@ -1,6 +1,6 @@
 use ::winit::{
     event::{
-        ElementState as WinitElementState, MouseButton as WinitMouseButton,
+        ElementState as WinitElementState, Ime as WinitIme, MouseButton as WinitMouseButton,
         MouseScrollDelta as WinitMouseScrollDelta, TouchPhase as WinitTouchPhase,
         WindowEvent as WinitEvent,
     },
@@ -90,6 +90,16 @@ impl WindowEvent {
                 }))
             }
 
+            WinitEvent::Ime(event) => Some(Self::Ime(match event {
+                WinitIme::Enabled => ImeEvent::Enabled,
+                WinitIme::Preedit(text, cursor) => ImeEvent::Preedit {
+                    text: text.into(),
+                    cursor,
+                },
+                WinitIme::Commit(text) => ImeEvent::Commit(text.into()),
+                WinitIme::Disabled => ImeEvent::Disabled,
+            })),
+
             WinitEvent::Touch(touch) => Some(Self::Touch(WindowTouch {
                 phase: match touch.phase {
                     WinitTouchPhase::Started => TouchPhase::Started,
@@ -167,5 +177,31 @@ impl TryFrom<WinitNamedKey> for NamedKey {
             // Return Err for unhandled keys
             _ => Err(()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn winit_ime_events_preserve_preedit_cursor_and_commit_text() {
+        assert_eq!(
+            WindowEvent::from_winit_event(
+                WinitEvent::Ime(WinitIme::Preedit("かな".to_string(), Some((3, 6)))),
+                2.0,
+            ),
+            Some(WindowEvent::Ime(ImeEvent::Preedit {
+                text: "かな".into(),
+                cursor: Some((3, 6)),
+            }))
+        );
+        assert_eq!(
+            WindowEvent::from_winit_event(
+                WinitEvent::Ime(WinitIme::Commit("仮名".to_string())),
+                2.0,
+            ),
+            Some(WindowEvent::Ime(ImeEvent::Commit("仮名".into())))
+        );
     }
 }

@@ -4686,6 +4686,8 @@ fn event_type_name(event_type: SceneGraphEventType) -> &'static str {
         SceneGraphEventType::MouseWheel => "mouse_wheel",
         SceneGraphEventType::KeyPress => "key_press",
         SceneGraphEventType::KeyRelease => "key_release",
+        SceneGraphEventType::Ime => "ime",
+        SceneGraphEventType::Clipboard => "clipboard",
         SceneGraphEventType::CursorMoved => "cursor_moved",
         SceneGraphEventType::MarkMouseEnter => "mark_mouse_enter",
         SceneGraphEventType::MarkMouseLeave => "mark_mouse_leave",

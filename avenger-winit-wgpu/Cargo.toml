@@ -28,3 +28,4 @@ web-sys = "0.3"
 avenger-wgpu = { path = "../avenger-wgpu", default-features = false, features = ["rayon"] }
 notify = "8.0.0"
 tokio = { workspace = true, features = ["rt"] }
+arboard = { workspace = true }

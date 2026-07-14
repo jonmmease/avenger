@@ -1,5 +1,7 @@
 use avenger_app::app::AvengerApp;
 use avenger_common::{canvas::CanvasDimensions, cursor::CursorStyle, time::Instant};
+#[cfg(not(target_arch = "wasm32"))]
+use avenger_eventstream::window::ClipboardEvent;
 use avenger_eventstream::window::{
     CanvasResizeEvent, WindowEvent as AvengerWindowEvent, WindowResizeEvent,
 };
@@ -131,6 +133,47 @@ enum CanvasFrameHandle {
     Right,
     Bottom,
     Corner,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NativeClipboardShortcut {
+    Cut,
+    Copy,
+    Paste,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn native_clipboard_shortcut(
+    logical_key: &keyboard::Key,
+    state: ElementState,
+    repeat: bool,
+    modifiers: keyboard::ModifiersState,
+) -> Option<NativeClipboardShortcut> {
+    if state != ElementState::Pressed || repeat || modifiers.alt_key() {
+        return None;
+    }
+
+    #[cfg(target_os = "macos")]
+    let command_pressed = modifiers.super_key();
+    #[cfg(not(target_os = "macos"))]
+    let command_pressed = modifiers.control_key();
+    if !command_pressed {
+        return None;
+    }
+
+    let keyboard::Key::Character(character) = logical_key else {
+        return None;
+    };
+    if character.eq_ignore_ascii_case("x") {
+        Some(NativeClipboardShortcut::Cut)
+    } else if character.eq_ignore_ascii_case("c") {
+        Some(NativeClipboardShortcut::Copy)
+    } else if character.eq_ignore_ascii_case("v") {
+        Some(NativeClipboardShortcut::Paste)
+    } else {
+        None
+    }
 }
 
 impl CanvasFrameHandle {
@@ -452,6 +495,11 @@ where
     stale_canvas_resize_count: usize,
     pending_canvas_resize: Option<CanvasResizeEvent>,
 
+    #[cfg(not(target_arch = "wasm32"))]
+    clipboard: Option<arboard::Clipboard>,
+    #[cfg(not(target_arch = "wasm32"))]
+    modifiers: keyboard::ModifiersState,
+
     /// Phase 7 re-baseline: instant of the previous rendered frame (native only),
     /// used to log inter-frame delta / fps alongside surface_render_ms.
     #[cfg(not(target_arch = "wasm32"))]
@@ -544,6 +592,10 @@ where
             coalesced_event_count: 0,
             stale_canvas_resize_count: 0,
             pending_canvas_resize: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            clipboard: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            modifiers: keyboard::ModifiersState::default(),
             #[cfg(not(target_arch = "wasm32"))]
             last_redraw: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -1079,6 +1131,57 @@ where
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn handle_native_clipboard_shortcut(&mut self, event: &WindowEvent) -> bool {
+        let WindowEvent::KeyboardInput { event, .. } = event else {
+            return false;
+        };
+        let Some(shortcut) = native_clipboard_shortcut(
+            &event.logical_key,
+            event.state,
+            event.repeat,
+            self.modifiers,
+        ) else {
+            return false;
+        };
+
+        let clipboard_event = match shortcut {
+            NativeClipboardShortcut::Cut => ClipboardEvent::Cut,
+            NativeClipboardShortcut::Copy => ClipboardEvent::Copy,
+            NativeClipboardShortcut::Paste => {
+                if self.clipboard.is_none() {
+                    match arboard::Clipboard::new() {
+                        Ok(clipboard) => self.clipboard = Some(clipboard),
+                        Err(err) => {
+                            tracing::warn!(
+                                target: "avenger_winit_wgpu::clipboard",
+                                ?err,
+                                "native clipboard unavailable"
+                            );
+                            return true;
+                        }
+                    }
+                }
+                let Some(clipboard) = self.clipboard.as_mut() else {
+                    return true;
+                };
+                match clipboard.get_text() {
+                    Ok(text) => ClipboardEvent::Paste(text.into()),
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "avenger_winit_wgpu::clipboard",
+                            ?err,
+                            "failed to read native clipboard text"
+                        );
+                        return true;
+                    }
+                }
+            }
+        };
+        self.dispatch_avenger_event(AvengerWindowEvent::Clipboard(clipboard_event), false);
+        true
+    }
+
     #[cfg(target_arch = "wasm32")]
     fn setup_wasm_canvas(&self, window: &winit::window::Window) {
         use winit::platform::web::WindowExtWebSys;
@@ -1256,6 +1359,16 @@ where
     ) {
         // Check if this is the correct window
         if Some(window_id) != self.window_id {
+            return;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let WindowEvent::ModifiersChanged(modifiers) = &event {
+            self.modifiers = modifiers.state();
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.handle_native_clipboard_shortcut(&event) {
             return;
         }
 
@@ -1469,6 +1582,53 @@ fn cursor_style_to_winit(style: CursorStyle) -> CursorIcon {
     }
 }
 
+fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
+    match event {
+        AvengerWindowEvent::MouseInput(_) => "MouseInput",
+        AvengerWindowEvent::CursorMoved(_) => "CursorMoved",
+        AvengerWindowEvent::CursorEntered => "CursorEntered",
+        AvengerWindowEvent::CursorLeft => "CursorLeft",
+        AvengerWindowEvent::MouseWheel(_) => "MouseWheel",
+        AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
+        AvengerWindowEvent::Ime(_) => "Ime",
+        AvengerWindowEvent::Clipboard(_) => "Clipboard",
+        AvengerWindowEvent::Touch(_) => "Touch",
+        AvengerWindowEvent::InteractionSettled { .. } => "InteractionSettled",
+        AvengerWindowEvent::WindowResize(_) => "WindowResize",
+        AvengerWindowEvent::WindowResizeSettled(_) => "WindowResizeSettled",
+        AvengerWindowEvent::CanvasResize(_) => "CanvasResize",
+        AvengerWindowEvent::CanvasResizeSettled(_) => "CanvasResizeSettled",
+        AvengerWindowEvent::WindowMoved(_) => "WindowMoved",
+        AvengerWindowEvent::WindowFocused(_) => "WindowFocused",
+        AvengerWindowEvent::WindowCloseRequested => "WindowCloseRequested",
+        AvengerWindowEvent::FileChanged(_) => "FileChanged",
+    }
+}
+
+fn event_schedules_interaction_settle(event: &AvengerWindowEvent) -> bool {
+    matches!(
+        event,
+        AvengerWindowEvent::CursorMoved(_)
+            | AvengerWindowEvent::MouseInput(_)
+            | AvengerWindowEvent::MouseWheel(_)
+            | AvengerWindowEvent::Touch(_)
+    )
+}
+
+fn winit_event_kind_label(event: &WindowEvent) -> &'static str {
+    match event {
+        WindowEvent::CursorMoved { .. } => "CursorMoved",
+        WindowEvent::CursorLeft { .. } => "CursorLeft",
+        WindowEvent::MouseWheel { .. } => "MouseWheel",
+        WindowEvent::MouseInput { .. } => "MouseInput",
+        WindowEvent::Resized(_) => "Resized",
+        WindowEvent::RedrawRequested => "RedrawRequested",
+        WindowEvent::CloseRequested => "CloseRequested",
+        WindowEvent::KeyboardInput { .. } => "KeyboardInput",
+        _ => "Other",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1561,49 +1721,54 @@ mod tests {
             CursorIcon::NeswResize
         );
     }
-}
 
-fn event_kind_label(event: &AvengerWindowEvent) -> &'static str {
-    match event {
-        AvengerWindowEvent::MouseInput(_) => "MouseInput",
-        AvengerWindowEvent::CursorMoved(_) => "CursorMoved",
-        AvengerWindowEvent::CursorEntered => "CursorEntered",
-        AvengerWindowEvent::CursorLeft => "CursorLeft",
-        AvengerWindowEvent::MouseWheel(_) => "MouseWheel",
-        AvengerWindowEvent::KeyboardInput(_) => "KeyboardInput",
-        AvengerWindowEvent::Touch(_) => "Touch",
-        AvengerWindowEvent::InteractionSettled { .. } => "InteractionSettled",
-        AvengerWindowEvent::WindowResize(_) => "WindowResize",
-        AvengerWindowEvent::WindowResizeSettled(_) => "WindowResizeSettled",
-        AvengerWindowEvent::CanvasResize(_) => "CanvasResize",
-        AvengerWindowEvent::CanvasResizeSettled(_) => "CanvasResizeSettled",
-        AvengerWindowEvent::WindowMoved(_) => "WindowMoved",
-        AvengerWindowEvent::WindowFocused(_) => "WindowFocused",
-        AvengerWindowEvent::WindowCloseRequested => "WindowCloseRequested",
-        AvengerWindowEvent::FileChanged(_) => "FileChanged",
-    }
-}
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn native_clipboard_shortcuts_require_command_and_ignore_repeats() {
+        #[cfg(target_os = "macos")]
+        let command = keyboard::ModifiersState::SUPER;
+        #[cfg(not(target_os = "macos"))]
+        let command = keyboard::ModifiersState::CONTROL;
 
-fn event_schedules_interaction_settle(event: &AvengerWindowEvent) -> bool {
-    matches!(
-        event,
-        AvengerWindowEvent::CursorMoved(_)
-            | AvengerWindowEvent::MouseInput(_)
-            | AvengerWindowEvent::MouseWheel(_)
-            | AvengerWindowEvent::Touch(_)
-    )
-}
-
-fn winit_event_kind_label(event: &WindowEvent) -> &'static str {
-    match event {
-        WindowEvent::CursorMoved { .. } => "CursorMoved",
-        WindowEvent::CursorLeft { .. } => "CursorLeft",
-        WindowEvent::MouseWheel { .. } => "MouseWheel",
-        WindowEvent::MouseInput { .. } => "MouseInput",
-        WindowEvent::Resized(_) => "Resized",
-        WindowEvent::RedrawRequested => "RedrawRequested",
-        WindowEvent::CloseRequested => "CloseRequested",
-        WindowEvent::KeyboardInput { .. } => "KeyboardInput",
-        _ => "Other",
+        let shortcut = |character: &str, state, repeat, modifiers| {
+            native_clipboard_shortcut(
+                &keyboard::Key::Character(character.into()),
+                state,
+                repeat,
+                modifiers,
+            )
+        };
+        assert_eq!(
+            shortcut("c", ElementState::Pressed, false, command),
+            Some(NativeClipboardShortcut::Copy)
+        );
+        assert_eq!(
+            shortcut("X", ElementState::Pressed, false, command),
+            Some(NativeClipboardShortcut::Cut)
+        );
+        assert_eq!(
+            shortcut("v", ElementState::Pressed, false, command),
+            Some(NativeClipboardShortcut::Paste)
+        );
+        assert_eq!(shortcut("c", ElementState::Released, false, command), None);
+        assert_eq!(shortcut("c", ElementState::Pressed, true, command), None);
+        assert_eq!(
+            shortcut(
+                "c",
+                ElementState::Pressed,
+                false,
+                command | keyboard::ModifiersState::ALT,
+            ),
+            None
+        );
+        assert_eq!(
+            shortcut(
+                "c",
+                ElementState::Pressed,
+                false,
+                keyboard::ModifiersState::empty(),
+            ),
+            None
+        );
     }
 }

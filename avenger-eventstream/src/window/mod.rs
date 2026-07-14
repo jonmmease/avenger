@@ -20,6 +20,8 @@ pub enum WindowEvent {
     CursorLeft,
     MouseWheel(WindowMouseWheel),
     KeyboardInput(WindowKeyboardInput),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
     Touch(WindowTouch),
     InteractionSettled { generation: u64 },
     FileChanged(WindowFileChangedEvent),
@@ -39,12 +41,34 @@ impl WindowEvent {
             self,
             Self::MouseInput(_)
                 | Self::KeyboardInput(_)
+                | Self::Ime(_)
+                | Self::Clipboard(_)
                 | Self::FileChanged(_)
                 | Self::InteractionSettled { .. }
                 | Self::WindowResizeSettled(_)
                 | Self::CanvasResizeSettled(_)
         )
     }
+}
+
+/// Host-neutral input-method-editor event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImeEvent {
+    Enabled,
+    Preedit {
+        text: SmolStr,
+        cursor: Option<(usize, usize)>,
+    },
+    Commit(SmolStr),
+    Disabled,
+}
+
+/// Host-neutral clipboard action.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardEvent {
+    Cut,
+    Copy,
+    Paste(SmolStr),
 }
 
 #[derive(Debug, Clone, PartialEq)]

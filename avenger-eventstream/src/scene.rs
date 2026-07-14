@@ -4,7 +4,8 @@ use avenger_scenegraph::marks::mark::MarkInstance;
 use smol_str::SmolStr;
 
 use crate::window::{
-    CanvasResizeEvent, Key, MouseButton, MouseScrollDelta, WindowMovedEvent, WindowResizeEvent,
+    CanvasResizeEvent, ClipboardEvent, ImeEvent, Key, MouseButton, MouseScrollDelta,
+    WindowMovedEvent, WindowResizeEvent,
 };
 
 /// Events that can be handled by event streams
@@ -17,6 +18,8 @@ pub enum SceneGraphEvent {
     MouseWheel(SceneMouseWheelEvent),
     KeyPress(SceneKeyPressEvent),
     KeyRelease(SceneKeyReleaseEvent),
+    Ime(ImeEvent),
+    Clipboard(ClipboardEvent),
     CursorMoved(SceneCursorMovedEvent),
     MouseEnter(SceneMouseEnterEvent),
     MouseLeave(SceneMouseLeaveEvent),
@@ -73,6 +76,8 @@ impl SceneGraphEvent {
             Self::MouseWheel(..) => SceneGraphEventType::MouseWheel,
             Self::KeyPress(..) => SceneGraphEventType::KeyPress,
             Self::KeyRelease(..) => SceneGraphEventType::KeyRelease,
+            Self::Ime(..) => SceneGraphEventType::Ime,
+            Self::Clipboard(..) => SceneGraphEventType::Clipboard,
             Self::CursorMoved(..) => SceneGraphEventType::CursorMoved,
             Self::MouseEnter(..) => SceneGraphEventType::MarkMouseEnter,
             Self::MouseLeave(..) => SceneGraphEventType::MarkMouseLeave,
@@ -100,6 +105,8 @@ pub enum SceneGraphEventType {
     MouseWheel,
     KeyPress,
     KeyRelease,
+    Ime,
+    Clipboard,
     CursorMoved,
     MarkMouseEnter,
     MarkMouseLeave,
