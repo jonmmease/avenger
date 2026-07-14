@@ -1,5 +1,7 @@
 //! Full CSS-compliant theme system using cssparser and selectors
 
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use indexmap::IndexMap;
 use selectors::matching::SelectorCaches;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -1008,6 +1010,18 @@ impl Theme {
     /// Get the combined CSS source
     pub fn to_css(&self) -> String {
         self.css_sources.join("\n\n")
+    }
+
+    /// Deterministic fingerprint of the authored theme source and color mode.
+    ///
+    /// Runtime style caches include this even when a source edit happens to
+    /// resolve to the same current value; a later environment or state change
+    /// may make the new rule observable.
+    pub fn content_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.css_sources.hash(&mut hasher);
+        self.default_color_scheme.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Get the base font size with parameter and media query support

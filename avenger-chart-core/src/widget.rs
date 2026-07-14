@@ -1020,7 +1020,7 @@ pub fn resolve_widget_style_set(
     for target in [&mut hasher, &mut geometry_hasher] {
         widget_kind.hash(target);
         widget_id.hash(target);
-        theme.default_color_scheme.hash(target);
+        theme.content_fingerprint().hash(target);
     }
     let eval = crate::theme::eval::EvalContext::new(params, theme.get_base_font_size(params));
     for (property, value) in &resolved.host.values {
