@@ -43,7 +43,7 @@ async fn slider_cell_frame_width(
         .unwrap();
     let width = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "amount")
         .unwrap()
@@ -98,7 +98,7 @@ async fn slider_widget_cell_stretches_across_grid_span() {
         .unwrap();
     let frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "amount")
         .unwrap();
@@ -205,7 +205,7 @@ async fn slider_css_drives_frame_inner_track_and_handle_geometry() {
     assert_eq!(group.clip, Clip::None);
     let frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "volume")
         .unwrap();
@@ -254,7 +254,7 @@ async fn slider_collapses_nonpositive_inner_track_to_frame_center() {
         .unwrap();
     let frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "volume")
         .unwrap();

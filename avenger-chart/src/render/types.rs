@@ -185,6 +185,9 @@ pub struct EvaluationOptions {
     /// evaluation.
     #[doc(hidden)]
     pub materialization_priority: f32,
+    /// Driver-assigned frames for widgets hosted with
+    /// [`Plot::host_widget`](crate::plot::Plot::host_widget).
+    pub widget_frames: WidgetFrameAssignments,
 }
 
 /// Controls optional repeated facet measurement/layout passes.
@@ -216,7 +219,102 @@ impl Default for EvaluationOptions {
             facet_layout_refinement: FacetLayoutRefinement::default(),
             build_scene_rtree: true,
             materialization_priority: 0.0,
+            widget_frames: WidgetFrameAssignments::default(),
         }
+    }
+}
+
+/// One driver-assigned widget frame in root-canvas logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WidgetFrame {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+}
+
+impl WidgetFrame {
+    /// Construct a finite frame with nonnegative extents.
+    pub fn try_new(x: f32, y: f32, width: f32, height: f32) -> Result<Self, AvengerChartError> {
+        if !x.is_finite() || !y.is_finite() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget frame coordinates must be finite, got ({x}, {y})"
+            )));
+        }
+        if !width.is_finite() || !height.is_finite() || width < 0.0 || height < 0.0 {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Widget frame extents must be finite and nonnegative, got {width}×{height}"
+            )));
+        }
+        Ok(Self {
+            x,
+            y,
+            width,
+            height,
+        })
+    }
+
+    pub fn x(&self) -> f32 {
+        self.x
+    }
+
+    pub fn y(&self) -> f32 {
+        self.y
+    }
+
+    pub fn width(&self) -> f32 {
+        self.width
+    }
+
+    pub fn height(&self) -> f32 {
+        self.height
+    }
+
+    pub(crate) fn bounds(self) -> LayoutBounds {
+        LayoutBounds {
+            x: self.x,
+            y: self.y,
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
+/// Validated widget-id to explicit-frame assignments for one evaluation.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct WidgetFrameAssignments {
+    frames: IndexMap<String, WidgetFrame>,
+}
+
+impl WidgetFrameAssignments {
+    /// Collect assignments while rejecting duplicate widget ids.
+    pub fn try_from_iter<I, K>(assignments: I) -> Result<Self, AvengerChartError>
+    where
+        I: IntoIterator<Item = (K, WidgetFrame)>,
+        K: Into<String>,
+    {
+        let mut frames = IndexMap::new();
+        for (id, frame) in assignments {
+            let id = id.into();
+            if frames.insert(id.clone(), frame).is_some() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Duplicate explicit widget frame assignment for '{id}'"
+                )));
+            }
+        }
+        Ok(Self { frames })
+    }
+
+    pub fn get(&self, widget_id: &str) -> Option<&WidgetFrame> {
+        self.frames.get(widget_id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &WidgetFrame)> {
+        self.frames.iter().map(|(id, frame)| (id.as_str(), frame))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
     }
 }
 
@@ -1284,12 +1382,15 @@ impl EvaluatedWidgetFrame {
 /// names, authored target strings, or current layout geometry.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct EvaluatedWidgetFrameState {
-    pub frames: HashMap<Vec<usize>, EvaluatedWidgetFrame>,
+    /// One frame per globally unique widget id.
+    pub by_widget_id: IndexMap<String, EvaluatedWidgetFrame>,
+    /// The owning widget frame for every final widget-group/part mark path.
+    pub by_mark_path: HashMap<Vec<usize>, EvaluatedWidgetFrame>,
 }
 
 impl EvaluatedWidgetFrameState {
     pub fn frame_for_mark_path(&self, mark_path: &[usize]) -> Option<&EvaluatedWidgetFrame> {
-        self.frames.get(mark_path)
+        self.by_mark_path.get(mark_path)
     }
 
     pub fn frame_for_mark_instance(

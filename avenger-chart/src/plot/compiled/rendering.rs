@@ -617,7 +617,7 @@ fn collect_widget_descendant_frame_paths(
     frame: &EvaluatedWidgetFrame,
     state: &mut EvaluatedWidgetFrameState,
 ) {
-    state.frames.insert(path.clone(), frame.clone());
+    state.by_mark_path.insert(path.clone(), frame.clone());
     if let SceneMark::Group(group) = mark {
         for (index, child) in group.marks.iter().enumerate() {
             path.push(index);
@@ -670,6 +670,7 @@ fn evaluated_widget_frames(
                     },
                     runtime_inputs: widget_runtime_inputs.clone(),
                 };
+                state.by_widget_id.insert(group.name.clone(), frame.clone());
                 collect_widget_descendant_frame_paths(mark, path, &frame, state);
                 return;
             }
@@ -2110,6 +2111,7 @@ impl CompiledPlot {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<Vec<(f32, f32)>, AvengerChartError> {
+        self.validate_widget_frame_assignments(&options.widget_frames)?;
         let merged_params = if let Some(provided) = params {
             let mut merged = self.default_params.clone();
             merged.extend(provided);
@@ -2186,6 +2188,7 @@ impl CompiledPlot {
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
+        .with_widget_frame_assignments(Arc::new(options.widget_frames.clone()))
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
             options.debug_layout_overlay,
         ));
@@ -2740,22 +2743,31 @@ impl CompiledPlot {
                     widget.id
                 ))
             })?;
-            let (origin, width, height) = if measurement.position.is_some() {
-                let bounds = frame_layout
-                    .and_then(|layout| layout.widgets.get(&widget.id))
-                    .ok_or_else(|| {
-                        AvengerChartError::InternalError(format!(
-                            "Missing realized chrome bounds for widget '{}'",
-                            widget.id
-                        ))
-                    })?;
-                ([bounds.x, bounds.y], bounds.width, bounds.height)
-            } else {
-                (
-                    [0.0, 0.0],
-                    measurement.width.preferred_px,
-                    measurement.height.preferred_px,
-                )
+            let (origin, width, height) = match attachment.placement {
+                avenger_chart_core::WidgetPlacement::Guide(_) => {
+                    let bounds = frame_layout
+                        .and_then(|layout| layout.widgets.get(&widget.id))
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Missing realized chrome bounds for widget '{}'",
+                                widget.id
+                            ))
+                        })?;
+                    ([bounds.x, bounds.y], bounds.width, bounds.height)
+                }
+                avenger_chart_core::WidgetPlacement::ExplicitFrame => {
+                    let frame = eval_ctx
+                        .widget_frame_assignments()
+                        .get(&widget.id)
+                        .ok_or_else(|| {
+                            AvengerChartError::InternalError(format!(
+                                "Validated explicit widget '{}' has no frame assignment",
+                                widget.id
+                            ))
+                        })?;
+                    let bounds = frame.bounds();
+                    ([bounds.x, bounds.y], bounds.width, bounds.height)
+                }
             };
             trace!(
                 widget_id = widget.id,
@@ -2786,12 +2798,44 @@ impl CompiledPlot {
             let widget_eval_ctx = eval_ctx
                 .with_params(widget_params)
                 .with_widget_style_snapshots(style_snapshots.clone());
+            let scales = if width == measurement.width.preferred_px
+                && height == measurement.height.preferred_px
+            {
+                measurement.scales.clone()
+            } else {
+                let scale_builder = self
+                    .build_composed_widget_scale_builder(
+                        widget,
+                        measurement.prepared_items.as_ref(),
+                        &widget_eval_ctx,
+                    )
+                    .await?;
+                let local_scale_specs = self
+                    .widget_scale_specs
+                    .get(&widget.id)
+                    .cloned()
+                    .unwrap_or_default();
+                let default_range_resolver =
+                    super::scales::default_range_for_compiled_marks(&widget.marks);
+                scale_builder
+                    .build_scales(
+                        width,
+                        height,
+                        &HashMap::new(),
+                        &local_scale_specs,
+                        &default_range_resolver,
+                        self.get_theme().as_ref(),
+                        eval_ctx.session_context.as_ref(),
+                        &widget_eval_ctx.params,
+                    )
+                    .await?
+            };
             let mut parts = Vec::new();
             for mark in &widget.marks {
                 let output = Box::pin(renderer.render_mark_with_plot_df(
                     mark.as_ref(),
                     &widget_eval_ctx,
-                    &measurement.scales,
+                    &scales,
                     width,
                     height,
                     None,
@@ -3164,8 +3208,19 @@ impl CompiledPlot {
         let measurements = [(widget.id.clone(), realized_measurement)]
             .into_iter()
             .collect();
+        let cell_frame = crate::render::WidgetFrame::try_new(
+            0.0,
+            0.0,
+            region.content.width,
+            region.content.height,
+        )?;
+        let cell_assignments = crate::render::WidgetFrameAssignments::try_from_iter([(
+            widget.id.clone(),
+            cell_frame,
+        )])?;
+        let widget_eval_ctx = eval_ctx.with_widget_frame_assignments(Arc::new(cell_assignments));
         let rendered = host
-            .render_composed_widget_groups(eval_ctx, &measurements, None)
+            .render_composed_widget_groups(&widget_eval_ctx, &measurements, None)
             .await?;
         Ok(RenderedMarkOutput {
             marks: vec![SceneMark::Group(SceneGroup {
@@ -6982,9 +7037,10 @@ impl CompiledPlot {
     fn pad_facet_subtree_snapshot(evaluated: EvaluatedPlot) -> EvaluatedPlot {
         let mut interaction = evaluated.interaction;
         let mut widget_frames = EvaluatedWidgetFrameState {
-            frames: evaluated
+            by_widget_id: evaluated.widget_frames.by_widget_id,
+            by_mark_path: evaluated
                 .widget_frames
-                .frames
+                .by_mark_path
                 .into_iter()
                 .map(|(mut path, frame)| {
                     path.splice(0..0, [0, 0]);
@@ -7036,7 +7092,11 @@ impl CompiledPlot {
             scope.bounds.x += shift_x;
             scope.bounds.y += shift_y;
         }
-        for frame in widget_frames.frames.values_mut() {
+        for frame in widget_frames.by_widget_id.values_mut() {
+            frame.bounds.x += shift_x;
+            frame.bounds.y += shift_y;
+        }
+        for frame in widget_frames.by_mark_path.values_mut() {
             frame.bounds.x += shift_x;
             frame.bounds.y += shift_y;
         }
@@ -7351,6 +7411,7 @@ impl CompiledPlot {
         ),
         AvengerChartError,
     > {
+        self.validate_widget_frame_assignments(&options.widget_frames)?;
         let metrics = Arc::new(Mutex::new(EvaluationMetrics::default()));
         let outcome = Box::pin(self.evaluate_with_options_internal(
             ctx,
@@ -7570,6 +7631,7 @@ impl CompiledPlot {
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
+        .with_widget_frame_assignments(Arc::new(options.widget_frames.clone()))
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
             options.debug_layout_overlay,
         ));
@@ -7883,6 +7945,7 @@ impl CompiledPlot {
         scoped_store_state: Option<Arc<ScopedStoreState>>,
     ) -> Result<PreviewLayoutProfileAttempt, AvengerChartError> {
         crate::bake::register_baked_tables(ctx, &self.baked_tables)?;
+        self.validate_widget_frame_assignments(&options.widget_frames)?;
 
         tracing::debug!(target: "avenger_chart::resize", "plot_session.preview_attempt start");
         if options.layout_snapshot != LayoutSnapshot::Final {
@@ -8130,6 +8193,7 @@ impl CompiledPlot {
         .with_facet_data_root(dataframe_from_compiled_plot_data(&self.data, ctx)?)
         .with_facet_runtime_sizing_mode(resolved_chart_sizing.facet_runtime_sizing_mode())
         .with_facet_layout_refinement(options.facet_layout_refinement)
+        .with_widget_frame_assignments(Arc::new(options.widget_frames.clone()))
         .with_debug_layout_overlay(facet_debug::resolve_layout_overlay_mode(
             options.debug_layout_overlay,
         ))

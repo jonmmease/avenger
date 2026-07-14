@@ -78,6 +78,7 @@ pub use crate::plot::{
     Chart, EvaluationRequest, Plot, PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle,
     TitleAlign, TitleSpan,
 };
+pub use crate::render::{WidgetFrame, WidgetFrameAssignments};
 pub use avenger_chart_core::{
     ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
     ToolParamSharing, ToolScaleEdit,

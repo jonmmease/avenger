@@ -1,7 +1,8 @@
 use avenger_chart::prelude::{
     AvengerChartError, Cartesian, Chart, ChartEventType, ChartWidgetPlacementExt, ChromePosition,
-    CompiledParamSpec, GridConcat, HConcat, NativeWidget, NativeWidgetMeasureSpec,
-    NativeWidgetStateSpec, Param, Theme, TrackSizing, WidgetCell, WidgetMeasureSpec,
+    CompiledParamSpec, EvaluationRequest, GridConcat, HConcat, NativeWidget,
+    NativeWidgetMeasureSpec, NativeWidgetStateSpec, Param, PixelFrame, Theme, TrackSizing,
+    WidgetCell, WidgetFrame, WidgetFrameAssignments, WidgetMeasureSpec,
 };
 use avenger_chart_core::CompiledWidget;
 use avenger_chart_widgets::{Button, ButtonVariant};
@@ -12,6 +13,7 @@ use avenger_scenegraph::marks::{
     rect::SceneRectMark,
 };
 use datafusion::{common::ScalarValue, prelude::SessionContext};
+use std::sync::Arc;
 
 struct TestNativeWidget;
 
@@ -95,7 +97,7 @@ async fn button_widget_cell_round_trips_and_uses_intrinsic_size() {
     assert_ne!(height, 300.0);
     let frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "clear")
         .unwrap();
@@ -113,7 +115,7 @@ async fn widget_cell_css_change_remeasures_without_recompilation() {
     let before = compiled.evaluate(&ctx, None).await.unwrap();
     let before_frame = before
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "clear")
         .unwrap();
@@ -124,7 +126,7 @@ async fn widget_cell_css_change_remeasures_without_recompilation() {
     let after = compiled.evaluate(&ctx, None).await.unwrap();
     let after_frame = after
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "clear")
         .unwrap();
@@ -187,13 +189,13 @@ async fn widget_cells_use_explicit_grid_placement() {
         .unwrap();
     let first = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "first")
         .unwrap();
     let second = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "second")
         .unwrap();
@@ -225,7 +227,7 @@ async fn content_widget_cell_keeps_preferred_size_in_flex_track() {
     let frame_width = |evaluated: &avenger_chart::render::EvaluatedPlot, id: &str| {
         evaluated
             .widget_frames
-            .frames
+            .by_mark_path
             .values()
             .find(|frame| frame.widget_id == id)
             .unwrap()
@@ -235,6 +237,162 @@ async fn content_widget_cell_keeps_preferred_size_in_flex_track() {
     let auto_width = frame_width(&auto, "auto");
     assert_eq!(frame_width(&flex, "flex"), auto_width);
     assert!(auto_width < 300.0);
+}
+
+fn explicit_frames(first: WidgetFrame, second: WidgetFrame) -> WidgetFrameAssignments {
+    WidgetFrameAssignments::try_from_iter([("first", first), ("second", second)]).unwrap()
+}
+
+#[tokio::test]
+async fn explicit_widget_frames_validate_and_reassign_without_recompile() {
+    assert!(WidgetFrame::try_new(f32::NAN, 0.0, 10.0, 10.0).is_err());
+    assert!(WidgetFrame::try_new(0.0, 0.0, -1.0, 10.0).is_err());
+    let unit = WidgetFrame::try_new(0.0, 0.0, 10.0, 10.0).unwrap();
+    assert!(WidgetFrameAssignments::try_from_iter([("first", unit), ("first", unit)]).is_err());
+
+    let ctx = Arc::new(SessionContext::new());
+    let compiled = Chart::<PixelFrame>::new()
+        .canvas_size(360.0, 180.0)
+        .host_widget(
+            Button::new("first")
+                .label("First")
+                .variant(ButtonVariant::Accent),
+        )
+        .host_widget(Button::new("second").label("Second"))
+        .widget(
+            Button::new("guide")
+                .label("Guide")
+                .position(ChromePosition::Left),
+        )
+        .compile(ctx.as_ref())
+        .await
+        .unwrap();
+    let mut session = Arc::new(compiled).instantiate(ctx);
+
+    let error = session
+        .evaluate(EvaluationRequest::new())
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("Missing explicit widget frame assignments"));
+
+    let unknown = WidgetFrameAssignments::try_from_iter([("unknown", unit)]).unwrap();
+    let error = session
+        .evaluate(EvaluationRequest::new().widget_frames(unknown))
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("unknown explicit widget 'unknown'"));
+
+    let guide = WidgetFrameAssignments::try_from_iter([("guide", unit)]).unwrap();
+    let error = session
+        .evaluate(EvaluationRequest::new().widget_frames(guide))
+        .await
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(error.contains("guide-positioned widget"));
+
+    let initial = session
+        .evaluate(EvaluationRequest::new().widget_frames(explicit_frames(
+            WidgetFrame::try_new(20.0, 30.0, 100.0, 36.0).unwrap(),
+            WidgetFrame::try_new(150.0, 30.0, 120.0, 36.0).unwrap(),
+        )))
+        .await
+        .unwrap();
+    assert_eq!(
+        initial.widget_frames.by_widget_id["first"].bounds,
+        avenger_chart::layout::LayoutBounds {
+            x: 20.0,
+            y: 30.0,
+            width: 100.0,
+            height: 36.0,
+        }
+    );
+    assert_eq!(initial.widget_frames.by_widget_id["second"].bounds.x, 150.0);
+    let initial_first_box = find_rect(
+        &find_group(&initial.scene_graph.marks, "first")
+            .unwrap()
+            .marks,
+        "box",
+    )
+    .unwrap();
+    assert_eq!(initial_first_box.x2_vec(), vec![100.0]);
+    assert!(matches!(
+        initial_first_box.fill.as_vec(1, None)[0],
+        ColorOrGradient::Color(color)
+            if color == avenger_color::parse_color_string("#0072B2").unwrap()
+    ));
+
+    let moved = session
+        .evaluate(EvaluationRequest::new().widget_frames(explicit_frames(
+            WidgetFrame::try_new(45.0, 70.0, 100.0, 36.0).unwrap(),
+            WidgetFrame::try_new(175.0, 70.0, 120.0, 36.0).unwrap(),
+        )))
+        .await
+        .unwrap();
+    assert_eq!(moved.widget_frames.by_widget_id["first"].bounds.x, 45.0);
+    assert_eq!(moved.widget_frames.by_widget_id["first"].bounds.y, 70.0);
+    let moved_first_box = find_rect(
+        &find_group(&moved.scene_graph.marks, "first").unwrap().marks,
+        "box",
+    )
+    .unwrap();
+    assert_eq!(moved_first_box.x2_vec(), initial_first_box.x2_vec());
+    assert!(
+        moved
+            .rtree
+            .as_ref()
+            .unwrap()
+            .locate_all_at_point(&[140.0, 88.0])
+            .any(|geometry| geometry.mark_instance.name == "box")
+    );
+
+    let preview_moved = session
+        .evaluate(
+            EvaluationRequest::new()
+                .widget_frames(explicit_frames(
+                    WidgetFrame::try_new(55.0, 80.0, 100.0, 36.0).unwrap(),
+                    WidgetFrame::try_new(185.0, 80.0, 120.0, 36.0).unwrap(),
+                ))
+                .preview(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        preview_moved.widget_frames.by_widget_id["first"].bounds.x,
+        55.0
+    );
+    let preview_first_box = find_rect(
+        &find_group(&preview_moved.scene_graph.marks, "first")
+            .unwrap()
+            .marks,
+        "box",
+    )
+    .unwrap();
+    assert_eq!(preview_first_box.x2_vec(), initial_first_box.x2_vec());
+
+    let resized = session
+        .evaluate(EvaluationRequest::new().widget_frames(explicit_frames(
+            WidgetFrame::try_new(45.0, 70.0, 180.0, 44.0).unwrap(),
+            WidgetFrame::try_new(250.0, 70.0, 80.0, 44.0).unwrap(),
+        )))
+        .await
+        .unwrap();
+    assert_eq!(
+        resized.widget_frames.by_widget_id["first"].bounds.width,
+        180.0
+    );
+    let resized_first_box = find_rect(
+        &find_group(&resized.scene_graph.marks, "first")
+            .unwrap()
+            .marks,
+        "box",
+    )
+    .unwrap();
+    assert_eq!(resized_first_box.x2_vec(), vec![180.0]);
 }
 
 fn find_rect<'a>(marks: &'a [SceneMark], name: &str) -> Option<&'a SceneRectMark> {
@@ -326,7 +484,7 @@ async fn button_css_geometry_drives_minimum_frame_and_centered_parts() {
     assert_eq!(group.clip, Clip::None);
     let frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "go")
         .unwrap();

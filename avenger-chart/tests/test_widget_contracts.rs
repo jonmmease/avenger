@@ -760,7 +760,7 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     );
     let widget_frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "contract")
         .expect("contract widget frame");

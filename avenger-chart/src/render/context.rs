@@ -327,6 +327,8 @@ pub struct EvaluationContext {
     pub(crate) scoped_selection_store: Option<Arc<ScopedSelectionStore>>,
     /// Optional session-owned mutable store state.
     pub(crate) scoped_store_state: Option<Arc<ScopedStoreState>>,
+    /// Driver-owned frames for root explicit-frame widget attachments.
+    pub(crate) widget_frame_assignments: Arc<crate::render::WidgetFrameAssignments>,
 }
 
 impl EvaluationContext {
@@ -374,7 +376,21 @@ impl EvaluationContext {
             scoped_param_store: None,
             scoped_selection_store: None,
             scoped_store_state: None,
+            widget_frame_assignments: Arc::new(crate::render::WidgetFrameAssignments::default()),
         }
+    }
+
+    pub(crate) fn with_widget_frame_assignments(
+        &self,
+        assignments: Arc<crate::render::WidgetFrameAssignments>,
+    ) -> Self {
+        let mut ctx = self.clone();
+        ctx.widget_frame_assignments = assignments;
+        ctx
+    }
+
+    pub(crate) fn widget_frame_assignments(&self) -> &crate::render::WidgetFrameAssignments {
+        self.widget_frame_assignments.as_ref()
     }
 
     /// Create a context with a fresh interaction-scope sink installed.
@@ -542,6 +558,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -591,6 +608,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -636,6 +654,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -688,6 +707,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -727,6 +747,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -770,6 +791,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -813,6 +835,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -852,6 +875,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -898,6 +922,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -949,6 +974,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1010,6 +1036,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1051,6 +1078,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1090,6 +1118,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1133,6 +1162,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1179,6 +1209,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1222,6 +1253,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1417,6 +1449,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1460,6 +1493,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1500,6 +1534,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1548,6 +1583,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1589,6 +1625,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1645,6 +1682,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 
@@ -1691,6 +1729,7 @@ impl EvaluationContext {
             scoped_param_store: self.scoped_param_store.clone(),
             scoped_selection_store: self.scoped_selection_store.clone(),
             scoped_store_state: self.scoped_store_state.clone(),
+            widget_frame_assignments: self.widget_frame_assignments.clone(),
         }
     }
 

@@ -34,7 +34,7 @@ pub use types::{
     FacetLayoutRefinement, FacetSubtreeCheckpoint, FacetSubtreeSelector, FacetSubtreeSnapshot,
     InteractionScopeId, InteractionScopeKind, LayoutDebugOverlayMode, LayoutSnapshot,
     LayoutSolution, LegendMeasurements, PreviewProfileFallbackReason, RefinementCheckpoint,
-    WholeChartSnapshot,
+    WholeChartSnapshot, WidgetFrame, WidgetFrameAssignments,
 };
 #[cfg(feature = "wgpu")]
 pub use wgpu::WgpuRenderer;

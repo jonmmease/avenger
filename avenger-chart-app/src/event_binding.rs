@@ -8606,7 +8606,7 @@ mod tests {
 
     #[tokio::test]
     async fn widget_frame_fields_stay_bound_to_the_gesture_start_frame() {
-        let ctx = SessionContext::new();
+        let ctx = Arc::new(SessionContext::new());
         let start = ChartEventStream::on(ChartEventType::MouseDown).mark("regions.box");
         let end = ChartEventStream::on(ChartEventType::MouseUp);
         let frame_assignments = |binding: ChartEventBinding| {
@@ -8617,12 +8617,13 @@ mod tests {
                 .set_param("frame_height", event::frame_height())
                 .preview()
         };
-        let compiled = Chart::<Cartesian>::new()
+        let compiled = Chart::<PixelFrame>::new()
+            .canvas_size(320.0, 180.0)
             .param(Param::new("frame_x", ScalarValue::Float64(None)))
             .param(Param::new("frame_y", ScalarValue::Float64(None)))
             .param(Param::new("frame_width", ScalarValue::Float64(None)))
             .param(Param::new("frame_height", ScalarValue::Float64(None)))
-            .widget(Checkbox::new("regions", "Regions", false).position(ChromePosition::Left))
+            .host_widget(Checkbox::new("regions", "Regions", false))
             .event_binding(frame_assignments(
                 ChartEventBinding::on(ChartEventType::CursorMoved)
                     .between(start.clone(), end.clone()),
@@ -8630,17 +8631,33 @@ mod tests {
             .event_binding(frame_assignments(ChartEventBinding::on_between_end(
                 start, end,
             )))
-            .compile(&ctx)
+            .compile(ctx.as_ref())
             .await
             .expect("compile frame-local widget bindings");
-        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("widget streams");
+        let streams =
+            event_streams_for_plot_bindings(&compiled, ctx.as_ref()).expect("widget streams");
         let policy = compiled.resize_policy();
-        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
-        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
-        let scene = crate::ChartSceneGraphBuilder
-            .build(&mut state)
+        let mut session = Arc::new(compiled).instantiate(ctx);
+        let evaluated = session
+            .evaluate(
+                EvaluationRequest::new().widget_frames(
+                    WidgetFrameAssignments::try_from_iter([(
+                        "regions",
+                        WidgetFrame::try_new(20.0, 30.0, 140.0, 40.0).unwrap(),
+                    )])
+                    .unwrap(),
+                ),
+            )
             .await
-            .expect("initial widget scene");
+            .expect("initial explicit-frame widget scene");
+        let scene = evaluated.scene_graph.clone();
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        {
+            let mut runtime = state.runtime.lock().await;
+            runtime.last_interaction_state = evaluated.interaction;
+            runtime.last_event_datum_state = evaluated.event_datums;
+            runtime.last_widget_frame_state = evaluated.widget_frames;
+        }
         let rtree = SceneGraphRTree::from_scene_graph(&scene);
         let origin = rtree.named_group_origin("regions").expect("widget origin");
         let inside = [origin[0] + 8.0, origin[1] + 16.0];
@@ -8723,12 +8740,28 @@ mod tests {
                 .as_ref()
                 .expect("widget frame captured at mouse-down");
             assert_eq!(capture.frame, original_frame);
-            for frame in runtime.last_widget_frame_state.frames.values_mut() {
-                frame.bounds.x += 1_000.0;
-                frame.bounds.y += 1_000.0;
-                frame.bounds.width += 500.0;
-                frame.bounds.height += 500.0;
-            }
+            let reassigned = runtime
+                .session
+                .evaluate(
+                    EvaluationRequest::new().widget_frames(
+                        WidgetFrameAssignments::try_from_iter([(
+                            "regions",
+                            WidgetFrame::try_new(180.0, 90.0, 100.0, 56.0).unwrap(),
+                        )])
+                        .unwrap(),
+                    ),
+                )
+                .await
+                .expect("reassign explicit widget frame during capture");
+            runtime.last_interaction_state = reassigned.interaction;
+            runtime.last_event_datum_state = reassigned.event_datums;
+            runtime.last_widget_frame_state = reassigned.widget_frames;
+            assert_eq!(
+                runtime.last_widget_frame_state.by_widget_id["regions"]
+                    .bounds
+                    .x,
+                180.0
+            );
         }
 
         manager
@@ -8784,7 +8817,7 @@ mod tests {
             let runtime = state.runtime.lock().await;
             runtime
                 .last_widget_frame_state
-                .frames
+                .by_mark_path
                 .values()
                 .find(|frame| frame.widget_id == "volume")
                 .cloned()
@@ -8915,7 +8948,7 @@ mod tests {
             let runtime = state.runtime.lock().await;
             runtime
                 .last_widget_frame_state
-                .frames
+                .by_mark_path
                 .values()
                 .find(|frame| frame.widget_id == "volume")
                 .cloned()

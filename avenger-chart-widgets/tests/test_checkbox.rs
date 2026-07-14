@@ -155,7 +155,7 @@ async fn checkbox_css_geometry_drives_frame_and_parts() {
     assert_eq!(group.clip, Clip::None);
     let frame = evaluated
         .widget_frames
-        .frames
+        .by_mark_path
         .values()
         .find(|frame| frame.widget_id == "custom")
         .unwrap();

@@ -370,6 +370,66 @@ impl CompiledPlot {
         Ok(())
     }
 
+    pub(crate) fn validate_widget_frame_assignments(
+        &self,
+        assignments: &crate::render::WidgetFrameAssignments,
+    ) -> Result<(), AvengerChartError> {
+        fn collect(
+            plot: &CompiledPlot,
+            explicit: &mut BTreeSet<String>,
+            guide: &mut BTreeSet<String>,
+        ) {
+            for attachment in &plot.widgets {
+                let id = attachment.widget.id().to_string();
+                match attachment.placement {
+                    avenger_chart_core::WidgetPlacement::ExplicitFrame => {
+                        explicit.insert(id);
+                    }
+                    avenger_chart_core::WidgetPlacement::Guide(_) => {
+                        guide.insert(id);
+                    }
+                }
+            }
+            for mark in &plot.marks {
+                for payload in mark.child_plot_payloads() {
+                    collect(
+                        compiled_subplot_payload_child_plot(payload),
+                        explicit,
+                        guide,
+                    );
+                }
+            }
+        }
+
+        let mut explicit = BTreeSet::new();
+        let mut guide = BTreeSet::new();
+        collect(self, &mut explicit, &mut guide);
+        for (id, _) in assignments.iter() {
+            if guide.contains(id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Widget frame assignment for '{id}' targets a guide-positioned widget"
+                )));
+            }
+            if !explicit.contains(id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Widget frame assignment references unknown explicit widget '{id}'"
+                )));
+            }
+        }
+        let missing = explicit
+            .iter()
+            .filter(|id| assignments.get(id).is_none())
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Missing explicit widget frame assignments for: {}",
+                missing.join(", ")
+            )));
+        }
+        Ok(())
+    }
+
     fn mark_group_data_cache_key(
         &self,
         group_index: usize,

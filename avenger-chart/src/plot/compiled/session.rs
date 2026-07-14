@@ -1499,6 +1499,12 @@ impl EvaluationRequest {
         self
     }
 
+    /// Supply frames for every widget hosted with `Plot<PixelFrame>::host_widget`.
+    pub fn widget_frames(mut self, assignments: crate::render::WidgetFrameAssignments) -> Self {
+        self.options.widget_frames = assignments;
+        self
+    }
+
     pub fn exact(self) -> Self {
         self.mode(EvaluationMode::Exact)
     }
