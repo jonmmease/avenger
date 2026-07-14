@@ -270,6 +270,7 @@ fn resource_evaluated_plot(source: ResourceSource) -> EvaluatedPlot {
         interaction: EvaluatedInteractionState { scopes: Vec::new() },
         event_datums: EvaluatedEventDatumState { rows: Vec::new() },
         widget_frames: Default::default(),
+        native_widgets: Default::default(),
         prefetch_planners: Vec::new(),
     }
 }

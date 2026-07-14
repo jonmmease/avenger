@@ -11,8 +11,11 @@ use indexmap::IndexMap;
 
 use crate::{
     error::AvengerChartError,
-    plot::CompiledPlot,
-    render::{EvaluatedPlot, EvaluationOptions, resources::resolve_evaluated_plot_image_resources},
+    plot::{CompiledPlot, NativeWidgetPlotId, NativeWidgetRuntimeResources},
+    render::{
+        EvaluatedPlot, EvaluationOptions, evaluate_for_export,
+        resources::resolve_evaluated_plot_image_resources,
+    },
 };
 
 /// Renderer that exports evaluated plots as PDF bytes.
@@ -21,6 +24,7 @@ pub struct PdfRenderer {
     scene_renderer: avenger_pdf::PdfRenderer,
     image_resource_resolver: Arc<dyn ImageResourceResolver>,
     image_resource_load_options: ImageResourceLoadOptions,
+    native_widgets: Option<(NativeWidgetRuntimeResources, NativeWidgetPlotId)>,
 }
 
 impl Default for PdfRenderer {
@@ -40,6 +44,7 @@ impl PdfRenderer {
             scene_renderer: avenger_pdf::PdfRenderer::new().with_options(options),
             image_resource_resolver: Arc::new(ImageResourceCache::new()),
             image_resource_load_options: ImageResourceLoadOptions::default(),
+            native_widgets: None,
         }
     }
 
@@ -63,6 +68,19 @@ impl PdfRenderer {
 
     pub fn with_image_resource_load_options(mut self, options: ImageResourceLoadOptions) -> Self {
         self.image_resource_load_options = options;
+        self
+    }
+
+    /// Install native-widget runtime resources for one isolated export member.
+    ///
+    /// Live instances are detached and final-evicted after every render
+    /// attempt, including failed evaluation.
+    pub fn with_native_widget_runtime(
+        mut self,
+        resources: NativeWidgetRuntimeResources,
+        plot_id: NativeWidgetPlotId,
+    ) -> Self {
+        self.native_widgets = Some((resources, plot_id));
         self
     }
 
@@ -95,7 +113,9 @@ impl PdfRenderer {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<Vec<u8>, AvengerChartError> {
-        let evaluated_plot = compiled.evaluate_with_options(ctx, params, options).await?;
+        let evaluated_plot =
+            evaluate_for_export(compiled, ctx, params, options, self.native_widgets.as_ref())
+                .await?;
         self.render_evaluated_plot(&evaluated_plot)
     }
 

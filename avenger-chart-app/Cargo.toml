@@ -269,3 +269,7 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "widget_cell_sidebar"
 required-features = ["winit-wgpu"]
+
+[[example]]
+name = "widget_text_input_filter"
+required-features = ["winit-wgpu"]

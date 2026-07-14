@@ -14,13 +14,18 @@ use indexmap::IndexMap;
 use avenger_common::canvas::CanvasDimensions;
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 
-use crate::{error::AvengerChartError, plot::CompiledPlot, render::EvaluationOptions};
+use crate::{
+    error::AvengerChartError,
+    plot::{CompiledPlot, NativeWidgetPlotId, NativeWidgetRuntimeResources},
+    render::{EvaluationOptions, evaluate_for_export},
+};
 
 /// Renderer that uses the WGPU backend to rasterize plots.
 #[derive(Clone)]
 pub struct WgpuRenderer {
     canvas_config: CanvasConfig,
     scale: f32,
+    native_widgets: Option<(NativeWidgetRuntimeResources, NativeWidgetPlotId)>,
 }
 
 impl Default for WgpuRenderer {
@@ -39,6 +44,7 @@ impl WgpuRenderer {
         Self {
             canvas_config,
             scale: 1.0,
+            native_widgets: None,
         }
     }
 
@@ -57,6 +63,19 @@ impl WgpuRenderer {
     /// Return the scale used by this renderer.
     pub fn scale(&self) -> f32 {
         self.scale
+    }
+
+    /// Install native-widget runtime resources for one isolated export member.
+    ///
+    /// Live instances are detached and final-evicted after every render
+    /// attempt, including failed evaluation.
+    pub fn with_native_widget_runtime(
+        mut self,
+        resources: NativeWidgetRuntimeResources,
+        plot_id: NativeWidgetPlotId,
+    ) -> Self {
+        self.native_widgets = Some((resources, plot_id));
+        self
     }
 
     /// Render a compiled plot to an in-memory `RgbaImage`.
@@ -78,7 +97,9 @@ impl WgpuRenderer {
         params: Option<IndexMap<String, ScalarValue>>,
         options: EvaluationOptions,
     ) -> Result<RgbaImage, AvengerChartError> {
-        let evaluated_plot = compiled.evaluate_with_options(ctx, params, options).await?;
+        let evaluated_plot =
+            evaluate_for_export(compiled, ctx, params, options, self.native_widgets.as_ref())
+                .await?;
 
         let dimensions = CanvasDimensions {
             size: [

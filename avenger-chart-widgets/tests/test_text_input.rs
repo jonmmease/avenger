@@ -394,6 +394,35 @@ async fn on_change_replaces_deadline_and_survives_opt_in_state_rerenders() {
 }
 
 #[tokio::test]
+async fn selection_survives_scene_rerender_and_replaces_on_next_edit() {
+    let widget = TextInput::new("search").initial_value("old").debounce(150);
+    let (mut harness, _) = Harness::new(widget, None).await;
+    harness.focus();
+
+    let select_all = harness.dispatch(
+        key(Key::Character('a'), None, command_modifier()),
+        None,
+        None,
+    );
+    let selected = harness
+        .apply_and_evaluate(&select_all, harness.now + Duration::from_millis(1))
+        .await;
+    let group = find_group(&selected.scene_graph.marks, "search").unwrap();
+    assert!(find_rect(&group.marks, "selection").unwrap().len > 0);
+
+    let typed = harness.dispatch_at(
+        key(Key::Character('x'), Some("x"), ModifiersState::default()),
+        None,
+        None,
+        harness.now + Duration::from_millis(2),
+    );
+    let replaced = harness
+        .apply_and_evaluate(&typed, harness.now + Duration::from_millis(2))
+        .await;
+    assert_eq!(text_value(&replaced), "x");
+}
+
+#[tokio::test]
 async fn enter_or_blur_keeps_text_local_but_publishes_arrow_selection() {
     let widget = TextInput::new("search")
         .initial_value("ab")

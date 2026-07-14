@@ -2,9 +2,10 @@
 
 ## Status
 
-Design, 2026-07-10 — the deliverable of the widget plan's **W5.1
-prior-art study** (`scratch/2026-07-09/02-widgets/plan.md`), governing
-W5.2–W5.6. Grounded in source-level studies of parley `PlainEditor`
+Implemented design, studied 2026-07-10 and completed through W5.6 on
+2026-07-14. This is the deliverable of the widget plan's **W5.1 prior-art
+study** (`scratch/2026-07-09/02-widgets/plan.md`) and the governing contract
+for W5.2–W5.6. Grounded in source-level studies of parley `PlainEditor`
 (the structural template), cosmic-text `Editor` (the semantics
 checklist), iced `TextInput`, egui `TextEdit`/`Undoer`, Slint
 `TextInput`/`LineEdit` (the native-primitive precedent), winit 0.30
@@ -441,18 +442,22 @@ than round-tripping the keyed measurement memo.
 
 ## W5 Implementation Mapping
 
-- **W5.2 (eventstream)**: `KeyEvent.text` carried through (replaces
+- **W5.2 (eventstream) — complete**: `KeyEvent.text` carried through (replaces
   the char-truncation fix as framed); `Ime` events + window plumbing
   (native); semantic `Cut`/`Copy`/`Paste(text)` events; **the wasm
   TextAgent + document clipboard listeners land with the wasm example
   harness** (winit web cannot deliver IME — new scope, now explicit).
-- **W5.3 (services)**: focus routing, arboard-backed clipboard service
+- **W5.3 (services) — complete**: focus routing, arboard-backed clipboard service
   (cfg-gated), IME rect caching + composition-cancel toggle + Windows
   key filter.
-- **W5.4 (avenger-text)**: the two normalizations, `ShapedLine` +
+- **W5.4 (avenger-text) — complete**: the two normalizations, `ShapedLine` +
   geometry queries + grapheme/word helpers, `SingleLineEditor` with
   the Action vocabulary; mixed-script/bidi/ligature test set.
-- **W5.5 (native tier)**: unchanged.
-- **W5.6 (TextInput)**: Undoer, click cycle, keybinding tables, scroll
-  offset, VisualRepresentation rendering, params/controlled-input
-  rules, commit policies.
+- **W5.5 (native tier) — complete**: evaluation-time kind registry,
+  store-owned instances, explicit runtime namespaces, typed part-theme
+  queries, lifecycle and host-command outcomes, focus/localization routing,
+  and registry-aware headless/vector export.
+- **W5.6 (TextInput) — complete**: Undoer, click cycle, keybinding tables,
+  scroll offset, `VisualRepresentation` rendering, revision-aware controlled
+  inputs, params, commit policies, paired visual baselines, and vector-PDF
+  coverage.

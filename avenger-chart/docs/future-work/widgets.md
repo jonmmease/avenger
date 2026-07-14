@@ -2,14 +2,15 @@
 
 ## Status
 
-Active implementation, begun 2026-07-12 and synchronized 2026-07-13.
+Active implementation, begun 2026-07-12 and synchronized 2026-07-14.
 The shared composed/native artifact contracts, PixelFrame host, CSS part
 machinery, mixed chrome solve, Checkbox, Button, CheckboxList,
 RadioButtonList, Slider, WidgetCell content tracks, and explicit-frame hosting
-are implemented; native widgets and parameter-change reactions remain planned.
+and the native-widget/TextInput runtime are implemented; parameter-change
+reactions remain planned.
 Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. Phases W1-W4 are complete; W5-W6 remain planned
+in-repo Typst-based text stack. Phases W1-W5 are complete; W6 remains planned
 in the active implementation plan at
 `scratch/2026-07-09/02-widgets/plan.md`.
 Rust-first implementation plan for the widget paradigm: interactive input
@@ -320,7 +321,7 @@ schema_version, payload: CanonicalJson, measure, state }`. Canonical JSON is a
 UTF-8 compact string with recursively sorted object keys, not
 `serde_json::Value`, so bincode and direct evaluation agree. Unknown
 kind/version, malformed payload, duplicate state names, or a native attachment
-evaluated before W5 installs runtime resources are structured errors—not
+evaluated without runtime resources are structured errors—not
 deserializer lookups, empty scenes, or panics. Factories, instances, prepared
 batches, and caches never serialize.
 
@@ -332,7 +333,8 @@ commands, and wakeups inert after replacement. Session detach preserves the
 instance/editor for rebuild, deactivation handles retained-but-hidden owners,
 and final unmount runs exactly once only on store eviction.
 
-`NativeWidgetCtx` accumulates a host-neutral dispatch outcome—resolved scoped
+`NativeWidgetCtx` exposes the one resolved style snapshot through typed
+`part_theme(part, mark_kind)` queries and accumulates a host-neutral dispatch outcome—resolved scoped
 param assignments, evaluation intent, scene/index dirty flags, focus, cursor,
 dynamic consume, and `RuntimeHostCommand`s. Commands include keyed exact
 wakeups, IME enable/cursor area, and clipboard writes. Rectangles are
@@ -345,9 +347,10 @@ Properties of the tier:
 - **Vector all the way down.** Scene marks, not rasters: SVG/PDF export
   keeps text as text and rects as rects; baselines are ordinary scenegraph
   baselines.
-- **Themed like guides.** Native widgets receive resolved theme tokens
-  through `SceneCtx` — the same CSS-resolved-values-consumed-by-Rust path
-  axes and legends use today.
+- **Themed like guides.** Native widgets receive the same resolved style
+  snapshot used by measurement and hit testing through
+  `NativeWidgetCtx::part_theme`; paint-only changes rebuild the scene while
+  geometry/text changes remeasure and rebuild the sub-index.
 - **Lifecycle-full, unlike the composed tier.** The instance owns exactly
   the state the design classifies as ephemeral (cursor, selection,
   scroll-within-widget, gesture progress). Document state still crosses
@@ -360,9 +363,11 @@ Properties of the tier:
   (2026-07-10): the compiled artifact carries a kind-keyed spec; a
   registered factory constructs instances after artifact deserialization at
   evaluation/hosting time, and
-  headless/export paths construct an instance and call `scene()`
-  without an app loop — which is what keeps native widgets inside the
-  baseline and PDF stories. Measurement for a reconstructed native
+  headless/export paths construct an instance and call `scene()` without an
+  app loop. `WgpuRenderer::with_native_widget_runtime` and
+  `PdfRenderer::with_native_widget_runtime` use an isolated export namespace
+  and detach/final-evict on success or failure, which keeps native widgets
+  inside the PNG and vector-PDF stories. Measurement for a reconstructed native
   widget comes from the registered instance (or a registered
   measurement evaluator), never from a serialized closure.
 
@@ -637,9 +642,10 @@ editing (cursor, selection, undo, clipboard, IME) is arbitrary-logic
 territory. It builds on the engine's own text stack — `avenger-text`
 (`TextEngine`, font resolution, measurement, rasterization, vector/PDF
 output) over `avenger-typst-label`'s adapted Typst layout modules, with
-rustybuzz shaping. **The stack has no editing surface today** — no cursor
-model, no x↔cursor hit-testing, no selection geometry — so `TextInput`'s
-real substance is an *editing layer over avenger-text*, designed after
+rustybuzz shaping. W5 added the widget-neutral `ShapedLine` and
+`SingleLineEditor` surface—cursor/selection state, x↔cursor hit testing,
+selection geometry, IME splicing, and grapheme/word motion—so `TextInput` is
+an *editing layer over avenger-text*, designed after
 studying how other toolkits structure theirs (see
 [Prior Art](#prior-art-to-study-before-building-textinput)).
 
@@ -1005,15 +1011,21 @@ compound marks.
    pin the neutral four-sided container and forbid an accent top stripe. The
    dashboard host remains deferred, but phases 1–4 now provide its published
    widget input and frame contracts.
-5. **`NativeWidget` + `TextInput`.** First the prior-art study pass
+5. **`NativeWidget` + `TextInput` — complete (2026-07-14).** The prior-art study pass
    (deliverable: notes answering the questions above, plus a design for
    the editing layer and the avenger-text editing-support API); then the
    shared infrastructure — focus service, IME through avenger-eventstream,
    the clipboard service + `Cut`/`Copy`/`Paste` events (DOM-sourced on
    wasm), native-tier dirty loop; then the avenger-text
-   extensions and `TextInput` itself. Exit criterion: a search box
-   filtering a chart, fully vector in PNG baselines and PDF export,
-   IME-verified on macOS.
+   extensions and `TextInput` itself. The exit example is
+   `avenger-chart-app/examples/widget_text_input_filter.rs`; paired light/dark
+   baselines cover placeholder, focused caret, and selection states. A
+   bincode-round-tripped third-party native kind is exercised through PNG and
+   vector-true PDF export, with structured unknown-kind errors and lifecycle
+   cleanup on success/failure. Native typing, selection replacement, debounce,
+   filtering, and blur were exercised against the same runnable macOS example;
+   a hands-on non-synthetic IME preedit pass remains tracked separately from
+   the automated `Ime::Preedit`/`Commit` coverage.
 6. **Parameter-change reactions + Button actions.** Extract `ChartAction`,
    compile the acyclic shared-scope reaction graph, route every origin through
    one FIFO transaction coordinator, publish direct+derived changes, add
