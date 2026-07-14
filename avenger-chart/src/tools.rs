@@ -1062,7 +1062,8 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
         assert_eq!(
-            drag.assignments
+            drag.action
+                .assignments
                 .iter()
                 .filter(|assignment| assignment.param_name
                     == "__tool_pan_scroll_zoom__domain__measurement")

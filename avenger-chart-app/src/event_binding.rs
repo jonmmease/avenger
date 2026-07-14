@@ -7,9 +7,9 @@ use async_trait::async_trait;
 use avenger_app::error::AvengerAppError;
 use avenger_chart::{
     event::{
-        self, ChartEventAssignmentScope, ChartEventBinding, ChartEventEvaluationMode,
-        ChartEventScopeTarget, ChartEventStream, ChartEventSurfaceTarget, ChartEventType,
-        InteractionColumnRequests,
+        self, ChartActionParamValue, ChartEventAssignmentScope, ChartEventBinding,
+        ChartEventEvaluationMode, ChartEventScopeTarget, ChartEventStream, ChartEventSurfaceTarget,
+        ChartEventType, InteractionColumnRequests,
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
@@ -145,7 +145,7 @@ fn event_streams_for_bindings_with_coord_types(
             }) as Arc<dyn EventStreamHandler<ChartAppState>>,
         ));
 
-        if binding.settle_exact {
+        if binding.action.settle_exact {
             streams.push((
                 EventStreamConfig {
                     types: vec![SceneGraphEventType::InteractionSettled],
@@ -574,7 +574,7 @@ impl CompiledChartEventBinding {
         binding
             .validate()
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        for assignment in &binding.assignments {
+        for assignment in &binding.action.assignments {
             if !param_specs.contains_key(&assignment.param_name) {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding assigns unknown param '{}'",
@@ -582,7 +582,7 @@ impl CompiledChartEventBinding {
                 )));
             }
         }
-        for assignment in &binding.store_assignments {
+        for assignment in &binding.action.store_assignments {
             if !store_specs.contains_key(&assignment.store_name) {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding updates unknown store '{}'",
@@ -590,7 +590,7 @@ impl CompiledChartEventBinding {
                 )));
             }
         }
-        for assignment in &binding.selection_assignments {
+        for assignment in &binding.action.selection_assignments {
             if !selection_specs.contains_key(&assignment.selection_id) {
                 return Err(AvengerAppError::InternalError(format!(
                     "Chart event binding updates unknown selection '{}'",
@@ -610,11 +610,18 @@ impl CompiledChartEventBinding {
             );
         }
         let mut assignment_exprs = Vec::new();
-        for assignment in &binding.assignments {
-            let expr = assignment
-                .expr
-                .to_expr(ctx)
-                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        for assignment in &binding.action.assignments {
+            let target = param_specs
+                .get(&assignment.param_name)
+                .expect("param assignment validated");
+            let expr = match &assignment.value {
+                ChartActionParamValue::Expr { expr } => expr
+                    .to_expr(ctx)
+                    .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                ChartActionParamValue::RegisteredDefault => {
+                    datafusion::prelude::lit(target.default.clone())
+                }
+            };
             assignment_exprs.push((
                 assignment.param_name.clone(),
                 expr,
@@ -624,7 +631,7 @@ impl CompiledChartEventBinding {
             ));
         }
         let mut store_exprs = Vec::new();
-        for assignment in &binding.store_assignments {
+        for assignment in &binding.action.store_assignments {
             let store = store_specs
                 .get(&assignment.store_name)
                 .expect("store assignment validated");
@@ -637,7 +644,7 @@ impl CompiledChartEventBinding {
             });
         }
         let mut selection_exprs = Vec::new();
-        for assignment in &binding.selection_assignments {
+        for assignment in &binding.action.selection_assignments {
             let spec = selection_specs
                 .get(&assignment.selection_id)
                 .expect("selection assignment validated");
@@ -820,8 +827,8 @@ impl CompiledChartEventBinding {
             assignments,
             store_assignments,
             selection_assignments,
-            evaluation_mode: binding.evaluation_mode,
-            settle_exact: binding.settle_exact,
+            evaluation_mode: binding.action.evaluation_mode,
+            settle_exact: binding.action.settle_exact,
             interaction_requests,
             event_path_min_distance_px: binding
                 .event_path_min_distance_px
@@ -5827,6 +5834,7 @@ mod tests {
             .iter()
             .position(|binding| {
                 binding
+                    .action
                     .assignments
                     .iter()
                     .any(|assignment| assignment.param_name == "__tool_box_zoom__x_domain")
@@ -6998,7 +7006,7 @@ mod tests {
         let ctx = SessionContext::new();
         let x_domain = Param::raw_domain("x_domain");
         let binding = ChartEventBinding::on(ChartEventType::DoubleClick)
-            .set_param(&x_domain, lit(x_domain.default.clone()))
+            .reset_param(&x_domain)
             .exact();
         let compiled = Chart::<Cartesian>::new()
             .canvas_size(400.0, 300.0)
@@ -13559,6 +13567,38 @@ mod tests {
             state.params().await.get("x_domain"),
             Some(&default_domain),
             "double-click reset should restore the raw-domain default"
+        );
+    }
+
+    #[tokio::test]
+    async fn event_binding_rejects_reset_of_unknown_param() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::DoubleClick)
+                    .reset_param("missing")
+                    .exact(),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile chart artifact");
+        let error = match CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            compiled.cursor_params(),
+            &compiled.event_datum_types(),
+        ) {
+            Ok(_) => panic!("unknown reset target should fail event compilation"),
+            Err(error) => error,
+        };
+        assert!(
+            error
+                .to_string()
+                .contains("assigns unknown param 'missing'")
         );
     }
 

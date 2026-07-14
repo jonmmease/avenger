@@ -834,17 +834,21 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("reset binding");
-        assert_eq!(reset.assignments.len(), 4);
-        assert_eq!(reset.evaluation_mode, ChartEventEvaluationMode::Exact);
+        assert_eq!(reset.action.assignments.len(), 4);
+        assert_eq!(
+            reset.action.evaluation_mode,
+            ChartEventEvaluationMode::Exact
+        );
 
         let wheel = expansion
             .event_bindings
             .iter()
             .find(|binding| binding.event_type == ChartEventType::MouseWheel)
             .expect("wheel binding");
-        assert_eq!(wheel.assignments.len(), 5);
+        assert_eq!(wheel.action.assignments.len(), 5);
         assert!(
             wheel
+                .action
                 .assignments
                 .iter()
                 .any(|assignment| assignment.param_name == "__geo_map_focus_x")
@@ -856,19 +860,23 @@ mod tests {
             .iter()
             .find(|binding| {
                 binding.event_type == ChartEventType::MouseUp
-                    && binding.evaluation_mode == ChartEventEvaluationMode::Exact
+                    && binding.action.evaluation_mode == ChartEventEvaluationMode::Exact
             })
             .expect("box zoom binding");
-        assert_eq!(box_zoom.assignments.len(), 4);
-        assert_eq!(box_zoom.evaluation_mode, ChartEventEvaluationMode::Exact);
+        assert_eq!(box_zoom.action.assignments.len(), 4);
+        assert_eq!(
+            box_zoom.action.evaluation_mode,
+            ChartEventEvaluationMode::Exact
+        );
 
         let overlay_drag = expansion
             .event_bindings
             .iter()
             .find(|binding| {
                 binding.event_type == ChartEventType::CursorMoved
-                    && binding.evaluation_mode == ChartEventEvaluationMode::Preview
+                    && binding.action.evaluation_mode == ChartEventEvaluationMode::Preview
                     && binding
+                        .action
                         .assignments
                         .iter()
                         .any(|assignment| assignment.param_name.ends_with("box_x0"))
@@ -882,14 +890,16 @@ mod tests {
             .find(|binding| {
                 binding.event_type == ChartEventType::CursorMoved
                     && binding
+                        .action
                         .assignments
                         .iter()
                         .any(|assignment| assignment.param_name == "__geo_map_center_x")
             })
             .expect("pan drag binding");
-        assert_eq!(pan_drag.assignments.len(), 5);
+        assert_eq!(pan_drag.action.assignments.len(), 5);
         assert!(
             pan_drag
+                .action
                 .assignments
                 .iter()
                 .any(|assignment| assignment.param_name == "__geo_map_focus_y")

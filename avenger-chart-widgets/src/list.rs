@@ -637,7 +637,10 @@ mod tests {
         assert_eq!(expanded.expansion.marks.len(), 7);
         assert_eq!(expanded.expansion.selections.len(), 1);
         assert!(matches!(
-            expanded.expansion.event_bindings[0].selection_assignments[0].update,
+            expanded.expansion.event_bindings[0]
+                .action
+                .selection_assignments[0]
+                .update,
             SelectionUpdate::ToggleEqualityValue {
                 facet_scope: CoordinationScope::Shared,
                 ..
@@ -688,7 +691,13 @@ mod tests {
             expanded.expansion.params[0].param.default,
             ScalarValue::Int64(Some(7))
         );
-        assert_eq!(expanded.expansion.event_bindings[0].assignments.len(), 1);
+        assert_eq!(
+            expanded.expansion.event_bindings[0]
+                .action
+                .assignments
+                .len(),
+            1
+        );
         let Some(WidgetItems::Configured { validations, .. }) = expanded.items else {
             panic!("configured widget items");
         };

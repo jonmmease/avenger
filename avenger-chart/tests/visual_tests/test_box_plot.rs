@@ -875,7 +875,7 @@ async fn box_plot_compound_scene_query_targets_resolve_part_path() {
 
     let binding = compiled.event_bindings().first().expect("event binding");
     let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-        &binding.selection_assignments[0].update
+        &binding.action.selection_assignments[0].update
     else {
         panic!("expected scene query selection update");
     };

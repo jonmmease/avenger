@@ -1614,7 +1614,7 @@ fn resolve_event_binding_mark_targets(
         between.end = resolve_event_stream_mark_targets(between.end, registry)?;
         binding.between = Some(between);
     }
-    for assignment in &mut binding.selection_assignments {
+    for assignment in &mut binding.action.selection_assignments {
         assignment.update =
             resolve_selection_update_scene_query_mark_targets(assignment.update.clone(), registry)?;
     }
@@ -2775,7 +2775,7 @@ mod tests {
 
         let binding = compiled.event_bindings().first().expect("event binding");
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-            &binding.selection_assignments[0].update
+            &binding.action.selection_assignments[0].update
         else {
             panic!("expected scene query update");
         };
@@ -3624,10 +3624,12 @@ mod tests {
         );
         assert!(drag_bindings.iter().any(|binding| {
             binding
+                .action
                 .assignments
                 .iter()
                 .any(|assignment| assignment.param_name == "__tool_pan_scroll_zoom__domain__a")
                 && binding
+                    .action
                     .assignments
                     .iter()
                     .any(|assignment| assignment.param_name == "__tool_pan_scroll_zoom__domain__b")
@@ -4724,7 +4726,7 @@ mod tests {
             ScalarValue::Boolean(Some(true))
         );
 
-        let StoreUpdate::UpsertRows { rows } = &binding.store_assignments[0].update else {
+        let StoreUpdate::UpsertRows { rows } = &binding.action.store_assignments[0].update else {
             panic!("expected store upsert");
         };
         let cell_id = rows[0]
@@ -4755,7 +4757,8 @@ mod tests {
             ScalarValue::Utf8(Some("b".to_string()))
         );
 
-        let SelectionUpdate::UpsertClauses { clauses } = &binding.selection_assignments[0].update
+        let SelectionUpdate::UpsertClauses { clauses } =
+            &binding.action.selection_assignments[0].update
         else {
             panic!("expected selection upsert");
         };
@@ -4771,7 +4774,7 @@ mod tests {
         assert_eq!(dimensions[1].field_expr.to_expr(&ctx)?.to_string(), "a");
 
         let SelectionUpdate::ReplaceAllClauses { clauses } =
-            &binding.selection_assignments[1].update
+            &binding.action.selection_assignments[1].update
         else {
             panic!("expected selection replacement");
         };

@@ -2057,9 +2057,8 @@ mod tests {
             Field::new(ev::START_PLOT_WIDTH_FIELD, DataType::Float64, false),
             Field::new(ev::START_PLOT_HEIGHT_FIELD, DataType::Float64, false),
         ]));
-        let unit_aspect_box = Some(ResolvedUnitAspectBox { mode });
-        let endpoints =
-            constrained_box_expressions("x", "y", unit_aspect_box.expect("resolved box"));
+        let unit_aspect_box = ResolvedUnitAspectBox { mode };
+        let endpoints = constrained_box_expressions("x", "y", unit_aspect_box);
         let program = CompiledScalarExpressionProgram::compile(
             &ctx,
             schema.clone(),
@@ -2068,7 +2067,7 @@ mod tests {
                 PhysicalScalarExpressionSpec::new("y1", endpoints.y1),
                 PhysicalScalarExpressionSpec::new(
                     "distance",
-                    constrained_drag_distance_squared_px(unit_aspect_box, "x", "y"),
+                    constrained_drag_distance_squared_px(Some(unit_aspect_box), "x", "y"),
                 ),
             ],
             PhysicalScalarProgramOptions::default(),
@@ -2144,9 +2143,9 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("double-click reset binding");
         assert_eq!(reset.filters.len(), 3);
-        assert_eq!(reset.assignments.len(), 2);
+        assert_eq!(reset.action.assignments.len(), 2);
         assert_eq!(
-            reset.evaluation_mode,
+            reset.action.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Exact
         );
     }
@@ -2165,7 +2164,7 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("double-click reset binding");
         assert_eq!(reset.filters.len(), 2);
-        assert_eq!(reset.assignments.len(), 1);
+        assert_eq!(reset.action.assignments.len(), 1);
         assert_eq!(expansion.scale_edits.len(), 1);
         assert!(
             expansion
@@ -2199,8 +2198,8 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::MouseWheel)
             .expect("wheel binding");
-        assert!(drag.settle_exact);
-        assert!(wheel.settle_exact);
+        assert!(drag.action.settle_exact);
+        assert!(wheel.action.settle_exact);
     }
 
     #[test]
@@ -2238,9 +2237,9 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
-        assert_eq!(drag.assignments.len(), 1);
+        assert_eq!(drag.action.assignments.len(), 1);
         assert_eq!(
-            drag.assignments[0].param_name,
+            drag.action.assignments[0].param_name,
             "__tool_pan_scroll_zoom__domain__measurement"
         );
     }
@@ -2274,7 +2273,7 @@ mod tests {
         );
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding.event_type == ChartEventType::DoubleClick
-                && binding.selection_assignments.len() == 1
+                && binding.action.selection_assignments.len() == 1
         }));
     }
 
@@ -2312,7 +2311,7 @@ mod tests {
             expansion
                 .event_bindings
                 .iter()
-                .all(|binding| binding.filters.len() >= 1),
+                .all(|binding| !binding.filters.is_empty()),
             "every binding should include the enabled-param filter"
         );
     }
@@ -2348,14 +2347,14 @@ mod tests {
             .expect("drag binding");
         assert!(drag.between.is_some());
         assert_eq!(drag.event_path_min_distance_px, Some(7.0));
-        assert_eq!(drag.selection_assignments.len(), 1);
+        assert_eq!(drag.action.selection_assignments.len(), 1);
         assert_eq!(
-            drag.evaluation_mode,
+            drag.action.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Preview
         );
-        assert!(drag.settle_exact);
+        assert!(drag.action.settle_exact);
 
-        let assignment = &drag.selection_assignments[0];
+        let assignment = &drag.action.selection_assignments[0];
         assert_eq!(assignment.selection_id, "picked");
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } = &assignment.update else {
             panic!("lasso drag should use a scene-query selection update");
@@ -2375,7 +2374,7 @@ mod tests {
 
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding.event_type == ChartEventType::DoubleClick
-                && binding.selection_assignments.len() == 1
+                && binding.action.selection_assignments.len() == 1
         }));
     }
 
@@ -2453,21 +2452,21 @@ mod tests {
                 .event_bindings
                 .iter()
                 .any(|binding| binding.event_type == ChartEventType::CursorMoved
-                    && binding.selection_assignments.len() == 1
-                    && binding.store_assignments.len() == 1)
+                    && binding.action.selection_assignments.len() == 1
+                    && binding.action.store_assignments.len() == 1)
         );
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding
                 .between
                 .as_ref()
                 .is_some_and(|between| between.emit_end_event)
-                && binding.selection_assignments.len() == 1
-                && binding.store_assignments.len() == 1
+                && binding.action.selection_assignments.len() == 1
+                && binding.action.store_assignments.len() == 1
         }));
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding.event_type == ChartEventType::DoubleClick
-                && binding.selection_assignments.len() == 1
-                && binding.store_assignments.len() == 1
+                && binding.action.selection_assignments.len() == 1
+                && binding.action.store_assignments.len() == 1
         }));
     }
 
@@ -2487,12 +2486,13 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
-        let SelectionUpdate::UpsertClauses { clauses } = &drag.selection_assignments[0].update
+        let SelectionUpdate::UpsertClauses { clauses } =
+            &drag.action.selection_assignments[0].update
         else {
             panic!("repeat union should upsert selection clauses");
         };
         assert_eq!(clauses.len(), 1);
-        let StoreUpdate::UpsertRows { rows } = &drag.store_assignments[0].update else {
+        let StoreUpdate::UpsertRows { rows } = &drag.action.store_assignments[0].update else {
             panic!("repeat union should upsert store rows");
         };
         assert_eq!(rows.len(), 1);
@@ -2541,7 +2541,7 @@ mod tests {
             expansion
                 .event_bindings
                 .iter()
-                .flat_map(|binding| binding.assignments.iter())
+                .flat_map(|binding| binding.action.assignments.iter())
                 .any(|assignment| assignment.scope
                     == avenger_chart_core::event::ChartEventAssignmentScope::Start)
         );
@@ -2551,9 +2551,9 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("double-click reset binding");
         assert_eq!(reset.filters.len(), 3);
-        assert_eq!(reset.assignments.len(), 3);
+        assert_eq!(reset.action.assignments.len(), 3);
         assert_eq!(
-            reset.evaluation_mode,
+            reset.action.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Exact
         );
     }
@@ -2572,6 +2572,6 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
         assert_eq!(drag.filters.len(), 9);
-        assert_eq!(drag.assignments.len(), 5);
+        assert_eq!(drag.action.assignments.len(), 5);
     }
 }

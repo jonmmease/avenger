@@ -3361,7 +3361,7 @@ mod tests {
         let compiled = plot.compile(&ctx).await.unwrap();
         let binding = compiled.event_bindings().first().expect("event binding");
         let SelectionUpdate::ReplaceAllClauses { clauses } =
-            &binding.selection_assignments[0].update
+            &binding.action.selection_assignments[0].update
         else {
             panic!("expected replace-clause selection update");
         };
@@ -3425,7 +3425,7 @@ mod tests {
 
         let binding = compiled.event_bindings().first().expect("event binding");
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-            &binding.selection_assignments[0].update
+            &binding.action.selection_assignments[0].update
         else {
             panic!("expected scene query selection update");
         };
@@ -3483,7 +3483,7 @@ mod tests {
 
         let compiled = plot.compile(&ctx).await.unwrap();
         let binding = compiled.event_bindings().first().expect("event binding");
-        assert_eq!(binding.assignments[0].param_name, root.name);
+        assert_eq!(binding.action.assignments[0].param_name, root.name);
 
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         let rows = &evaluated.event_datums.rows[0].rows;

@@ -968,8 +968,8 @@ mod tests {
         .unwrap();
 
         let binding = compiled.event_bindings().first().expect("event binding");
-        assert_eq!(binding.assignments.len(), 1);
-        assert_eq!(binding.assignments[0].param_name, root.name);
+        assert_eq!(binding.action.assignments.len(), 1);
+        assert_eq!(binding.action.assignments[0].param_name, root.name);
 
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         let header_rows = evaluated
@@ -1041,7 +1041,7 @@ mod tests {
         .unwrap();
 
         let binding = compiled.event_bindings().first().expect("event binding");
-        assert_eq!(binding.assignments[0].param_name, root.name);
+        assert_eq!(binding.action.assignments[0].param_name, root.name);
 
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         let breadcrumb_rows = evaluated

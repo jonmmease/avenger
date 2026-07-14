@@ -357,7 +357,7 @@ async fn violin_compound_scene_query_targets_resolve_body_part() {
 
     let binding = compiled.event_bindings().first().expect("event binding");
     let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-        &binding.selection_assignments[0].update
+        &binding.action.selection_assignments[0].update
     else {
         panic!("expected scene query selection update");
     };
