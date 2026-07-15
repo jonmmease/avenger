@@ -1,10 +1,10 @@
 use avenger_chart::prelude::{
-    AvengerChartError, Cartesian, Chart, ChartEventType, ChartWidgetPlacementExt, ChromePosition,
-    CompiledParamSpec, EvaluationRequest, GridConcat, HConcat, NativeWidget, NativeWidgetCtx,
-    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstanceKey,
-    NativeWidgetInstanceStore, NativeWidgetMeasureSpec, NativeWidgetNamespace, NativeWidgetPlotId,
-    NativeWidgetStateSpec, Param, PixelFrame, Theme, TrackSizing, WidgetCell, WidgetFrame,
-    WidgetFrameAssignments, WidgetMeasureSpec,
+    AvengerChartError, Cartesian, Chart, ChartAction, ChartEventType, ChartParamChangeBinding,
+    ChartWidgetPlacementExt, ChromePosition, CompiledParamSpec, EvaluationRequest, GridConcat,
+    HConcat, NativeWidget, NativeWidgetCtx, NativeWidgetHostServices, NativeWidgetHostTransform,
+    NativeWidgetInstanceKey, NativeWidgetInstanceStore, NativeWidgetMeasureSpec,
+    NativeWidgetNamespace, NativeWidgetPlotId, NativeWidgetStateSpec, Param, PixelFrame, Theme,
+    TrackSizing, WidgetCell, WidgetFrame, WidgetFrameAssignments, WidgetMeasureSpec,
 };
 use avenger_chart_core::CompiledWidget;
 use avenger_chart_widgets::{Button, ButtonVariant};
@@ -16,6 +16,7 @@ use avenger_scenegraph::marks::{
     rect::SceneRectMark,
 };
 use datafusion::{common::ScalarValue, prelude::SessionContext};
+use indexmap::IndexMap;
 use std::sync::{Arc, Mutex};
 
 struct TestNativeWidget;
@@ -476,6 +477,7 @@ async fn button_round_trips_counter_contract_and_accent_presentation() {
         Some(&ScalarValue::UInt64(Some(0)))
     );
     assert_eq!(compiled.cursor_params(), &["clear__cursor"]);
+    assert!(compiled.param_change_bindings().is_empty());
     for event_type in [
         ChartEventType::Click,
         ChartEventType::MarkMouseEnter,
@@ -502,6 +504,103 @@ async fn button_round_trips_counter_contract_and_accent_presentation() {
             if color == avenger_color::parse_color_string("#0072B2").unwrap()
     ));
     assert!(!find_rect(&group.marks, "focus-ring").unwrap().interactive);
+}
+
+#[tokio::test]
+async fn button_action_matches_explicit_binding_and_round_trips() {
+    let ctx = SessionContext::new();
+    let target = Param::new("target", 7_i64);
+    let button = Button::new("clear").label("Clear");
+    let activation = button.activation_param();
+    let action = ChartAction::new().reset_param(&target).exact();
+
+    let sugar = Chart::<Cartesian>::new()
+        .param(target.clone())
+        .widget(
+            button
+                .clone()
+                .action(action.clone())
+                .position(ChromePosition::Left),
+        )
+        .compile(&ctx)
+        .await
+        .expect("compile button action sugar");
+    let explicit = Chart::<Cartesian>::new()
+        .param(target)
+        .param_change_binding(ChartParamChangeBinding::on(&activation).then(action))
+        .widget(button.position(ChromePosition::Left))
+        .compile(&ctx)
+        .await
+        .expect("compile explicit button action binding");
+
+    assert_eq!(
+        bincode::serialize(&sugar).expect("serialize sugar artifact"),
+        bincode::serialize(&explicit).expect("serialize explicit artifact")
+    );
+    let restored: avenger_chart::plot::CompiledPlot = bincode::deserialize(
+        &bincode::serialize(&sugar).expect("serialize button action artifact"),
+    )
+    .expect("deserialize button action artifact");
+    assert_eq!(restored.param_change_bindings().len(), 1);
+    assert_eq!(
+        restored.param_change_bindings()[0].source_param_name,
+        "clear__activations"
+    );
+
+    let inactive = restored
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate inactive button");
+    let inactive_marks = inactive.scene_graph.marks;
+    let mut params = IndexMap::new();
+    params.insert(
+        "clear__activations".to_string(),
+        ScalarValue::UInt64(Some(1)),
+    );
+    let mut session = Arc::new(restored).instantiate(Arc::new(ctx));
+    let active = session
+        .evaluate(EvaluationRequest::new().params(params))
+        .await
+        .expect("evaluate activated button");
+    assert_eq!(
+        inactive_marks, active.scene_graph.marks,
+        "the monotonic activation count must not create a latched visual state"
+    );
+}
+
+#[tokio::test]
+async fn button_actions_keep_activation_sources_and_targets_disjoint() {
+    let ctx = SessionContext::new();
+    let first_target = Param::new("first_target", false);
+    let second_target = Param::new("second_target", false);
+    let compiled = Chart::<Cartesian>::new()
+        .param(first_target.clone())
+        .param(second_target.clone())
+        .widget(
+            Button::new("first")
+                .label("First")
+                .action(ChartAction::new().set_param(&first_target, true))
+                .position(ChromePosition::Left),
+        )
+        .widget(
+            Button::new("second")
+                .label("Second")
+                .action(ChartAction::new().set_param(&second_target, true))
+                .position(ChromePosition::Left),
+        )
+        .compile(&ctx)
+        .await
+        .expect("compile disjoint button actions");
+
+    let bindings = compiled.param_change_bindings();
+    assert_eq!(bindings.len(), 2);
+    assert_eq!(bindings[0].source_param_name, "first__activations");
+    assert_eq!(bindings[0].action.assignments[0].param_name, "first_target");
+    assert_eq!(bindings[1].source_param_name, "second__activations");
+    assert_eq!(
+        bindings[1].action.assignments[0].param_name,
+        "second_target"
+    );
 }
 
 #[tokio::test]

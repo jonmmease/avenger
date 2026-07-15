@@ -3311,6 +3311,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn button_action_failure_rolls_back_activation_and_never_latches() {
+        let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
+        let button = avenger_chart_widgets::Button::new("clear")
+            .label("Clear")
+            .action(ChartAction::new().set_param_required(&sink, lit(ScalarValue::Int64(None))));
+        let activation = button.activation_param();
+        let chart = Chart::<Cartesian>::new()
+            .param(sink)
+            .widget(button.position(ChromePosition::Left));
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+
+        let error = state
+            .set_param(&activation.name, 1_u64)
+            .expect_err("button action failure must reject the whole activation");
+        assert!(error.to_string().contains("required assignment"), "{error}");
+        assert_eq!(
+            state.param_snapshot().params.get(&activation.name),
+            Some(&ScalarValue::UInt64(Some(0)))
+        );
+        assert_eq!(state.param_f64("sink"), Some(9.0));
+        assert!(state.param_changes_since(0).is_empty());
+    }
+
+    #[tokio::test]
     async fn busy_runtime_preserves_fifo_reaction_transactions() {
         let source = Param::new("source", ScalarValue::Int64(Some(0)));
         let sink = Param::new("sink", ScalarValue::Int64(Some(0)));

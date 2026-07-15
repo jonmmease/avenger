@@ -4,10 +4,10 @@ use avenger_chart::{
     event::{self, ChartEventBinding, ChartEventType},
     pixel_frame::{PixelFrameRectPositionChannels, PixelFrameTextPositionChannels},
     prelude::{
-        AvengerChartError, ChartWidget, CoordinationScope, CursorStyle, Param, PixelFrame, Rect,
-        Text, ToolExpansion, ToolParamSharing, WidgetAxisMeasureSpec, WidgetExpansion,
-        WidgetExpansionContext, WidgetMeasureExpr, WidgetMeasureSpec, WidgetPresentationBindings,
-        WidgetStyleProperty, WidgetTextMeasureAxis,
+        AvengerChartError, ChartAction, ChartParamChangeBinding, ChartWidget, CoordinationScope,
+        CursorStyle, Param, PixelFrame, Rect, Text, ToolExpansion, ToolParamSharing,
+        WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetMeasureExpr,
+        WidgetMeasureSpec, WidgetPresentationBindings, WidgetStyleProperty, WidgetTextMeasureAxis,
     },
 };
 use datafusion::{
@@ -42,6 +42,7 @@ pub struct Button {
     label: String,
     activations: Param,
     variant: ButtonVariant,
+    action: Option<ChartAction>,
 }
 
 impl Button {
@@ -53,6 +54,7 @@ impl Button {
             id,
             label: String::new(),
             variant: ButtonVariant::Neutral,
+            action: None,
         }
     }
 
@@ -71,6 +73,15 @@ impl Button {
     /// Use an externally named unsigned activation parameter.
     pub fn with_activation_param(mut self, param: Param) -> Self {
         self.activations = param;
+        self
+    }
+
+    /// Run a chart action atomically when the activation count changes.
+    ///
+    /// This is authoring sugar for a [`ChartParamChangeBinding`] sourced by
+    /// [`Button::activation_param`].
+    pub fn action(mut self, action: ChartAction) -> Self {
+        self.action = Some(action);
         self
     }
 
@@ -143,7 +154,7 @@ impl ChartWidget for Button {
             self.activations() + lit(ScalarValue::UInt64(Some(1))),
         )
         .otherwise(lit(ScalarValue::UInt64(None)))?;
-        let expansion = ToolExpansion::new()
+        let mut expansion = ToolExpansion::new()
             .param(self.activations.clone(), shared.clone())
             .cursor_param(cursor.clone(), shared)
             .mark(box_mark)
@@ -161,6 +172,11 @@ impl ChartWidget for Button {
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
                     .set_param(&cursor, event::cursor(CursorStyle::Default)),
             );
+        if let Some(action) = &self.action {
+            expansion = expansion.param_change_binding(
+                ChartParamChangeBinding::on(&self.activations).then(action.clone()),
+            );
+        }
 
         Ok(WidgetExpansion {
             expansion,
