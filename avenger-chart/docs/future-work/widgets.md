@@ -6,12 +6,12 @@ Active implementation, begun 2026-07-12 and synchronized 2026-07-14.
 The shared composed/native artifact contracts, PixelFrame host, CSS part
 machinery, mixed chrome solve, Checkbox, Button, CheckboxList,
 RadioButtonList, Slider, WidgetCell content tracks, and explicit-frame hosting
-and the native-widget/TextInput runtime are implemented; parameter-change
-reactions are now in active implementation.
+and the native-widget/TextInput runtime are implemented. Parameter-change
+reactions, atomic state transactions, and Button actions are also implemented.
 Composed + native tiers are promoted; external-toolkit
 embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. Phases W1-W5 are complete; W6 is active
-in the active implementation plan at
+in-repo Typst-based text stack. Phases W1-W6 are complete in the implementation
+plan at
 `scratch/2026-07-09/02-widgets/plan.md`.
 Rust-first implementation plan for the widget paradigm: interactive input
 controls built from the engine's own primitives — marks, params,
@@ -839,16 +839,14 @@ expressions can also copy or transform one parameter into another. A separate
 runtime-only host subscription may be added later, but no serialized
 `on_param_change` Rust closure is part of this contract.
 
-Execution receipt (2026-07-14): the pre-W6 implementation has one flattened
-action path in `avenger-chart-core::event::ChartEventBinding`; Plot and compiled
-artifacts serialize that binding directly, while `avenger-chart-app` compiles
-its filter/param/store/selection expressions into one physical scalar program.
-Root values are mirrored by `ChartParamState`, busy-runtime host writes are
-currently coalesced in one `IndexMap`, and event, resize, composed-widget, and
-native-widget writes enter through separate application seams. W6 therefore
-extracts the action payload first, preserves legacy flattened JSON through an
-explicit migration fixture, and only then replaces those seams with the pinned
-root/shared FIFO transaction coordinator.
+Execution receipt (2026-07-14): W6 landed in `2ed226e5c` through `73b263c6e`.
+`ChartAction` is shared by event and parameter-change triggers; legacy flattened
+event JSON migrates to the canonical action form. The compiled reaction graph,
+FIFO coordinator, rollback/collision rules, transaction-aware observation, and
+`Button::action` are implemented. The `button_clear_selection` example and its
+headless gate prove a point selection changes the scene and one activation
+clears the selection and restores the scene. A populated selection and store
+are also cleared in the same transaction that resets and copies typed params.
 
 ## Theming And Testing
 
@@ -992,7 +990,7 @@ compound marks.
 
 ## Implementation Phases
 
-1. **Contracts + Checkbox + Button + chrome placement.** `PixelFrame` and
+1. **Contracts + Checkbox + Button + chrome placement — complete (2026-07-13).** `PixelFrame` and
    its mark matrix; frozen composed/native serde schema; typed CSS,
    context-aware variables, real parts, state registration and target
    rebasing; one mixed guide-slot solve; `Checkbox` and activation-counter
@@ -1037,10 +1035,13 @@ compound marks.
    filtering, and blur were exercised against the same runnable macOS example;
    a hands-on non-synthetic IME preedit pass remains tracked separately from
    the automated `Ime::Preedit`/`Commit` coverage.
-6. **Parameter-change reactions + Button actions.** Extract `ChartAction`,
+6. **Parameter-change reactions + Button actions — complete (2026-07-14).** Extract `ChartAction`,
    compile the acyclic shared-scope reaction graph, route every origin through
    one FIFO transaction coordinator, publish direct+derived changes, add
-   `Button::action`, and ship the Button-clears-selection example.
+   `Button::action`, and ship the Button-clears-selection example. Implemented
+   in `2ed226e5c`, `3bc9e4f5f`, `6c6857c0e`, `093141741`, `1cf2eb1f1`,
+   `70518d28a`, and `73b263c6e`; the runnable exit example is
+   `avenger-chart-app/examples/button_clear_selection.rs`.
 
 The native authoring trait and frozen artifact schema land in phase 1; the
 factory, live-instance runtime, and TextInput land in phase 5. Phase 5's weight
