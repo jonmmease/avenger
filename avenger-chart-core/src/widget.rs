@@ -129,6 +129,8 @@ pub struct WidgetPresentationBindings {
     pub disabled: Option<Expr>,
     pub checked: Option<Expr>,
     pub selected: Option<Expr>,
+    pub hover: Option<Expr>,
+    pub pressed: Option<Expr>,
     pub orientation: Option<String>,
 }
 
@@ -153,6 +155,16 @@ impl WidgetPresentationBindings {
         self
     }
 
+    pub fn hover(mut self, hover: impl IntoExpr) -> Self {
+        self.hover = Some(hover.into_expr());
+        self
+    }
+
+    pub fn pressed(mut self, pressed: impl IntoExpr) -> Self {
+        self.pressed = Some(pressed.into_expr());
+        self
+    }
+
     pub fn orientation(mut self, orientation: impl Into<String>) -> Self {
         self.orientation = Some(orientation.into());
         self
@@ -165,6 +177,8 @@ impl WidgetPresentationBindings {
             disabled: self.disabled.as_ref().map(compile_expr).transpose()?,
             checked: self.checked.as_ref().map(compile_expr).transpose()?,
             selected: self.selected.as_ref().map(compile_expr).transpose()?,
+            hover: self.hover.as_ref().map(compile_expr).transpose()?,
+            pressed: self.pressed.as_ref().map(compile_expr).transpose()?,
             orientation: self.orientation.clone(),
         })
     }
@@ -180,6 +194,12 @@ pub struct CompiledWidgetPresentationSpec {
     pub checked: Option<LogicalExprNode>,
     #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
     pub selected: Option<LogicalExprNode>,
+    #[serde(default)]
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub hover: Option<LogicalExprNode>,
+    #[serde(default)]
+    #[serde_as(as = "Option<FromInto<SerializableExpr>>")]
+    pub pressed: Option<LogicalExprNode>,
     pub orientation: Option<String>,
 }
 

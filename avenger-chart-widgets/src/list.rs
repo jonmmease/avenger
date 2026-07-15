@@ -159,6 +159,11 @@ impl ChartWidget for CheckboxList {
             format!("{}__cursor", self.id),
             CursorStyle::Default,
         );
+        let targets = [
+            format!("{}.box", self.id),
+            format!("{}.check", self.id),
+            format!("{}.label", self.id),
+        ];
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let expansion = ToolExpansion::new()
             .selection(self.selection.clone())
@@ -170,9 +175,11 @@ impl ChartWidget for CheckboxList {
             .mark(check)
             .mark(label)
             .mark(focus)
+            // Toggling changes which conditional control marks exist, so the
+            // scene and its interaction index must be refreshed together.
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click)
-                    .mark(format!("{}.row", self.id))
+                    .marks(targets.clone())
                     .set_selection(
                         &self.selection.id,
                         SelectionUpdate::toggle_equality_value_in_scope(
@@ -181,16 +188,17 @@ impl ChartWidget for CheckboxList {
                             event::datum(VALUE),
                             event::datum(ITEM_ID),
                         ),
-                    ),
+                    )
+                    .exact(),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
-                    .mark(format!("{}.row", self.id))
+                    .marks(targets.clone())
                     .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
-                    .mark(format!("{}.row", self.id))
+                    .marks(targets)
                     .set_param(&cursor, event::cursor(CursorStyle::Default)),
             );
 
@@ -466,6 +474,11 @@ impl ChartWidget for RadioButtonList {
             .fill("transparent");
 
         let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
+        let targets = [
+            format!("{}.control", self.id),
+            format!("{}.center", self.id),
+            format!("{}.label", self.id),
+        ];
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let expansion = ToolExpansion::new()
             .param(selected_value.clone(), shared.clone())
@@ -477,19 +490,21 @@ impl ChartWidget for RadioButtonList {
             .mark(center)
             .mark(label)
             .mark(focus)
+            // Selecting a row changes conditional control-mark topology.
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click)
-                    .mark(format!("{}.row", self.id))
-                    .set_param(&selected_value, event::datum(VALUE)),
+                    .marks(targets.clone())
+                    .set_param(&selected_value, event::datum(VALUE))
+                    .exact(),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
-                    .mark(format!("{}.row", self.id))
+                    .marks(targets.clone())
                     .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
-                    .mark(format!("{}.row", self.id))
+                    .marks(targets)
                     .set_param(&cursor, event::cursor(CursorStyle::Default)),
             );
 
@@ -636,6 +651,12 @@ mod tests {
 
         assert_eq!(expanded.expansion.marks.len(), 7);
         assert_eq!(expanded.expansion.selections.len(), 1);
+        for binding in &expanded.expansion.event_bindings {
+            assert_eq!(
+                binding.mark_ids(),
+                &["regions.box", "regions.check", "regions.label"]
+            );
+        }
         assert!(matches!(
             expanded.expansion.event_bindings[0]
                 .action
@@ -687,6 +708,12 @@ mod tests {
 
         assert_eq!(expanded.expansion.marks.len(), 7);
         assert_eq!(expanded.expansion.params[0].param.name, "numbers__value");
+        for binding in &expanded.expansion.event_bindings {
+            assert_eq!(
+                binding.mark_ids(),
+                &["numbers.control", "numbers.center", "numbers.label"]
+            );
+        }
         assert_eq!(
             expanded.expansion.params[0].param.default,
             ScalarValue::Int64(Some(7))

@@ -1362,8 +1362,9 @@ mod tests {
                 .param_specs()
                 .contains_key("__tool_picked__enabled")
         );
+        assert!(compiled.param_specs().contains_key("__tool_picked__cursor"));
         assert!(compiled.selection_specs().contains_key("picked"));
-        assert_eq!(compiled.event_bindings().len(), 3);
+        assert_eq!(compiled.event_bindings().len(), 5);
         assert_eq!(compiled.tool_metadata().len(), 1);
         assert_eq!(compiled.tool_metadata()[0].id, "picked");
         assert_eq!(

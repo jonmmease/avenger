@@ -4593,21 +4593,11 @@ fn event_stream_config_for_binding(
     let mut config = EventStreamConfig {
         types: vec![scene_event_type_from_chart(binding.event_type)],
         mark_paths: binding.resolved_mark_paths().map(ToOwned::to_owned),
+        mark_names: (!binding.mark_ids().is_empty()).then(|| binding.mark_ids().to_vec()),
         throttle: binding.throttle_ms,
         consume: binding.consume,
         ..Default::default()
     };
-    if binding.resolved_mark_paths().is_none() && !binding.mark_ids().is_empty() {
-        let mark_ids = Arc::new(binding.mark_ids().iter().cloned().collect::<HashSet<_>>());
-        config.filter = Some(vec![EventStreamFilter::context(
-            move |_event, context, _rtree| {
-                context
-                    .mark_instance
-                    .as_ref()
-                    .is_some_and(|instance| mark_ids.contains(&instance.name))
-            },
-        )]);
-    }
     if let Some(between) = &binding.between {
         config.emit_between_end_event = between.emit_end_event;
         config.between = Some((
@@ -4647,6 +4637,7 @@ fn stream_config_for_chart_stream(
             .unwrap_or_default(),
         source_group: stream.resolved_source_group().map(ToOwned::to_owned),
         mark_paths: stream.resolved_mark_paths().map(ToOwned::to_owned),
+        mark_names: (!stream.mark_ids().is_empty()).then(|| stream.mark_ids().to_vec()),
         throttle,
         consume,
         ..Default::default()
@@ -4662,20 +4653,6 @@ fn stream_config_for_chart_stream(
             ctx,
             param_specs,
         )?]);
-    }
-    if stream.resolved_mark_paths().is_none() && !stream.mark_ids().is_empty() {
-        let mark_ids = Arc::new(stream.mark_ids().iter().cloned().collect::<HashSet<_>>());
-        config
-            .filter
-            .get_or_insert_with(Vec::new)
-            .push(EventStreamFilter::context(
-                move |_event, context, _rtree| {
-                    context
-                        .mark_instance
-                        .as_ref()
-                        .is_some_and(|instance| mark_ids.contains(&instance.name))
-                },
-            ));
     }
     Ok(config)
 }
@@ -5292,7 +5269,7 @@ mod tests {
         TreemapPadding,
         event::{self as treemap_event, HIERARCHY_PATH_ID_FIELD},
     };
-    use avenger_chart_widgets::{Button, Checkbox, CheckboxList, Slider};
+    use avenger_chart_widgets::{Button, ButtonVariant, Checkbox, CheckboxList, Slider};
     use avenger_common::time::Duration;
     use avenger_eventstream::{
         manager::EventStreamManager,
@@ -7607,6 +7584,17 @@ mod tests {
         rect_instance_fraction_point(scene, instance, 0.37, 0.41)
     }
 
+    fn rect_instance_fill(scene: &SceneGraph, instance: &MarkInstance) -> [f32; 4] {
+        let (mark, _) =
+            scene_mark_at_path_with_origin(&scene.marks, &instance.mark_path, scene.origin)
+                .expect("scene mark at path");
+        let SceneMark::Rect(rect) = mark else {
+            panic!("expected rect mark at hit-test path");
+        };
+        let index = instance.instance_index.expect("rect instance index");
+        rect.fill_vec()[index].color_or_transparent()
+    }
+
     fn rect_instance_fraction_point(
         scene: &SceneGraph,
         instance: &MarkInstance,
@@ -9510,6 +9498,133 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn slider_track_drag_settles_and_refreshes_handle_hit_geometry() {
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .widget(
+                Slider::new("volume", 0.0, 100.0)
+                    .step(10.0)
+                    .default(0.0)
+                    .title("Volume")
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile slider chart");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("slider streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial slider scene");
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let origin = rtree.named_group_origin("volume").expect("slider origin");
+        let frame = {
+            let runtime = state.runtime.lock().await;
+            runtime
+                .last_widget_frame_state
+                .by_mark_path
+                .values()
+                .find(|frame| frame.widget_id == "volume")
+                .cloned()
+                .expect("slider frame")
+        };
+        let track_x0 = origin[0] + 8.0;
+        let track_width = frame.bounds.width - 16.0;
+        let track_y = origin[1] + 24.0;
+        let track_start = [track_x0 + track_width * 0.7, track_y];
+        assert_eq!(
+            rtree
+                .pick_top_mark_at_point(&track_start)
+                .expect("slider track hit")
+                .name,
+            "track"
+        );
+
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(crate::WidgetGestureFrameCaptureHandler),
+        );
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: track_start,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+
+        let drag_position = [track_x0 + track_width * 0.54, track_y];
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: drag_position,
+                }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+        assert_eq!(
+            manager.state().params().await["volume__value"],
+            ScalarValue::Float64(Some(50.0))
+        );
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(3),
+            )
+            .await;
+        let settle = manager
+            .dispatch_event(
+                &WindowEvent::InteractionSettled { generation: 1 },
+                &rtree,
+                instant + Duration::from_millis(123),
+            )
+            .await;
+        assert!(settle.rerender);
+        assert!(settle.rebuild_geometry);
+
+        let settled_scene = crate::ChartSceneGraphBuilder
+            .build(manager.state_mut())
+            .await
+            .expect("settled slider scene");
+        let settled_rtree = SceneGraphRTree::from_scene_graph(&settled_scene);
+        let settled_handle = [track_x0 + track_width * 0.5, track_y];
+        assert_eq!(
+            settled_rtree
+                .pick_top_mark_at_point(&settled_handle)
+                .expect("settled slider handle hit")
+                .name,
+            "handle"
+        );
+    }
+
+    #[tokio::test]
     async fn slider_zero_width_inner_track_ignores_pointer_gesture() {
         let ctx = SessionContext::new();
         let mut theme = Theme::light();
@@ -9743,6 +9858,7 @@ mod tests {
             .widget(
                 Button::new("clear")
                     .label("Clear")
+                    .variant(ButtonVariant::Accent)
                     .position(ChromePosition::Left),
             )
             .compile(&ctx)
@@ -9769,6 +9885,8 @@ mod tests {
             .find(|geometry| geometry.mark_instance.name == "box")
             .map(|geometry| geometry.mark_instance.clone())
             .expect("button box hit target");
+        let box_position = rect_instance_point(&scene, &box_instance);
+        let resting_fill = rect_instance_fill(&scene, &box_instance);
         let label_instance = rtree
             .iter()
             .find(|geometry| geometry.mark_instance.name == "label")
@@ -9813,8 +9931,72 @@ mod tests {
             manager.register_handler(config, stream_handler);
         }
         let instant = Instant::now();
+        let hover_status = manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: box_position,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        assert_eq!(hover_status.cursor, Some(CursorStyle::Pointer));
+        assert!(hover_status.rerender);
+        assert_eq!(
+            manager.state().params().await.get("clear__hover"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+        let hover_scene = crate::ChartSceneGraphBuilder
+            .build(manager.state_mut())
+            .await
+            .expect("hovered button scene");
+        let hover_fill = rect_instance_fill(&hover_scene, &box_instance);
+        assert_ne!(hover_fill, resting_fill);
+
+        let pressed_status = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+        assert!(pressed_status.rerender);
+        assert_eq!(
+            manager.state().params().await.get("clear__pressed"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+        let pressed_scene = crate::ChartSceneGraphBuilder
+            .build(manager.state_mut())
+            .await
+            .expect("pressed button scene");
+        let pressed_fill = rect_instance_fill(&pressed_scene, &box_instance);
+        assert_ne!(pressed_fill, hover_fill);
+
+        let released = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+        assert!(released.rerender);
+        assert_eq!(
+            manager.state().params().await.get("clear__pressed"),
+            Some(&ScalarValue::Boolean(Some(false)))
+        );
+        assert_eq!(
+            manager.state().params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(3)))
+        );
+
         let miss_position = [-10_000.0, -10_000.0];
-        manager
+        let leave_status = manager
             .dispatch_event(
                 &WindowEvent::CursorMoved(WindowCursorMoved {
                     position: miss_position,
@@ -9823,6 +10005,11 @@ mod tests {
                 instant,
             )
             .await;
+        assert_eq!(leave_status.cursor, Some(CursorStyle::Default));
+        assert_eq!(
+            manager.state().params().await.get("clear__hover"),
+            Some(&ScalarValue::Boolean(Some(false)))
+        );
         manager
             .dispatch_event(
                 &WindowEvent::MouseInput(WindowMouseInput {
@@ -9846,7 +10033,7 @@ mod tests {
         assert!(!miss.rerender);
         assert_eq!(
             manager.state().params().await.get("clear__activations"),
-            Some(&ScalarValue::UInt64(Some(2)))
+            Some(&ScalarValue::UInt64(Some(3)))
         );
 
         manager
@@ -10195,10 +10382,19 @@ mod tests {
                     && binding
                         .mark_ids()
                         .iter()
-                        .any(|target| target == "filters.regions.row")
+                        .any(|target| target == "filters.regions.label")
             })
             .expect("rebased checkbox-list click binding");
-        let handler = compile_handler_for_binding_index(&compiled, &ctx, binding_index);
+        assert_eq!(
+            compiled.event_bindings()[binding_index].mark_ids(),
+            &[
+                "filters.regions.box",
+                "filters.regions.check",
+                "filters.regions.label",
+            ],
+            "only the visible control and label form the list item action surface"
+        );
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("widget streams");
         let policy = compiled.resize_policy();
         let session = Arc::new(compiled).instantiate(Arc::new(ctx));
         let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
@@ -10216,19 +10412,85 @@ mod tests {
             "empty_selects_all should initially retain every foreground point"
         );
 
-        let north = retained_named_event_datum_mark_instance(
+        let south = retained_named_event_datum_mark_instance(
             &state,
             &scene,
-            "row",
+            "label",
             "__value",
-            ScalarValue::Utf8(Some("North".to_string())),
+            ScalarValue::Utf8(Some("South".to_string())),
         )
         .await;
-        let status = click_mark(&mut state, &handler, Some(north), [0.0, 0.0], false).await;
-        assert!(status.rerender);
+        let (mark, mark_origin) =
+            scene_mark_at_path_with_origin(&scene.marks, &south.mark_path, scene.origin)
+                .expect("South label scene mark");
+        let SceneMark::Text(label) = mark else {
+            panic!("expected South label text mark")
+        };
+        let label_position = label
+            .label_position_iter()
+            .nth(south.instance_index.expect("South label index"))
+            .expect("South label position");
+        let label_point = [
+            mark_origin[0] + label_position[0] + 3.0,
+            mark_origin[1] + label_position[1],
+        ];
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        assert_eq!(
+            rtree
+                .pick_top_mark_at_point(&label_point)
+                .expect("South label hit")
+                .name,
+            "label"
+        );
+
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(crate::WidgetGestureFrameCaptureHandler),
+        );
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: label_point,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+        assert!(
+            status.rerender,
+            "clicking the visible label toggles its item"
+        );
 
         let updated = crate::ChartSceneGraphBuilder
-            .build(&mut state)
+            .build(manager.state_mut())
             .await
             .expect("selected widget-cell cross-filter scene");
         assert_eq!(
@@ -10238,6 +10500,215 @@ mod tests {
                 .count(),
             1,
             "the WidgetCell selection should filter the sibling subplot"
+        );
+    }
+
+    #[tokio::test]
+    async fn chrome_checkbox_list_lower_label_toggles_its_item() {
+        let ctx = SessionContext::new();
+        let regions = Selection::new("regions").empty_selects_all();
+        let items = WidgetItems::Static(
+            ["North", "South", "West"]
+                .into_iter()
+                .map(|region| {
+                    WidgetItemRow::new([
+                        (
+                            "region".to_string(),
+                            ScalarValue::Utf8(Some(region.to_string())),
+                        ),
+                        (
+                            "label".to_string(),
+                            ScalarValue::Utf8(Some(region.to_string())),
+                        ),
+                    ])
+                })
+                .collect(),
+        );
+        let compiled = Chart::<Cartesian>::new()
+            .canvas_size(720.0, 440.0)
+            .plot_size(480.0, 300.0)
+            .widget(
+                CheckboxList::new("region_filter", items)
+                    .value(col("region"))
+                    .label(col("label"))
+                    .selection(&regions)
+                    .position(ChromePosition::Left),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile chrome checkbox-list chart");
+        let streams = event_streams_for_plot_bindings(&compiled, &ctx).expect("widget streams");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial chrome checkbox-list scene");
+        let south = retained_named_event_datum_mark_instance(
+            &state,
+            &scene,
+            "label",
+            "__value",
+            ScalarValue::Utf8(Some("South".to_string())),
+        )
+        .await;
+        let (mark, mark_origin) =
+            scene_mark_at_path_with_origin(&scene.marks, &south.mark_path, scene.origin)
+                .expect("South label scene mark");
+        let SceneMark::Text(label) = mark else {
+            panic!("expected South label text mark")
+        };
+        let label_position = label
+            .label_position_iter()
+            .nth(south.instance_index.expect("South label index"))
+            .expect("South label position");
+        let label_point = [
+            mark_origin[0] + label_position[0] + 3.0,
+            mark_origin[1] + label_position[1],
+        ];
+        let rtree = SceneGraphRTree::from_scene_graph(&scene);
+        let picked = rtree
+            .pick_top_mark_at_point(&label_point)
+            .expect("South label hit");
+        assert_eq!(picked.name, "label");
+        assert_eq!(picked.instance_index, Some(1));
+
+        let mut manager = EventStreamManager::new(state);
+        manager.register_handler(
+            EventStreamConfig {
+                types: vec![SceneGraphEventType::MouseDown],
+                ..Default::default()
+            },
+            Arc::new(crate::WidgetGestureFrameCaptureHandler),
+        );
+        for (config, handler) in streams {
+            manager.register_handler(config, handler);
+        }
+        let instant = Instant::now();
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: label_point,
+                }),
+                &rtree,
+                instant,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(1),
+            )
+            .await;
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &rtree,
+                instant + Duration::from_millis(2),
+            )
+            .await;
+        assert!(status.rerender, "clicking the South label toggles its item");
+        assert!(
+            status.rebuild_geometry,
+            "a discrete list toggle changes conditional mark topology and must refresh the R-tree"
+        );
+        assert_eq!(
+            manager
+                .state()
+                .runtime
+                .lock()
+                .await
+                .session
+                .selection_clauses_for_diagnostics("regions")
+                .len(),
+            1,
+        );
+
+        let updated_scene = crate::ChartSceneGraphBuilder
+            .build(manager.state_mut())
+            .await
+            .expect("selected chrome checkbox-list scene");
+        let west = retained_named_event_datum_mark_instance(
+            manager.state(),
+            &updated_scene,
+            "label",
+            "__value",
+            ScalarValue::Utf8(Some("West".to_string())),
+        )
+        .await;
+        let (mark, mark_origin) = scene_mark_at_path_with_origin(
+            &updated_scene.marks,
+            &west.mark_path,
+            updated_scene.origin,
+        )
+        .expect("West label scene mark");
+        let SceneMark::Text(label) = mark else {
+            panic!("expected West label text mark")
+        };
+        let label_position = label
+            .label_position_iter()
+            .nth(west.instance_index.expect("West label index"))
+            .expect("West label position");
+        let west_point = [
+            mark_origin[0] + label_position[0] + 3.0,
+            mark_origin[1] + label_position[1],
+        ];
+        let updated_rtree = SceneGraphRTree::from_scene_graph(&updated_scene);
+        let picked = updated_rtree
+            .pick_top_mark_at_point(&west_point)
+            .expect("West label hit after selecting South");
+        assert_eq!(picked.name, "label");
+        assert_eq!(picked.instance_index, Some(2));
+        let second = instant + Duration::from_millis(10);
+        manager
+            .dispatch_event(
+                &WindowEvent::CursorMoved(WindowCursorMoved {
+                    position: west_point,
+                }),
+                &updated_rtree,
+                second,
+            )
+            .await;
+        manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Pressed,
+                    button: MouseButton::Left,
+                }),
+                &updated_rtree,
+                second + Duration::from_millis(1),
+            )
+            .await;
+        let status = manager
+            .dispatch_event(
+                &WindowEvent::MouseInput(WindowMouseInput {
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                }),
+                &updated_rtree,
+                second + Duration::from_millis(2),
+            )
+            .await;
+        assert!(status.rerender, "clicking West after a rerender toggles it");
+        assert!(status.rebuild_geometry);
+        assert_eq!(
+            manager
+                .state()
+                .runtime
+                .lock()
+                .await
+                .session
+                .selection_clauses_for_diagnostics("regions")
+                .len(),
+            2,
         );
     }
 

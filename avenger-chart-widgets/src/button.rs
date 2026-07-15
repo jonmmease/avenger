@@ -1,7 +1,7 @@
 //! Momentary Button widget.
 
 use avenger_chart::{
-    event::{self, ChartEventBinding, ChartEventType},
+    event::{self, ChartEventBinding, ChartEventStream, ChartEventType},
     pixel_frame::{PixelFrameRectPositionChannels, PixelFrameTextPositionChannels},
     prelude::{
         AvengerChartError, ChartAction, ChartParamChangeBinding, ChartWidget, CoordinationScope,
@@ -147,6 +147,8 @@ impl ChartWidget for Button {
             .fill("transparent");
 
         let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
+        let hover = Param::new(format!("{}__hover", self.id), false);
+        let pressed = Param::new(format!("{}__pressed", self.id), false);
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let next_activation = when(
             self.activations()
@@ -156,6 +158,8 @@ impl ChartWidget for Button {
         .otherwise(lit(ScalarValue::UInt64(None)))?;
         let mut expansion = ToolExpansion::new()
             .param(self.activations.clone(), shared.clone())
+            .param(hover.clone(), shared.clone())
+            .param(pressed.clone(), shared.clone())
             .cursor_param(cursor.clone(), shared)
             .mark(box_mark)
             .mark(label_mark)
@@ -166,11 +170,28 @@ impl ChartWidget for Button {
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
+                    .set_param(&hover, true)
                     .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
+                    .set_param(&hover, false)
+                    .set_param(&pressed, false)
                     .set_param(&cursor, event::cursor(CursorStyle::Default)),
+            )
+            .event_binding(
+                ChartEventBinding::on(ChartEventType::MouseDown)
+                    .filter(event::button().eq(lit("left")))
+                    .set_param(&pressed, true),
+            )
+            .event_binding(
+                ChartEventBinding::on_between_end(
+                    ChartEventStream::on(ChartEventType::MouseDown)
+                        .filter(event::button().eq(lit("left"))),
+                    ChartEventStream::on(ChartEventType::MouseUp)
+                        .filter(event::button().eq(lit("left"))),
+                )
+                .set_param(&pressed, false),
             );
         if let Some(action) = &self.action {
             expansion = expansion.param_change_binding(
@@ -216,7 +237,10 @@ impl ChartWidget for Button {
                     max_px: None,
                 },
             },
-            presentation: WidgetPresentationBindings::default().variant(self.variant.as_str()),
+            presentation: WidgetPresentationBindings::default()
+                .variant(self.variant.as_str())
+                .hover(hover.expr())
+                .pressed(pressed.expr()),
         })
     }
 }

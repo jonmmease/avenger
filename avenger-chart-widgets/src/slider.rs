@@ -252,7 +252,8 @@ impl ChartWidget for Slider {
             .between(start, end)
             .filter(positive_track.clone())
             .set_param_at_start_scope(&value, pointer_value.clone())
-            .preview();
+            .preview()
+            .settle_exact();
         if let Some(throttle_ms) = self.throttle_ms {
             drag = drag.throttle_ms(throttle_ms);
         }
@@ -272,7 +273,8 @@ impl ChartWidget for Slider {
                     .filter(event::button().eq(lit("left")))
                     .filter(positive_track)
                     .set_param(&value, pointer_value)
-                    .preview(),
+                    .preview()
+                    .settle_exact(),
             )
             .event_binding(drag)
             .event_binding(

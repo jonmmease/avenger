@@ -151,6 +151,7 @@ async fn slider_round_trips_normalized_value_and_drag_contract() {
         .unwrap();
     assert_eq!(down.mark_ids(), &["fare.track", "fare.fill", "fare.handle"]);
     assert!(!down.consume);
+    assert!(down.action.settle_exact);
     let drag = compiled
         .event_bindings()
         .iter()
@@ -160,6 +161,7 @@ async fn slider_round_trips_normalized_value_and_drag_contract() {
         .unwrap();
     assert_eq!(drag.throttle_ms, Some(16));
     assert!(!drag.consume);
+    assert!(drag.action.settle_exact);
     assert_eq!(
         drag.between.as_ref().unwrap().start.mark_ids(),
         &["fare.track", "fare.fill", "fare.handle"]

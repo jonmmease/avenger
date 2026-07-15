@@ -518,8 +518,14 @@ async fn resolve_widget_presentation_state(
             .unwrap_or(false),
         checked: evaluate_widget_presentation_bool(spec.checked.as_ref(), eval_ctx).await?,
         selected: evaluate_widget_presentation_bool(spec.selected.as_ref(), eval_ctx).await?,
+        hover: evaluate_widget_presentation_bool(spec.hover.as_ref(), eval_ctx)
+            .await?
+            .unwrap_or(false),
+        pressed: evaluate_widget_presentation_bool(spec.pressed.as_ref(), eval_ctx)
+            .await?
+            .unwrap_or(false),
         orientation: spec.orientation.clone(),
-        ..Default::default()
+        ..WidgetPresentationState::default()
     })
 }
 
@@ -7943,6 +7949,9 @@ impl CompiledPlot {
         if let Some(cache) = &materialization_cache {
             eval_ctx = eval_ctx.with_materialization_cache(cache.clone());
         }
+        if let Some(cache) = &widget_item_cache {
+            eval_ctx = eval_ctx.with_widget_item_cache(cache.clone());
+        }
         if let Some(profile) = layout_profile {
             eval_ctx = eval_ctx.with_layout_profile(profile);
         }
@@ -8550,6 +8559,25 @@ impl CompiledPlot {
             measurement.refresh_frame_allocation_rect();
         }
         measurement.params = eval_ctx.params.clone();
+
+        // Preview profile reuse may retain layout and prepared widget items, but
+        // interactive presentation attributes (hover/pressed/focus) still need
+        // a fresh style snapshot. Paint-only changes can reuse the measured
+        // frame; state-dependent geometry must fall back to a full measure.
+        let refreshed_widget_measurements = self.measure_composed_widgets(&eval_ctx).await?;
+        let widget_geometry_compatible = measurement.widget_measurements.len()
+            == refreshed_widget_measurements.len()
+            && measurement.widget_measurements.iter().all(|(id, prior)| {
+                refreshed_widget_measurements
+                    .get(id)
+                    .is_some_and(|next| prior.styles.geometry_digest == next.styles.geometry_digest)
+            });
+        if !widget_geometry_compatible {
+            return Ok(PreviewLayoutProfileAttempt::fallback(
+                PreviewProfileFallbackReason::PhysicalStructureMismatch,
+            ));
+        }
+        measurement.widget_measurements = refreshed_widget_measurements;
 
         let root_raw_domain_overrides = if has_raw_domain_scale(self) {
             resolve_raw_domain_overrides(self, ctx, &eval_ctx.params).await?

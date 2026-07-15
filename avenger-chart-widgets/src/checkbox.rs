@@ -135,9 +135,12 @@ impl ChartWidget for Checkbox {
             .mark(check_mark)
             .mark(label_mark)
             .mark(focus_mark)
+            // The check mark is conditional, so keep the interaction index in
+            // sync with the newly evaluated scene after each toggle.
             .event_binding(
                 ChartEventBinding::on(ChartEventType::Click)
-                    .set_param(&self.checked, Expr::Not(Box::new(self.checked()))),
+                    .set_param(&self.checked, Expr::Not(Box::new(self.checked())))
+                    .exact(),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)

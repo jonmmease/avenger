@@ -159,6 +159,14 @@ impl Theme {
                     color-mix(in srgb, #0072B2 70%, black),
                     color-mix(in srgb, #0072B2 66%, white)
                 );
+                --widget-button-hover-surface: light-dark(
+                    color-mix(in srgb, var(--widget-field-surface) 92%, black),
+                    color-mix(in srgb, var(--widget-field-surface) 88%, white)
+                );
+                --widget-button-down-surface: light-dark(
+                    color-mix(in srgb, var(--widget-field-surface) 84%, black),
+                    color-mix(in srgb, var(--widget-field-surface) 78%, white)
+                );
                 --widget-focus-color: #0072B2;
                 --widget-negative: light-dark(#B3261E, #F2B8B5);
                 --widget-disabled-surface: light-dark(#F4F4F4, #2B2B2B);
@@ -407,8 +415,18 @@ impl Theme {
             text-input[focus-visible="true"]::part(focus-ring) { opacity: 1; }
 
             /* === Button === */
+            button {
+                --_widget-button-fill: var(--widget-field-surface);
+                --_widget-button-hover-fill: var(--widget-button-hover-surface);
+                --_widget-button-down-fill: var(--widget-button-down-surface);
+            }
+            button[variant="accent"] {
+                --_widget-button-fill: var(--widget-accent);
+                --_widget-button-hover-fill: var(--widget-accent-hover);
+                --_widget-button-down-fill: var(--widget-accent-down);
+            }
             button::part(box) {
-                fill: var(--widget-field-surface);
+                fill: var(--_widget-button-fill);
                 stroke: var(--widget-border);
                 stroke-width: var(--widget-button-border-width);
                 border-width: var(--widget-button-border-width);
@@ -426,8 +444,12 @@ impl Theme {
                 stroke: var(--widget-accent);
             }
             button[variant="accent"]::part(label) { fill: var(--widget-on-accent); }
-            button[hover="true"]::part(box) { stroke: var(--widget-accent-hover); }
-            button[pressed="true"]::part(box) { fill: var(--widget-accent-down); }
+            button[hover="true"]::part(box) {
+                fill: var(--_widget-button-hover-fill);
+            }
+            button[pressed="true"]::part(box) {
+                fill: var(--_widget-button-down-fill);
+            }
 
             /* === Checkbox and CheckboxList === */
             checkbox::part(box), checkbox-list::part(box) {

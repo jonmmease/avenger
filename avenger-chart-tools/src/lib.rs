@@ -3,7 +3,7 @@
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
     AvengerChartError, ChannelConfig, ChartEventBinding, ChartEventStream, ChartEventType,
-    ChartTool, CoordinateSystemCore, CoordinationScope, DomainCoordination,
+    ChartTool, CoordinateSystemCore, CoordinationScope, CursorStyle, DomainCoordination,
     DomainCoordinationGroup, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
     SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionCombine,
     SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate, ToolExpansion,
@@ -477,18 +477,35 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
             self.enabled_param_name(),
             ScalarValue::Boolean(Some(self.enabled_by_default)),
         );
+        let cursor = Param::cursor(
+            generated_tool_name(&self.tool_id, "cursor"),
+            CursorStyle::Default,
+        );
         let clause = self.clause()?;
+        let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let mut expansion = ToolExpansion::new()
-            .param(
-                enabled.clone(),
-                ToolParamSharing::Explicit(CoordinationScope::Shared),
-            )
+            .param(enabled.clone(), shared.clone())
+            .cursor_param(cursor.clone(), shared)
             .selection(self.selection())
             .event_binding(point_selection_replace_binding(
                 &enabled.name,
                 &self.selection_id,
                 &self.dimensions,
                 clause.clone(),
+            ))
+            .event_binding(point_selection_cursor_binding(
+                ChartEventType::MarkMouseEnter,
+                &enabled.name,
+                &cursor,
+                &self.dimensions,
+                CursorStyle::Pointer,
+            ))
+            .event_binding(point_selection_cursor_binding(
+                ChartEventType::MarkMouseLeave,
+                &enabled.name,
+                &cursor,
+                &self.dimensions,
+                CursorStyle::Default,
             ))
             .metadata(
                 ToolMetadata::new(self.tool_id.clone(), "Point Selection")
@@ -512,6 +529,24 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
 
         Ok(expansion)
     }
+}
+
+fn point_selection_cursor_binding(
+    event_type: ChartEventType,
+    enabled_param: &str,
+    cursor: &Param,
+    dimensions: &[PointSelectionDimension],
+    style: CursorStyle,
+) -> ChartEventBinding {
+    let mut binding = ChartEventBinding::on(event_type);
+    if event_type == ChartEventType::MarkMouseEnter {
+        binding = binding.filter(ev::param(enabled_param).eq(lit(true)));
+    }
+    binding = binding.set_param(cursor, ev::cursor(style));
+    for dimension in dimensions {
+        binding = binding.filter(ev::datum(&dimension.datum_field).is_not_null());
+    }
+    binding
 }
 
 fn point_selection_replace_binding(
@@ -2253,14 +2288,16 @@ mod tests {
         )
         .expect("expand");
 
-        assert_eq!(expansion.params.len(), 1);
+        assert_eq!(expansion.params.len(), 2);
         assert_eq!(expansion.selections.len(), 1);
-        assert_eq!(expansion.event_bindings.len(), 3);
+        assert_eq!(expansion.event_bindings.len(), 5);
         assert_eq!(expansion.metadata.len(), 1);
         assert!(expansion.stores.is_empty());
         assert!(expansion.marks.is_empty());
         assert!(expansion.scale_edits.is_empty());
         assert_eq!(expansion.params[0].param.name, "__tool_picked__enabled");
+        assert_eq!(expansion.params[1].param.name, "__tool_picked__cursor");
+        assert_eq!(expansion.cursor_params, ["__tool_picked__cursor"]);
         assert_eq!(expansion.selections[0].id, "picked");
         assert_eq!(expansion.metadata[0].id, "picked");
         assert_eq!(

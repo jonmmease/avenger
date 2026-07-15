@@ -922,7 +922,10 @@ impl TextInputInstance {
             .clone();
         let text_top = (style.frame_size[1] - line.bounds.height) * 0.5;
         let text_x = style.inset - self.scroll;
-        let baseline = text_top + line.baseline;
+        // Let each renderer center its own resolved font metrics. Computing an
+        // alphabetic baseline with this instance's shaping engine can drift
+        // vertically when the host renderer resolves a different fallback face.
+        let text_middle = style.frame_size[1] * 0.5;
         let selected_range = self.editor.normalized_selection();
         let selection = if selected_range.is_empty() {
             Vec::new()
@@ -973,13 +976,13 @@ impl TextInputInstance {
                     }
                     .into(),
                     x: text_x.into(),
-                    y: baseline.into(),
+                    y: text_middle.into(),
                     color: ColorOrGradient::Color(style.text_color).into(),
                     font: style.font.clone().into(),
                     font_size: style.font_size.into(),
                     font_weight: style.font_weight.into(),
                     align: TextAlign::Left.into(),
-                    baseline: TextBaseline::Alphabetic.into(),
+                    baseline: TextBaseline::Middle.into(),
                     text_syntax: TextSyntaxMode::Plain,
                     limit: (style.frame_size[0] - style.inset).max(0.0).into(),
                     ..Default::default()
@@ -995,13 +998,13 @@ impl TextInputInstance {
                     }
                     .into(),
                     x: style.inset.into(),
-                    y: baseline.into(),
+                    y: text_middle.into(),
                     color: ColorOrGradient::Color(style.placeholder_color).into(),
                     font: style.font.clone().into(),
                     font_size: style.font_size.into(),
                     font_weight: style.font_weight.into(),
                     align: TextAlign::Left.into(),
-                    baseline: TextBaseline::Alphabetic.into(),
+                    baseline: TextBaseline::Middle.into(),
                     text_syntax: TextSyntaxMode::Plain,
                     limit: (style.frame_size[0] - style.inset).max(0.0).into(),
                     ..Default::default()

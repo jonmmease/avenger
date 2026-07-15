@@ -134,6 +134,13 @@ pub struct EventStreamConfig {
     /// If specified, only events associated with the specified mark paths will be included
     pub mark_paths: Option<Vec<Vec<usize>>>,
 
+    /// Public mark target names corresponding to `mark_paths`.
+    ///
+    /// Paths alone are insufficient once compiled marks are nested in independently
+    /// rendered scene groups: two unrelated marks can have the same local path suffix.
+    /// Requiring the stable public name keeps target identity owner-scoped.
+    pub mark_names: Option<Vec<String>>,
+
     /// Minimum time (in milliseconds) between events
     pub throttle: Option<u64>,
 
@@ -395,10 +402,20 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
             }
         }
 
-        // Resolved chart mark targets are compiled-mark paths. At runtime those
-        // marks can be wrapped by plot/data/facet scene groups, so accept both
-        // exact scene paths and scene paths with the compiled path as suffix.
-        if let Some(paths) = &self.config.mark_paths {
+        if let Some(names) = &self.config.mark_names {
+            let Some(mark_instance) = &context.mark_instance else {
+                return false;
+            };
+            if !names
+                .iter()
+                .any(|target| rtree.mark_target_matches(mark_instance, target))
+            {
+                return false;
+            }
+        } else if let Some(paths) = &self.config.mark_paths {
+            // Resolved paths remain the fallback for streams without stable
+            // public targets. Conditional rendering may compress child indexes,
+            // so a public owner-scoped target takes precedence when available.
             if let Some(mark_instance) = &context.mark_instance {
                 if !paths
                     .iter()
@@ -544,5 +561,35 @@ mod tests {
             ..Default::default()
         };
         assert!(!stream.matches_event(&sibling_event, &sibling_context, &rtree));
+    }
+
+    #[test]
+    fn public_mark_names_disambiguate_equal_scene_path_suffixes() {
+        let config = EventStreamConfig {
+            types: vec![SceneGraphEventType::MouseDown],
+            mark_paths: Some(vec![vec![3]]),
+            mark_names: Some(vec!["volume.handle".to_string()]),
+            ..Default::default()
+        };
+        let stream = EventStream::<()>::new(config, Arc::new(NoopHandler));
+        let rtree = empty_rtree();
+
+        // Public identity stays stable when conditional widget parts compress
+        // rendered child indexes away from the compiled path.
+        let (event, mut matching_mark) = mouse_down_with_path(vec![0, 1, 99]);
+        matching_mark.name = "volume.handle".to_string();
+        let matching_context = EventStreamContext {
+            mark_instance: Some(matching_mark),
+            ..Default::default()
+        };
+        assert!(stream.matches_event(&event, &matching_context, &rtree));
+
+        let (event, mut colliding_mark) = mouse_down_with_path(vec![9, 8, 3]);
+        colliding_mark.name = "unrelated.handle".to_string();
+        let colliding_context = EventStreamContext {
+            mark_instance: Some(colliding_mark),
+            ..Default::default()
+        };
+        assert!(!stream.matches_event(&event, &colliding_context, &rtree));
     }
 }

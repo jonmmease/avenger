@@ -80,6 +80,14 @@ async fn button_widget_cell_round_trips_and_uses_intrinsic_size() {
         compiled.get_default_params().get("clear__activations"),
         Some(&ScalarValue::UInt64(Some(0)))
     );
+    assert_eq!(
+        compiled.get_default_params().get("clear__hover"),
+        Some(&ScalarValue::Boolean(Some(false)))
+    );
+    assert_eq!(
+        compiled.get_default_params().get("clear__pressed"),
+        Some(&ScalarValue::Boolean(Some(false)))
+    );
     let click = compiled
         .event_bindings()
         .iter()
@@ -494,6 +502,8 @@ async fn button_round_trips_counter_contract_and_accent_presentation() {
         panic!("expected composed button")
     };
     assert_eq!(widget.presentation.variant.as_deref(), Some("accent"));
+    assert!(widget.presentation.hover.is_some());
+    assert!(widget.presentation.pressed.is_some());
 
     let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
     let group = find_group(&evaluated.scene_graph.marks, "clear").unwrap();

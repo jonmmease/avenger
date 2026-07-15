@@ -968,15 +968,34 @@ async fn native_variants_round_trip_and_fail_with_unknown_kind_without_registry(
             widget.payload.as_str(),
             r#"{"config":{"enabled":true,"threshold":2.5},"labels":["one","two"],"z":null}"#
         );
+        let widget_frames = match placement {
+            WidgetPlacement::ExplicitFrame => WidgetFrameAssignments::try_from_iter([(
+                "native-contract",
+                WidgetFrame::try_new(0.0, 0.0, 120.0, 32.0).unwrap(),
+            )])
+            .unwrap(),
+            WidgetPlacement::Guide(_) => WidgetFrameAssignments::default(),
+        };
         assert!(matches!(
-            decoded.evaluate(&ctx, None).await,
+            decoded
+                .evaluate_with_options(
+                    &ctx,
+                    None,
+                    EvaluationOptions {
+                        widget_frames: widget_frames.clone(),
+                        ..Default::default()
+                    },
+                )
+                .await,
             Err(AvengerChartError::UnknownNativeWidgetKind { widget_id, kind })
                 if widget_id == "native-contract" && kind == "native-contract-widget"
         ));
         let session_ctx = Arc::new(datafusion::prelude::SessionContext::new());
         let mut session = Arc::new(decoded.clone()).instantiate(session_ctx);
         assert!(matches!(
-            session.evaluate(EvaluationRequest::new()).await,
+            session
+                .evaluate(EvaluationRequest::new().widget_frames(widget_frames))
+                .await,
             Err(AvengerChartError::UnknownNativeWidgetKind { widget_id, kind })
                 if widget_id == "native-contract" && kind == "native-contract-widget"
         ));
