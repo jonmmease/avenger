@@ -68,7 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut eval_total_us = 0_u64;
     for idx in 0..frame_count {
         let point_size = 64.0 + ((idx % 6) as f64 * 24.0);
-        let changed = handle.set_param("point_size", point_size).changed;
+        let changed = handle
+            .set_param("point_size", point_size)
+            .is_ok_and(|result| result.changed);
         let generation = handle
             .request_scene_rebuild(&runtime, true)
             .expect("request scene rebuild");

@@ -82,13 +82,21 @@ impl eframe::App for BasicChartApp {
                 .add(egui::Slider::new(&mut self.point_size, 32.0..=240.0).text("Point size"))
                 .changed();
             if changed {
-                if self.plot.set_param("point_size", self.point_size).changed {
+                if self
+                    .plot
+                    .set_param("point_size", self.point_size)
+                    .is_ok_and(|result| result.changed)
+                {
                     self.request_chart_rebuild(ctx);
                 }
             }
 
             if ui.checkbox(&mut self.show_points, "Show points").changed() {
-                if self.plot.set_param("show_points", self.show_points).changed {
+                if self
+                    .plot
+                    .set_param("show_points", self.show_points)
+                    .is_ok_and(|result| result.changed)
+                {
                     self.request_chart_rebuild(ctx);
                 }
             }

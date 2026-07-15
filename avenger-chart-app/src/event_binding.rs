@@ -9849,7 +9849,10 @@ mod tests {
             Some(&ScalarValue::UInt64(Some(2)))
         );
 
-        manager.state().set_param("clear__activations", u64::MAX);
+        manager
+            .state()
+            .set_param("clear__activations", u64::MAX)
+            .expect("set activation near overflow");
         let before_errors = manager.state().event_metrics().await.evaluation_errors;
         let overflow = click_mark(
             manager.state_mut(),

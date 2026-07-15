@@ -57,15 +57,18 @@ impl AvengerPlotHandle {
         &self,
         name: impl Into<String>,
         value: impl IntoChartParamValue,
-    ) -> ParamSetResult {
+    ) -> Result<ParamSetResult, AvengerAppError> {
         let name = name.into();
         let _span = tracing::debug_span!("avenger_chart_egui.set_param", param = %name).entered();
         let result = self.chart_state().set_param(name, value);
-        tracing::debug!(
-            changed = result.changed,
-            revision = result.revision,
-            "plot param set"
-        );
+        if let Ok(result) = &result {
+            tracing::debug!(
+                transaction_id = result.transaction_id,
+                changed = result.changed,
+                revision = result.revision,
+                "plot param set"
+            );
+        }
         result
     }
 
@@ -410,11 +413,9 @@ mod tests {
         let ctx = egui::Context::default();
         let mut response = None;
         let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default()
-                .show(ctx, |ui| {
-                    response = Some(ui.allocate_response(size, egui::Sense::click_and_drag()));
-                })
-                .inner;
+            egui::CentralPanel::default().show(ctx, |ui| {
+                response = Some(ui.allocate_response(size, egui::Sense::click_and_drag()));
+            });
         });
         response.expect("allocated response")
     }
@@ -423,8 +424,8 @@ mod tests {
     async fn set_param_updates_chart_state() {
         let handle = test_handle().await;
 
-        let changed = handle.set_param("width", 720.0);
-        let unchanged = handle.set_param("width", 720.0);
+        let changed = handle.set_param("width", 720.0).expect("set width");
+        let unchanged = handle.set_param("width", 720.0).expect("set width");
 
         assert!(changed.changed);
         assert!(!unchanged.changed);
@@ -453,20 +454,18 @@ mod tests {
     #[tokio::test]
     async fn plot_show_exposes_canvas_events_and_param_changes() {
         let handle = test_handle().await;
-        handle.set_param("width", 720.0);
+        handle.set_param("width", 720.0).expect("set width");
         let ctx = egui::Context::default();
         let mut output = None;
 
         let _ = ctx.run(Default::default(), |ctx| {
-            egui::CentralPanel::default()
-                .show(ctx, |ui| {
-                    output = Some(
-                        Plot::new(&handle)
-                            .desired_size(egui::vec2(320.0, 240.0))
-                            .show(ui),
-                    );
-                })
-                .inner;
+            egui::CentralPanel::default().show(ctx, |ui| {
+                output = Some(
+                    Plot::new(&handle)
+                        .desired_size(egui::vec2(320.0, 240.0))
+                        .show(ui),
+                );
+            });
         });
 
         let output = output.expect("plot output");
@@ -519,6 +518,7 @@ mod tests {
         let output = PlotOutput {
             response: response_for_size(egui::vec2(10.0, 10.0)),
             param_changes: vec![ParamChange {
+                transaction_id: 3,
                 name: "point_size".to_string(),
                 value: scalar_f64(12.0),
                 previous: Some(scalar_f64(10.0)),

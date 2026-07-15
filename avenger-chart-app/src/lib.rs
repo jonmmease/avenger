@@ -221,6 +221,7 @@ pub struct ChartEventMetrics {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParamChange {
+    pub transaction_id: u64,
     pub name: String,
     pub value: ScalarValue,
     pub previous: Option<ScalarValue>,
@@ -235,12 +236,15 @@ pub struct ParamSnapshot {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParamSetResult {
+    pub transaction_id: u64,
     pub changed: bool,
     pub revision: u64,
     pub change: Option<ParamChange>,
+    pub changes: Vec<ParamChange>,
 }
 
 pub(crate) struct ParamTransactionOutcome {
+    transaction_id: u64,
     param_changed: bool,
     changes: Vec<ParamChange>,
     store_changed: bool,
@@ -374,27 +378,30 @@ impl ChartParamState {
     }
 
     fn set_param(&mut self, name: String, value: ScalarValue) -> ParamSetResult {
+        let transaction_id = self.allocate_transaction_id();
         let previous = self.params.get(&name).cloned();
         if previous.as_ref() == Some(&value) {
             return ParamSetResult {
+                transaction_id,
                 changed: false,
                 revision: self.revision,
                 change: None,
+                changes: Vec::new(),
             };
         }
 
         self.revision += 1;
         let change = ParamChange {
+            transaction_id,
             name: name.clone(),
             value: value.clone(),
             previous,
             revision: self.revision,
         };
         self.params.insert(name.clone(), value.clone());
-        let id = self.allocate_transaction_id();
         self.pending_transactions
             .push_back(PendingParamTransaction {
-                id,
+                id: transaction_id,
                 origin: ParamTransactionOrigin::ExternalHost,
                 patch: IndexMap::from([(name, value)]),
                 evaluation_mode: EvaluationMode::Exact,
@@ -402,9 +409,11 @@ impl ChartParamState {
         self.changes.push(change.clone());
 
         ParamSetResult {
+            transaction_id,
             changed: true,
             revision: self.revision,
-            change: Some(change),
+            change: Some(change.clone()),
+            changes: vec![change],
         }
     }
 
@@ -464,7 +473,11 @@ impl ChartParamState {
         true
     }
 
-    fn sync_from_params(&mut self, params: IndexMap<String, ScalarValue>) -> Vec<ParamChange> {
+    fn sync_from_params(
+        &mut self,
+        transaction_id: u64,
+        params: IndexMap<String, ScalarValue>,
+    ) -> Vec<ParamChange> {
         let mut changes = Vec::new();
         for (name, value) in &params {
             let previous = self.params.get(name).cloned();
@@ -474,6 +487,7 @@ impl ChartParamState {
 
             self.revision += 1;
             let change = ParamChange {
+                transaction_id,
                 name: name.clone(),
                 value: value.clone(),
                 previous,
@@ -611,7 +625,7 @@ impl ChartAppState {
     pub async fn params(&self) -> IndexMap<String, ScalarValue> {
         if let Ok(mut runtime) = self.runtime.try_lock() {
             self.drain_pending_params_into_runtime(&mut runtime);
-            self.sync_param_state_from_runtime(&runtime);
+            self.sync_param_state_from_runtime(&runtime, 0);
         }
         self.param_snapshot().params
     }
@@ -670,7 +684,7 @@ impl ChartAppState {
         &self,
         name: impl Into<String>,
         value: impl IntoChartParamValue,
-    ) -> ParamSetResult {
+    ) -> Result<ParamSetResult, AvengerAppError> {
         let name = name.into();
         let value = value.into_chart_param_value();
         if self.has_param_reactions {
@@ -693,25 +707,16 @@ impl ChartAppState {
                             runtime.next_evaluation_mode = outcome.evaluation_mode;
                         }
                         let state = self.params.lock().expect("chart param lock poisoned");
-                        let change = outcome
-                            .changes
-                            .into_iter()
-                            .find(|change| change.name == name);
-                        ParamSetResult {
+                        let change = outcome.changes.iter().find(|change| change.name == name);
+                        Ok(ParamSetResult {
+                            transaction_id: outcome.transaction_id,
                             changed: outcome.param_changed,
                             revision: state.revision,
-                            change,
-                        }
+                            change: change.cloned(),
+                            changes: outcome.changes,
+                        })
                     }
-                    Err(error) => {
-                        log::error!("parameter transaction failed: {error}");
-                        let revision = self.param_revision();
-                        ParamSetResult {
-                            changed: false,
-                            revision,
-                            change: None,
-                        }
-                    }
+                    Err(error) => Err(error),
                 };
             }
             let changed = self
@@ -719,11 +724,13 @@ impl ChartAppState {
                 .lock()
                 .expect("chart param lock poisoned")
                 .queue_param_transaction(transaction_id, name, value);
-            return ParamSetResult {
+            return Ok(ParamSetResult {
+                transaction_id,
                 changed,
                 revision: self.param_revision(),
                 change: None,
-            };
+                changes: Vec::new(),
+            });
         }
 
         let result = self.set_param_inner(name, value);
@@ -733,16 +740,26 @@ impl ChartAppState {
         {
             runtime.next_evaluation_mode = EvaluationMode::Exact;
         }
-        result
+        Ok(result)
     }
 
     /// Apply several root parameter writes as one atomic transaction.
     ///
     /// Reactions observe the whole initiating patch as wave zero. If the app
     /// runtime is busy, the batch retains its boundary in the FIFO queue.
-    pub fn apply_param_patch(&self, patch: IndexMap<String, ScalarValue>) -> bool {
+    pub fn apply_param_patch(
+        &self,
+        patch: IndexMap<String, ScalarValue>,
+    ) -> Result<ParamSetResult, AvengerAppError> {
         if patch.is_empty() {
-            return false;
+            let transaction_id = self.next_param_transaction_id();
+            return Ok(ParamSetResult {
+                transaction_id,
+                changed: false,
+                revision: self.param_revision(),
+                change: None,
+                changes: Vec::new(),
+            });
         }
         let transaction_id = self.next_param_transaction_id();
         if let Ok(mut runtime) = self.runtime.try_lock() {
@@ -761,22 +778,39 @@ impl ChartAppState {
                     if outcome.param_changed {
                         runtime.next_evaluation_mode = outcome.evaluation_mode;
                     }
-                    outcome.param_changed || outcome.store_changed || outcome.selection_changed
+                    let revision = self.param_revision();
+                    Ok(ParamSetResult {
+                        transaction_id: outcome.transaction_id,
+                        changed: outcome.param_changed
+                            || outcome.store_changed
+                            || outcome.selection_changed,
+                        revision,
+                        change: None,
+                        changes: outcome.changes,
+                    })
                 }
-                Err(error) => {
-                    log::error!("parameter patch transaction failed: {error}");
-                    false
-                }
+                Err(error) => Err(error),
             };
         }
-        self.params
+        let changed = self
+            .params
             .lock()
             .expect("chart param lock poisoned")
-            .queue_param_patch_transaction(transaction_id, patch)
+            .queue_param_patch_transaction(transaction_id, patch);
+        Ok(ParamSetResult {
+            transaction_id,
+            changed,
+            revision: self.param_revision(),
+            change: None,
+            changes: Vec::new(),
+        })
     }
 
     /// Alias for [`ChartAppState::apply_param_patch`].
-    pub fn set_params(&self, patch: IndexMap<String, ScalarValue>) -> bool {
+    pub fn set_params(
+        &self,
+        patch: IndexMap<String, ScalarValue>,
+    ) -> Result<ParamSetResult, AvengerAppError> {
         self.apply_param_patch(patch)
     }
 
@@ -909,6 +943,7 @@ impl ChartAppState {
             && initiating_selection_patch.is_empty()
         {
             return Ok(ParamTransactionOutcome {
+                transaction_id: context.id,
                 param_changed: false,
                 changes: Vec::new(),
                 store_changed: false,
@@ -926,8 +961,9 @@ impl ChartAppState {
                     initiating_selection_patch,
                 )
                 .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-            let changes = self.sync_param_state_from_runtime(runtime);
+            let changes = self.sync_param_state_from_runtime(runtime, context.id);
             return Ok(ParamTransactionOutcome {
+                transaction_id: context.id,
                 param_changed,
                 changes,
                 store_changed,
@@ -1030,8 +1066,9 @@ impl ChartAppState {
             .session
             .apply_root_state_transaction(final_patch, store_patch, selection_patch)
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        let changes = self.sync_param_state_from_runtime(runtime);
+        let changes = self.sync_param_state_from_runtime(runtime, context.id);
         Ok(ParamTransactionOutcome {
+            transaction_id: context.id,
             param_changed,
             changes,
             store_changed,
@@ -1069,16 +1106,20 @@ impl ChartAppState {
             runtime.session.apply_scoped_param_patch(scoped_patch);
             outcome
                 .changes
-                .extend(self.sync_param_state_from_runtime(runtime));
+                .extend(self.sync_param_state_from_runtime(runtime, context.id));
         }
         Ok(outcome)
     }
 
-    fn sync_param_state_from_runtime(&self, runtime: &ChartAppRuntime) -> Vec<ParamChange> {
+    fn sync_param_state_from_runtime(
+        &self,
+        runtime: &ChartAppRuntime,
+        transaction_id: u64,
+    ) -> Vec<ParamChange> {
         self.params
             .lock()
             .expect("chart param lock poisoned")
-            .sync_from_params(runtime.session.params().clone())
+            .sync_from_params(transaction_id, runtime.session.params().clone())
     }
 }
 
@@ -2732,7 +2773,7 @@ mod tests {
 
         let mut state = resize_test_state().await;
 
-        let result = state.set_param("width", 720.0);
+        let result = state.set_param("width", 720.0).expect("set width");
 
         assert!(result.changed);
         assert_eq!(result.revision, 1);
@@ -2761,7 +2802,7 @@ mod tests {
     async fn set_param_unchanged_value_does_not_emit_change() {
         let state = resize_test_state().await;
 
-        let result = state.set_param("width", 640.0);
+        let result = state.set_param("width", 640.0).expect("set width");
 
         assert!(!result.changed);
         assert_eq!(result.revision, 0);
@@ -2774,9 +2815,9 @@ mod tests {
     async fn rapid_set_param_calls_keep_latest_value_and_revision_order() {
         let state = resize_test_state().await;
 
-        state.set_param("width", 700.0);
-        state.set_param("width", 710.0);
-        state.set_param("width", 720.0);
+        state.set_param("width", 700.0).expect("set width");
+        state.set_param("width", 710.0).expect("set width");
+        state.set_param("width", 720.0).expect("set width");
 
         assert_eq!(state.param_f64("width"), Some(720.0));
         assert_eq!(state.param_revision(), 3);
@@ -2800,8 +2841,8 @@ mod tests {
     async fn param_changes_since_filters_by_revision() {
         let state = resize_test_state().await;
 
-        state.set_param("width", 700.0);
-        state.set_param("height", 500.0);
+        state.set_param("width", 700.0).expect("set width");
+        state.set_param("height", 500.0).expect("set height");
 
         let changes = state.param_changes_since(1);
         assert_eq!(changes.len(), 1);
@@ -2824,7 +2865,7 @@ mod tests {
         let state = ChartAppState::new(session, policy, ChartAppOptions::default());
 
         assert_eq!(state.param_bool("enabled"), Some(true));
-        let result = state.set_param("enabled", false);
+        let result = state.set_param("enabled", false).expect("set enabled");
 
         assert!(result.changed);
         assert_eq!(state.param_bool("enabled"), Some(false));
@@ -2838,7 +2879,7 @@ mod tests {
         let mut state = resize_test_state().await;
         let runtime = state.runtime.lock().await;
 
-        let result = state.set_param("width", 700.0);
+        let result = state.set_param("width", 700.0).expect("set width");
 
         assert!(result.changed);
         assert_eq!(state.param_f64("width"), Some(700.0));
@@ -3189,6 +3230,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn public_set_param_reports_complete_reaction_batch() {
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(0)));
+        let chart = Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(sink.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source)
+                    .set_param(&sink, param_change::value() + lit(1_i64)),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        let result = state
+            .set_param("source", 4_i64)
+            .expect("apply public parameter transaction");
+
+        assert!(result.changed);
+        assert_eq!(
+            result.change.as_ref().map(|change| change.name.as_str()),
+            Some("source")
+        );
+        assert_eq!(
+            result
+                .changes
+                .iter()
+                .map(|change| (change.name.as_str(), change.transaction_id))
+                .collect::<Vec<_>>(),
+            vec![
+                ("source", result.transaction_id),
+                ("sink", result.transaction_id),
+            ]
+        );
+        assert_eq!(state.param_f64("source"), Some(4.0));
+        assert_eq!(state.param_f64("sink"), Some(5.0));
+    }
+
+    #[tokio::test]
     async fn param_transaction_rolls_back_on_reaction_error() {
         let source = Param::new("source", ScalarValue::Int64(Some(0)));
         let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
@@ -3225,6 +3302,12 @@ mod tests {
             Some(&ScalarValue::Int64(Some(9)))
         );
         assert!(state.param_changes_since(0).is_empty());
+        drop(runtime);
+        let error = state
+            .set_param("source", 1_i64)
+            .expect_err("public reaction error must propagate");
+        assert!(error.to_string().contains("required assignment"), "{error}");
+        assert!(state.param_changes_since(0).is_empty());
     }
 
     #[tokio::test]
@@ -3240,8 +3323,8 @@ mod tests {
         let state = reaction_test_state(chart, SessionContext::new()).await;
         let runtime = state.runtime.lock().await;
 
-        assert!(state.set_param("source", 1_i64).changed);
-        assert!(state.set_param("source", 2_i64).changed);
+        assert!(state.set_param("source", 1_i64).expect("queue one").changed);
+        assert!(state.set_param("source", 2_i64).expect("queue two").changed);
         assert_eq!(
             state.param_snapshot().params.get("source"),
             Some(&ScalarValue::Int64(Some(0))),
@@ -3259,9 +3342,9 @@ mod tests {
             runtime.session.params().get("sink"),
             Some(&ScalarValue::Int64(Some(2)))
         );
+        let changes = state.param_changes_since(0);
         assert_eq!(
-            state
-                .param_changes_since(0)
+            changes
                 .iter()
                 .map(|change| (change.name.as_str(), change.value.clone()))
                 .collect::<Vec<_>>(),
@@ -3272,6 +3355,9 @@ mod tests {
                 ("sink", ScalarValue::Int64(Some(2))),
             ]
         );
+        assert_eq!(changes[0].transaction_id, changes[1].transaction_id);
+        assert_eq!(changes[2].transaction_id, changes[3].transaction_id);
+        assert_ne!(changes[0].transaction_id, changes[2].transaction_id);
     }
 
     #[tokio::test]
