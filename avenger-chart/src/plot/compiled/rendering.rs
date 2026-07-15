@@ -3014,13 +3014,33 @@ impl CompiledPlot {
                             widget.id
                         ))
                     })?;
+                if output.marks.len() > 1 {
+                    return Err(AvengerChartError::InternalError(format!(
+                        "Compiled widget '{}' part '{part}' emitted {} top-level scene marks; widget parts must retain one stable scene slot",
+                        widget.id,
+                        output.marks.len(),
+                    )));
+                }
+                let mut emitted = false;
                 for mut scene_mark in output.marks {
+                    emitted = true;
                     set_scene_mark_name(&mut scene_mark, part);
                     set_scene_mark_interactive(
                         &mut scene_mark,
                         !avenger_chart_core::is_decorative_widget_part(part),
                     );
                     parts.push(scene_mark);
+                }
+                if !emitted {
+                    // Compiled mark targets use the declaration-order part
+                    // index. Preserve that slot when a conditional part is
+                    // absent so opaque MarkId-to-path routing remains stable
+                    // across state changes without falling back to names.
+                    parts.push(SceneMark::Group(SceneGroup {
+                        name: part.to_string(),
+                        interactive: false,
+                        ..Default::default()
+                    }));
                 }
             }
             groups.push(SceneMark::Group(SceneGroup {
