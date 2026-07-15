@@ -46,7 +46,10 @@ use datafusion::{prelude::SessionContext, scalar::ScalarValue};
 use indexmap::IndexMap;
 use tokio::sync::Mutex;
 
-use crate::event_binding::{event_streams_for_bindings, event_streams_for_plot_bindings};
+use crate::event_binding::{
+    CompiledChartParamChangeGraph, event_streams_for_bindings, event_streams_for_plot_bindings,
+    param_change_graph_for_plot,
+};
 
 #[cfg(feature = "winit-wgpu")]
 pub use avenger_winit_wgpu::{
@@ -391,6 +394,9 @@ impl ChartParamState {
 
 struct ChartAppRuntime {
     session: PlotSession,
+    // Compiled at app construction in W6.3; consumed by the W6.4 transaction
+    // coordinator without re-planning expressions per parameter write.
+    param_change_graph: Option<Arc<CompiledChartParamChangeGraph>>,
     resize_policy: ChartResizePolicy,
     resize_binding: ChartResizeBinding,
     exact_on_resize_settle: bool,
@@ -461,6 +467,7 @@ impl ChartAppState {
             params: Arc::new(StdMutex::new(ChartParamState::new(params))),
             runtime: Arc::new(Mutex::new(ChartAppRuntime {
                 session,
+                param_change_graph: None,
                 resize_policy,
                 resize_binding: options.resize_binding,
                 exact_on_resize_settle: options.exact_on_resize_settle,
@@ -1283,6 +1290,14 @@ async fn chart_avenger_app_inner(
     runtime_resources: Option<ChartRuntimeResources>,
 ) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
     let resize_policy = compiled_plot.resize_policy();
+    let param_change_graph = Arc::new(param_change_graph_for_plot(&compiled_plot, ctx.as_ref())?);
+    tracing::debug!(
+        target: "avenger_chart_app::param_change_binding",
+        bindings = param_change_graph.binding_count(),
+        sources = param_change_graph.source_count(),
+        edges = param_change_graph.edge_count(),
+        "compiled parameter-change reaction graph"
+    );
     let mut event_streams = event_streams_for_plot_bindings(&compiled_plot, ctx.as_ref())?;
     let resize_bindings = resize_event_bindings(
         resize_policy,
@@ -1315,6 +1330,9 @@ async fn chart_avenger_app_inner(
         options,
         runtime_resources,
     );
+    if !param_change_graph.is_empty() {
+        state.runtime.lock().await.param_change_graph = Some(param_change_graph);
+    }
     // Native ownership and gesture capture must precede authored streams.
     // Native consumption is dynamic and can stop propagation after the live
     // instance accepts a particular event.

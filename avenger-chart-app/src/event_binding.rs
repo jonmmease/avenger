@@ -9,7 +9,7 @@ use avenger_chart::{
     event::{
         self, ChartActionParamValue, ChartEventAssignmentScope, ChartEventBinding,
         ChartEventEvaluationMode, ChartEventScopeTarget, ChartEventStream, ChartEventSurfaceTarget,
-        ChartEventType, InteractionColumnRequests,
+        ChartEventType, ChartParamChangeBinding, InteractionColumnRequests, param_change,
     },
     plot::{
         CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
@@ -176,6 +176,7 @@ struct CompiledChartEventBinding {
     cursor_params: Arc<HashSet<String>>,
 }
 
+#[derive(Clone)]
 struct CompiledParamAssignment {
     param_name: String,
     sharing: CoordinationScope,
@@ -183,6 +184,33 @@ struct CompiledParamAssignment {
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
     reject_null: bool,
+}
+
+/// Physical programs and dependency metadata for all parameter-change bindings.
+///
+/// Binding order is retained for deterministic scheduling among independent
+/// reactions. Dependencies themselves are represented by `edges`; runtime
+/// execution must follow changed-value waves rather than declaration order.
+pub(crate) struct CompiledChartParamChangeGraph {
+    bindings: Vec<CompiledChartParamChangeBinding>,
+    bindings_by_source: IndexMap<String, Vec<usize>>,
+    edges: Vec<(String, String)>,
+}
+
+// W6.3 compiles the complete action payload; W6.4 consumes these fields when
+// the FIFO transaction coordinator evaluates and stages reaction effects.
+#[allow(dead_code)]
+struct CompiledChartParamChangeBinding {
+    binding_index: usize,
+    source_param_name: String,
+    source_default: ScalarValue,
+    program: CompiledScalarExpressionProgram,
+    filter_count: usize,
+    assignments: Vec<CompiledParamAssignment>,
+    store_assignments: Vec<CompiledStoreAssignment>,
+    selection_assignments: Vec<CompiledSelectionAssignment>,
+    evaluation_mode: ChartEventEvaluationMode,
+    settle_exact: bool,
 }
 
 #[derive(Clone)]
@@ -837,6 +865,387 @@ impl CompiledChartEventBinding {
             surface_target: binding.surface_target.clone(),
             scope_target_uses_start_scope: binding.between.is_some(),
             cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
+        })
+    }
+}
+
+pub(crate) fn param_change_graph_for_plot(
+    compiled_plot: &CompiledPlot,
+    ctx: &SessionContext,
+) -> Result<CompiledChartParamChangeGraph, AvengerAppError> {
+    CompiledChartParamChangeGraph::compile(
+        compiled_plot.param_change_bindings(),
+        ctx,
+        compiled_plot.param_specs(),
+        compiled_plot.selection_specs(),
+        compiled_plot.store_specs(),
+    )
+}
+
+impl CompiledChartParamChangeGraph {
+    fn compile(
+        bindings: &[ChartParamChangeBinding],
+        ctx: &SessionContext,
+        param_specs: &IndexMap<String, CompiledParamSpec>,
+        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+        store_specs: &IndexMap<String, CompiledStoreSpec>,
+    ) -> Result<Self, AvengerAppError> {
+        let edges = validate_param_change_graph(bindings, param_specs)?;
+        let mut compiled_bindings = Vec::with_capacity(bindings.len());
+        let mut bindings_by_source: IndexMap<String, Vec<usize>> = IndexMap::new();
+        for (binding_index, binding) in bindings.iter().enumerate() {
+            let compiled = CompiledChartParamChangeBinding::compile(
+                binding_index,
+                binding,
+                ctx,
+                param_specs,
+                selection_specs,
+                store_specs,
+            )?;
+            bindings_by_source
+                .entry(binding.source_param_name.clone())
+                .or_default()
+                .push(binding_index);
+            compiled_bindings.push(compiled);
+        }
+        Ok(Self {
+            bindings: compiled_bindings,
+            bindings_by_source,
+            edges,
+        })
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.bindings.is_empty()
+    }
+
+    pub(crate) fn binding_count(&self) -> usize {
+        self.bindings.len()
+    }
+
+    pub(crate) fn source_count(&self) -> usize {
+        self.bindings_by_source.len()
+    }
+
+    pub(crate) fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+}
+
+fn validate_param_change_graph(
+    bindings: &[ChartParamChangeBinding],
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+) -> Result<Vec<(String, String)>, AvengerAppError> {
+    let mut writers: HashMap<String, (String, usize)> = HashMap::new();
+    let mut edges = Vec::new();
+    for (binding_index, binding) in bindings.iter().enumerate() {
+        let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "Parameter-change binding {binding_index} has unknown source '{}'",
+                binding.source_param_name
+            ))
+        })?;
+        if !source.sharing.is_fully_shared() {
+            return Err(AvengerAppError::InternalError(format!(
+                "Parameter-change binding source '{}' must be shared",
+                binding.source_param_name
+            )));
+        }
+        for assignment in &binding.action.assignments {
+            let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
+                AvengerAppError::InternalError(format!(
+                    "Parameter-change binding from '{}' assigns unknown param '{}'",
+                    binding.source_param_name, assignment.param_name
+                ))
+            })?;
+            if !target.sharing.is_fully_shared() {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Parameter-change binding target '{}' must be shared",
+                    assignment.param_name
+                )));
+            }
+            if let Some((first_source, first_binding)) = writers.insert(
+                assignment.param_name.clone(),
+                (binding.source_param_name.clone(), binding_index),
+            ) {
+                return Err(AvengerAppError::InternalError(format!(
+                    "Parameter '{}' has more than one reactive writer: binding {first_binding} from '{first_source}' and binding {binding_index} from '{}'",
+                    assignment.param_name, binding.source_param_name
+                )));
+            }
+            edges.push((
+                binding.source_param_name.clone(),
+                assignment.param_name.clone(),
+            ));
+        }
+    }
+    if let Some(cycle) = find_param_change_cycle(param_specs.keys(), &edges) {
+        return Err(AvengerAppError::InternalError(format!(
+            "Parameter-change reaction cycle detected: {}",
+            cycle.join(" → ")
+        )));
+    }
+    Ok(edges)
+}
+
+fn find_param_change_cycle<'a>(
+    params: impl Iterator<Item = &'a String>,
+    edges: &[(String, String)],
+) -> Option<Vec<String>> {
+    let mut adjacency: IndexMap<String, Vec<String>> = IndexMap::new();
+    for param in params {
+        adjacency.entry(param.clone()).or_default();
+    }
+    for (source, target) in edges {
+        adjacency
+            .entry(source.clone())
+            .or_default()
+            .push(target.clone());
+        adjacency.entry(target.clone()).or_default();
+    }
+
+    fn visit(
+        node: &str,
+        adjacency: &IndexMap<String, Vec<String>>,
+        states: &mut HashMap<String, u8>,
+        stack: &mut Vec<String>,
+    ) -> Option<Vec<String>> {
+        states.insert(node.to_string(), 1);
+        stack.push(node.to_string());
+        if let Some(targets) = adjacency.get(node) {
+            for target in targets {
+                match states.get(target).copied().unwrap_or(0) {
+                    0 => {
+                        if let Some(cycle) = visit(target, adjacency, states, stack) {
+                            return Some(cycle);
+                        }
+                    }
+                    1 => {
+                        let start = stack.iter().position(|entry| entry == target)?;
+                        let mut cycle = stack[start..].to_vec();
+                        cycle.push(target.clone());
+                        return Some(cycle);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        stack.pop();
+        states.insert(node.to_string(), 2);
+        None
+    }
+
+    let mut states = HashMap::new();
+    let mut stack = Vec::new();
+    for node in adjacency.keys() {
+        if states.get(node).copied().unwrap_or(0) == 0
+            && let Some(cycle) = visit(node, &adjacency, &mut states, &mut stack)
+        {
+            return Some(cycle);
+        }
+    }
+    None
+}
+
+impl CompiledChartParamChangeBinding {
+    fn compile(
+        binding_index: usize,
+        binding: &ChartParamChangeBinding,
+        ctx: &SessionContext,
+        param_specs: &IndexMap<String, CompiledParamSpec>,
+        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+        store_specs: &IndexMap<String, CompiledStoreSpec>,
+    ) -> Result<Self, AvengerAppError> {
+        binding
+            .validate()
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "Parameter-change binding has unknown source '{}'",
+                binding.source_param_name
+            ))
+        })?;
+
+        let filter_exprs = binding
+            .filters
+            .iter()
+            .map(|filter| {
+                filter
+                    .to_expr(ctx)
+                    .map_err(|err| AvengerAppError::InternalError(err.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut assignment_exprs = Vec::new();
+        for assignment in &binding.action.assignments {
+            let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
+                AvengerAppError::InternalError(format!(
+                    "Parameter-change binding assigns unknown param '{}'",
+                    assignment.param_name
+                ))
+            })?;
+            let expr = match &assignment.value {
+                ChartActionParamValue::Expr { expr } => expr
+                    .to_expr(ctx)
+                    .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                ChartActionParamValue::RegisteredDefault => {
+                    datafusion::prelude::lit(target.default.clone())
+                }
+            };
+            assignment_exprs.push((assignment, target, expr));
+        }
+        let mut store_exprs = Vec::new();
+        for assignment in &binding.action.store_assignments {
+            let store = store_specs.get(&assignment.store_name).ok_or_else(|| {
+                AvengerAppError::InternalError(format!(
+                    "Parameter-change binding updates unknown store '{}'",
+                    assignment.store_name
+                ))
+            })?;
+            store_exprs.push(StoreExpressionAssignment {
+                store_name: assignment.store_name.clone(),
+                sharing: store.sharing,
+                scope: assignment.scope,
+                replace_scoped_values: assignment.replace_scoped_values,
+                update: compile_store_expression_update(store, &assignment.update, ctx)?,
+            });
+        }
+        let mut selection_exprs = Vec::new();
+        for assignment in &binding.action.selection_assignments {
+            let spec = selection_specs
+                .get(&assignment.selection_id)
+                .ok_or_else(|| {
+                    AvengerAppError::InternalError(format!(
+                        "Parameter-change binding updates unknown selection '{}'",
+                        assignment.selection_id
+                    ))
+                })?;
+            selection_exprs.push(SelectionExpressionAssignment {
+                selection_id: assignment.selection_id.clone(),
+                spec: spec.clone(),
+                scope: assignment.scope,
+                update: compile_selection_expression_update(&assignment.update, ctx)?,
+            });
+        }
+
+        let source_type = source.default.data_type();
+        let mut fields = param_specs
+            .iter()
+            .map(|(name, spec)| {
+                Field::new(
+                    event::param_column_name(name),
+                    spec.default.data_type(),
+                    true,
+                )
+            })
+            .collect::<Vec<_>>();
+        fields.push(Field::new(
+            param_change::VALUE_FIELD,
+            source_type.clone(),
+            true,
+        ));
+        fields.push(Field::new(
+            param_change::PREVIOUS_VALUE_FIELD,
+            source_type,
+            true,
+        ));
+        let schema = schema_from_fields(fields);
+        let allowed_columns = schema
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<HashSet<_>>();
+        let placeholder_columns = param_specs
+            .keys()
+            .map(|param| {
+                PlaceholderColumn::new(format!("${param}"), event::param_column_name(param))
+            })
+            .collect::<Vec<_>>();
+
+        let mut specs = filter_exprs
+            .into_iter()
+            .enumerate()
+            .map(|(index, expr)| {
+                PhysicalScalarExpressionSpec::new(format!("filter_{index}"), expr)
+                    .with_expected_type(DataType::Boolean)
+            })
+            .collect::<Vec<_>>();
+        let filter_count = specs.len();
+        let mut assignments = Vec::new();
+        for (assignment, target, expr) in assignment_exprs {
+            specs.push(
+                PhysicalScalarExpressionSpec::new(
+                    format!("assign_{}", assignment.param_name),
+                    expr,
+                )
+                .with_expected_type(target.default.data_type())
+                .with_nullable_cast(),
+            );
+            assignments.push(CompiledParamAssignment {
+                param_name: assignment.param_name.clone(),
+                sharing: target.sharing,
+                default_value: target.default.clone(),
+                scope: assignment.scope,
+                replace_scoped_values: assignment.replace_scoped_values,
+                reject_null: assignment.reject_null,
+            });
+        }
+        let mut store_assignments = Vec::new();
+        for assignment in store_exprs {
+            let update = append_store_expression_update_specs(
+                &assignment.store_name,
+                assignment.update,
+                &mut specs,
+                filter_count,
+            );
+            store_assignments.push(CompiledStoreAssignment {
+                store_name: assignment.store_name,
+                sharing: assignment.sharing,
+                scope: assignment.scope,
+                replace_scoped_values: assignment.replace_scoped_values,
+                update,
+            });
+        }
+        let mut selection_assignments = Vec::new();
+        for assignment in selection_exprs {
+            let update = append_selection_expression_update_specs(
+                &assignment.selection_id,
+                assignment.update,
+                &mut specs,
+                filter_count,
+            );
+            selection_assignments.push(CompiledSelectionAssignment {
+                selection_id: assignment.selection_id,
+                spec: assignment.spec,
+                scope: assignment.scope,
+                update,
+            });
+        }
+        let program = CompiledScalarExpressionProgram::compile(
+            ctx,
+            schema,
+            specs,
+            PhysicalScalarProgramOptions::default()
+                .with_allowed_columns(allowed_columns)
+                .with_placeholder_columns(placeholder_columns),
+        )
+        .map_err(|err| {
+            AvengerAppError::InternalError(format!(
+                "Parameter-change binding from '{}' failed to compile: {err}",
+                binding.source_param_name
+            ))
+        })?;
+
+        Ok(Self {
+            binding_index,
+            source_param_name: binding.source_param_name.clone(),
+            source_default: source.default.clone(),
+            program,
+            filter_count,
+            assignments,
+            store_assignments,
+            selection_assignments,
+            evaluation_mode: binding.action.evaluation_mode,
+            settle_exact: binding.action.settle_exact,
         })
     }
 }
@@ -13909,5 +14318,224 @@ mod tests {
                 || f.name().starts_with("__start_domain_")
         });
         assert!(!has_derived, "expected no derived interaction columns");
+    }
+
+    fn shared_param_specs(params: &[Param]) -> IndexMap<String, CompiledParamSpec> {
+        params
+            .iter()
+            .map(|param| (param.name.clone(), CompiledParamSpec::shared(param)))
+            .collect()
+    }
+
+    #[test]
+    fn param_change_graph_reports_complete_cycle_paths() {
+        let params = [
+            Param::new("a", ScalarValue::Int64(Some(0))),
+            Param::new("b", ScalarValue::Int64(Some(0))),
+            Param::new("c", ScalarValue::Int64(Some(0))),
+        ];
+        let specs = shared_param_specs(&params);
+        let ctx = SessionContext::new();
+        let compile = |bindings: &[ChartParamChangeBinding]| {
+            CompiledChartParamChangeGraph::compile(
+                bindings,
+                &ctx,
+                &specs,
+                &IndexMap::new(),
+                &IndexMap::new(),
+            )
+        };
+
+        let self_cycle = [
+            ChartParamChangeBinding::on(&params[0]).set_param(&params[0], param_change::value())
+        ];
+        let error = compile(&self_cycle).err().expect("self cycle must fail");
+        assert!(error.to_string().contains("a → a"), "{error}");
+
+        let direct_cycle = [
+            ChartParamChangeBinding::on(&params[0]).set_param(&params[1], param_change::value()),
+            ChartParamChangeBinding::on(&params[1]).set_param(&params[0], param_change::value()),
+        ];
+        let error = compile(&direct_cycle)
+            .err()
+            .expect("direct cycle must fail");
+        assert!(error.to_string().contains("a → b → a"), "{error}");
+
+        let transitive_cycle = [
+            ChartParamChangeBinding::on(&params[0]).set_param(&params[1], param_change::value()),
+            ChartParamChangeBinding::on(&params[1]).set_param(&params[2], param_change::value()),
+            ChartParamChangeBinding::on(&params[2]).set_param(&params[0], param_change::value()),
+        ];
+        let error = compile(&transitive_cycle)
+            .err()
+            .expect("transitive cycle must fail");
+        assert!(error.to_string().contains("a → b → c → a"), "{error}");
+    }
+
+    #[test]
+    fn param_change_graph_rejects_duplicate_reactive_writers() {
+        let params = [
+            Param::new("a", ScalarValue::Int64(Some(0))),
+            Param::new("b", ScalarValue::Int64(Some(0))),
+            Param::new("sink", ScalarValue::Int64(Some(0))),
+        ];
+        let specs = shared_param_specs(&params);
+        let bindings = [
+            ChartParamChangeBinding::on(&params[0]).set_param(&params[2], param_change::value()),
+            ChartParamChangeBinding::on(&params[1]).set_param(&params[2], param_change::value()),
+        ];
+        let error = CompiledChartParamChangeGraph::compile(
+            &bindings,
+            &SessionContext::new(),
+            &specs,
+            &IndexMap::new(),
+            &IndexMap::new(),
+        )
+        .err()
+        .expect("duplicate writer must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("Parameter 'sink' has more than one reactive writer"),
+            "{error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn param_change_graph_is_equivalent_after_bincode() {
+        let a = Param::new("a", ScalarValue::Int64(Some(0)));
+        let b = Param::new("b", ScalarValue::Int64(Some(0)));
+        let c = Param::new("c", ScalarValue::Int64(Some(0)));
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .param(a.clone())
+            .param(b.clone())
+            .param(c.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&a).set_param(&b, param_change::value()),
+            )
+            .param_change_binding(
+                ChartParamChangeBinding::on(&b).set_param(&c, param_change::value()),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile graph chart");
+        let restored: CompiledPlot = bincode::deserialize(
+            &bincode::serialize(&compiled).expect("serialize compiled graph chart"),
+        )
+        .expect("restore compiled graph chart");
+
+        let direct = param_change_graph_for_plot(&compiled, &ctx).expect("compile direct graph");
+        let round_trip =
+            param_change_graph_for_plot(&restored, &ctx).expect("compile restored graph");
+        assert_eq!(direct.edges, round_trip.edges);
+        assert_eq!(direct.bindings_by_source, round_trip.bindings_by_source);
+        assert_eq!(direct.binding_count(), round_trip.binding_count());
+        assert_eq!(
+            direct
+                .bindings
+                .iter()
+                .map(|binding| binding.program.expression_count())
+                .collect::<Vec<_>>(),
+            round_trip
+                .bindings
+                .iter()
+                .map(|binding| binding.program.expression_count())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn param_change_programs_are_typed_and_filters_gate_actions() {
+        let number = Param::new("number", ScalarValue::Int64(Some(0)));
+        let number_copy = Param::new("number_copy", ScalarValue::Float64(Some(0.0)));
+        let text = Param::new("text", ScalarValue::Utf8(None));
+        let text_copy = Param::new("text_copy", ScalarValue::Utf8(None));
+        let flag = Param::new("flag", ScalarValue::Boolean(Some(false)));
+        let flag_copy = Param::new("flag_copy", ScalarValue::Boolean(Some(false)));
+        let params = [
+            number.clone(),
+            number_copy.clone(),
+            text.clone(),
+            text_copy.clone(),
+            flag.clone(),
+            flag_copy.clone(),
+        ];
+        let specs = shared_param_specs(&params);
+        let bindings = [
+            ChartParamChangeBinding::on(&number)
+                .filter(param_change::value().gt(lit(2_i64)))
+                .set_param(&number_copy, param_change::value()),
+            ChartParamChangeBinding::on(&text).set_param(&text_copy, param_change::value()),
+            ChartParamChangeBinding::on(&flag).set_param(&flag_copy, param_change::value()),
+        ];
+        let graph = CompiledChartParamChangeGraph::compile(
+            &bindings,
+            &SessionContext::new(),
+            &specs,
+            &IndexMap::new(),
+            &IndexMap::new(),
+        )
+        .expect("compile typed reaction programs");
+
+        let evaluate = |binding: &CompiledChartParamChangeBinding,
+                        current: &[(&str, ScalarValue)],
+                        value: ScalarValue,
+                        previous: ScalarValue| {
+            let mut values = current
+                .iter()
+                .map(|(name, value)| (event::param_column_name(name), value.clone()))
+                .collect::<HashMap<_, _>>();
+            values.insert(param_change::VALUE_FIELD.to_string(), value);
+            values.insert(param_change::PREVIOUS_VALUE_FIELD.to_string(), previous);
+            let batch = one_row_batch_from_scalars(binding.program.schema().clone(), &values)
+                .expect("build reaction row");
+            binding
+                .program
+                .evaluate_values(&batch)
+                .expect("evaluate reaction")
+        };
+
+        let false_values = evaluate(
+            &graph.bindings[0],
+            &[("number", ScalarValue::Int64(Some(1)))],
+            ScalarValue::Int64(Some(1)),
+            ScalarValue::Int64(Some(0)),
+        );
+        assert!(!filters_pass(&false_values[..1]));
+        let true_values = evaluate(
+            &graph.bindings[0],
+            &[("number", ScalarValue::Int64(Some(3)))],
+            ScalarValue::Int64(Some(3)),
+            ScalarValue::Int64(Some(0)),
+        );
+        assert!(filters_pass(&true_values[..1]));
+        assert_eq!(true_values[1], ScalarValue::Float64(Some(3.0)));
+
+        let text_values = evaluate(
+            &graph.bindings[1],
+            &[("text", ScalarValue::Utf8(Some("ready".to_string())))],
+            ScalarValue::Utf8(Some("ready".to_string())),
+            ScalarValue::Utf8(None),
+        );
+        assert_eq!(text_values[0], ScalarValue::Utf8(Some("ready".to_string())));
+        let bool_values = evaluate(
+            &graph.bindings[2],
+            &[("flag", ScalarValue::Boolean(Some(true)))],
+            ScalarValue::Boolean(Some(true)),
+            ScalarValue::Boolean(Some(false)),
+        );
+        assert_eq!(bool_values[0], ScalarValue::Boolean(Some(true)));
+
+        assert_eq!(
+            ScalarValue::Utf8(None),
+            ScalarValue::Utf8(None),
+            "equal Arrow scalar assignments are the no-fire case"
+        );
+        assert_ne!(
+            ScalarValue::Utf8(None),
+            ScalarValue::Utf8(Some("ready".to_string())),
+            "nullable-to-value assignments are the changed-source case"
+        );
     }
 }
