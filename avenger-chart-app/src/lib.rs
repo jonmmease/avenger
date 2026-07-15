@@ -2,7 +2,10 @@
 
 mod event_binding;
 
-use std::sync::{Arc, Mutex as StdMutex};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::{Arc, Mutex as StdMutex},
+};
 
 use async_trait::async_trait;
 use avenger_app::{
@@ -25,8 +28,8 @@ use avenger_chart::{
 };
 use avenger_chart_core::ScalarValueHelpers;
 use avenger_chart_core::{
-    EvaluationInvalidation, EvaluationInvalidationReason, EvaluationInvalidationSchedule,
-    EvaluationInvalidationSubscription,
+    ChartEventEvaluationMode, EvaluationInvalidation, EvaluationInvalidationReason,
+    EvaluationInvalidationSchedule, EvaluationInvalidationSubscription,
 };
 use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::{
@@ -199,6 +202,7 @@ impl ChartAppBundle {
 pub struct ChartAppState {
     runtime: Arc<Mutex<ChartAppRuntime>>,
     params: Arc<StdMutex<ChartParamState>>,
+    has_param_reactions: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -234,6 +238,15 @@ pub struct ParamSetResult {
     pub changed: bool,
     pub revision: u64,
     pub change: Option<ParamChange>,
+}
+
+pub(crate) struct ParamTransactionOutcome {
+    param_changed: bool,
+    changes: Vec<ParamChange>,
+    store_changed: bool,
+    selection_changed: bool,
+    evaluation_mode: EvaluationMode,
+    settle_exact: bool,
 }
 
 pub trait IntoChartParamValue {
@@ -303,18 +316,53 @@ impl IntoChartParamValue for &str {
 #[derive(Clone, Debug)]
 struct ChartParamState {
     params: IndexMap<String, ScalarValue>,
-    pending_patch: IndexMap<String, ScalarValue>,
+    pending_transactions: VecDeque<PendingParamTransaction>,
     changes: Vec<ParamChange>,
     revision: u64,
+    next_transaction_id: u64,
+}
+
+#[derive(Clone, Debug)]
+struct PendingParamTransaction {
+    id: u64,
+    origin: ParamTransactionOrigin,
+    patch: IndexMap<String, ScalarValue>,
+    evaluation_mode: EvaluationMode,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ParamTransactionOrigin {
+    ExternalHost,
+    ChartEvent,
+    Resize,
+    NativeWidget,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ParamTransactionContext {
+    id: u64,
+    origin: ParamTransactionOrigin,
+    evaluation_mode: EvaluationMode,
+}
+
+impl ParamTransactionContext {
+    fn new(id: u64, origin: ParamTransactionOrigin, evaluation_mode: EvaluationMode) -> Self {
+        Self {
+            id,
+            origin,
+            evaluation_mode,
+        }
+    }
 }
 
 impl ChartParamState {
     fn new(params: IndexMap<String, ScalarValue>) -> Self {
         Self {
             params,
-            pending_patch: IndexMap::new(),
+            pending_transactions: VecDeque::new(),
             changes: Vec::new(),
             revision: 0,
+            next_transaction_id: 1,
         }
     }
 
@@ -343,7 +391,14 @@ impl ChartParamState {
             revision: self.revision,
         };
         self.params.insert(name.clone(), value.clone());
-        self.pending_patch.insert(name, value);
+        let id = self.allocate_transaction_id();
+        self.pending_transactions
+            .push_back(PendingParamTransaction {
+                id,
+                origin: ParamTransactionOrigin::ExternalHost,
+                patch: IndexMap::from([(name, value)]),
+                evaluation_mode: EvaluationMode::Exact,
+            });
         self.changes.push(change.clone());
 
         ParamSetResult {
@@ -351,6 +406,62 @@ impl ChartParamState {
             revision: self.revision,
             change: Some(change),
         }
+    }
+
+    fn allocate_transaction_id(&mut self) -> u64 {
+        let id = self.next_transaction_id;
+        self.next_transaction_id = self.next_transaction_id.saturating_add(1);
+        id
+    }
+
+    fn queue_param_transaction(&mut self, id: u64, name: String, value: ScalarValue) -> bool {
+        let projected = self
+            .pending_transactions
+            .iter()
+            .rev()
+            .find_map(|transaction| transaction.patch.get(&name))
+            .or_else(|| self.params.get(&name));
+        if projected == Some(&value) {
+            return false;
+        }
+        self.pending_transactions
+            .push_back(PendingParamTransaction {
+                id,
+                origin: ParamTransactionOrigin::ExternalHost,
+                patch: IndexMap::from([(name, value)]),
+                evaluation_mode: EvaluationMode::Exact,
+            });
+        true
+    }
+
+    fn queue_param_patch_transaction(
+        &mut self,
+        id: u64,
+        patch: IndexMap<String, ScalarValue>,
+    ) -> bool {
+        let mut filtered = IndexMap::new();
+        for (name, value) in patch {
+            let projected = self
+                .pending_transactions
+                .iter()
+                .rev()
+                .find_map(|transaction| transaction.patch.get(&name))
+                .or_else(|| self.params.get(&name));
+            if projected != Some(&value) {
+                filtered.insert(name, value);
+            }
+        }
+        if filtered.is_empty() {
+            return false;
+        }
+        self.pending_transactions
+            .push_back(PendingParamTransaction {
+                id,
+                origin: ParamTransactionOrigin::ExternalHost,
+                patch: filtered,
+                evaluation_mode: EvaluationMode::Exact,
+            });
+        true
     }
 
     fn sync_from_params(&mut self, params: IndexMap<String, ScalarValue>) -> Vec<ParamChange> {
@@ -375,12 +486,8 @@ impl ChartParamState {
         changes
     }
 
-    fn drain_pending_patch(&mut self) -> Option<IndexMap<String, ScalarValue>> {
-        if self.pending_patch.is_empty() {
-            None
-        } else {
-            Some(std::mem::take(&mut self.pending_patch))
-        }
+    fn drain_pending_transactions(&mut self) -> VecDeque<PendingParamTransaction> {
+        std::mem::take(&mut self.pending_transactions)
     }
 
     fn changes_since(&self, revision: u64) -> Vec<ParamChange> {
@@ -465,6 +572,7 @@ impl ChartAppState {
             subscribe_to_session_evaluation_invalidations(&session, runtime_resources.as_ref());
         Self {
             params: Arc::new(StdMutex::new(ChartParamState::new(params))),
+            has_param_reactions: false,
             runtime: Arc::new(Mutex::new(ChartAppRuntime {
                 session,
                 param_change_graph: None,
@@ -522,6 +630,13 @@ impl ChartAppState {
             .revision
     }
 
+    fn next_param_transaction_id(&self) -> u64 {
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .allocate_transaction_id()
+    }
+
     pub fn param_changes_since(&self, revision: u64) -> Vec<ParamChange> {
         self.params
             .lock()
@@ -556,7 +671,62 @@ impl ChartAppState {
         name: impl Into<String>,
         value: impl IntoChartParamValue,
     ) -> ParamSetResult {
-        let result = self.set_param_inner(name.into(), value.into_chart_param_value());
+        let name = name.into();
+        let value = value.into_chart_param_value();
+        if self.has_param_reactions {
+            let transaction_id = self.next_param_transaction_id();
+            if let Ok(mut runtime) = self.runtime.try_lock() {
+                let outcome = self.apply_root_param_transaction_to_runtime(
+                    &mut runtime,
+                    ParamTransactionContext::new(
+                        transaction_id,
+                        ParamTransactionOrigin::ExternalHost,
+                        EvaluationMode::Exact,
+                    ),
+                    IndexMap::from([(name.clone(), value)]),
+                    Vec::new(),
+                    Vec::new(),
+                );
+                return match outcome {
+                    Ok(outcome) => {
+                        if outcome.param_changed {
+                            runtime.next_evaluation_mode = outcome.evaluation_mode;
+                        }
+                        let state = self.params.lock().expect("chart param lock poisoned");
+                        let change = outcome
+                            .changes
+                            .into_iter()
+                            .find(|change| change.name == name);
+                        ParamSetResult {
+                            changed: outcome.param_changed,
+                            revision: state.revision,
+                            change,
+                        }
+                    }
+                    Err(error) => {
+                        log::error!("parameter transaction failed: {error}");
+                        let revision = self.param_revision();
+                        ParamSetResult {
+                            changed: false,
+                            revision,
+                            change: None,
+                        }
+                    }
+                };
+            }
+            let changed = self
+                .params
+                .lock()
+                .expect("chart param lock poisoned")
+                .queue_param_transaction(transaction_id, name, value);
+            return ParamSetResult {
+                changed,
+                revision: self.param_revision(),
+                change: None,
+            };
+        }
+
+        let result = self.set_param_inner(name, value);
         if result.changed
             && let Ok(mut runtime) = self.runtime.try_lock()
             && self.drain_pending_params_into_runtime(&mut runtime)
@@ -564,6 +734,50 @@ impl ChartAppState {
             runtime.next_evaluation_mode = EvaluationMode::Exact;
         }
         result
+    }
+
+    /// Apply several root parameter writes as one atomic transaction.
+    ///
+    /// Reactions observe the whole initiating patch as wave zero. If the app
+    /// runtime is busy, the batch retains its boundary in the FIFO queue.
+    pub fn apply_param_patch(&self, patch: IndexMap<String, ScalarValue>) -> bool {
+        if patch.is_empty() {
+            return false;
+        }
+        let transaction_id = self.next_param_transaction_id();
+        if let Ok(mut runtime) = self.runtime.try_lock() {
+            return match self.apply_root_param_transaction_to_runtime(
+                &mut runtime,
+                ParamTransactionContext::new(
+                    transaction_id,
+                    ParamTransactionOrigin::ExternalHost,
+                    EvaluationMode::Exact,
+                ),
+                patch,
+                Vec::new(),
+                Vec::new(),
+            ) {
+                Ok(outcome) => {
+                    if outcome.param_changed {
+                        runtime.next_evaluation_mode = outcome.evaluation_mode;
+                    }
+                    outcome.param_changed || outcome.store_changed || outcome.selection_changed
+                }
+                Err(error) => {
+                    log::error!("parameter patch transaction failed: {error}");
+                    false
+                }
+            };
+        }
+        self.params
+            .lock()
+            .expect("chart param lock poisoned")
+            .queue_param_patch_transaction(transaction_id, patch)
+    }
+
+    /// Alias for [`ChartAppState::apply_param_patch`].
+    pub fn set_params(&self, patch: IndexMap<String, ScalarValue>) -> bool {
+        self.apply_param_patch(patch)
     }
 
     pub async fn last_metrics(&self) -> Option<EvaluationMetrics> {
@@ -637,40 +851,227 @@ impl ChartAppState {
     }
 
     pub(crate) fn drain_pending_params_into_runtime(&self, runtime: &mut ChartAppRuntime) -> bool {
-        let patch = self
+        let transactions = self
             .params
             .lock()
             .expect("chart param lock poisoned")
-            .drain_pending_patch();
-        let Some(patch) = patch else {
+            .drain_pending_transactions();
+        if transactions.is_empty() {
             return false;
+        }
+        let mut changed = false;
+        for transaction in transactions {
+            match self.apply_root_param_transaction_to_runtime(
+                runtime,
+                ParamTransactionContext::new(
+                    transaction.id,
+                    transaction.origin,
+                    transaction.evaluation_mode,
+                ),
+                transaction.patch,
+                Vec::new(),
+                Vec::new(),
+            ) {
+                Ok(outcome) => {
+                    changed |= outcome.param_changed;
+                    if outcome.evaluation_mode == EvaluationMode::Exact {
+                        runtime.next_evaluation_mode = EvaluationMode::Exact;
+                    }
+                    if outcome.settle_exact && outcome.evaluation_mode == EvaluationMode::Preview {
+                        runtime.interaction_settle_exact_pending = true;
+                    }
+                }
+                Err(error) => {
+                    log::error!("queued parameter transaction failed: {error}");
+                }
+            }
+        }
+        changed
+    }
+
+    fn apply_root_param_transaction_to_runtime(
+        &self,
+        runtime: &mut ChartAppRuntime,
+        context: ParamTransactionContext,
+        initiating_patch: IndexMap<String, ScalarValue>,
+        initiating_store_patch: Vec<avenger_chart::plot::ScopedStoreAssignment>,
+        initiating_selection_patch: Vec<avenger_chart::plot::SelectionAssignment>,
+    ) -> Result<ParamTransactionOutcome, AvengerAppError> {
+        tracing::debug!(
+            target: "avenger_chart_app::param_transaction",
+            transaction_id = context.id,
+            origin = ?context.origin,
+            inputs = initiating_patch.len(),
+            "processing parameter transaction"
+        );
+        if initiating_patch.is_empty()
+            && initiating_store_patch.is_empty()
+            && initiating_selection_patch.is_empty()
+        {
+            return Ok(ParamTransactionOutcome {
+                param_changed: false,
+                changes: Vec::new(),
+                store_changed: false,
+                selection_changed: false,
+                evaluation_mode: context.evaluation_mode,
+                settle_exact: false,
+            });
+        }
+        let Some(graph) = runtime.param_change_graph.clone() else {
+            let (param_changed, store_changed, selection_changed) = runtime
+                .session
+                .apply_root_state_transaction(
+                    initiating_patch,
+                    initiating_store_patch,
+                    initiating_selection_patch,
+                )
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+            let changes = self.sync_param_state_from_runtime(runtime);
+            return Ok(ParamTransactionOutcome {
+                param_changed,
+                changes,
+                store_changed,
+                selection_changed,
+                evaluation_mode: context.evaluation_mode,
+                settle_exact: false,
+            });
         };
-        runtime.session.apply_param_patch(patch);
-        true
-    }
 
-    pub(crate) fn apply_root_param_patch_to_runtime(
-        &self,
-        runtime: &mut ChartAppRuntime,
-        patch: IndexMap<String, ScalarValue>,
-    ) -> Vec<ParamChange> {
-        if patch.is_empty() {
-            return Vec::new();
+        let entry = runtime.session.params().clone();
+        let mut staged = entry.clone();
+        let mut wave = initiating_patch;
+        let mut change_order = Vec::new();
+        let mut fired_bindings = HashSet::new();
+        let mut store_sinks = initiating_store_patch
+            .iter()
+            .map(|assignment| assignment.store_name.clone())
+            .collect::<HashSet<_>>();
+        let mut selection_sinks = initiating_selection_patch
+            .iter()
+            .map(|assignment| assignment.selection_id.clone())
+            .collect::<HashSet<_>>();
+        let mut store_patch = initiating_store_patch;
+        let mut selection_patch = initiating_selection_patch;
+        let mut evaluation_mode = context.evaluation_mode;
+        let mut settle_exact = false;
+
+        while !wave.is_empty() {
+            let mut changed_sources = Vec::new();
+            for (name, value) in wave {
+                if staged.get(&name) == Some(&value) {
+                    continue;
+                }
+                staged.insert(name.clone(), value);
+                if !change_order.iter().any(|candidate| candidate == &name) {
+                    change_order.push(name.clone());
+                }
+                changed_sources.push(name);
+            }
+            if changed_sources.is_empty() {
+                break;
+            }
+
+            let mut actions = Vec::new();
+            for source in changed_sources {
+                if !graph.has_source(&source) {
+                    continue;
+                }
+                let previous = entry.get(&source).ok_or_else(|| {
+                    AvengerAppError::InternalError(format!(
+                        "Parameter-change source '{source}' has no transaction-entry value"
+                    ))
+                })?;
+                actions.extend(graph.evaluate_source(&source, &staged, previous)?);
+            }
+            actions.sort_by_key(|action| action.binding_index);
+
+            let mut next_wave = IndexMap::new();
+            for action in actions {
+                if !fired_bindings.insert(action.binding_index) {
+                    continue;
+                }
+                for assignment in action.store_patch {
+                    if !store_sinks.insert(assignment.store_name.clone()) {
+                        return Err(AvengerAppError::InternalError(format!(
+                            "Parameter-change transaction has multiple active reactions targeting store '{}'",
+                            assignment.store_name
+                        )));
+                    }
+                    store_patch.push(assignment);
+                }
+                for assignment in action.selection_patch {
+                    if !selection_sinks.insert(assignment.selection_id.clone()) {
+                        return Err(AvengerAppError::InternalError(format!(
+                            "Parameter-change transaction has multiple active reactions targeting selection '{}'",
+                            assignment.selection_id
+                        )));
+                    }
+                    selection_patch.push(assignment);
+                }
+                next_wave.extend(action.param_patch);
+                if action.evaluation_mode == ChartEventEvaluationMode::Exact {
+                    evaluation_mode = EvaluationMode::Exact;
+                }
+                settle_exact |= action.settle_exact;
+            }
+            wave = next_wave;
         }
-        runtime.session.apply_param_patch(patch);
-        self.sync_param_state_from_runtime(runtime)
+
+        let mut final_patch = IndexMap::new();
+        for name in change_order {
+            let Some(value) = staged.get(&name) else {
+                continue;
+            };
+            if entry.get(&name) != Some(value) {
+                final_patch.insert(name, value.clone());
+            }
+        }
+        let (param_changed, store_changed, selection_changed) = runtime
+            .session
+            .apply_root_state_transaction(final_patch, store_patch, selection_patch)
+            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+        let changes = self.sync_param_state_from_runtime(runtime);
+        Ok(ParamTransactionOutcome {
+            param_changed,
+            changes,
+            store_changed,
+            selection_changed,
+            evaluation_mode,
+            settle_exact,
+        })
     }
 
-    pub(crate) fn apply_scoped_param_patch_to_runtime(
+    pub(crate) fn apply_scoped_param_transaction_to_runtime(
         &self,
         runtime: &mut ChartAppRuntime,
+        context: ParamTransactionContext,
         patch: Vec<ScopedParamAssignment>,
-    ) -> Vec<ParamChange> {
-        if patch.is_empty() {
-            return Vec::new();
+        store_patch: Vec<avenger_chart::plot::ScopedStoreAssignment>,
+        selection_patch: Vec<avenger_chart::plot::SelectionAssignment>,
+    ) -> Result<ParamTransactionOutcome, AvengerAppError> {
+        let mut root_patch = IndexMap::new();
+        let mut scoped_patch = Vec::new();
+        for assignment in patch {
+            if assignment.owner_path.is_empty() && !assignment.replace_scoped_values {
+                root_patch.insert(assignment.name, assignment.value);
+            } else {
+                scoped_patch.push(assignment);
+            }
         }
-        runtime.session.apply_scoped_param_patch(patch);
-        self.sync_param_state_from_runtime(runtime)
+        let mut outcome = self.apply_root_param_transaction_to_runtime(
+            runtime,
+            context,
+            root_patch,
+            store_patch,
+            selection_patch,
+        )?;
+        if !scoped_patch.is_empty() {
+            runtime.session.apply_scoped_param_patch(scoped_patch);
+            outcome
+                .changes
+                .extend(self.sync_param_state_from_runtime(runtime));
+        }
+        Ok(outcome)
     }
 
     fn sync_param_state_from_runtime(&self, runtime: &ChartAppRuntime) -> Vec<ParamChange> {
@@ -1075,9 +1476,36 @@ fn native_widget_outcome_status(
     runtime: &mut ChartAppRuntime,
     outcome: NativeWidgetDispatchOutcome,
 ) -> UpdateStatus {
-    let param_changed = !state
-        .apply_scoped_param_patch_to_runtime(runtime, outcome.param_assignments)
-        .is_empty();
+    let initiating_mode = match outcome.evaluation_intent {
+        NativeWidgetEvaluationIntent::Preview => EvaluationMode::Preview,
+        NativeWidgetEvaluationIntent::None | NativeWidgetEvaluationIntent::Exact => {
+            EvaluationMode::Exact
+        }
+    };
+    let transaction_id = state.next_param_transaction_id();
+    let transaction = match state.apply_scoped_param_transaction_to_runtime(
+        runtime,
+        ParamTransactionContext::new(
+            transaction_id,
+            ParamTransactionOrigin::NativeWidget,
+            initiating_mode,
+        ),
+        outcome.param_assignments,
+        Vec::new(),
+        Vec::new(),
+    ) {
+        Ok(transaction) => transaction,
+        Err(error) => {
+            log::error!("native widget parameter transaction failed: {error}");
+            return UpdateStatus {
+                cursor: outcome.cursor,
+                commands: outcome.commands,
+                consume: outcome.consume,
+                ..Default::default()
+            };
+        }
+    };
+    let param_changed = transaction.param_changed;
     match outcome.evaluation_intent {
         NativeWidgetEvaluationIntent::None => {
             if param_changed {
@@ -1085,14 +1513,19 @@ fn native_widget_outcome_status(
             }
         }
         NativeWidgetEvaluationIntent::Preview => {
-            runtime.next_evaluation_mode = EvaluationMode::Preview;
+            runtime.next_evaluation_mode = transaction.evaluation_mode;
         }
         NativeWidgetEvaluationIntent::Exact => {
             runtime.next_evaluation_mode = EvaluationMode::Exact;
         }
     }
+    if transaction.settle_exact && transaction.evaluation_mode == EvaluationMode::Preview {
+        runtime.interaction_settle_exact_pending = true;
+    }
     UpdateStatus {
         rerender: param_changed
+            || transaction.store_changed
+            || transaction.selection_changed
             || outcome.scene_dirty
             || outcome.evaluation_intent != NativeWidgetEvaluationIntent::None,
         rebuild_geometry: outcome.index_dirty,
@@ -1181,8 +1614,28 @@ impl EventStreamHandler<ChartAppState> for ChartResizeHandler {
             return UpdateStatus::default();
         }
 
-        state.apply_root_param_patch_to_runtime(&mut runtime, patch);
-        runtime.next_evaluation_mode = EvaluationMode::Preview;
+        let transaction_id = state.next_param_transaction_id();
+        let transaction = match state.apply_root_param_transaction_to_runtime(
+            &mut runtime,
+            ParamTransactionContext::new(
+                transaction_id,
+                ParamTransactionOrigin::Resize,
+                EvaluationMode::Preview,
+            ),
+            patch,
+            Vec::new(),
+            Vec::new(),
+        ) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                log::error!("resize parameter transaction failed: {error}");
+                return UpdateStatus::default();
+            }
+        };
+        runtime.next_evaluation_mode = transaction.evaluation_mode;
+        if transaction.settle_exact && transaction.evaluation_mode == EvaluationMode::Preview {
+            runtime.interaction_settle_exact_pending = true;
+        }
         runtime.accepted_resize_count += 1;
         tracing::debug!(
             target: "avenger_chart_app::resize",
@@ -1324,13 +1777,14 @@ async fn chart_avenger_app_inner(
     let hover_resolver = runtime_resources
         .as_ref()
         .map(|resources| resources.image_resource_resolver.clone());
-    let state = ChartAppState::new_with_runtime_resources(
+    let mut state = ChartAppState::new_with_runtime_resources(
         session,
         resize_policy,
         options,
         runtime_resources,
     );
     if !param_change_graph.is_empty() {
+        state.has_param_reactions = true;
         state.runtime.lock().await.param_change_graph = Some(param_change_graph);
     }
     // Native ownership and gesture capture must precede authored streams.
@@ -2668,6 +3122,250 @@ mod tests {
 
         assert!(!status.rerender);
         assert!(!status.rebuild_geometry);
+    }
+
+    async fn reaction_test_state(chart: Chart<Cartesian>, ctx: SessionContext) -> ChartAppState {
+        let compiled = chart.compile(&ctx).await.expect("compile reaction chart");
+        let graph =
+            Arc::new(param_change_graph_for_plot(&compiled, &ctx).expect("compile reaction graph"));
+        let resize_policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, resize_policy, ChartAppOptions::default());
+        state.has_param_reactions = true;
+        state.runtime.lock().await.param_change_graph = Some(graph);
+        state
+    }
+
+    #[tokio::test]
+    async fn param_transaction_cascades_in_typed_waves() {
+        let a = Param::new("a", ScalarValue::Int64(Some(0)));
+        let b = Param::new("b", ScalarValue::Int64(Some(10)));
+        let c = Param::new("c", ScalarValue::Int64(Some(100)));
+        let chart = Chart::<Cartesian>::new()
+            .param(a.clone())
+            .param(b.clone())
+            .param(c.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&a)
+                    .filter(param_change::previous_value().eq(lit(0_i64)))
+                    .set_param(&b, param_change::value() + lit(1_i64)),
+            )
+            .param_change_binding(
+                ChartParamChangeBinding::on(&b).set_param(&c, a.expr() + param_change::value()),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        let mut runtime = state.runtime.lock().await;
+        let outcome = state
+            .apply_root_param_transaction_to_runtime(
+                &mut runtime,
+                ParamTransactionContext::new(
+                    state.next_param_transaction_id(),
+                    ParamTransactionOrigin::ExternalHost,
+                    EvaluationMode::Preview,
+                ),
+                IndexMap::from([("a".to_string(), ScalarValue::Int64(Some(2)))]),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("apply reaction transaction");
+
+        assert!(outcome.param_changed);
+        assert_eq!(
+            runtime.session.params(),
+            &IndexMap::from([
+                ("a".to_string(), ScalarValue::Int64(Some(2))),
+                ("b".to_string(), ScalarValue::Int64(Some(3))),
+                ("c".to_string(), ScalarValue::Int64(Some(5))),
+            ])
+        );
+        assert_eq!(
+            outcome
+                .changes
+                .iter()
+                .map(|change| change.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b", "c"]
+        );
+    }
+
+    #[tokio::test]
+    async fn param_transaction_rolls_back_on_reaction_error() {
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
+        let chart = Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(sink.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source)
+                    .set_param_required(&sink, lit(ScalarValue::Int64(None))),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        let mut runtime = state.runtime.lock().await;
+        let error = state
+            .apply_root_param_transaction_to_runtime(
+                &mut runtime,
+                ParamTransactionContext::new(
+                    state.next_param_transaction_id(),
+                    ParamTransactionOrigin::ExternalHost,
+                    EvaluationMode::Exact,
+                ),
+                IndexMap::from([("source".to_string(), ScalarValue::Int64(Some(1)))]),
+                Vec::new(),
+                Vec::new(),
+            )
+            .err()
+            .expect("required null reaction must fail");
+        assert!(error.to_string().contains("required assignment"), "{error}");
+        assert_eq!(
+            runtime.session.params().get("source"),
+            Some(&ScalarValue::Int64(Some(0)))
+        );
+        assert_eq!(
+            runtime.session.params().get("sink"),
+            Some(&ScalarValue::Int64(Some(9)))
+        );
+        assert!(state.param_changes_since(0).is_empty());
+    }
+
+    #[tokio::test]
+    async fn busy_runtime_preserves_fifo_reaction_transactions() {
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(0)));
+        let chart = Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(sink.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).set_param(&sink, param_change::value()),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        let runtime = state.runtime.lock().await;
+
+        assert!(state.set_param("source", 1_i64).changed);
+        assert!(state.set_param("source", 2_i64).changed);
+        assert_eq!(
+            state.param_snapshot().params.get("source"),
+            Some(&ScalarValue::Int64(Some(0))),
+            "queued reaction transactions are not published optimistically"
+        );
+        drop(runtime);
+
+        let mut runtime = state.runtime.lock().await;
+        assert!(state.drain_pending_params_into_runtime(&mut runtime));
+        assert_eq!(
+            runtime.session.params().get("source"),
+            Some(&ScalarValue::Int64(Some(2)))
+        );
+        assert_eq!(
+            runtime.session.params().get("sink"),
+            Some(&ScalarValue::Int64(Some(2)))
+        );
+        assert_eq!(
+            state
+                .param_changes_since(0)
+                .iter()
+                .map(|change| (change.name.as_str(), change.value.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("source", ScalarValue::Int64(Some(1))),
+                ("sink", ScalarValue::Int64(Some(1))),
+                ("source", ScalarValue::Int64(Some(2))),
+                ("sink", ScalarValue::Int64(Some(2))),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn param_transaction_filters_and_equal_writes_are_noops() {
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(7)));
+        let chart = Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(sink.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source)
+                    .filter(param_change::value().gt(lit(5_i64)))
+                    .set_param(&sink, param_change::value()),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        let mut runtime = state.runtime.lock().await;
+
+        let equal = state
+            .apply_root_param_transaction_to_runtime(
+                &mut runtime,
+                ParamTransactionContext::new(
+                    state.next_param_transaction_id(),
+                    ParamTransactionOrigin::ExternalHost,
+                    EvaluationMode::Exact,
+                ),
+                IndexMap::from([("source".to_string(), ScalarValue::Int64(Some(0)))]),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("equal transaction");
+        assert!(!equal.param_changed);
+        assert!(equal.changes.is_empty());
+
+        let filtered = state
+            .apply_root_param_transaction_to_runtime(
+                &mut runtime,
+                ParamTransactionContext::new(
+                    state.next_param_transaction_id(),
+                    ParamTransactionOrigin::ExternalHost,
+                    EvaluationMode::Exact,
+                ),
+                IndexMap::from([("source".to_string(), ScalarValue::Int64(Some(3)))]),
+                Vec::new(),
+                Vec::new(),
+            )
+            .expect("filtered transaction");
+        assert!(filtered.param_changed);
+        assert_eq!(
+            runtime.session.params().get("sink"),
+            Some(&ScalarValue::Int64(Some(7)))
+        );
+    }
+
+    #[tokio::test]
+    async fn simultaneous_reaction_sink_collision_rolls_back_batch() {
+        let a = Param::new("a", ScalarValue::Int64(Some(0)));
+        let b = Param::new("b", ScalarValue::Int64(Some(0)));
+        let chart = Chart::<Cartesian>::new()
+            .param(a.clone())
+            .param(b.clone())
+            .selection(Selection::new("brush"))
+            .param_change_binding(ChartParamChangeBinding::on(&a).clear_selection("brush"))
+            .param_change_binding(ChartParamChangeBinding::on(&b).clear_selection("brush"));
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        let mut runtime = state.runtime.lock().await;
+        let error = state
+            .apply_root_param_transaction_to_runtime(
+                &mut runtime,
+                ParamTransactionContext::new(
+                    state.next_param_transaction_id(),
+                    ParamTransactionOrigin::ExternalHost,
+                    EvaluationMode::Exact,
+                ),
+                IndexMap::from([
+                    ("a".to_string(), ScalarValue::Int64(Some(1))),
+                    ("b".to_string(), ScalarValue::Int64(Some(1))),
+                ]),
+                Vec::new(),
+                Vec::new(),
+            )
+            .err()
+            .expect("selection sink collision must fail");
+        assert!(
+            error.to_string().contains("targeting selection 'brush'"),
+            "{error}"
+        );
+        assert_eq!(
+            runtime.session.params().get("a"),
+            Some(&ScalarValue::Int64(Some(0)))
+        );
+        assert_eq!(
+            runtime.session.params().get("b"),
+            Some(&ScalarValue::Int64(Some(0)))
+        );
     }
 
     #[cfg(feature = "winit-wgpu")]

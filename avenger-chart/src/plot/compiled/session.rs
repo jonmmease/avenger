@@ -1909,6 +1909,34 @@ impl PlotSession {
         self.scoped_selections.apply_selection_patch(patch)
     }
 
+    /// Atomically apply root parameters plus mutable-store and selection effects.
+    ///
+    /// The state stores are cloned and validated first, so a failing store or
+    /// selection update cannot leave a parameter reaction partially committed.
+    #[doc(hidden)]
+    pub fn apply_root_state_transaction(
+        &mut self,
+        param_patch: IndexMap<String, ScalarValue>,
+        store_patch: Vec<ScopedStoreAssignment>,
+        selection_patch: Vec<SelectionAssignment>,
+    ) -> Result<(bool, bool, bool), AvengerChartError> {
+        let mut params = self.scoped_params.clone();
+        let mut stores = self.scoped_stores.clone();
+        let mut selections = self.scoped_selections.clone();
+
+        params.apply_root_patch(param_patch);
+        let root = params.root_effective_params();
+        let param_changed = root != self.root_cache;
+        let store_changed = stores.apply_scoped_patch(store_patch)?;
+        let selection_changed = selections.apply_selection_patch(selection_patch)?;
+
+        self.scoped_params = params;
+        self.scoped_stores = stores;
+        self.scoped_selections = selections;
+        self.root_cache = root;
+        Ok((param_changed, store_changed, selection_changed))
+    }
+
     #[doc(hidden)]
     pub fn selection_clauses_for_diagnostics(&self, selection_id: &str) -> Vec<SelectionClause> {
         self.scoped_selections

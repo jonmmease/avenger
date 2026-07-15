@@ -197,6 +197,15 @@ pub(crate) struct CompiledChartParamChangeGraph {
     edges: Vec<(String, String)>,
 }
 
+pub(crate) struct EvaluatedParamChangeAction {
+    pub binding_index: usize,
+    pub param_patch: IndexMap<String, ScalarValue>,
+    pub store_patch: Vec<ScopedStoreAssignment>,
+    pub selection_patch: Vec<SelectionAssignment>,
+    pub evaluation_mode: ChartEventEvaluationMode,
+    pub settle_exact: bool,
+}
+
 // W6.3 compiles the complete action payload; W6.4 consumes these fields when
 // the FIFO transaction coordinator evaluates and stages reaction effects.
 #[allow(dead_code)]
@@ -929,6 +938,124 @@ impl CompiledChartParamChangeGraph {
 
     pub(crate) fn edge_count(&self) -> usize {
         self.edges.len()
+    }
+
+    pub(crate) fn has_source(&self, source: &str) -> bool {
+        self.bindings_by_source.contains_key(source)
+    }
+
+    pub(crate) fn evaluate_source(
+        &self,
+        source: &str,
+        current_params: &IndexMap<String, ScalarValue>,
+        previous_value: &ScalarValue,
+    ) -> Result<Vec<EvaluatedParamChangeAction>, AvengerAppError> {
+        let Some(binding_indices) = self.bindings_by_source.get(source) else {
+            return Ok(Vec::new());
+        };
+        let source_value = current_params.get(source).ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "Parameter-change source '{source}' is missing from the staged parameter snapshot"
+            ))
+        })?;
+        let mut row_values = current_params
+            .iter()
+            .map(|(name, value)| (event::param_column_name(name), value.clone()))
+            .collect::<HashMap<_, _>>();
+        row_values.insert(param_change::VALUE_FIELD.to_string(), source_value.clone());
+        row_values.insert(
+            param_change::PREVIOUS_VALUE_FIELD.to_string(),
+            previous_value.clone(),
+        );
+
+        let mut actions = Vec::new();
+        for binding_index in binding_indices {
+            let binding = &self.bindings[*binding_index];
+            let batch = one_row_batch_from_scalars(binding.program.schema().clone(), &row_values)
+                .map_err(|err| {
+                AvengerAppError::InternalError(format!(
+                    "Parameter-change binding {} failed to build its input row: {err}",
+                    binding.binding_index
+                ))
+            })?;
+            let values = binding.program.evaluate_values(&batch).map_err(|err| {
+                AvengerAppError::InternalError(format!(
+                    "Parameter-change binding {} from '{}' failed to evaluate: {err}",
+                    binding.binding_index, binding.source_param_name
+                ))
+            })?;
+            if !filters_pass(&values[..binding.filter_count]) {
+                continue;
+            }
+
+            let mut param_patch = IndexMap::new();
+            for (assignment, value) in binding
+                .assignments
+                .iter()
+                .zip(values[binding.filter_count..].iter())
+            {
+                if !assignment_value_is_writable(value, &assignment.default_value) {
+                    if assignment.reject_null {
+                        return Err(AvengerAppError::InternalError(format!(
+                            "Parameter-change binding {} required assignment to '{}' evaluated to null or a degenerate value",
+                            binding.binding_index, assignment.param_name
+                        )));
+                    }
+                    continue;
+                }
+                param_patch.insert(assignment.param_name.clone(), value.clone());
+            }
+
+            let mut store_patch = Vec::new();
+            for assignment in &binding.store_assignments {
+                let Some(update) = store_state_update_from_values(
+                    &assignment.update,
+                    &values,
+                    binding.filter_count,
+                ) else {
+                    continue;
+                };
+                store_patch.push(ScopedStoreAssignment {
+                    store_name: assignment.store_name.clone(),
+                    owner_path: Vec::new(),
+                    replace_scoped_values: false,
+                    update,
+                });
+            }
+
+            let mut selection_patch = Vec::new();
+            for assignment in &binding.selection_assignments {
+                if compiled_selection_update_is_scene_query(&assignment.update) {
+                    return Err(AvengerAppError::InternalError(format!(
+                        "Parameter-change binding {} selection '{}' uses a scene query without an event geometry context",
+                        binding.binding_index, assignment.selection_id
+                    )));
+                }
+                if let Some(update) = selection_state_update_from_values(
+                    &assignment.update,
+                    &assignment.spec,
+                    &values,
+                    binding.filter_count,
+                    None,
+                    false,
+                ) {
+                    selection_patch.push(SelectionAssignment {
+                        selection_id: assignment.selection_id.clone(),
+                        update,
+                    });
+                }
+            }
+
+            actions.push(EvaluatedParamChangeAction {
+                binding_index: binding.binding_index,
+                param_patch,
+                store_patch,
+                selection_patch,
+                evaluation_mode: binding.evaluation_mode,
+                settle_exact: binding.settle_exact,
+            });
+        }
+        Ok(actions)
     }
 }
 
@@ -2782,49 +2909,53 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             .iter()
             .filter(|assignment| !self.runtime.cursor_params.contains(&assignment.name))
             .count();
-        let mut should_rerender = visual_patch_count > 0;
-        if !patch.is_empty() {
+        let event_evaluation_mode = match self.runtime.evaluation_mode {
+            ChartEventEvaluationMode::Preview => EvaluationMode::Preview,
+            ChartEventEvaluationMode::Exact => EvaluationMode::Exact,
+        };
+        let patch_len = patch.len();
+        let transaction_id = state.next_param_transaction_id();
+        let transaction = match state.apply_scoped_param_transaction_to_runtime(
+            &mut app,
+            crate::ParamTransactionContext::new(
+                transaction_id,
+                crate::ParamTransactionOrigin::ChartEvent,
+                event_evaluation_mode,
+            ),
+            patch,
+            store_patch,
+            selection_patch,
+        ) {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                app.event_metrics.evaluation_errors += 1;
+                tracing::warn!(
+                    target: "avenger_chart_app::event_binding",
+                    binding = self.runtime.binding_index,
+                    error = %err,
+                    "failed to apply atomic chart event parameter transaction"
+                );
+                record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                return UpdateStatus {
+                    cursor,
+                    ..Default::default()
+                };
+            }
+        };
+        let transaction_has_visual_param = transaction
+            .changes
+            .iter()
+            .any(|change| !self.runtime.cursor_params.contains(&change.name));
+        let mut should_rerender = visual_patch_count > 0 || transaction_has_visual_param;
+        if patch_len > 0 {
             app.event_metrics.param_patch_events += 1;
-            app.event_metrics.params_patched += patch.len();
-            state.apply_scoped_param_patch_to_runtime(&mut app, patch);
+            app.event_metrics.params_patched += patch_len;
         }
-        let store_changed = if store_patch.is_empty() {
-            false
-        } else {
-            match app.session.apply_scoped_store_patch(store_patch) {
-                Ok(changed) => {
-                    app.event_metrics.store_patch_events += 1;
-                    changed
-                }
-                Err(err) => {
-                    app.event_metrics.evaluation_errors += 1;
-                    tracing::warn!(
-                        target: "avenger_chart_app::event_binding",
-                        binding = self.runtime.binding_index,
-                        error = %err,
-                        "failed to apply store event patch"
-                    );
-                    false
-                }
-            }
-        };
-        let selection_changed = if selection_patch.is_empty() {
-            false
-        } else {
-            match app.session.apply_selection_patch(selection_patch) {
-                Ok(changed) => changed,
-                Err(err) => {
-                    app.event_metrics.evaluation_errors += 1;
-                    tracing::warn!(
-                        target: "avenger_chart_app::event_binding",
-                        binding = self.runtime.binding_index,
-                        error = %err,
-                        "failed to apply selection event patch"
-                    );
-                    false
-                }
-            }
-        };
+        let store_changed = transaction.store_changed;
+        let selection_changed = transaction.selection_changed;
+        if store_changed {
+            app.event_metrics.store_patch_events += 1;
+        }
         should_rerender |= store_changed;
         should_rerender |= selection_changed;
         if self.runtime.assignments.is_empty()
@@ -2860,12 +2991,9 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             );
         }
 
-        app.next_evaluation_mode = match self.runtime.evaluation_mode {
-            ChartEventEvaluationMode::Preview => EvaluationMode::Preview,
-            ChartEventEvaluationMode::Exact => EvaluationMode::Exact,
-        };
-        if self.runtime.settle_exact
-            && self.runtime.evaluation_mode == ChartEventEvaluationMode::Preview
+        app.next_evaluation_mode = transaction.evaluation_mode;
+        if (self.runtime.settle_exact || transaction.settle_exact)
+            && transaction.evaluation_mode == EvaluationMode::Preview
         {
             app.interaction_settle_exact_pending = true;
         }
