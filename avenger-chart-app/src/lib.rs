@@ -2165,7 +2165,12 @@ fn warn_about_ignored_axis(axis: &str, policy: ChartResizeAxisPolicy, param: Opt
 mod tests {
     use std::sync::Mutex as StdMutex;
 
+    use avenger_chart::plot::{SelectionAssignment, SelectionStateUpdate};
     use avenger_chart::prelude::*;
+    use avenger_chart_core::{
+        DefaultLogicalExprNodeExt, ResolvedSelectionClauseScope, SelectionClause,
+        SelectionEqualityDimensionValue, SelectionPredicateSpec,
+    };
     #[cfg(feature = "winit-wgpu")]
     use avenger_eventstream::runtime::RuntimeHostCommand;
     use avenger_eventstream::{
@@ -2180,6 +2185,12 @@ mod tests {
     };
     use avenger_scenegraph::marks::mark::SceneMark;
     use avenger_scenegraph::scene_graph::SceneGraph;
+    use datafusion::arrow::{
+        array::Int64Array,
+        datatypes::{DataType, Field, Schema},
+        record_batch::RecordBatch,
+    };
+    use datafusion_proto::protobuf::LogicalExprNode;
 
     use super::*;
 
@@ -3332,6 +3343,112 @@ mod tests {
         );
         assert_eq!(state.param_f64("sink"), Some(9.0));
         assert!(state.param_changes_since(0).is_empty());
+    }
+
+    #[tokio::test]
+    async fn one_reaction_atomically_resets_copies_and_clears_all_state_kinds() {
+        let source = Param::new("source", 0_u64);
+        let scalar = Param::new("scalar", 7_i64);
+        let audit = Param::new("audit", 0_u64);
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
+        let initial_store =
+            RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1_i64]))])
+                .expect("initial store batch");
+        let chart = Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(scalar.clone())
+            .param(audit.clone())
+            .selection(Selection::new("picked"))
+            .store(Store::from_record_batch("cache", initial_store))
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).then(
+                    ChartAction::new()
+                        .reset_param(&scalar)
+                        .set_param(&audit, param_change::value())
+                        .clear_selection("picked")
+                        .set_store("cache", StoreUpdate::clear()),
+                ),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+        state
+            .set_param(&scalar.name, 42_i64)
+            .expect("move scalar away from its registered default");
+        let baseline_revision = state.param_revision();
+        {
+            let mut runtime = state.runtime.lock().await;
+            runtime
+                .session
+                .apply_selection_patch(vec![SelectionAssignment {
+                    selection_id: "picked".to_string(),
+                    update: SelectionStateUpdate::ReplaceAllClauses {
+                        clauses: vec![SelectionClause {
+                            id: "seed".to_string(),
+                            scope: ResolvedSelectionClauseScope {
+                                sharing: CoordinationScope::Shared,
+                                owner_path: Vec::new(),
+                            },
+                            predicate: SelectionPredicateSpec::Equality {
+                                dimensions: vec![SelectionEqualityDimensionValue {
+                                    id: "id".to_string(),
+                                    field_expr: LogicalExprNode::from_expr(lit(1_i64))
+                                        .expect("selection field expression"),
+                                    value: ScalarValue::Int64(Some(1)),
+                                }],
+                            },
+                            facet_context: Vec::new(),
+                        }],
+                    },
+                }])
+                .expect("seed selection");
+            assert_eq!(
+                runtime
+                    .session
+                    .selection_clauses_for_diagnostics("picked")
+                    .len(),
+                1
+            );
+            assert_eq!(
+                runtime.session.store_rows_for_diagnostics("cache")[0]
+                    .1
+                    .len(),
+                1
+            );
+        }
+
+        let result = state
+            .set_param(&source.name, 3_u64)
+            .expect("run composed state reaction");
+        assert!(result.changed);
+        assert_eq!(
+            result
+                .changes
+                .iter()
+                .map(|change| (change.name.as_str(), change.transaction_id))
+                .collect::<Vec<_>>(),
+            vec![
+                ("source", result.transaction_id),
+                ("scalar", result.transaction_id),
+                ("audit", result.transaction_id),
+            ]
+        );
+        assert_eq!(state.param_f64("source"), Some(3.0));
+        assert_eq!(state.param_f64("scalar"), Some(7.0));
+        assert_eq!(state.param_f64("audit"), Some(3.0));
+        assert_eq!(state.param_changes_since(baseline_revision), result.changes);
+        let runtime = state.runtime.lock().await;
+        assert!(
+            runtime
+                .session
+                .selection_clauses_for_diagnostics("picked")
+                .is_empty()
+        );
+        assert!(
+            runtime
+                .session
+                .store_rows_for_diagnostics("cache")
+                .iter()
+                .all(|(_, rows)| rows.is_empty())
+        );
     }
 
     #[tokio::test]

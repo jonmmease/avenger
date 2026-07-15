@@ -9874,6 +9874,206 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn button_action_clears_point_selection_and_restores_scene_once() {
+        let ctx = SessionContext::new();
+        let data = ctx
+            .sql(
+                "SELECT * FROM (VALUES
+                    ('Alpha', 1.0, 5.0), ('Alpha', 2.0, 6.5),
+                    ('Beta', 3.5, 2.0), ('Beta', 4.5, 3.2),
+                    ('Gamma', 6.0, 5.5), ('Gamma', 7.0, 6.8)
+                ) AS t(category, x_value, y_value)",
+            )
+            .await
+            .expect("button clear-selection data");
+        let picked = Selection::new("picked").empty_selects_all();
+        let selected = picked.predicate();
+        let point_click = ChartEventBinding::on(ChartEventType::Click)
+            .filter(event::button().eq(lit("left")))
+            .filter(event::datum("category").is_not_null())
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::equality_value(
+                    col("category"),
+                    event::datum("category"),
+                )
+                .facet_scope(CoordinationScope::Shared)]),
+            )
+            .exact();
+        let button = Button::new("clear")
+            .label("Clear selection")
+            .action(ChartAction::new().clear_selection("picked"));
+        let compiled = Chart::<Cartesian>::new()
+            .canvas_size(620.0, 360.0)
+            .plot_size(500.0, 280.0)
+            .data(data)
+            .selection(picked)
+            .event_binding(point_click)
+            .mark(
+                Symbol::new()
+                    .id("context")
+                    .x(col("x_value"))
+                    .y(col("y_value"))
+                    .size(140.0)
+                    .fill("#C8CDD2")
+                    .zindex(5),
+            )
+            .mark(
+                Symbol::new()
+                    .id("selected")
+                    .transform_no_output(Filter::new(selected), |mark| mark)
+                    .x(col("x_value"))
+                    .y(col("y_value"))
+                    .size(140.0)
+                    .fill("#0072B2")
+                    .zindex(10),
+            )
+            .widget(button.position(ChromePosition::Left))
+            .compile(&ctx)
+            .await
+            .expect("compile Button clear-selection chart");
+        let point_handler_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| {
+                binding.event_type == ChartEventType::Click && binding.mark_ids().is_empty()
+            })
+            .expect("plot point click binding");
+        let button_handler_index = compiled
+            .event_bindings()
+            .iter()
+            .position(|binding| {
+                binding.event_type == ChartEventType::Click
+                    && binding.mark_ids().iter().any(|id| id == "clear.box")
+            })
+            .expect("Button click binding");
+        let point_handler = compile_handler_for_binding_index(&compiled, &ctx, point_handler_index);
+        let button_handler =
+            compile_handler_for_binding_index(&compiled, &ctx, button_handler_index);
+        let graph = Arc::new(
+            param_change_graph_for_plot(&compiled, &ctx).expect("compile Button reaction graph"),
+        );
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        state.has_param_reactions = true;
+        state.runtime.lock().await.param_change_graph = Some(graph);
+
+        let initial = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("initial Button clear-selection scene");
+        let blue = [0.0, 114.0 / 255.0, 178.0 / 255.0, 1.0];
+        assert_eq!(
+            collect_symbol_fills(&initial)
+                .iter()
+                .filter(|fill| **fill == blue)
+                .count(),
+            6
+        );
+        let alpha = retained_named_event_datum_mark_instance(
+            &state,
+            &initial,
+            "selected",
+            "category",
+            ScalarValue::Utf8(Some("Alpha".to_string())),
+        )
+        .await;
+        let alpha_center = symbol_instance_point(&initial, &alpha);
+        let alpha_position = [alpha_center[0] + 3.0, alpha_center[1] + 3.0];
+        let initial_rtree = SceneGraphRTree::from_scene_graph(&initial);
+        let alpha = initial_rtree
+            .pick_top_mark_at_point(&alpha_position)
+            .cloned()
+            .expect("pick selected Alpha point");
+        assert_eq!(alpha.name, "selected");
+        let select_status = click_mark(
+            &mut state,
+            &point_handler,
+            Some(alpha),
+            alpha_position,
+            false,
+        )
+        .await;
+        assert!(select_status.rerender);
+        assert_eq!(
+            state.params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(0))),
+            "a plot click must not activate the Button"
+        );
+        {
+            let runtime = state.runtime.lock().await;
+            let clauses = runtime.session.selection_clauses_for_diagnostics("picked");
+            assert_eq!(clauses.len(), 1, "point click should create one clause");
+        }
+        let selected_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("selected scene");
+        assert_eq!(
+            collect_symbol_fills(&selected_scene)
+                .iter()
+                .filter(|fill| **fill == blue)
+                .count(),
+            2,
+            "selecting Alpha should leave only its two blue foreground points"
+        );
+        assert_eq!(
+            state
+                .runtime
+                .lock()
+                .await
+                .session
+                .selection_clauses_for_diagnostics("picked")
+                .len(),
+            1
+        );
+
+        let selected_rtree = SceneGraphRTree::from_scene_graph(&selected_scene);
+        let button_box = selected_rtree
+            .iter()
+            .find(|geometry| geometry.mark_instance.name == "box")
+            .map(|geometry| geometry.mark_instance.clone())
+            .expect("Button box hit target");
+        let button_position = rect_instance_point(&selected_scene, &button_box);
+        let clear_status = click_mark(
+            &mut state,
+            &button_handler,
+            Some(button_box),
+            button_position,
+            false,
+        )
+        .await;
+        assert!(clear_status.rerender, "one activation requests one render");
+        assert_eq!(
+            state.params().await.get("clear__activations"),
+            Some(&ScalarValue::UInt64(Some(1)))
+        );
+        assert_eq!(state.param_changes_since(0).len(), 1);
+        assert!(
+            state
+                .runtime
+                .lock()
+                .await
+                .session
+                .selection_clauses_for_diagnostics("picked")
+                .is_empty()
+        );
+        let cleared_scene = crate::ChartSceneGraphBuilder
+            .build(&mut state)
+            .await
+            .expect("single clear render");
+        assert_eq!(
+            collect_symbol_fills(&cleared_scene)
+                .iter()
+                .filter(|fill| **fill == blue)
+                .count(),
+            6,
+            "clearing restores the empty-selects-all foreground"
+        );
+    }
+
+    #[tokio::test]
     async fn widget_cell_button_click_uses_prefixed_target_and_frame_inputs() {
         let ctx = SessionContext::new();
         let compiled = Chart::<HConcat>::new()
