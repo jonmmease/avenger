@@ -4,7 +4,6 @@ use std::fmt::Debug;
 
 use std::sync::Arc;
 
-use avenger_common::cursor::CursorStyle;
 use datafusion::{
     arrow::datatypes::{DataType, Field},
     logical_expr::expr::Placeholder,
@@ -14,24 +13,36 @@ use datafusion::{
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
-use crate::{CoordinationScope, DomainCoordination, serialization::SerializableScalar};
+use crate::{
+    AvengerChartError, CoordinationScope, DomainCoordination, ParamRef, StateMigrationKey,
+    serialization::{SerializableDataType, SerializableScalar},
+};
 
 /// A parameter that can be used in plot expressions
 #[derive(Debug, Clone)]
 pub struct Param {
     /// The name of the parameter
     pub name: String,
+    /// The authoritative physical Arrow type of the parameter.
+    pub data_type: DataType,
     /// The default value of the parameter
     pub default: ScalarValue,
 }
 
 impl Param {
-    /// Create a new parameter with a name and default value
-    pub fn new<S: Into<String>, T: Into<ScalarValue>>(name: S, default: T) -> Self {
-        Self {
+    /// Create a parameter with an explicit physical Arrow type.
+    pub fn typed<S: Into<String>>(
+        name: S,
+        data_type: DataType,
+        default: impl Into<ScalarValue>,
+    ) -> Result<Self, AvengerChartError> {
+        let default = default.into();
+        validate_param_value(&data_type, &default)?;
+        Ok(Self {
             name: name.into(),
-            default: default.into(),
-        }
+            data_type,
+            default,
+        })
     }
 
     /// Create a raw-domain parameter for interaction-driven scale domains.
@@ -40,27 +51,40 @@ impl Param {
     /// reading `raw_domain(param.expr())` falls back to its inferred or explicit
     /// domain until an interaction writes a concrete two-element domain list.
     pub fn raw_domain<S: Into<String>>(name: S) -> Self {
-        Self {
-            name: name.into(),
-            default: ScalarValue::new_null_list(DataType::Float64, true, 1),
-        }
-    }
-
-    /// Create a cursor parameter for app-interaction cursor state.
-    pub fn cursor<S: Into<String>>(name: S, default_cursor: CursorStyle) -> Self {
-        Self {
-            name: name.into(),
-            default: ScalarValue::Utf8(Some(default_cursor.as_str().to_string())),
-        }
+        let data_type = DataType::List(Arc::new(Field::new("item", DataType::Float64, true)));
+        Self::typed(
+            name,
+            data_type,
+            ScalarValue::new_null_list(DataType::Float64, true, 1),
+        )
+        .expect("raw-domain null must match its declared List(Float64) type")
     }
 
     /// Get a DataFusion expression for this parameter as a placeholder
     pub fn expr(&self) -> Expr {
         Expr::Placeholder(Placeholder::new_with_field(
             format!("${}", self.name),
-            Some(Arc::new(Field::new("", self.default.data_type(), true))),
+            Some(Arc::new(Field::new("", self.data_type.clone(), true))),
         ))
     }
+}
+
+/// Validate a parameter value against its declared physical Arrow type.
+///
+/// Equality is deliberately exact and recursive. Numeric widening, list-item
+/// coercion, struct field reordering, and timezone changes must be explicit at
+/// the authoring or host-binding boundary.
+pub fn validate_param_value(
+    expected: &DataType,
+    value: &ScalarValue,
+) -> Result<(), AvengerChartError> {
+    let actual = value.data_type();
+    if actual != *expected {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Parameter value has physical Arrow type {actual:?}, expected {expected:?}"
+        )));
+    }
+    Ok(())
 }
 
 /// Compile-time metadata for a chart parameter, including its sharing scope.
@@ -71,8 +95,16 @@ impl Param {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledParamSpec {
+    /// Opaque runtime identity assigned at the root compilation boundary.
+    pub runtime_id: ParamRef,
     /// The parameter name.
     pub name: String,
+    /// Optional hot-reload migration metadata, never used for runtime lookup.
+    #[serde(default)]
+    pub migration_key: Option<StateMigrationKey>,
+    /// The authoritative physical Arrow type.
+    #[serde_as(as = "FromInto<SerializableDataType>")]
+    pub data_type: DataType,
     /// The default value used when no scoped value has been written.
     #[serde_as(as = "FromInto<SerializableScalar>")]
     pub default: ScalarValue,
@@ -90,7 +122,10 @@ impl CompiledParamSpec {
     /// Create a spec from a parameter and an explicit sharing scope.
     pub fn new(param: &Param, sharing: CoordinationScope) -> Self {
         Self {
+            runtime_id: ParamRef::unresolved_authoring(),
             name: param.name.clone(),
+            migration_key: None,
+            data_type: param.data_type.clone(),
             default: param.default.clone(),
             sharing,
             domain_coordination: None,
@@ -109,12 +144,6 @@ impl CompiledParamSpec {
     }
 }
 
-impl From<(String, ScalarValue)> for Param {
-    fn from(param: (String, ScalarValue)) -> Self {
-        Param::new(param.0, param.1)
-    }
-}
-
 impl From<Param> for Expr {
     fn from(param: Param) -> Self {
         param.expr()
@@ -129,6 +158,8 @@ impl From<&Param> for Expr {
 
 #[cfg(test)]
 mod tests {
+    use datafusion::arrow::datatypes::{Fields, TimeUnit};
+
     use super::*;
 
     #[test]
@@ -158,10 +189,13 @@ mod tests {
     #[test]
     fn compiled_param_spec_round_trips_sharing() {
         let param = Param::raw_domain("x_domain");
-        let spec = CompiledParamSpec::new(&param, CoordinationScope::Level(1))
+        let mut allocator = crate::CompiledIdentityAllocator::new("param-spec-test");
+        let mut spec = CompiledParamSpec::new(&param, CoordinationScope::Level(1))
             .with_domain_coordination(
                 DomainCoordination::named(CoordinationScope::Level(1), "x").unwrap(),
             );
+        spec.runtime_id = allocator.allocate_param();
+        spec.migration_key = Some(allocator.migration_key("root/param:x_domain"));
         let json = serde_json::to_string(&spec).expect("serialize spec");
         let restored: CompiledParamSpec = serde_json::from_str(&json).expect("deserialize spec");
         assert_eq!(restored.name, "x_domain");
@@ -171,6 +205,13 @@ mod tests {
             crate::DomainCoordinationGroup::Named("x".to_string())
         );
         assert!(matches!(restored.default, ScalarValue::List(_)));
+        assert_eq!(restored.data_type, spec.data_type);
+        assert_eq!(restored.runtime_id, spec.runtime_id);
+        assert_eq!(restored.migration_key, spec.migration_key);
+        assert_ne!(
+            restored.runtime_id.as_opaque_str(),
+            restored.migration_key.unwrap().as_opaque_str()
+        );
     }
 
     #[test]
@@ -188,9 +229,67 @@ mod tests {
 
     #[test]
     fn add_param_default_spec_is_shared() {
-        let param = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let param = Param::typed(
+            "width",
+            DataType::Float64,
+            ScalarValue::Float64(Some(640.0)),
+        )
+        .unwrap();
         let spec = CompiledParamSpec::shared(&param);
         assert_eq!(spec.sharing, CoordinationScope::Shared);
         assert_eq!(spec.default, ScalarValue::Float64(Some(640.0)));
+    }
+
+    #[test]
+    fn typed_param_rejects_numeric_width_mismatch() {
+        let error =
+            Param::typed("count", DataType::Int32, ScalarValue::Int64(Some(1))).unwrap_err();
+        assert!(error.to_string().contains("Int64"));
+        assert!(error.to_string().contains("Int32"));
+    }
+
+    #[test]
+    fn typed_nulls_preserve_recursive_struct_list_and_map_types() {
+        let struct_type = DataType::Struct(Fields::from(vec![
+            Field::new("label", DataType::Utf8, true),
+            Field::new(
+                "values",
+                DataType::List(Arc::new(Field::new("item", DataType::Float64, true))),
+                true,
+            ),
+        ]));
+        let map_entry = Field::new(
+            "entries",
+            DataType::Struct(Fields::from(vec![
+                Field::new("keys", DataType::Utf8, false),
+                Field::new("values", struct_type.clone(), true),
+            ])),
+            false,
+        );
+        let map_type = DataType::Map(Arc::new(map_entry), false);
+
+        for (name, data_type) in [("record", struct_type), ("lookup", map_type)] {
+            let default = ScalarValue::try_from(&data_type).expect("typed recursive null");
+            let param = Param::typed(name, data_type.clone(), default).unwrap();
+            assert_eq!(param.data_type, data_type);
+        }
+    }
+
+    #[test]
+    fn typed_param_rejects_struct_field_order_and_timestamp_timezone_mismatch() {
+        let declared = DataType::Struct(Fields::from(vec![
+            Field::new("left", DataType::Int32, true),
+            Field::new("right", DataType::Utf8, true),
+        ]));
+        let reordered = DataType::Struct(Fields::from(vec![
+            Field::new("right", DataType::Utf8, true),
+            Field::new("left", DataType::Int32, true),
+        ]));
+        let reordered_null = ScalarValue::try_from(&reordered).unwrap();
+        assert!(Param::typed("record", declared, reordered_null).is_err());
+
+        let declared = DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into()));
+        let actual = ScalarValue::TimestampMillisecond(None, Some("America/New_York".into()));
+        assert!(Param::typed("when", declared, actual).is_err());
     }
 }

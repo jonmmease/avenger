@@ -1610,7 +1610,7 @@ impl Theme {
         let css_property = channel.replace('_', "-");
 
         let theme_value = if context.part.is_some() {
-            self.query_widget_part(context, &css_property)?
+            self.query_component_part(context, &css_property)?
         } else {
             self.query(context, &css_property)?
         };
@@ -1694,12 +1694,22 @@ impl Theme {
     /// ordinary mark rules. Within each tier normal CSS specificity and source
     /// order apply; the generic mark tier is consulted only when no `::part()`
     /// rule supplies the property.
-    pub fn query_widget_part(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
+    pub fn query_component_part(
+        &self,
+        context: &ThemeContext,
+        property: &str,
+    ) -> Option<ThemeValue> {
         let mut part_only = context.clone();
         part_only.element_type = "widget-part".to_string();
         part_only.subtype = None;
         self.query(&part_only, property)
             .or_else(|| self.query(context, property))
+    }
+
+    /// Compatibility name for widget callers; widgets use the same general
+    /// component/part cascade as compound marks.
+    pub fn query_widget_part(&self, context: &ThemeContext, property: &str) -> Option<ThemeValue> {
+        self.query_component_part(context, property)
     }
 
     /// Create a ScaleRange from parsed values

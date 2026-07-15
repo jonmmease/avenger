@@ -119,8 +119,28 @@ async fn test_media_query_guide_background_responsive() {
     let theme = create_media_query_theme();
 
     // Create width and height parameters
-    let width_param = Param::new("width", ScalarValue::Float32(Some(400.0)));
-    let height_param = Param::new("height", ScalarValue::Float32(Some(300.0)));
+    let width_param = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(400.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let height_param = {
+        let __avenger_param_name = "height";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(300.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create CASE expressions for title and subtitle that match media query boundaries
     let title_expr = when(width_param.expr().lt(lit(600)), lit("Small Screen (400px)"))
@@ -269,8 +289,28 @@ async fn test_media_query_multi_range_syntax() {
     let theme = Theme::from_css(css).expect("Failed to parse CSS theme");
 
     // Create width and height parameters
-    let width_param = Param::new("width", ScalarValue::Float32(Some(800.0)));
-    let height_param = Param::new("height", ScalarValue::Float32(Some(300.0)));
+    let width_param = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(800.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let height_param = {
+        let __avenger_param_name = "height";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(300.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create CASE expressions for title and subtitle that match the multi-range boundaries
     // 600px <= width < 1200px
@@ -446,8 +486,28 @@ async fn test_media_query_legend_position() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create width and height parameters
-    let width_param = Param::new("width", ScalarValue::Float32(Some(800.0)));
-    let height_param = Param::new("height", ScalarValue::Float32(Some(400.0)));
+    let width_param = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(800.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let height_param = {
+        let __avenger_param_name = "height";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(400.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create title that indicates the current layout
     let title_expr = when(

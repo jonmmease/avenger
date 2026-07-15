@@ -34,8 +34,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let theme = Theme::from_css(css)?;
 
-    let width = Param::new("width", ScalarValue::from(600.0));
-    let height = Param::new("height", ScalarValue::from(300.0));
+    let width = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::from(600.0)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let height = {
+        let __avenger_param_name = "height";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::from(300.0)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let plot = Chart::<Cartesian>::new()
         .theme(theme)

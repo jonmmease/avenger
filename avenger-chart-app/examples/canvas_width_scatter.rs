@@ -32,7 +32,17 @@ fn main() {
 
 async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
-    let width = Param::new("width", ScalarValue::Float64(Some(760.0)));
+    let width = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(760.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES

@@ -941,7 +941,17 @@ mod tests {
     async fn guide_header_and_breadcrumb_datums_support_zoom_param_binding() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+        let root = {
+            let __avenger_param_name = "treemap_root";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
@@ -968,8 +978,11 @@ mod tests {
         .unwrap();
 
         let binding = compiled.event_bindings().first().expect("event binding");
-        assert_eq!(binding.action.assignments.len(), 1);
-        assert_eq!(binding.action.assignments[0].param_name, root.name);
+        assert_eq!(binding.action.param_steps().count(), 1);
+        assert_eq!(
+            binding.action.param_steps().next().unwrap().param_name,
+            root.name
+        );
 
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         let header_rows = evaluated
@@ -1014,7 +1027,17 @@ mod tests {
     async fn guide_breadcrumb_datums_carry_zoom_out_path_ids() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+        let root = {
+            let __avenger_param_name = "treemap_root";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
@@ -1041,7 +1064,10 @@ mod tests {
         .unwrap();
 
         let binding = compiled.event_bindings().first().expect("event binding");
-        assert_eq!(binding.action.assignments[0].param_name, root.name);
+        assert_eq!(
+            binding.action.param_steps().next().unwrap().param_name,
+            root.name
+        );
 
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         let breadcrumb_rows = evaluated

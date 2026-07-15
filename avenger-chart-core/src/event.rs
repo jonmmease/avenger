@@ -7,8 +7,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, LegendSurfaceKind, Param,
-    SelectionUpdate, SerializableExpr, StoreUpdate,
+    AvengerChartError, DefaultLogicalExprNodeExt, IntoExpr, LegendSurfaceKind, Param, ParamRef,
+    ResolvedStateTarget, SelectionRef, SelectionUpdate, SerializableExpr, StoreRef, StoreUpdate,
     scene_query::{SceneGeometryQueryGeometry, SceneQueryClauseId, SelectionSceneQuery},
     validate_mark_target_path, validate_structural_id,
 };
@@ -20,7 +20,7 @@ use datafusion::{
 use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion_proto::protobuf::LogicalExprNode;
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 pub const EVENT_TYPE_FIELD: &str = "__event_type";
@@ -181,6 +181,97 @@ pub struct ChartEventSelectionAssignment {
     pub scope: ChartEventAssignmentScope,
 }
 
+/// A compiled parameter mutation with an already-resolved runtime target.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChartEventParamAction {
+    pub target: ResolvedStateTarget<ParamRef>,
+    pub value: ChartActionParamValue,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+    #[serde(default)]
+    pub replace_scoped_values: bool,
+    #[serde(default)]
+    pub reject_null: bool,
+}
+
+/// A compiled store mutation with an already-resolved runtime target.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChartEventStoreAction {
+    pub target: ResolvedStateTarget<StoreRef>,
+    pub update: StoreUpdate,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+    #[serde(default)]
+    pub replace_scoped_values: bool,
+}
+
+/// A compiled selection mutation with an already-resolved runtime target.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChartEventSelectionAction {
+    pub target: ResolvedStateTarget<SelectionRef>,
+    pub update: SelectionUpdate,
+    #[serde(default)]
+    pub scope: ChartEventAssignmentScope,
+}
+
+/// A transactional cursor publication.
+///
+/// The expression evaluates to nullable UTF-8. A null publishes no cursor;
+/// recognized non-null values are converted to [`CursorStyle`] by the app
+/// runtime. Cursor actions intentionally have no state target.
+#[serde_as]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChartEventCursorAction {
+    #[serde_as(as = "FromInto<SerializableExpr>")]
+    pub value: LogicalExprNode,
+}
+
+/// One instruction in a compiled event action program.
+///
+/// Vector order is semantic: each instruction observes successful mutations
+/// made by every preceding instruction in the same transaction.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChartEventAction {
+    SetParam(ChartEventParamAction),
+    SetStore(ChartEventStoreAction),
+    SetSelection(ChartEventSelectionAction),
+    SetCursor(ChartEventCursorAction),
+}
+
+impl ChartEventAction {
+    pub fn map_exprs(
+        self,
+        f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        Ok(match self {
+            Self::SetParam(mut action) => {
+                action.value = match action.value {
+                    ChartActionParamValue::Expr { expr } => ChartActionParamValue::Expr {
+                        expr: map_expr_node(expr, f, "event param action")?,
+                    },
+                    ChartActionParamValue::RegisteredDefault => {
+                        ChartActionParamValue::RegisteredDefault
+                    }
+                };
+                Self::SetParam(action)
+            }
+            Self::SetStore(mut action) => {
+                action.update = action.update.map_exprs(f)?;
+                Self::SetStore(action)
+            }
+            Self::SetSelection(mut action) => {
+                action.update = action.update.map_exprs(f)?;
+                Self::SetSelection(action)
+            }
+            Self::SetCursor(mut action) => {
+                action.value = map_expr_node(action.value, f, "event cursor action")?;
+                Self::SetCursor(action)
+            }
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChartEventScopeTarget {
     #[serde(default)]
@@ -278,7 +369,7 @@ pub struct ChartEventStream {
     #[serde(default)]
     resolved_source_group: Option<Vec<usize>>,
     #[serde(default)]
-    resolved_mark_paths: Option<Vec<Vec<usize>>>,
+    resolved_mark_ids: Vec<crate::MarkId>,
 }
 
 impl ChartEventStream {
@@ -319,8 +410,8 @@ impl ChartEventStream {
     }
 
     #[doc(hidden)]
-    pub fn resolved_mark_paths(&self) -> Option<&[Vec<usize>]> {
-        self.resolved_mark_paths.as_deref()
+    pub fn resolved_mark_ids(&self) -> &[crate::MarkId] {
+        &self.resolved_mark_ids
     }
 
     #[doc(hidden)]
@@ -330,8 +421,8 @@ impl ChartEventStream {
     }
 
     #[doc(hidden)]
-    pub fn with_resolved_mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
-        self.resolved_mark_paths = Some(paths);
+    pub fn with_resolved_mark_ids(mut self, ids: Vec<crate::MarkId>) -> Self {
+        self.resolved_mark_ids = ids;
         self
     }
 
@@ -386,16 +477,24 @@ pub enum ChartEventEvaluationMode {
 /// Ordered mutations and evaluation intent shared by event and parameter-change triggers.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ChartAction {
+    /// Canonical source-ordered action program.
     #[serde(default)]
-    pub assignments: Vec<ChartEventParamAssignment>,
-    #[serde(default)]
-    pub store_assignments: Vec<ChartEventStoreAssignment>,
-    #[serde(default)]
-    pub selection_assignments: Vec<ChartEventSelectionAssignment>,
+    pub steps: Vec<ChartActionStep>,
     #[serde(default)]
     pub evaluation_mode: ChartEventEvaluationMode,
     #[serde(default)]
     pub settle_exact: bool,
+}
+
+/// One authoring-stage action step. State names are resolved to typed IDs at
+/// the root compilation boundary, producing [`ChartEventAction`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChartActionStep {
+    SetParam(ChartEventParamAssignment),
+    SetStore(ChartEventStoreAssignment),
+    SetSelection(ChartEventSelectionAssignment),
+    SetCursor(ChartEventCursorAction),
 }
 
 /// A serializable reaction that runs a chart action when a registered parameter changes.
@@ -408,6 +507,12 @@ pub struct ChartParamChangeBinding {
     pub filters: Vec<LogicalExprNode>,
     #[serde(default)]
     pub action: ChartAction,
+    /// Source target resolved at the root chart-compilation boundary.
+    #[serde(default)]
+    resolved_source: Option<ResolvedStateTarget<ParamRef>>,
+    /// Ordered state targets resolved at the root chart-compilation boundary.
+    #[serde(default)]
+    resolved_actions: Vec<ChartEventAction>,
 }
 
 impl ChartParamChangeBinding {
@@ -417,7 +522,30 @@ impl ChartParamChangeBinding {
             source_param_name: param.into_param_name(),
             filters: Vec::new(),
             action: ChartAction::new(),
+            resolved_source: None,
+            resolved_actions: Vec::new(),
         }
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_source(&self) -> Option<&ResolvedStateTarget<ParamRef>> {
+        self.resolved_source.as_ref()
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_actions(&self) -> &[ChartEventAction] {
+        &self.resolved_actions
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_state(
+        mut self,
+        source: ResolvedStateTarget<ParamRef>,
+        actions: Vec<ChartEventAction>,
+    ) -> Self {
+        self.resolved_source = Some(source);
+        self.resolved_actions = actions;
+        self
     }
 
     /// Run the reaction only when this expression evaluates to true.
@@ -461,6 +589,11 @@ impl ChartParamChangeBinding {
         self
     }
 
+    pub fn set_cursor(mut self, cursor: impl IntoExpr) -> Self {
+        self.action = self.action.set_cursor(cursor);
+        self
+    }
+
     pub fn then(mut self, action: ChartAction) -> Self {
         self.action = self.action.then(action);
         self
@@ -488,38 +621,48 @@ impl ChartParamChangeBinding {
             ));
         }
         self.action.validate()?;
-        for assignment in &self.action.assignments {
-            if assignment.scope != ChartEventAssignmentScope::Current
-                || assignment.replace_scoped_values
-            {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding action for param '{}' uses event-only scoped assignment semantics",
-                    assignment.param_name
-                )));
-            }
-            if assignment.param_name == self.source_param_name {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding source '{}' must not write itself",
-                    self.source_param_name
-                )));
-            }
-        }
-        for assignment in &self.action.store_assignments {
-            if assignment.scope != ChartEventAssignmentScope::Current
-                || assignment.replace_scoped_values
-            {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding action for store '{}' uses event-only scoped assignment semantics",
-                    assignment.store_name
-                )));
-            }
-        }
-        for assignment in &self.action.selection_assignments {
-            if assignment.scope != ChartEventAssignmentScope::Current {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding action for selection '{}' uses event-only start-scope semantics",
-                    assignment.selection_id
-                )));
+        for step in self.action.ordered_steps() {
+            match step {
+                ChartActionStep::SetParam(assignment) => {
+                    if assignment.scope != ChartEventAssignmentScope::Current
+                        || assignment.replace_scoped_values
+                    {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding action for param '{}' uses event-only scoped assignment semantics",
+                            assignment.param_name
+                        )));
+                    }
+                    if assignment.param_name == self.source_param_name {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding source '{}' must not write itself",
+                            self.source_param_name
+                        )));
+                    }
+                }
+                ChartActionStep::SetStore(assignment) => {
+                    if assignment.scope != ChartEventAssignmentScope::Current
+                        || assignment.replace_scoped_values
+                    {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding action for store '{}' uses event-only scoped assignment semantics",
+                            assignment.store_name
+                        )));
+                    }
+                }
+                ChartActionStep::SetSelection(assignment) => {
+                    if assignment.scope != ChartEventAssignmentScope::Current {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding action for selection '{}' uses event-only start-scope semantics",
+                            assignment.selection_id
+                        )));
+                    }
+                }
+                ChartActionStep::SetCursor(_) => {
+                    return Err(AvengerChartError::InvalidArgument(
+                        "Parameter-change bindings cannot publish a cursor; use an event binding"
+                            .to_string(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -535,6 +678,11 @@ impl ChartParamChangeBinding {
             .map(|filter| map_expr_node(filter, f, "parameter-change filter"))
             .collect::<Result<_, AvengerChartError>>()?;
         self.action = self.action.map_exprs(f)?;
+        self.resolved_actions = self
+            .resolved_actions
+            .into_iter()
+            .map(|action| action.map_exprs(f))
+            .collect::<Result<_, AvengerChartError>>()?;
         Ok(self)
     }
 }
@@ -562,8 +710,65 @@ impl ChartAction {
         Self::default()
     }
 
+    fn push_param(&mut self, assignment: ChartEventParamAssignment) {
+        self.steps.push(ChartActionStep::SetParam(assignment));
+    }
+
+    fn push_store(&mut self, assignment: ChartEventStoreAssignment) {
+        self.steps.push(ChartActionStep::SetStore(assignment));
+    }
+
+    fn push_selection(&mut self, assignment: ChartEventSelectionAssignment) {
+        self.steps.push(ChartActionStep::SetSelection(assignment));
+    }
+
+    /// Source-ordered action steps.
+    pub fn ordered_steps(&self) -> Vec<ChartActionStep> {
+        self.steps.clone()
+    }
+
+    pub fn param_steps(&self) -> impl Iterator<Item = &ChartEventParamAssignment> {
+        self.steps.iter().filter_map(|step| match step {
+            ChartActionStep::SetParam(assignment) => Some(assignment),
+            _ => None,
+        })
+    }
+
+    pub fn store_steps(&self) -> impl Iterator<Item = &ChartEventStoreAssignment> {
+        self.steps.iter().filter_map(|step| match step {
+            ChartActionStep::SetStore(assignment) => Some(assignment),
+            _ => None,
+        })
+    }
+
+    pub fn selection_steps(&self) -> impl Iterator<Item = &ChartEventSelectionAssignment> {
+        self.steps.iter().filter_map(|step| match step {
+            ChartActionStep::SetSelection(assignment) => Some(assignment),
+            _ => None,
+        })
+    }
+
+    #[doc(hidden)]
+    pub fn try_map_selection_updates(
+        mut self,
+        mut f: impl FnMut(SelectionUpdate) -> Result<SelectionUpdate, AvengerChartError>,
+    ) -> Result<Self, AvengerChartError> {
+        self.steps = self
+            .ordered_steps()
+            .into_iter()
+            .map(|step| match step {
+                ChartActionStep::SetSelection(mut assignment) => {
+                    assignment.update = f(assignment.update)?;
+                    Ok(ChartActionStep::SetSelection(assignment))
+                }
+                other => Ok(other),
+            })
+            .collect::<Result<_, AvengerChartError>>()?;
+        Ok(self)
+    }
+
     pub fn set_param(mut self, param: impl IntoParamName, expr: impl IntoExpr) -> Self {
-        self.assignments.push(ChartEventParamAssignment {
+        self.push_param(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             value: ChartActionParamValue::Expr {
                 expr: expr_node(expr.into_expr(), "event param assignment"),
@@ -576,7 +781,7 @@ impl ChartAction {
     }
 
     pub fn set_param_required(mut self, param: impl IntoParamName, expr: impl IntoExpr) -> Self {
-        self.assignments.push(ChartEventParamAssignment {
+        self.push_param(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             value: ChartActionParamValue::Expr {
                 expr: expr_node(expr.into_expr(), "required event param assignment"),
@@ -589,7 +794,7 @@ impl ChartAction {
     }
 
     pub fn reset_param(mut self, param: impl IntoParamName) -> Self {
-        self.assignments.push(ChartEventParamAssignment {
+        self.push_param(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             value: ChartActionParamValue::RegisteredDefault,
             scope: ChartEventAssignmentScope::Current,
@@ -604,7 +809,7 @@ impl ChartAction {
         param: impl IntoParamName,
         expr: impl IntoExpr,
     ) -> Self {
-        self.assignments.push(ChartEventParamAssignment {
+        self.push_param(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             value: ChartActionParamValue::Expr {
                 expr: expr_node(expr.into_expr(), "event param assignment"),
@@ -621,7 +826,7 @@ impl ChartAction {
         param: impl IntoParamName,
         expr: impl IntoExpr,
     ) -> Self {
-        self.assignments.push(ChartEventParamAssignment {
+        self.push_param(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             value: ChartActionParamValue::Expr {
                 expr: expr_node(expr.into_expr(), "event param assignment"),
@@ -638,7 +843,7 @@ impl ChartAction {
         param: impl IntoParamName,
         expr: impl IntoExpr,
     ) -> Self {
-        self.assignments.push(ChartEventParamAssignment {
+        self.push_param(ChartEventParamAssignment {
             param_name: param.into_param_name(),
             value: ChartActionParamValue::Expr {
                 expr: expr_node(expr.into_expr(), "event param assignment"),
@@ -651,7 +856,7 @@ impl ChartAction {
     }
 
     pub fn set_store(mut self, store: impl Into<String>, update: StoreUpdate) -> Self {
-        self.store_assignments.push(ChartEventStoreAssignment {
+        self.push_store(ChartEventStoreAssignment {
             store_name: store.into(),
             update,
             scope: ChartEventAssignmentScope::Current,
@@ -665,7 +870,7 @@ impl ChartAction {
         store: impl Into<String>,
         update: StoreUpdate,
     ) -> Self {
-        self.store_assignments.push(ChartEventStoreAssignment {
+        self.push_store(ChartEventStoreAssignment {
             store_name: store.into(),
             update,
             scope: ChartEventAssignmentScope::Current,
@@ -679,7 +884,7 @@ impl ChartAction {
         store: impl Into<String>,
         update: StoreUpdate,
     ) -> Self {
-        self.store_assignments.push(ChartEventStoreAssignment {
+        self.push_store(ChartEventStoreAssignment {
             store_name: store.into(),
             update,
             scope: ChartEventAssignmentScope::Start,
@@ -693,7 +898,7 @@ impl ChartAction {
         store: impl Into<String>,
         update: StoreUpdate,
     ) -> Self {
-        self.store_assignments.push(ChartEventStoreAssignment {
+        self.push_store(ChartEventStoreAssignment {
             store_name: store.into(),
             update,
             scope: ChartEventAssignmentScope::Start,
@@ -707,12 +912,11 @@ impl ChartAction {
         selection: impl Into<String>,
         update: impl Into<SelectionUpdate>,
     ) -> Self {
-        self.selection_assignments
-            .push(ChartEventSelectionAssignment {
-                selection_id: selection.into(),
-                update: update.into(),
-                scope: ChartEventAssignmentScope::Current,
-            });
+        self.push_selection(ChartEventSelectionAssignment {
+            selection_id: selection.into(),
+            update: update.into(),
+            scope: ChartEventAssignmentScope::Current,
+        });
         self
     }
 
@@ -721,12 +925,11 @@ impl ChartAction {
         selection: impl Into<String>,
         update: impl Into<SelectionUpdate>,
     ) -> Self {
-        self.selection_assignments
-            .push(ChartEventSelectionAssignment {
-                selection_id: selection.into(),
-                update: update.into(),
-                scope: ChartEventAssignmentScope::Start,
-            });
+        self.push_selection(ChartEventSelectionAssignment {
+            selection_id: selection.into(),
+            update: update.into(),
+            scope: ChartEventAssignmentScope::Start,
+        });
         self
     }
 
@@ -736,6 +939,16 @@ impl ChartAction {
 
     pub fn clear_selection_at_start_scope(self, selection: impl Into<String>) -> Self {
         self.set_selection_at_start_scope(selection, SelectionUpdate::clear())
+    }
+
+    /// Publish a cursor style if and only if the containing action transaction
+    /// commits. The expression must evaluate to a non-null UTF-8 cursor name.
+    pub fn set_cursor(mut self, cursor: impl IntoExpr) -> Self {
+        self.steps
+            .push(ChartActionStep::SetCursor(ChartEventCursorAction {
+                value: expr_node(cursor.into_expr(), "event cursor assignment"),
+            }));
+        self
     }
 
     pub fn preview(mut self) -> Self {
@@ -754,10 +967,7 @@ impl ChartAction {
     }
 
     pub fn then(mut self, next: ChartAction) -> Self {
-        self.assignments.extend(next.assignments);
-        self.store_assignments.extend(next.store_assignments);
-        self.selection_assignments
-            .extend(next.selection_assignments);
+        self.steps.extend(next.ordered_steps());
         if next.evaluation_mode == ChartEventEvaluationMode::Exact {
             self.evaluation_mode = ChartEventEvaluationMode::Exact;
         }
@@ -766,22 +976,17 @@ impl ChartAction {
     }
 
     pub fn validate(&self) -> Result<(), AvengerChartError> {
-        let mut targets = std::collections::HashSet::new();
-        for assignment in &self.assignments {
-            if !targets.insert(assignment.param_name.as_str()) {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Chart action assigns param '{}' more than once",
-                    assignment.param_name
-                )));
-            }
-        }
-        let mut selection_targets = std::collections::HashSet::new();
-        for assignment in &self.selection_assignments {
-            if !selection_targets.insert(assignment.selection_id.as_str()) {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Chart action assigns selection '{}' more than once",
-                    assignment.selection_id
-                )));
+        for step in self.ordered_steps() {
+            let target = match &step {
+                ChartActionStep::SetParam(assignment) => Some(assignment.param_name.as_str()),
+                ChartActionStep::SetStore(assignment) => Some(assignment.store_name.as_str()),
+                ChartActionStep::SetSelection(assignment) => Some(assignment.selection_id.as_str()),
+                ChartActionStep::SetCursor(_) => None,
+            };
+            if target.is_some_and(str::is_empty) {
+                return Err(AvengerChartError::InvalidArgument(
+                    "Chart action target must not be empty".to_string(),
+                ));
             }
         }
         Ok(())
@@ -791,48 +996,47 @@ impl ChartAction {
         mut self,
         f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
     ) -> Result<Self, AvengerChartError> {
-        self.assignments = self
-            .assignments
+        self.steps = self
+            .ordered_steps()
             .into_iter()
-            .map(|assignment| {
-                let value = match assignment.value {
-                    ChartActionParamValue::Expr { expr } => ChartActionParamValue::Expr {
-                        expr: map_expr_node(expr, f, "event param assignment")?,
+            .map(|step| match step {
+                ChartActionStep::SetParam(assignment) => {
+                    let value = match assignment.value {
+                        ChartActionParamValue::Expr { expr } => ChartActionParamValue::Expr {
+                            expr: map_expr_node(expr, f, "event param assignment")?,
+                        },
+                        ChartActionParamValue::RegisteredDefault => {
+                            ChartActionParamValue::RegisteredDefault
+                        }
+                    };
+                    Ok(ChartActionStep::SetParam(ChartEventParamAssignment {
+                        param_name: assignment.param_name,
+                        value,
+                        scope: assignment.scope,
+                        replace_scoped_values: assignment.replace_scoped_values,
+                        reject_null: assignment.reject_null,
+                    }))
+                }
+                ChartActionStep::SetStore(assignment) => {
+                    Ok(ChartActionStep::SetStore(ChartEventStoreAssignment {
+                        store_name: assignment.store_name,
+                        update: assignment.update.map_exprs(f)?,
+                        scope: assignment.scope,
+                        replace_scoped_values: assignment.replace_scoped_values,
+                    }))
+                }
+                ChartActionStep::SetSelection(assignment) => Ok(ChartActionStep::SetSelection(
+                    ChartEventSelectionAssignment {
+                        selection_id: assignment.selection_id,
+                        update: assignment.update.map_exprs(f)?,
+                        scope: assignment.scope,
                     },
-                    ChartActionParamValue::RegisteredDefault => {
-                        ChartActionParamValue::RegisteredDefault
-                    }
-                };
-                Ok(ChartEventParamAssignment {
-                    param_name: assignment.param_name,
-                    value,
-                    scope: assignment.scope,
-                    replace_scoped_values: assignment.replace_scoped_values,
-                    reject_null: assignment.reject_null,
-                })
-            })
-            .collect::<Result<_, AvengerChartError>>()?;
-        self.store_assignments = self
-            .store_assignments
-            .into_iter()
-            .map(|assignment| {
-                Ok(ChartEventStoreAssignment {
-                    store_name: assignment.store_name,
-                    update: assignment.update.map_exprs(f)?,
-                    scope: assignment.scope,
-                    replace_scoped_values: assignment.replace_scoped_values,
-                })
-            })
-            .collect::<Result<_, AvengerChartError>>()?;
-        self.selection_assignments = self
-            .selection_assignments
-            .into_iter()
-            .map(|assignment| {
-                Ok(ChartEventSelectionAssignment {
-                    selection_id: assignment.selection_id,
-                    update: assignment.update.map_exprs(f)?,
-                    scope: assignment.scope,
-                })
+                )),
+                ChartActionStep::SetCursor(action) => {
+                    Ok(ChartActionStep::SetCursor(ChartEventCursorAction {
+                        value: map_expr_node(action.value, f, "event cursor assignment")?,
+                    }))
+                }
             })
             .collect::<Result<_, AvengerChartError>>()?;
         Ok(self)
@@ -840,7 +1044,7 @@ impl ChartAction {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ChartEventBinding {
     pub event_type: ChartEventType,
     #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
@@ -859,143 +1063,10 @@ pub struct ChartEventBinding {
     #[serde(default)]
     mark_ids: Vec<String>,
     #[serde(default)]
-    resolved_mark_paths: Option<Vec<Vec<usize>>>,
-}
-
-impl<'de> Deserialize<'de> for ChartEventBinding {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        if deserializer.is_human_readable() {
-            #[serde_as]
-            #[derive(Deserialize)]
-            struct LegacyParamAssignment {
-                param_name: String,
-                #[serde_as(as = "FromInto<SerializableExpr>")]
-                expr: LogicalExprNode,
-                #[serde(default)]
-                scope: ChartEventAssignmentScope,
-                #[serde(default)]
-                replace_scoped_values: bool,
-                #[serde(default)]
-                reject_null: bool,
-            }
-
-            #[serde_as]
-            #[derive(Deserialize)]
-            struct HumanReadableBinding {
-                event_type: ChartEventType,
-                #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
-                filters: Vec<LogicalExprNode>,
-                between: Option<ChartEventBetween>,
-                #[serde(default)]
-                event_path_min_distance_px: Option<f32>,
-                throttle_ms: Option<u64>,
-                consume: bool,
-                #[serde(default)]
-                action: Option<ChartAction>,
-                #[serde(default)]
-                scope_target: Option<ChartEventScopeTarget>,
-                #[serde(default)]
-                surface_target: Option<ChartEventSurfaceTarget>,
-                #[serde(default)]
-                mark_ids: Vec<String>,
-                #[serde(default)]
-                resolved_mark_paths: Option<Vec<Vec<usize>>>,
-                #[serde(default)]
-                assignments: Vec<LegacyParamAssignment>,
-                #[serde(default)]
-                store_assignments: Vec<ChartEventStoreAssignment>,
-                #[serde(default)]
-                selection_assignments: Vec<ChartEventSelectionAssignment>,
-                #[serde(default)]
-                evaluation_mode: Option<ChartEventEvaluationMode>,
-                #[serde(default)]
-                settle_exact: Option<bool>,
-            }
-
-            let decoded = HumanReadableBinding::deserialize(deserializer)?;
-            let has_legacy_action = !decoded.assignments.is_empty()
-                || !decoded.store_assignments.is_empty()
-                || !decoded.selection_assignments.is_empty()
-                || decoded.evaluation_mode.is_some()
-                || decoded.settle_exact.is_some();
-            if decoded.action.is_some() && has_legacy_action {
-                return Err(D::Error::custom(
-                    "Chart event binding must not mix canonical action and legacy action fields",
-                ));
-            }
-            let action = if let Some(action) = decoded.action {
-                action
-            } else {
-                ChartAction {
-                    assignments: decoded
-                        .assignments
-                        .into_iter()
-                        .map(|assignment| ChartEventParamAssignment {
-                            param_name: assignment.param_name,
-                            value: ChartActionParamValue::Expr {
-                                expr: assignment.expr,
-                            },
-                            scope: assignment.scope,
-                            replace_scoped_values: assignment.replace_scoped_values,
-                            reject_null: assignment.reject_null,
-                        })
-                        .collect(),
-                    store_assignments: decoded.store_assignments,
-                    selection_assignments: decoded.selection_assignments,
-                    evaluation_mode: decoded.evaluation_mode.unwrap_or_default(),
-                    settle_exact: decoded.settle_exact.unwrap_or(false),
-                }
-            };
-            Ok(Self {
-                event_type: decoded.event_type,
-                filters: decoded.filters,
-                between: decoded.between,
-                event_path_min_distance_px: decoded.event_path_min_distance_px,
-                throttle_ms: decoded.throttle_ms,
-                consume: decoded.consume,
-                action,
-                scope_target: decoded.scope_target,
-                surface_target: decoded.surface_target,
-                mark_ids: decoded.mark_ids,
-                resolved_mark_paths: decoded.resolved_mark_paths,
-            })
-        } else {
-            #[serde_as]
-            #[derive(Deserialize)]
-            struct BinaryBinding {
-                event_type: ChartEventType,
-                #[serde_as(as = "Vec<FromInto<SerializableExpr>>")]
-                filters: Vec<LogicalExprNode>,
-                between: Option<ChartEventBetween>,
-                event_path_min_distance_px: Option<f32>,
-                throttle_ms: Option<u64>,
-                consume: bool,
-                action: ChartAction,
-                scope_target: Option<ChartEventScopeTarget>,
-                surface_target: Option<ChartEventSurfaceTarget>,
-                mark_ids: Vec<String>,
-                resolved_mark_paths: Option<Vec<Vec<usize>>>,
-            }
-
-            let decoded = BinaryBinding::deserialize(deserializer)?;
-            Ok(Self {
-                event_type: decoded.event_type,
-                filters: decoded.filters,
-                between: decoded.between,
-                event_path_min_distance_px: decoded.event_path_min_distance_px,
-                throttle_ms: decoded.throttle_ms,
-                consume: decoded.consume,
-                action: decoded.action,
-                scope_target: decoded.scope_target,
-                surface_target: decoded.surface_target,
-                mark_ids: decoded.mark_ids,
-                resolved_mark_paths: decoded.resolved_mark_paths,
-            })
-        }
-    }
+    resolved_mark_ids: Vec<crate::MarkId>,
+    /// State targets resolved to typed runtime identities at chart compilation.
+    #[serde(default)]
+    resolved_actions: Vec<ChartEventAction>,
 }
 
 impl ChartEventBinding {
@@ -1011,7 +1082,8 @@ impl ChartEventBinding {
             scope_target: None,
             surface_target: None,
             mark_ids: Vec::new(),
-            resolved_mark_paths: None,
+            resolved_mark_ids: Vec::new(),
+            resolved_actions: Vec::new(),
         }
     }
 
@@ -1034,7 +1106,8 @@ impl ChartEventBinding {
             scope_target: None,
             surface_target: None,
             mark_ids: Vec::new(),
-            resolved_mark_paths: None,
+            resolved_mark_ids: Vec::new(),
+            resolved_actions: Vec::new(),
         }
     }
 
@@ -1057,13 +1130,24 @@ impl ChartEventBinding {
     }
 
     #[doc(hidden)]
-    pub fn resolved_mark_paths(&self) -> Option<&[Vec<usize>]> {
-        self.resolved_mark_paths.as_deref()
+    pub fn resolved_mark_ids(&self) -> &[crate::MarkId] {
+        &self.resolved_mark_ids
     }
 
     #[doc(hidden)]
-    pub fn with_resolved_mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
-        self.resolved_mark_paths = Some(paths);
+    pub fn with_resolved_mark_ids(mut self, ids: Vec<crate::MarkId>) -> Self {
+        self.resolved_mark_ids = ids;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn resolved_actions(&self) -> &[ChartEventAction] {
+        &self.resolved_actions
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_actions(mut self, actions: Vec<ChartEventAction>) -> Self {
+        self.resolved_actions = actions;
         self
     }
 
@@ -1255,6 +1339,11 @@ impl ChartEventBinding {
 
     pub fn clear_selection_at_start_scope(self, selection: impl Into<String>) -> Self {
         self.set_selection_at_start_scope(selection, SelectionUpdate::clear())
+    }
+
+    pub fn set_cursor(mut self, cursor: impl IntoExpr) -> Self {
+        self.action = self.action.set_cursor(cursor);
+        self
     }
 
     pub fn then(mut self, action: ChartAction) -> Self {
@@ -1726,16 +1815,24 @@ pub fn rewrite_reserved_event_binding_local_datums(
     for filter in &mut binding.filters {
         rewrite_expr_node_reserved_datums(filter, ctx)?;
     }
-    for assignment in &mut binding.action.assignments {
-        if let ChartActionParamValue::Expr { expr } = &mut assignment.value {
-            rewrite_expr_node_reserved_datums(expr, ctx)?;
+    binding.action.steps = binding.action.ordered_steps();
+    for step in &mut binding.action.steps {
+        match step {
+            ChartActionStep::SetParam(assignment) => {
+                if let ChartActionParamValue::Expr { expr } = &mut assignment.value {
+                    rewrite_expr_node_reserved_datums(expr, ctx)?;
+                }
+            }
+            ChartActionStep::SetStore(assignment) => {
+                rewrite_store_update_reserved_datums(&mut assignment.update, ctx)?;
+            }
+            ChartActionStep::SetSelection(assignment) => {
+                rewrite_selection_update_reserved_datums(&mut assignment.update, ctx)?;
+            }
+            ChartActionStep::SetCursor(action) => {
+                rewrite_expr_node_reserved_datums(&mut action.value, ctx)?;
+            }
         }
-    }
-    for assignment in &mut binding.action.store_assignments {
-        rewrite_store_update_reserved_datums(&mut assignment.update, ctx)?;
-    }
-    for assignment in &mut binding.action.selection_assignments {
-        rewrite_selection_update_reserved_datums(&mut assignment.update, ctx)?;
     }
     if let Some(between) = &mut binding.between {
         rewrite_event_stream_reserved_datums(&mut between.start, ctx)?;
@@ -2104,24 +2201,31 @@ pub fn scan_chart_event_binding_interaction_columns(
     for filter in &binding.filters {
         exprs.push(filter.to_expr(ctx)?);
     }
-    for assignment in &binding.action.assignments {
-        if let ChartActionParamValue::Expr { expr } = &assignment.value {
-            exprs.push(expr.to_expr(ctx)?);
+    for step in binding.action.ordered_steps() {
+        match step {
+            ChartActionStep::SetParam(assignment) => {
+                if let ChartActionParamValue::Expr { expr } = assignment.value {
+                    exprs.push(expr.to_expr(ctx)?);
+                }
+            }
+            ChartActionStep::SetStore(assignment) => {
+                collect_store_update_exprs(&assignment.update, ctx, &mut exprs)?;
+            }
+            ChartActionStep::SetSelection(assignment) => {
+                collect_selection_update_exprs(&assignment.update, ctx, &mut exprs)?;
+            }
+            ChartActionStep::SetCursor(action) => exprs.push(action.value.to_expr(ctx)?),
         }
-    }
-    for assignment in &binding.action.store_assignments {
-        collect_store_update_exprs(&assignment.update, ctx, &mut exprs)?;
-    }
-    for assignment in &binding.action.selection_assignments {
-        collect_selection_update_exprs(&assignment.update, ctx, &mut exprs)?;
     }
     if let Some(between) = &binding.between {
         collect_event_stream_exprs(&between.start, ctx, &mut exprs)?;
         collect_event_stream_exprs(&between.end, ctx, &mut exprs)?;
     }
     let mut requests = scan_interaction_columns(&exprs);
-    for assignment in &binding.action.selection_assignments {
-        collect_selection_update_datum_requests(&assignment.update, &mut requests);
+    for step in binding.action.ordered_steps() {
+        if let ChartActionStep::SetSelection(assignment) = step {
+            collect_selection_update_datum_requests(&assignment.update, &mut requests);
+        }
     }
     Ok(requests)
 }
@@ -2296,13 +2400,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn chart_event_binding_rejects_duplicate_assignments() {
+    fn chart_event_binding_preserves_repeated_assignments_in_source_order() {
         let binding = ChartEventBinding::on(ChartEventType::CanvasResize)
             .set_param("width", canvas_width())
             .set_param("width", canvas_height());
 
-        let err = binding.validate().expect_err("duplicate assignment");
-        assert!(err.to_string().contains("more than once"));
+        binding
+            .validate()
+            .expect("ordered actions may write one target more than once");
+        assert_eq!(
+            binding
+                .action
+                .param_steps()
+                .map(|assignment| assignment.param_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["width", "width"]
+        );
     }
 
     #[test]
@@ -2556,88 +2669,10 @@ mod tests {
         let json = serde_json::to_string(&binding).expect("serialize binding");
         let restored: ChartEventBinding = serde_json::from_str(&json).expect("deserialize binding");
         assert_eq!(restored.event_type, ChartEventType::CursorMoved);
-        assert_eq!(restored.action.assignments.len(), 1);
-        assert!(restored.action.assignments[0].reject_null);
+        assert_eq!(restored.action.param_steps().count(), 1);
+        assert!(restored.action.param_steps().next().unwrap().reject_null);
         assert!(restored.action.settle_exact);
         assert_eq!(restored.event_path_min_distance_px, Some(6.0));
-    }
-
-    #[test]
-    fn chart_event_binding_accepts_legacy_flat_json_and_emits_canonical_action() {
-        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
-            .filter(shift().eq(lit(false)))
-            .set_param_required("x0", start_param("x0") + dx())
-            .exact()
-            .settle_exact();
-        let mut legacy = serde_json::to_value(&binding).expect("serialize canonical binding");
-        let object = legacy.as_object_mut().expect("binding JSON object");
-        let mut action = object
-            .remove("action")
-            .expect("canonical action")
-            .as_object()
-            .expect("action JSON object")
-            .clone();
-        let mut assignments = action
-            .remove("assignments")
-            .expect("canonical assignments")
-            .as_array()
-            .expect("assignment array")
-            .clone();
-        for assignment in &mut assignments {
-            let assignment = assignment.as_object_mut().expect("assignment JSON object");
-            let mut value = assignment
-                .remove("value")
-                .expect("tagged assignment value")
-                .as_object()
-                .expect("tagged assignment object")
-                .clone();
-            let mut expr_variant = value
-                .remove("expr")
-                .expect("expression variant")
-                .as_object()
-                .expect("expression variant object")
-                .clone();
-            assignment.insert(
-                "expr".to_string(),
-                expr_variant.remove("expr").expect("expression"),
-            );
-        }
-        object.insert("assignments".to_string(), assignments.into());
-        object.insert(
-            "store_assignments".to_string(),
-            action
-                .remove("store_assignments")
-                .expect("store assignments"),
-        );
-        object.insert(
-            "selection_assignments".to_string(),
-            action
-                .remove("selection_assignments")
-                .expect("selection assignments"),
-        );
-        object.insert(
-            "evaluation_mode".to_string(),
-            action.remove("evaluation_mode").expect("evaluation mode"),
-        );
-        object.insert(
-            "settle_exact".to_string(),
-            action.remove("settle_exact").expect("settle exact"),
-        );
-
-        let restored: ChartEventBinding =
-            serde_json::from_value(legacy).expect("deserialize legacy flattened binding");
-        assert_eq!(restored.action.assignments.len(), 1);
-        assert!(restored.action.assignments[0].reject_null);
-        assert_eq!(
-            restored.action.evaluation_mode,
-            ChartEventEvaluationMode::Exact
-        );
-        assert!(restored.action.settle_exact);
-
-        let canonical = serde_json::to_value(restored).expect("serialize migrated binding");
-        assert!(canonical.get("action").is_some());
-        assert!(canonical.get("assignments").is_none());
-        assert!(canonical.get("evaluation_mode").is_none());
     }
 
     #[test]
@@ -2658,7 +2693,7 @@ mod tests {
             bincode::deserialize(&bytes).expect("deserialize binding");
         assert_eq!(restored.event_type, ChartEventType::CursorMoved);
         assert_eq!(restored.filters.len(), 1);
-        assert_eq!(restored.action.assignments.len(), 1);
+        assert_eq!(restored.action.param_steps().count(), 1);
         assert!(restored.action.settle_exact);
         assert_eq!(restored.event_path_min_distance_px, Some(6.0));
     }
@@ -2668,9 +2703,10 @@ mod tests {
         let action = ChartAction::new().reset_param("threshold").exact();
         let bytes = bincode::serialize(&action).expect("serialize chart action");
         let restored: ChartAction = bincode::deserialize(&bytes).expect("deserialize chart action");
-        assert_eq!(restored.assignments[0].param_name, "threshold");
+        let assignment = restored.param_steps().next().unwrap();
+        assert_eq!(assignment.param_name, "threshold");
         assert!(matches!(
-            restored.assignments[0].value,
+            assignment.value,
             ChartActionParamValue::RegisteredDefault
         ));
         assert_eq!(restored.evaluation_mode, ChartEventEvaluationMode::Exact);
@@ -2690,7 +2726,7 @@ mod tests {
             bincode::deserialize(&bytes).expect("deserialize reaction");
         assert_eq!(restored, binding);
         assert_eq!(restored.source_param_name, "source");
-        assert_eq!(restored.action.assignments.len(), 2);
+        assert_eq!(restored.action.param_steps().count(), 2);
         assert_eq!(
             restored.action.evaluation_mode,
             ChartEventEvaluationMode::Exact
@@ -2744,9 +2780,9 @@ mod tests {
         let json = serde_json::to_string(&binding).expect("serialize scene query binding");
         let restored: ChartEventBinding =
             serde_json::from_str(&json).expect("deserialize scene query binding");
-        assert_eq!(restored.action.selection_assignments.len(), 1);
+        assert_eq!(restored.action.selection_steps().count(), 1);
         assert!(matches!(
-            restored.action.selection_assignments[0].update,
+            restored.action.selection_steps().next().unwrap().update,
             SelectionUpdate::ReplaceAllFromSceneQuery { .. }
         ));
 

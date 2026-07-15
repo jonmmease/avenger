@@ -321,14 +321,13 @@ async fn violin_compound_event_targets_resolve_body_part() {
         .event_bindings()
         .iter()
         .map(|binding| {
-            binding
+            let ids = binding
                 .between
                 .as_ref()
                 .expect("between binding")
                 .start
-                .resolved_mark_paths()
-                .map(|paths| paths.to_vec())
-                .expect("resolved mark paths")
+                .resolved_mark_ids();
+            compiled.runtime_paths_for_mark_ids(ids).unwrap()
         })
         .collect::<Vec<_>>();
     assert_eq!(resolved_start_paths, vec![vec![vec![0]], vec![vec![0]]]);
@@ -357,12 +356,14 @@ async fn violin_compound_scene_query_targets_resolve_body_part() {
 
     let binding = compiled.event_bindings().first().expect("event binding");
     let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-        &binding.action.selection_assignments[0].update
+        &binding.action.selection_steps().next().unwrap().update
     else {
         panic!("expected scene query selection update");
     };
     assert_eq!(
-        query.query.target.resolved_mark_paths(),
-        Some(&[vec![0usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(query.query.target.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![0usize]]
     );
 }

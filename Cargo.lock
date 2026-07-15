@@ -792,6 +792,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-chart-lang-registry"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-chart",
+ "avenger-chart-cartesian",
+ "avenger-chart-core",
+ "avenger-chart-marks",
+ "avenger-chart-scales",
+ "avenger-chart-schema",
+ "avenger-chart-tools",
+ "avenger-chart-transforms",
+ "avenger-chart-widgets",
+ "bincode",
+ "datafusion",
+ "indexmap 2.14.0",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-chart-legend"
 version = "0.1.0"
 dependencies = [
@@ -936,6 +960,16 @@ dependencies = [
  "tokio",
  "tracing",
  "typetag",
+]
+
+[[package]]
+name = "avenger-chart-schema"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.14.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

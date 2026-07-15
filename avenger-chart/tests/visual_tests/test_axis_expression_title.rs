@@ -37,7 +37,17 @@ async fn test_axis_title_with_parameter_expression() {
     let df = create_test_data(&ctx);
 
     // Create a parameter for the axis unit
-    let unit_param = Param::new("unit", ScalarValue::Utf8(Some("meters".to_string())));
+    let unit_param = {
+        let __avenger_param_name = "unit";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(Some("meters".to_string()))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create CASE expression for dynamic x-axis title based on unit parameter
     // Note: Must use .expr() for CASE expressions since .eq() is an Expr method

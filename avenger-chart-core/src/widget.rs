@@ -22,8 +22,9 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, CompiledDataContext, CompiledMark, CompiledParamSpec,
-    DefaultLogicalExprNodeExt, IntoExpr, LegendPosition, PixelFrame, ThemeValue, ToolExpansion,
+    AvengerChartError, CompiledDataContext, CompiledIdentityAllocator, CompiledMark,
+    CompiledParamSpec, DefaultLogicalExprNodeExt, IntoExpr, LegendPosition, PixelFrame, ThemeValue,
+    ToolBehaviorExpansion, ToolInstanceId, WidgetInstanceId,
     serialization::{SerializableExpr, SerializableScalar},
 };
 
@@ -32,11 +33,28 @@ pub type ChromePosition = LegendPosition;
 #[derive(Clone, Debug)]
 pub struct WidgetExpansionContext<'a> {
     pub widget_id: &'a str,
+    pub instance_id: WidgetInstanceId,
+    pub behavior_instance_id: ToolInstanceId,
 }
 
 impl<'a> WidgetExpansionContext<'a> {
-    pub const fn new(widget_id: &'a str) -> Self {
-        Self { widget_id }
+    pub fn new(widget_id: &'a str) -> Self {
+        let mut allocator = CompiledIdentityAllocator::new(format!("widget-context:{widget_id}"));
+        let instance_id = allocator.allocate_widget_instance();
+        let behavior_instance_id = allocator.widget_behavior_instance(&instance_id);
+        Self {
+            widget_id,
+            instance_id,
+            behavior_instance_id,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_instance(mut self, instance_id: WidgetInstanceId) -> Self {
+        self.behavior_instance_id =
+            CompiledIdentityAllocator::default().widget_behavior_instance(&instance_id);
+        self.instance_id = instance_id;
+        self
     }
 
     /// Reference one resolved part style from a widget mark expression.
@@ -117,7 +135,8 @@ pub fn widget_style_input_name(part: Option<&str>, property: WidgetStyleProperty
 }
 
 pub struct WidgetExpansion {
-    pub expansion: ToolExpansion<PixelFrame>,
+    pub instance_id: WidgetInstanceId,
+    pub behavior: ToolBehaviorExpansion<PixelFrame>,
     pub items: Option<WidgetItems>,
     pub measure: WidgetMeasureSpec,
     pub presentation: WidgetPresentationBindings,
@@ -855,13 +874,6 @@ pub fn is_decorative_widget_part(name: &str) -> bool {
     )
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct WidgetThemeProvenance {
-    pub widget_kind: String,
-    pub widget_id: String,
-    pub part: String,
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WidgetPresentationState {
     pub variant: Option<String>,
@@ -1197,6 +1209,15 @@ impl NativeWidgetStateSpec {
     pub fn params(&self) -> &[CompiledParamSpec] {
         &self.params
     }
+
+    #[doc(hidden)]
+    pub fn with_instance_identity(mut self, instance_id: &WidgetInstanceId) -> Self {
+        for (ordinal, param) in self.params.iter_mut().enumerate() {
+            param.runtime_id =
+                CompiledIdentityAllocator::derive_widget_param(instance_id, ordinal as u64);
+        }
+        self
+    }
 }
 
 pub trait NativeWidget: Send + Sync + 'static {
@@ -1381,8 +1402,12 @@ pub struct CompiledWidgetItemPlan {
 pub struct CompiledComposedWidget {
     pub id: String,
     pub kind: String,
+    pub behavior_instance_id: ToolInstanceId,
+    pub behavior_exports: Vec<crate::ToolExport>,
     pub marks: Vec<Arc<dyn CompiledMark>>,
     pub relative_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
+    #[serde(default)]
+    pub relative_target_ids: BTreeMap<String, Vec<crate::MarkId>>,
     pub measure: WidgetMeasureSpec,
     pub items: Option<CompiledWidgetItemPlan>,
     #[serde(default)]
@@ -1425,6 +1450,7 @@ impl CompiledWidget {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct CompiledWidgetAttachment {
+    pub instance_id: crate::WidgetInstanceId,
     pub widget: CompiledWidget,
     pub placement: WidgetPlacement,
     pub declaration_order: u64,
@@ -1485,7 +1511,16 @@ mod tests {
 
     #[test]
     fn native_state_names_are_unique() {
-        let param = crate::Param::new("value", 1_i64);
+        let param = {
+            let __avenger_param_name = "value";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            crate::Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let spec = CompiledParamSpec::shared(&param);
         assert!(NativeWidgetStateSpec::try_new(vec![spec.clone(), spec]).is_err());
     }
@@ -1497,7 +1532,16 @@ mod tests {
             params: Vec<CompiledParamSpec>,
         }
 
-        let spec = CompiledParamSpec::shared(&crate::Param::new("value", 1_i64));
+        let spec = CompiledParamSpec::shared(&{
+            let __avenger_param_name = "value";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            crate::Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        });
         let bytes = bincode::serialize(&UncheckedState {
             params: vec![spec.clone(), spec],
         })
@@ -1549,6 +1593,28 @@ mod tests {
         assert!(
             matches!(fill, ThemeValue::Color(color) if color.blue == 178),
             "unexpected part fill: {fill:?}"
+        );
+    }
+
+    #[test]
+    fn compound_component_kind_and_part_use_the_same_part_cascade() {
+        let mut theme = crate::Theme::light();
+        theme
+            .append_css(
+                r#"
+                mark[type="rect"] { fill: #cc0000; }
+                box-plot::part(box) { fill: #009e73; }
+                "#,
+            )
+            .unwrap();
+        let host = crate::ThemeContext::new("box-plot", IndexMap::new()).with_id("summary");
+        let part = crate::ThemeContext::new("mark", IndexMap::new())
+            .with_subtype("rect")
+            .with_part("box", host);
+        let fill = theme.query_component_part(&part, "fill").unwrap();
+        assert!(
+            matches!(fill, ThemeValue::Color(color) if (color.red, color.green, color.blue) == (0, 158, 115)),
+            "unexpected component part fill: {fill:?}"
         );
     }
 

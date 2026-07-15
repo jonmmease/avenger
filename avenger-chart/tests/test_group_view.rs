@@ -57,6 +57,11 @@ async fn group_view_lowers_onto_children() {
         ),
     );
     let compiled = plot.compile(&ctx).await.unwrap();
+    let first_view = compiled.marks()[0].state().view.as_ref().unwrap();
+    let second_view = compiled.marks()[1].state().view.as_ref().unwrap();
+    assert!(!first_view.spec.runtime_id().is_unresolved());
+    assert_eq!(first_view.spec.runtime_id(), second_view.spec.runtime_id());
+    assert_eq!(first_view.spec.source_name(), "pts");
     let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
     assert_eq!(count_symbols(&evaluated.scene_graph), 10);
 }
@@ -82,6 +87,22 @@ async fn group_view_serialization_round_trip() {
     let serialized = serde_json::to_string(&compiled).expect("serialize compiled plot");
     let deserialized: avenger_chart::plot::CompiledPlot =
         serde_json::from_str(&serialized).expect("deserialize compiled plot");
+    assert_eq!(
+        compiled.marks()[0]
+            .state()
+            .view
+            .as_ref()
+            .unwrap()
+            .spec
+            .runtime_id(),
+        deserialized.marks()[0]
+            .state()
+            .view
+            .as_ref()
+            .unwrap()
+            .spec
+            .runtime_id()
+    );
     let round_tripped = deserialized.evaluate(&ctx, None).await.unwrap();
 
     assert_eq!(
@@ -124,7 +145,17 @@ fn collect_symbol_sizes(scene: &SceneGraph) -> Vec<f32> {
 #[tokio::test]
 async fn group_view_shared_chain_feeds_both_children() {
     let ctx = SessionContext::new();
-    let cutoff = Param::new("cutoff", ScalarValue::Float64(Some(10.0)));
+    let cutoff = {
+        let __avenger_param_name = "cutoff";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(10.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let df = xy_dataframe(&ctx, 5).await;
     let plot = Chart::<Cartesian>::new().param(cutoff.clone()).mark(
         MarkGroup::<Cartesian>::new().data(df).view(
@@ -385,7 +416,7 @@ async fn nested_group_views_error() {
     );
 }
 
-/// Duplicate view ids across the plot are rejected.
+/// Duplicate view source names across the plot are rejected.
 #[tokio::test]
 async fn duplicate_view_ids_error() {
     let ctx = SessionContext::new();
@@ -406,9 +437,40 @@ async fn duplicate_view_ids_error() {
         .compile(&ctx)
         .await
         .err()
-        .expect("duplicate view ids should fail");
+        .expect("duplicate view names should fail");
     assert!(
-        err.to_string().contains("Duplicate view id 'pts'"),
+        err.to_string().contains("Duplicate inline view name 'pts'"),
         "unexpected error: {err}"
     );
+}
+
+#[tokio::test]
+async fn view_helper_reference_cannot_escape_to_a_sibling_mark() {
+    let ctx = SessionContext::new();
+    let df = xy_dataframe(&ctx, 3).await;
+    let mut escaped = None;
+    let viewed = Symbol::new().data(df.clone()).view(
+        View::cartesian()
+            .id("owned")
+            .x_domain(col("x"))
+            .y_domain(col("y")),
+        |mark, view| {
+            escaped = Some(view.x().domain_start());
+            mark.x(col("x")).y(col("y"))
+        },
+    );
+    let sibling = Symbol::new()
+        .data(df)
+        .x(escaped.expect("view helper captured"))
+        .y(col("y"));
+
+    let error = Chart::<Cartesian>::new()
+        .mark(viewed)
+        .mark(sibling)
+        .compile(&ctx)
+        .await
+        .err()
+        .expect("escaped view helper must fail");
+    assert!(error.to_string().contains("escaped"), "{error}");
+    assert!(error.to_string().contains("owned"), "{error}");
 }

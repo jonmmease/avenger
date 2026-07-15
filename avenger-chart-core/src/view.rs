@@ -2,14 +2,20 @@
 
 use std::time::Duration;
 
-use datafusion::{logical_expr::Expr, scalar::ScalarValue};
+use datafusion::{
+    arrow::datatypes::DataType,
+    common::tree_node::{TreeNode, TreeNodeRecursion},
+    logical_expr::Expr,
+    scalar::ScalarValue,
+};
 use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, CompiledDataContext, DataContext, DefaultLogicalExprNodeExt, IntoExpr,
-    Param, RepeatContext, SerializableExpr, resolve_repeat_placeholders, validate_structural_id,
+    Param, RepeatContext, SerializableExpr, ViewId, resolve_repeat_placeholders,
+    validate_structural_id,
 };
 
 /// How a view-scoped mark should behave while a newer view-local result is pending.
@@ -128,12 +134,13 @@ impl ViewSpec for CartesianView {
         })?;
 
         let spec = CompiledViewSpec::Cartesian(CompiledCartesianViewSpec {
-            id: id.clone(),
+            runtime_id: ViewId::default(),
+            source_name: id.clone(),
             x_domain: LogicalExprNode::from_default_expr(x_domain)?,
             y_domain: LogicalExprNode::from_default_expr(y_domain)?,
             policy: self.policy,
         });
-        Ok((spec, ViewRef { id }))
+        Ok((spec, ViewRef { source_name: id }))
     }
 }
 
@@ -182,10 +189,11 @@ impl ViewSpec for PixelFrameView {
         })?;
         validate_structural_id("view", &id)?;
         let spec = CompiledViewSpec::PixelFrame(CompiledPixelFrameViewSpec {
-            id: id.clone(),
+            runtime_id: ViewId::default(),
+            source_name: id.clone(),
             policy: self.policy,
         });
-        Ok((spec, ViewRef { id }))
+        Ok((spec, ViewRef { source_name: id }))
     }
 }
 
@@ -275,10 +283,28 @@ impl<'de> Deserialize<'de> for CompiledViewSpec {
 }
 
 impl CompiledViewSpec {
-    pub fn id(&self) -> &str {
+    /// Opaque runtime identity assigned at the plot compilation boundary.
+    pub fn runtime_id(&self) -> &ViewId {
         match self {
-            Self::Cartesian(spec) => &spec.id,
-            Self::PixelFrame(spec) => &spec.id,
+            Self::Cartesian(spec) => &spec.runtime_id,
+            Self::PixelFrame(spec) => &spec.runtime_id,
+        }
+    }
+
+    /// Author-facing name retained for diagnostics and view helper lowering.
+    pub fn source_name(&self) -> &str {
+        match self {
+            Self::Cartesian(spec) => &spec.source_name,
+            Self::PixelFrame(spec) => &spec.source_name,
+        }
+    }
+
+    /// Assign the opaque runtime identity during root plot compilation.
+    #[doc(hidden)]
+    pub fn set_runtime_id(&mut self, runtime_id: ViewId) {
+        match self {
+            Self::Cartesian(spec) => spec.runtime_id = runtime_id,
+            Self::PixelFrame(spec) => spec.runtime_id = runtime_id,
         }
     }
 
@@ -291,7 +317,7 @@ impl CompiledViewSpec {
 
     pub fn view_ref(&self) -> ViewRef {
         ViewRef {
-            id: self.id().to_string(),
+            source_name: self.source_name().to_string(),
         }
     }
 
@@ -306,7 +332,8 @@ impl CompiledViewSpec {
 /// Serialized scale-free view for a logical-pixel frame.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompiledPixelFrameViewSpec {
-    pub id: String,
+    pub runtime_id: ViewId,
+    pub source_name: String,
     pub policy: ViewAsyncPolicy,
 }
 
@@ -314,7 +341,8 @@ pub struct CompiledPixelFrameViewSpec {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompiledCartesianViewSpec {
-    pub id: String,
+    pub runtime_id: ViewId,
+    pub source_name: String,
     #[serde_as(as = "FromInto<SerializableExpr>")]
     pub x_domain: LogicalExprNode,
     #[serde_as(as = "FromInto<SerializableExpr>")]
@@ -326,7 +354,8 @@ impl CompiledCartesianViewSpec {
     pub fn resolve_repeat(&self, ctx: &RepeatContext) -> Result<Self, AvengerChartError> {
         let session_context = datafusion::prelude::SessionContext::new();
         Ok(Self {
-            id: self.id.clone(),
+            runtime_id: self.runtime_id.clone(),
+            source_name: self.source_name.clone(),
             x_domain: LogicalExprNode::from_default_expr(resolve_repeat_placeholders(
                 self.x_domain.to_default_expr(&session_context)?,
                 ctx,
@@ -392,23 +421,30 @@ impl CompiledViewScope {
     }
 }
 
-/// Runtime expression handle passed into `mark.view(...)` closures.
+/// Authoring expression handle passed into an inline `mark.view(...)` or
+/// `group.view(...)` closure.
+///
+/// The handle belongs only to that closure's inline view scope. Compilation
+/// rejects helper expressions that escape to a parent, sibling, or a different
+/// inline view. It is not a reusable chart resource and does not expose the
+/// opaque [`ViewId`] assigned to the compiled scope.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewRef {
-    id: String,
+    source_name: String,
 }
 
 impl ViewRef {
+    /// Author-facing view name used in diagnostics.
     pub fn id(&self) -> &str {
-        &self.id
+        &self.source_name
     }
 
     pub fn x(&self) -> ViewAxisRef {
-        ViewAxisRef::new(self.id.clone(), ViewAxis::X)
+        ViewAxisRef::new(self.source_name.clone(), ViewAxis::X)
     }
 
     pub fn y(&self) -> ViewAxisRef {
-        ViewAxisRef::new(self.id.clone(), ViewAxis::Y)
+        ViewAxisRef::new(self.source_name.clone(), ViewAxis::Y)
     }
 }
 
@@ -441,11 +477,23 @@ impl ViewAxisRef {
     }
 
     pub fn pixels(&self) -> Expr {
-        Param::new(self.param_name("pixels"), ScalarValue::UInt32(Some(1))).expr()
+        Param::typed(
+            self.param_name("pixels"),
+            DataType::UInt32,
+            ScalarValue::UInt32(Some(1)),
+        )
+        .expect("view pixel helper declares a matching UInt32 default")
+        .expr()
     }
 
     fn float_param(&self, field: &str) -> Expr {
-        Param::new(self.param_name(field), ScalarValue::Float64(Some(0.0))).expr()
+        Param::typed(
+            self.param_name(field),
+            DataType::Float64,
+            ScalarValue::Float64(Some(0.0)),
+        )
+        .expect("view numeric helper declares a matching Float64 default")
+        .expr()
     }
 
     pub fn param_name(&self, field: &str) -> String {
@@ -471,6 +519,91 @@ impl ViewAxis {
             Self::Y => "y",
         }
     }
+}
+
+const VIEW_PLACEHOLDER_PREFIX: &str = "$__avenger_view_";
+
+fn view_source_name_from_placeholder(id: &str) -> Option<&str> {
+    let body = id.strip_prefix(VIEW_PLACEHOLDER_PREFIX)?;
+    for suffix in [
+        "_x_domain_start",
+        "_x_domain_end",
+        "_x_range_start",
+        "_x_range_end",
+        "_x_pixels",
+        "_y_domain_start",
+        "_y_domain_end",
+        "_y_range_start",
+        "_y_range_end",
+        "_y_pixels",
+    ] {
+        if let Some(source_name) = body.strip_suffix(suffix) {
+            return Some(source_name);
+        }
+    }
+    None
+}
+
+fn collect_view_reference_names(
+    expr: &Expr,
+    names: &mut Vec<String>,
+) -> Result<(), AvengerChartError> {
+    expr.apply(|candidate| {
+        if let Expr::Placeholder(placeholder) = candidate
+            && placeholder.id.starts_with(VIEW_PLACEHOLDER_PREFIX)
+        {
+            names.push(
+                view_source_name_from_placeholder(&placeholder.id)
+                    .unwrap_or("<malformed>")
+                    .to_string(),
+            );
+        }
+        Ok(TreeNodeRecursion::Continue)
+    })
+    .map_err(AvengerChartError::DataFusionError)?;
+    Ok(())
+}
+
+/// Validate that reserved view helpers occur only in their owning inline
+/// view's data context.
+#[doc(hidden)]
+pub fn validate_inline_view_references(
+    data: &DataContext,
+    allowed_source_name: Option<&str>,
+    diagnostic_context: &str,
+) -> Result<(), AvengerChartError> {
+    let session_context = datafusion::prelude::SessionContext::new();
+    let mut names = Vec::new();
+    for value in data.channels().values() {
+        for expr in value.all_exprs(&session_context) {
+            collect_view_reference_names(&expr, &mut names)?;
+        }
+    }
+    for value in data.pattern_channels().values() {
+        for expr in value.all_exprs(&session_context) {
+            collect_view_reference_names(&expr, &mut names)?;
+        }
+    }
+    for stage in data.transforms() {
+        stage.map_exprs(&mut |expr| {
+            collect_view_reference_names(&expr, &mut names)?;
+            Ok(expr)
+        })?;
+    }
+
+    names.sort();
+    names.dedup();
+    for referenced_name in names {
+        if allowed_source_name != Some(referenced_name.as_str()) {
+            let owner = allowed_source_name
+                .map(|name| format!("inline view '{name}'"))
+                .unwrap_or_else(|| "a non-view scope".to_string());
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "View helper for '{referenced_name}' escaped into {diagnostic_context} ({owner}); view references are valid only within their owning inline view scope"
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -578,8 +711,25 @@ mod tests {
     }
 
     #[test]
+    fn inline_view_helper_validation_rejects_escaped_and_cross_scope_refs() {
+        let (_, first) = View::pixel_frame()
+            .id("first")
+            .into_compiled_and_ref()
+            .unwrap();
+        let data = DataContext::default()
+            .with_channel_value("x", ChannelValue::from(first.x().domain_start()));
+
+        validate_inline_view_references(&data, Some("first"), "owning view").unwrap();
+        let escaped = validate_inline_view_references(&data, None, "sibling mark").unwrap_err();
+        assert!(escaped.to_string().contains("escaped"), "{escaped}");
+        let crossed =
+            validate_inline_view_references(&data, Some("second"), "other view").unwrap_err();
+        assert!(crossed.to_string().contains("first"), "{crossed}");
+    }
+
+    #[test]
     fn pixel_frame_view_is_scale_free_and_binary_stable() {
-        let (spec, view_ref) = View::pixel_frame()
+        let (mut spec, view_ref) = View::pixel_frame()
             .id("widget_part")
             .preview_cached(true)
             .into_compiled_and_ref()
@@ -587,6 +737,9 @@ mod tests {
         assert_eq!(view_ref.id(), "widget_part");
         assert!(matches!(spec, CompiledViewSpec::PixelFrame(_)));
         assert_eq!(spec.policy().stale_policy, ViewStalePolicy::RetargetCached);
+        assert!(spec.runtime_id().is_unresolved());
+        spec.set_runtime_id(crate::CompiledIdentityAllocator::new("view-test").allocate_view());
+        assert!(!spec.runtime_id().is_unresolved());
 
         let decoded: CompiledViewSpec =
             bincode::deserialize(&bincode::serialize(&spec).unwrap()).unwrap();
@@ -676,23 +829,26 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Nested mark.view(...) scopes are not supported")]
-    fn nested_view_scopes_are_rejected() {
-        let _mark = TestMark::<()>::new().view(
+    fn nested_view_scopes_return_a_structured_error() {
+        let error = match TestMark::<()>::new().try_view(
             View::cartesian()
                 .id("outer")
                 .x_domain(col("x"))
                 .y_domain(col("y")),
             |mark, _| {
-                mark.view(
+                mark.try_view(
                     View::cartesian()
                         .id("inner")
                         .x_domain(col("x"))
                         .y_domain(col("y")),
-                    |mark, _| mark,
+                    |mark, _| Ok(mark),
                 )
             },
-        );
+        ) {
+            Ok(_) => panic!("nested inline view must fail"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("Nested mark.view"), "{error}");
     }
 
     #[test]

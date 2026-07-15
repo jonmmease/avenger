@@ -6,11 +6,12 @@ use std::{
 };
 
 use avenger_chart_core::{
-    Auto, AvengerChartError, ChartEventBinding, ChartParamChangeBinding, CompiledParamSpec,
-    CompiledSelectionSpec, CompiledStoreSpec, CoordinateSystemCore, CoordinateSystemTransform,
-    CoordinationScope, DefaultLogicalExprNodeExt, DomainCoordination, DomainCoordinationGroup,
-    FormattingContext, Param, RepeatContext, Scale, Selection, Store, TimeContext,
-    resolve_repeat_placeholders,
+    Auto, AvengerChartError, ChartEventBinding, ChartParamChangeBinding, CompiledIdentityAllocator,
+    CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledToolBehavior,
+    CoordinateSystemCore, CoordinateSystemTransform, CoordinationScope, DefaultLogicalExprNodeExt,
+    DomainCoordination, DomainCoordinationGroup, FormattingContext, Param, RepeatContext,
+    ResolvedStateDeclaration, Scale, Selection, Store, TimeContext, ToolBehaviorExpansion,
+    ToolInstanceId, resolve_repeat_placeholders,
 };
 use avenger_chart_scales::PlotScaleSpec;
 use datafusion::prelude::lit;
@@ -18,8 +19,9 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 
 pub use avenger_chart_core::{
-    ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
-    ToolParamSharing, ToolScaleEdit, ToolScaleTarget,
+    ChartTool, ResolvedToolMark, ToolBehaviorExpansion as ResolvedToolBehaviorExpansion,
+    ToolExpansionContext, ToolExport, ToolExportTarget, ToolMetadata, ToolParamSharing,
+    ToolScaleEdit, ToolScaleTarget,
 };
 pub use avenger_chart_tools::{
     BoxSelection, BoxSelectionResolve, BoxZoom, LassoSelection, PanScrollZoom, PointSelection,
@@ -94,6 +96,16 @@ impl ToolCompileContext {
         self.multiplied_host
     }
 
+    pub(crate) fn compiled_identity_seed(&self) -> String {
+        let path = self
+            .coord_node_path
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join("/");
+        format!("compiled-plot-v1:{path}")
+    }
+
     pub(crate) fn with_multiplied_host(mut self) -> Self {
         self.multiplied_host = true;
         self
@@ -145,38 +157,95 @@ impl ToolCompileContext {
         tools: &[Arc<dyn ChartTool<C>>],
         scale_targets: &[ToolScaleTarget],
         coordinate_metrics: &[avenger_chart_core::CoordinateMetricDescriptor],
+        identity_allocator: &mut CompiledIdentityAllocator,
     ) -> Result<Vec<ActiveToolExpansion<C>>, AvengerChartError> {
         let mut active = Vec::new();
         let mut local_ids = HashSet::new();
         for tool in tools {
-            let id = tool.id().to_string();
-            validate_tool_id(&id)?;
-            if !local_ids.insert(id.clone()) {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Duplicate chart tool id '{id}'"
-                )));
-            }
-            let mut expansion_context = ToolExpansionContext::new(&id, scale_targets)
-                .with_coordinate_metrics(coordinate_metrics);
-            if let Some(repeat_context) = self.repeat_context.as_ref() {
-                expansion_context = expansion_context.with_repeat_context(repeat_context);
-            }
-            let mut expansion = tool.expand(expansion_context)?;
-            self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
-            self.resolve_repeat_param_change_bindings(&mut expansion.param_change_bindings)?;
-            self.localize_event_bindings(&mut expansion.event_bindings);
-            let identity = Arc::as_ptr(tool) as *const () as usize;
-            let active_expansion = ActiveToolExpansion {
-                id: id.clone(),
-                expansion: expansion.clone(),
-            };
-            self.state
-                .lock()
-                .expect("tool compile state lock poisoned")
-                .register_expansion(&id, identity, &expansion)?;
-            active.push(active_expansion);
+            self.expand_tool_recursive(
+                tool,
+                scale_targets,
+                coordinate_metrics,
+                identity_allocator,
+                &[],
+                &mut local_ids,
+                &mut active,
+            )?;
         }
         Ok(active)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn expand_tool_recursive<C: CoordinateSystemCore>(
+        &self,
+        tool: &Arc<dyn ChartTool<C>>,
+        scale_targets: &[ToolScaleTarget],
+        coordinate_metrics: &[avenger_chart_core::CoordinateMetricDescriptor],
+        identity_allocator: &mut CompiledIdentityAllocator,
+        ancestry: &[ToolInstanceId],
+        local_ids: &mut HashSet<String>,
+        active: &mut Vec<ActiveToolExpansion<C>>,
+    ) -> Result<(), AvengerChartError> {
+        let id = tool.id().to_string();
+        validate_tool_id(&id)?;
+        if !local_ids.insert(id.clone()) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Duplicate chart tool id '{id}'"
+            )));
+        }
+        let identity = Arc::as_ptr(tool) as *const () as usize;
+        // Every lowered occurrence receives its own opaque identity. Repeat
+        // and facet lowering may reuse the same authored `Arc`, but occurrence
+        // identity must still keep private marks and cell-local state apart.
+        // `register_expansion` separately recognizes those structural copies
+        // by authoring identity and coalesces compatible shared declarations.
+        let instance_id = identity_allocator.allocate_tool_instance();
+        let mut expansion_context = ToolExpansionContext::new(&id, scale_targets)
+            .with_coordinate_metrics(coordinate_metrics)
+            .with_resolved_instance(instance_id.clone(), ancestry.to_vec());
+        if let Some(repeat_context) = self.repeat_context.as_ref() {
+            expansion_context = expansion_context.with_repeat_context(repeat_context);
+        }
+        let mut expansion = tool.expand(expansion_context)?;
+        if expansion.instance_id != instance_id {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "tool '{id}' returned behavior for a different tool instance"
+            )));
+        }
+        expansion.instance_ancestry = ancestry.to_vec();
+        if expansion.component_kind == "tool" {
+            expansion.component_kind = id.clone();
+        }
+        if expansion.component_id.is_none() {
+            expansion.component_id = Some(id.clone());
+        }
+        self.resolve_repeat_event_bindings(&mut expansion.event_bindings)?;
+        self.resolve_repeat_param_change_bindings(&mut expansion.param_change_bindings)?;
+        self.localize_event_bindings(&mut expansion.event_bindings);
+        self.state
+            .lock()
+            .expect("tool compile state lock poisoned")
+            .register_expansion(&id, identity, &expansion)?;
+        let nested = expansion.nested_tools.clone();
+        active.push(ActiveToolExpansion {
+            id: id.clone(),
+            expansion,
+        });
+
+        let mut nested_ancestry = ancestry.to_vec();
+        nested_ancestry.push(instance_id);
+        for nested_tool in nested {
+            self.expand_tool_recursive(
+                &nested_tool,
+                scale_targets,
+                coordinate_metrics,
+                identity_allocator,
+                &nested_ancestry,
+                local_ids,
+                active,
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn register_local_event_bindings(
@@ -220,7 +289,8 @@ impl ToolCompileContext {
         id: &str,
         identity: usize,
         widget_scene_index: usize,
-        expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
+        expansion: &avenger_chart_core::ToolBehaviorExpansion<avenger_chart_core::PixelFrame>,
+        mark_runtime_ids: &[avenger_chart_core::MarkId],
     ) -> Result<(), AvengerChartError> {
         self.register_widget_expansion_with_public_path(
             id,
@@ -232,11 +302,26 @@ impl ToolCompileContext {
                     .marks
                     .iter()
                     .enumerate()
-                    .filter_map(|(mark_index, mark)| {
-                        mark.state().id.as_deref().map(|part| {
+                    .filter_map(|(mark_index, resolved_mark)| {
+                        resolved_mark.mark.state().id.as_deref().map(|part| {
                             (
                                 format!("{id}.{part}"),
                                 vec![vec![widget_scene_index, mark_index]],
+                            )
+                        })
+                    })
+                    .collect()
+            }),
+            (!self.coord_node_path.is_empty()).then(|| {
+                expansion
+                    .marks
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(mark_index, resolved_mark)| {
+                        resolved_mark.mark.state().id.as_deref().map(|part| {
+                            (
+                                format!("{id}.{part}"),
+                                vec![mark_runtime_ids[mark_index].clone()],
                             )
                         })
                     })
@@ -250,14 +335,15 @@ impl ToolCompileContext {
         id: &str,
         public_widget_path: &str,
         identity: usize,
-        expansion: &avenger_chart_core::ToolExpansion<avenger_chart_core::PixelFrame>,
+        expansion: &avenger_chart_core::ToolBehaviorExpansion<avenger_chart_core::PixelFrame>,
         target_paths: Option<BTreeMap<String, Vec<Vec<usize>>>>,
+        target_ids: Option<BTreeMap<String, Vec<avenger_chart_core::MarkId>>>,
     ) -> Result<(), AvengerChartError> {
         let mut expansion = expansion.clone();
         let mut all_targets = HashSet::new();
         let mut interactive_targets = Vec::new();
-        for mark in &expansion.marks {
-            let Some(part) = mark.state().id.as_deref() else {
+        for resolved_mark in &expansion.marks {
+            let Some(part) = resolved_mark.mark.state().id.as_deref() else {
                 continue;
             };
             let target = format!("{id}.{part}");
@@ -317,7 +403,16 @@ impl ToolCompileContext {
         let mut state = self.state.lock().expect("tool compile state lock poisoned");
         if let Some(target_paths) = target_paths {
             for (target, paths) in target_paths {
-                state.register_child_widget_target(target, paths)?;
+                let ids = target_ids
+                    .as_ref()
+                    .and_then(|ids| ids.get(&target))
+                    .cloned()
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "child widget target '{target}' lacks compiled mark identities"
+                        ))
+                    })?;
+                state.register_child_widget_target(target, paths, ids)?;
             }
         }
         state.register_expansion(id, identity, &expansion)
@@ -499,21 +594,22 @@ pub(crate) fn discover_tool_scale_targets(
 #[derive(Clone)]
 pub(crate) struct ActiveToolExpansion<C: CoordinateSystemCore> {
     id: String,
-    pub(crate) expansion: ToolExpansion<C>,
+    pub(crate) expansion: ToolBehaviorExpansion<C>,
 }
 
 #[derive(Default)]
 struct ToolCompileState {
     tool_ids: HashMap<String, usize>,
     params: IndexMap<String, GeneratedParamState>,
-    cursor_params: Vec<String>,
     stores: IndexMap<String, CompiledStoreSpec>,
     selections: IndexMap<String, CompiledSelectionSpec>,
     event_bindings: Vec<ChartEventBinding>,
     param_change_bindings: Vec<ChartParamChangeBinding>,
     metadata: Vec<ToolMetadata>,
+    behaviors: Vec<CompiledToolBehavior>,
     expected_targets: BTreeMap<(String, String, String), usize>,
     child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
+    child_widget_target_ids: BTreeMap<String, Vec<avenger_chart_core::MarkId>>,
     native_widget_param_specs: Vec<CompiledParamSpec>,
 }
 
@@ -539,13 +635,15 @@ impl ToolCompileState {
         &mut self,
         target: String,
         paths: Vec<Vec<usize>>,
+        ids: Vec<avenger_chart_core::MarkId>,
     ) -> Result<(), AvengerChartError> {
         if self.child_widget_target_paths.contains_key(&target) {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Duplicate mark target path '{target}'"
             )));
         }
-        self.child_widget_target_paths.insert(target, paths);
+        self.child_widget_target_paths.insert(target.clone(), paths);
+        self.child_widget_target_ids.insert(target, ids);
         Ok(())
     }
 
@@ -553,7 +651,7 @@ impl ToolCompileState {
         &mut self,
         id: &str,
         identity: usize,
-        expansion: &ToolExpansion<C>,
+        expansion: &ToolBehaviorExpansion<C>,
     ) -> Result<(), AvengerChartError> {
         let first_registration = match self.tool_ids.get(id) {
             Some(existing) if *existing == identity => false,
@@ -568,24 +666,23 @@ impl ToolCompileState {
             }
         };
 
-        for param in &expansion.params {
-            self.register_param(param)?;
-        }
-        for cursor_param in &expansion.cursor_params {
-            if !self.params.contains_key(cursor_param) {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Cursor parameter '{cursor_param}' was not registered by expansion '{id}'"
-                )));
+        for declaration in &expansion.state {
+            match declaration {
+                ResolvedStateDeclaration::Param {
+                    runtime_id,
+                    param,
+                    sharing,
+                } => self.register_param(runtime_id.clone(), param, sharing)?,
+                ResolvedStateDeclaration::Store { runtime_id, store } => {
+                    let mut spec = store.compile()?;
+                    spec.runtime_id = runtime_id.clone();
+                    self.register_store(spec, !first_registration)?;
+                }
+                ResolvedStateDeclaration::Selection {
+                    runtime_id,
+                    selection,
+                } => self.register_selection(runtime_id.clone(), selection, !first_registration)?,
             }
-            if !self.cursor_params.contains(cursor_param) {
-                self.cursor_params.push(cursor_param.clone());
-            }
-        }
-        for store in &expansion.stores {
-            self.register_store(store.compile()?, !first_registration)?;
-        }
-        for selection in &expansion.selections {
-            self.register_selection(selection, !first_registration)?;
         }
         for edit in &expansion.scale_edits {
             let ToolScaleEdit::RawDomain {
@@ -605,16 +702,28 @@ impl ToolCompileState {
         }
         if first_registration {
             self.metadata.extend(expansion.metadata.iter().cloned());
+            self.behaviors.push(CompiledToolBehavior {
+                source_id: id.to_string(),
+                instance_id: expansion.instance_id.clone(),
+                instance_ancestry: expansion.instance_ancestry.clone(),
+                component_kind: expansion.component_kind.clone(),
+                component_id: expansion.component_id.clone(),
+                exports: expansion.exports.clone(),
+            });
         }
         Ok(())
     }
 
     fn register_store(
         &mut self,
-        spec: CompiledStoreSpec,
+        mut spec: CompiledStoreSpec,
         allow_existing: bool,
     ) -> Result<(), AvengerChartError> {
         if let Some(existing) = self.stores.get(&spec.name) {
+            // Structural copies have distinct occurrence-owned IDs. A shared
+            // source declaration retains the first compiled ID when every
+            // author-visible property is otherwise identical.
+            spec.runtime_id = existing.runtime_id.clone();
             if allow_existing && existing == &spec {
                 return Ok(());
             }
@@ -629,11 +738,14 @@ impl ToolCompileState {
 
     fn register_selection(
         &mut self,
+        runtime_id: avenger_chart_core::SelectionRef,
         selection: &Selection,
         allow_existing: bool,
     ) -> Result<(), AvengerChartError> {
-        let spec = selection.compile()?;
+        let mut spec = selection.compile()?;
+        spec.runtime_id = runtime_id;
         if let Some(existing) = self.selections.get(&spec.id) {
+            spec.runtime_id = existing.runtime_id.clone();
             if allow_existing && existing == &spec {
                 return Ok(());
             }
@@ -646,26 +758,32 @@ impl ToolCompileState {
         Ok(())
     }
 
-    fn register_param(&mut self, expansion: &ToolParamExpansion) -> Result<(), AvengerChartError> {
-        match self.params.get_mut(&expansion.param.name) {
+    fn register_param(
+        &mut self,
+        runtime_id: avenger_chart_core::ParamRef,
+        param: &Param,
+        sharing: &ToolParamSharing,
+    ) -> Result<(), AvengerChartError> {
+        match self.params.get_mut(&param.name) {
             Some(existing) => {
-                if existing.param.default != expansion.param.default
-                    || existing.requested != expansion.sharing
+                if existing.param.default != param.default
+                    || existing.requested != *sharing
                 {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "Generated tool parameter '{}' was declared more than once with \
                          incompatible defaults or sharing",
-                        expansion.param.name
+                        param.name
                     )));
                 }
             }
             None => {
                 self.params.insert(
-                    expansion.param.name.clone(),
+                    param.name.clone(),
                     GeneratedParamState {
-                        param: expansion.param.clone(),
-                        requested: expansion.sharing.clone(),
-                        resolved_sharing: match expansion.sharing {
+                        runtime_id,
+                        param: param.clone(),
+                        requested: sharing.clone(),
+                        resolved_sharing: match sharing {
                             ToolParamSharing::Explicit(sharing) => Some(sharing.to_normalized()),
                             ToolParamSharing::MirrorScale { .. } => None,
                         },
@@ -781,6 +899,7 @@ impl ToolCompileState {
                 )));
             };
             let mut spec = CompiledParamSpec::new(&param.param, sharing);
+            spec.runtime_id = param.runtime_id.clone();
             if let Some(coordination) = &param.resolved_domain_coordination {
                 spec = spec.with_domain_coordination(coordination.clone());
             }
@@ -789,19 +908,21 @@ impl ToolCompileState {
         Ok(ToolArtifacts {
             param_specs,
             native_widget_param_specs: self.native_widget_param_specs.clone(),
-            cursor_params: self.cursor_params.clone(),
             store_specs: self.stores.values().cloned().collect(),
             selection_specs: self.selections.values().cloned().collect(),
             event_bindings: self.event_bindings.clone(),
             param_change_bindings: self.param_change_bindings.clone(),
             metadata: self.metadata.clone(),
+            behaviors: self.behaviors.clone(),
             child_widget_target_paths: self.child_widget_target_paths.clone(),
+            child_widget_target_ids: self.child_widget_target_ids.clone(),
         })
     }
 }
 
 #[derive(Clone)]
 struct GeneratedParamState {
+    runtime_id: avenger_chart_core::ParamRef,
     param: Param,
     requested: ToolParamSharing,
     resolved_sharing: Option<CoordinationScope>,
@@ -811,13 +932,14 @@ struct GeneratedParamState {
 pub(crate) struct ToolArtifacts {
     pub param_specs: Vec<CompiledParamSpec>,
     pub native_widget_param_specs: Vec<CompiledParamSpec>,
-    pub cursor_params: Vec<String>,
     pub store_specs: Vec<CompiledStoreSpec>,
     pub selection_specs: Vec<CompiledSelectionSpec>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub param_change_bindings: Vec<ChartParamChangeBinding>,
     pub metadata: Vec<ToolMetadata>,
+    pub behaviors: Vec<CompiledToolBehavior>,
     pub child_widget_target_paths: BTreeMap<String, Vec<Vec<usize>>>,
+    pub child_widget_target_ids: BTreeMap<String, Vec<avenger_chart_core::MarkId>>,
 }
 
 fn apply_raw_domain_scale_edit(
@@ -1106,8 +1228,7 @@ mod tests {
             .expect("drag binding");
         assert_eq!(
             drag.action
-                .assignments
-                .iter()
+                .param_steps()
                 .filter(|assignment| assignment.param_name
                     == "__tool_pan_scroll_zoom__domain__measurement")
                 .count(),
@@ -1249,10 +1370,10 @@ mod tests {
 
         fn expand(
             &self,
-            _ctx: ToolExpansionContext<'_>,
-        ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
+            ctx: ToolExpansionContext<'_>,
+        ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
             let param = Param::raw_domain("__tool_custom_x__x_domain");
-            Ok(ToolExpansion::new()
+            Ok(ToolBehaviorExpansion::new(ctx.instance_id.clone())
                 .param(param.clone(), ToolParamSharing::mirror_scale("x"))
                 .scale_edit(ToolScaleEdit::raw_domain("x", param.name.clone()))
                 .event_binding(
@@ -1294,8 +1415,8 @@ mod tests {
 
         fn expand(
             &self,
-            _ctx: ToolExpansionContext<'_>,
-        ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
+            ctx: ToolExpansionContext<'_>,
+        ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
             let store = Store::empty("__tool_custom_selection__boxes")
                 .field("id", DataType::Utf8, false)
                 .field("x_min", DataType::Float64, false)
@@ -1305,7 +1426,9 @@ mod tests {
                 .primary_key(["id"]);
             let selection =
                 Selection::new("__tool_custom_selection__brush").empty_selects_nothing();
-            Ok(ToolExpansion::new().store(store).selection(selection))
+            Ok(ToolBehaviorExpansion::new(ctx.instance_id.clone())
+                .store(store)
+                .selection(selection))
         }
     }
 
@@ -1335,6 +1458,103 @@ mod tests {
         );
     }
 
+    #[derive(Clone)]
+    struct IdentityTool {
+        id: String,
+        nested: Option<Arc<dyn ChartTool<Cartesian>>>,
+    }
+
+    impl IdentityTool {
+        fn leaf(id: &str) -> Self {
+            Self {
+                id: id.to_string(),
+                nested: None,
+            }
+        }
+
+        fn parent(id: &str, nested: Arc<dyn ChartTool<Cartesian>>) -> Self {
+            Self {
+                id: id.to_string(),
+                nested: Some(nested),
+            }
+        }
+    }
+
+    impl ChartTool<Cartesian> for IdentityTool {
+        fn id(&self) -> &str {
+            &self.id
+        }
+
+        fn expand(
+            &self,
+            ctx: ToolExpansionContext<'_>,
+        ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
+            let param = Param::typed(format!("{}__enabled", self.id), DataType::Boolean, true)?;
+            let mut behavior = ToolBehaviorExpansion::new(ctx.instance_id.clone())
+                .component("identity-tool", self.id.clone())
+                .param(param, ToolParamSharing::Explicit(CoordinationScope::Shared));
+            if let Some(nested) = &self.nested {
+                behavior = behavior.nested_tool(nested.clone());
+            }
+            Ok(behavior)
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_instances_own_distinct_state_and_exports_survive_serialization() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")))
+            .tool(IdentityTool::leaf("left"))
+            .tool(IdentityTool::leaf("right"))
+            .compile(&ctx)
+            .await
+            .expect("compile identity tools");
+
+        assert_eq!(compiled.tool_behaviors().len(), 2);
+        assert_ne!(
+            compiled.tool_behaviors()[0].instance_id,
+            compiled.tool_behaviors()[1].instance_id
+        );
+        for behavior in compiled.tool_behaviors() {
+            let export = behavior.exports.first().expect("state export");
+            let ToolExportTarget::Param(exported_id) = &export.target else {
+                panic!("expected param export")
+            };
+            assert_eq!(
+                compiled.param_specs().resolve_source_name(&export.alias),
+                Some(exported_id)
+            );
+        }
+
+        let restored: crate::plot::CompiledPlot =
+            bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+        assert_eq!(restored.tool_behaviors(), compiled.tool_behaviors());
+    }
+
+    #[tokio::test]
+    async fn nested_tool_identity_retains_deterministic_ancestry() {
+        let ctx = SessionContext::new();
+        let df = data(&ctx).await;
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .data(df)
+            .mark(Symbol::new().x(col("x")).y(col("y")))
+            .tool(IdentityTool::parent(
+                "parent",
+                Arc::new(IdentityTool::leaf("child")),
+            ))
+            .compile(&ctx)
+            .await
+            .expect("compile nested tool");
+        let parent = &compiled.tool_behaviors()[0];
+        let child = &compiled.tool_behaviors()[1];
+        assert!(parent.instance_ancestry.is_empty());
+        assert_eq!(child.instance_ancestry, vec![parent.instance_id.clone()]);
+        assert_ne!(child.instance_id, parent.instance_id);
+    }
+
     #[tokio::test]
     async fn point_selection_tool_contributes_selection_bindings_and_metadata() {
         let ctx = SessionContext::new();
@@ -1362,7 +1582,17 @@ mod tests {
                 .param_specs()
                 .contains_key("__tool_picked__enabled")
         );
-        assert!(compiled.param_specs().contains_key("__tool_picked__cursor"));
+        assert!(
+            !compiled.param_specs().contains_key("__tool_picked__cursor"),
+            "cursor effects must not mint a conventionally named parameter"
+        );
+        assert!(compiled.event_bindings().iter().any(|binding| {
+            binding
+                .action
+                .steps
+                .iter()
+                .any(|step| matches!(step, avenger_chart_core::ChartActionStep::SetCursor(_)))
+        }));
         assert!(compiled.selection_specs().contains_key("picked"));
         assert_eq!(compiled.event_bindings().len(), 5);
         assert_eq!(compiled.tool_metadata().len(), 1);
@@ -1427,12 +1657,19 @@ mod tests {
                 .contains_key("__tool_box_zoom__x_domain")
         );
         assert_eq!(compiled.event_bindings().len(), 5);
-        assert!(
-            compiled
-                .marks()
-                .iter()
-                .any(|mark| mark.mark_type() == "rect")
-        );
+        let overlay = compiled
+            .marks()
+            .iter()
+            .find(|mark| mark.mark_type() == "rect")
+            .expect("box-zoom overlay mark");
+        let component = overlay
+            .state()
+            .identity
+            .component
+            .as_ref()
+            .expect("tool component provenance");
+        assert_eq!(component.component_kind, "box_zoom");
+        assert_eq!(component.part_alias, "selection");
         assert!(raw_domain_debug(&compiled, "x").contains("__tool_box_zoom__x_domain"));
         assert!(raw_domain_debug(&compiled, "y").contains("__tool_box_zoom__y_domain"));
     }

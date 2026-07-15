@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
 use avenger_chart::prelude::{
-    Cartesian, Chart, ChromePosition, EvaluationRequest, InMemoryNativeWidgetInstanceStore,
-    NativeWidgetDocumentId, NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetHostTransform,
-    NativeWidgetPlacementExt, NativeWidgetPlotId, NativeWidgetRegistry,
-    NativeWidgetRuntimeResources, PlotSession, PlotSessionOptions, Theme,
+    Cartesian, Chart, ChromePosition, CompiledIdentityAllocator, CompiledWidget, EvaluationRequest,
+    InMemoryNativeWidgetInstanceStore, NativeWidgetDocumentId, NativeWidgetEvent,
+    NativeWidgetEventRoute, NativeWidgetHostTransform, NativeWidgetPlacementExt,
+    NativeWidgetPlotId, NativeWidgetRegistry, NativeWidgetRuntimeResources, PlotSession,
+    PlotSessionOptions, Theme,
 };
 use avenger_chart_widgets::{TextCommit, TextInput, TextInputFactory};
 use avenger_common::time::{Duration, Instant};
@@ -46,6 +47,19 @@ impl Harness {
             .compile(ctx.as_ref())
             .await
             .unwrap();
+        let attachment = &compiled.widgets()[0];
+        let CompiledWidget::Native(native) = &attachment.widget else {
+            panic!("TextInput must retain the native widget path")
+        };
+        for (ordinal, param) in native.state.params().iter().enumerate() {
+            assert_eq!(
+                param.runtime_id,
+                CompiledIdentityAllocator::derive_widget_param(
+                    &attachment.instance_id,
+                    ordinal as u64,
+                )
+            );
+        }
         let compiled: avenger_chart::plot::CompiledPlot =
             bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
         let registry = Arc::new(
@@ -134,7 +148,7 @@ impl Harness {
             .map(|assignment| (assignment.name.clone(), assignment.value.clone()))
             .collect::<IndexMap<_, _>>();
         if !patch.is_empty() {
-            self.session.apply_param_patch(patch);
+            self.session.apply_param_patch(patch).unwrap();
         }
         self.session
             .evaluate(EvaluationRequest::new().at(now))
@@ -508,19 +522,25 @@ async fn multi_preedit_commit_is_one_undo_and_external_sync_is_latest_wins() {
         );
     }
 
-    harness.session.apply_param_patch(IndexMap::from([(
-        "search__value".to_string(),
-        ScalarValue::Utf8(Some("external-one".into())),
-    )]));
+    harness
+        .session
+        .apply_param_patch(IndexMap::from([(
+            "search__value".to_string(),
+            ScalarValue::Utf8(Some("external-one".into())),
+        )]))
+        .unwrap();
     harness
         .session
         .evaluate(EvaluationRequest::new().at(harness.now + Duration::from_millis(10)))
         .await
         .unwrap();
-    harness.session.apply_param_patch(IndexMap::from([(
-        "search__value".to_string(),
-        ScalarValue::Utf8(Some("external-two".into())),
-    )]));
+    harness
+        .session
+        .apply_param_patch(IndexMap::from([(
+            "search__value".to_string(),
+            ScalarValue::Utf8(Some("external-two".into())),
+        )]))
+        .unwrap();
     harness
         .session
         .evaluate(EvaluationRequest::new().at(harness.now + Duration::from_millis(20)))

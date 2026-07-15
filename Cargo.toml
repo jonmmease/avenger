@@ -22,6 +22,8 @@ members = [
     "avenger-app",
     "avenger-winit-wgpu",
     "avenger-chart-core",
+    "avenger-chart-schema",
+    "avenger-chart-lang-registry",
     "avenger-chart-marks",
     "avenger-chart-marks-statistical",
     "avenger-chart-legend",

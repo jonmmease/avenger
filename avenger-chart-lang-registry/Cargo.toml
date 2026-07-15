@@ -1,0 +1,27 @@
+[package]
+name = "avenger-chart-lang-registry"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+
+[dependencies]
+async-trait = { workspace = true }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-chart-scales = { path = "../avenger-chart-scales" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
+avenger-chart-tools = { path = "../avenger-chart-tools" }
+avenger-chart-transforms = { path = "../avenger-chart-transforms" }
+avenger-chart-widgets = { path = "../avenger-chart-widgets" }
+datafusion = { workspace = true }
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+thiserror = { workspace = true }
+
+[dev-dependencies]
+bincode = "1.3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

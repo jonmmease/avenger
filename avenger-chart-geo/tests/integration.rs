@@ -6,10 +6,11 @@ use avenger_chart_core::{
     CoordinateDomainMaterialization, CoordinateDomainNode, CoordinateDomainProvider,
     CoordinateDomainRole, CoordinateDomainScaleState, CoordinateDomainSharingPolicy,
     CoordinateMeasureRequest, CoordinateMeasurementProvider, CoordinateSystemTransformCore,
-    DomainExtent,
+    DomainExtent, Param,
 };
 use avenger_chart_geo::{Geo, GeoCoordMeasurement, GraticuleStyle, SphereStyle};
 use avenger_scales::scales::linear::LinearScale;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
@@ -20,6 +21,11 @@ fn assert_close(actual: f64, expected: f64, epsilon: f64) {
         (actual - expected).abs() <= epsilon,
         "expected {expected}, got {actual}"
     );
+}
+
+fn nullable_float_param(name: String) -> Param {
+    Param::typed(name, DataType::Float64, ScalarValue::Float64(None))
+        .expect("nullable Float64 default must match its declared type")
 }
 
 fn scene_mark_names(marks: &[avenger_scenegraph::marks::mark::SceneMark]) -> Vec<String> {
@@ -326,6 +332,9 @@ async fn geo_param_preview_retargets_cached_data_marks() {
         .expect("raw-unit point data");
     let plot = avenger_chart::plot::Chart::with_coord(geo.clone())
         .plot_size(200.0, 200.0)
+        .param(nullable_float_param(geo.center_x_param()))
+        .param(nullable_float_param(geo.center_y_param()))
+        .param(nullable_float_param(geo.units_per_pixel_param()))
         .data(df)
         .mark(
             Symbol::new()
@@ -411,6 +420,9 @@ async fn view_params_resolve_on_geo_marks() {
 
     let plot = Chart::with_coord(geo.clone())
         .plot_size(100.0, 100.0)
+        .param(nullable_float_param(geo.center_x_param()))
+        .param(nullable_float_param(geo.center_y_param()))
+        .param(nullable_float_param(geo.units_per_pixel_param()))
         .data(df)
         .mark(
             Symbol::new()

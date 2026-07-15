@@ -3654,7 +3654,7 @@ mod tests {
                     view: None,
                     data_mode: MarkDataMode::Inherit,
                     mark_index: 0,
-                    public_target_path: None,
+                    identity: Default::default(),
                     facet_data_scope: Default::default(),
                     exclude_from_scale_domains: false,
                     visible: None,
@@ -3662,7 +3662,6 @@ mod tests {
                     zindex: None,
                     geometry_space: None,
                     axis_configs: HashMap::new(),
-                    widget_theme: None,
                 },
                 position_preference,
             }

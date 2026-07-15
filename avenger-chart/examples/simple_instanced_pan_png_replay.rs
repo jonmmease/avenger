@@ -95,7 +95,7 @@ async fn run_count(point_count: usize) -> Result<(), Box<dyn std::error::Error>>
                 "y_domain".to_string(),
                 list_domain(-shift * 0.8, 250.0 - shift * 0.8),
             ),
-        ]));
+        ]))?;
 
         let eval_start = Instant::now();
         let (evaluated, metrics) = session

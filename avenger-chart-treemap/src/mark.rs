@@ -67,6 +67,7 @@ impl<C> Default for TreeRect<C> {
         Self {
             state: MarkState {
                 id: None,
+                public_aliases: Vec::new(),
                 data: DataContext::default(),
                 view: None,
                 data_mode: MarkDataMode::Inherit,
@@ -312,6 +313,7 @@ impl<C> Default for TreeLabel<C> {
         Self {
             state: MarkState {
                 id: None,
+                public_aliases: Vec::new(),
                 data: DataContext::default(),
                 view: None,
                 data_mode: MarkDataMode::Inherit,
@@ -887,6 +889,7 @@ impl<C> Default for TreeHeader<C> {
         Self {
             state: MarkState {
                 id: None,
+                public_aliases: Vec::new(),
                 data: DataContext::default(),
                 view: None,
                 data_mode: MarkDataMode::Inherit,
@@ -3361,7 +3364,7 @@ mod tests {
         let compiled = plot.compile(&ctx).await.unwrap();
         let binding = compiled.event_bindings().first().expect("event binding");
         let SelectionUpdate::ReplaceAllClauses { clauses } =
-            &binding.action.selection_assignments[0].update
+            &binding.action.selection_steps().next().unwrap().update
         else {
             panic!("expected replace-clause selection update");
         };
@@ -3425,13 +3428,15 @@ mod tests {
 
         let binding = compiled.event_bindings().first().expect("event binding");
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-            &binding.action.selection_assignments[0].update
+            &binding.action.selection_steps().next().unwrap().update
         else {
             panic!("expected scene query selection update");
         };
         assert_eq!(
-            query.query.target.resolved_mark_paths(),
-            Some(&[vec![0usize]][..])
+            compiled
+                .runtime_paths_for_mark_ids(query.query.target.resolved_mark_ids())
+                .unwrap(),
+            vec![vec![0usize]]
         );
         assert_eq!(query.query.datum_fields.len(), 3);
         assert_eq!(query.query.unique_by, vec![HIERARCHY_PATH_ID_FIELD]);
@@ -3462,7 +3467,17 @@ mod tests {
         )
         .unwrap();
         let df = ctx.read_batch(batch).unwrap();
-        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+        let root = {
+            let __avenger_param_name = "treemap_root";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let plot = Chart::with_coord(
             Treemap::new()
                 .path_columns(["region", "product", "sku"])
@@ -3483,7 +3498,10 @@ mod tests {
 
         let compiled = plot.compile(&ctx).await.unwrap();
         let binding = compiled.event_bindings().first().expect("event binding");
-        assert_eq!(binding.action.assignments[0].param_name, root.name);
+        assert_eq!(
+            binding.action.param_steps().next().unwrap().param_name,
+            root.name
+        );
 
         let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
         let rows = &evaluated.event_datums.rows[0].rows;

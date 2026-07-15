@@ -505,6 +505,7 @@ impl Violin {
         let grouping = violin_grouping(orientation, group_channel)?;
         validate_body_style_channels(&self.body_style, &grouping)?;
         let mut root = MarkGroup::new()
+            .component_kind("violin")
             .with_data_context(self.data, self.data_mode)
             .facet_data_scope(self.facet_data_scope);
         if let Some(hint) = band_scale_hint(

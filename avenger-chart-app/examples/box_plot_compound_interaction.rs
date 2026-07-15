@@ -51,7 +51,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let selected_group = Selection::new("selected_group").empty_selects_nothing();
     let selected = selected_group.predicate();
-    let cursor = Param::cursor("box_plot_cursor", CursorStyle::Default);
 
     let plot = Chart::<Cartesian>::new()
         .title("Click boxes; hover outliers")
@@ -59,8 +58,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .data(ctx.read_batch(source_batch()).expect("read data"))
         .selection(selected_group)
         .store(outlier_tooltip_store())
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(base_box_plot())
         .mark(selected_box_plot(selected))
         .mark(
@@ -79,7 +76,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .opacity_with(col("opacity"), |opacity| opacity.no_scale())
                 .zindex(20_000),
         )
-        .event_binding(cursor_binding(&cursor))
+        .event_binding(cursor_binding())
         .event_binding(select_box_binding())
         .event_binding(show_outlier_tooltip_binding())
         .event_binding(clear_outlier_tooltip_binding())
@@ -163,7 +160,7 @@ fn configure_value_x(x: CartesianPositionConfig) -> CartesianPositionConfig {
         .axis(|axis| axis.title("Value").grid(true))
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_box_or_outlier = ev::datum("category")
         .is_not_null()
         .and(ev::datum("segment").is_not_null());
@@ -171,7 +168,7 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 

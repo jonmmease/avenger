@@ -16,13 +16,14 @@ use serde_with::{FromInto, serde_as};
 
 use crate::{
     AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr,
-    SerializableDataType, SerializableExpr, SerializableRecordBatch,
+    SerializableDataType, SerializableExpr, SerializableRecordBatch, StateMigrationKey, StoreRef,
 };
 
 pub const STORE_METADATA_PREFIX: &str = "__avenger_store_";
 pub const STORE_NAME_COLUMN: &str = "__avenger_store_name";
 pub const STORE_OWNER_KEY_COLUMN: &str = "__avenger_store_owner_key";
 pub const STORE_REVISION_COLUMN: &str = "__avenger_store_revision";
+pub const STORE_RELATION_PLACEHOLDER_PREFIX: &str = "$__store_";
 
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -134,7 +135,9 @@ impl Store {
 
     pub fn compile(&self) -> Result<CompiledStoreSpec, AvengerChartError> {
         let spec = CompiledStoreSpec {
+            runtime_id: StoreRef::unresolved_authoring(),
             name: self.name.clone(),
+            migration_key: None,
             fields: self.fields.clone(),
             initial: self.initial.clone(),
             primary_key: self.primary_key.clone(),
@@ -148,7 +151,12 @@ impl Store {
 #[serde_as]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompiledStoreSpec {
+    /// Opaque runtime identity assigned at the root compilation boundary.
+    pub runtime_id: StoreRef,
     pub name: String,
+    /// Optional hot-reload migration metadata, never used for runtime lookup.
+    #[serde(default)]
+    pub migration_key: Option<StateMigrationKey>,
     #[serde(default)]
     pub fields: Vec<StoreFieldSpec>,
     #[serde_as(as = "Option<FromInto<SerializableRecordBatch>>")]
@@ -564,9 +572,21 @@ fn map_expr_node(
 
 pub fn store_placeholder_expr(store_name: impl AsRef<str>) -> Expr {
     Expr::Placeholder(Placeholder::new_with_field(
-        format!("$__store_{}", store_name.as_ref()),
+        format!("{STORE_RELATION_PLACEHOLDER_PREFIX}{}", store_name.as_ref()),
         Some(Arc::new(Field::new("", DataType::Utf8, true))),
     ))
+}
+
+/// Internal normalized spelling for a resolved store relation placeholder.
+#[doc(hidden)]
+pub fn resolved_store_placeholder_expr(store: &StoreRef) -> Expr {
+    store_placeholder_expr(store.as_opaque_str())
+}
+
+/// Decode either an authoring or normalized store relation placeholder.
+#[doc(hidden)]
+pub fn store_target_from_placeholder(placeholder_id: &str) -> Option<&str> {
+    placeholder_id.strip_prefix(STORE_RELATION_PLACEHOLDER_PREFIX)
 }
 
 pub type StoreRowValue = IndexMap<String, ScalarValue>;

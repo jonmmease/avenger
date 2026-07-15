@@ -8,7 +8,7 @@ use avenger_chart::{
     },
     prelude::{
         AvengerChartError, ChannelExpr, ChartWidget, CoordinationScope, CursorStyle, Param,
-        PixelFrame, Rect, Symbol, Text, TextSyntaxMode, ToolExpansion, ToolParamSharing,
+        PixelFrame, Rect, Symbol, Text, TextSyntaxMode, ToolBehaviorExpansion, ToolParamSharing,
         WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetMeasureExpr,
         WidgetMeasureSpec, WidgetPresentationBindings, WidgetStyleProperty, WidgetTextMeasureAxis,
     },
@@ -43,7 +43,16 @@ impl Slider {
     pub fn new(id: impl Into<String>, min: f64, max: f64) -> Self {
         let id = id.into();
         Self {
-            value: Param::new(format!("{id}__value"), min),
+            value: {
+                let __avenger_param_name = format!("{id}__value");
+                let __avenger_param_default: datafusion::common::ScalarValue = (min).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
             id,
             min,
             max,
@@ -141,7 +150,17 @@ impl Slider {
                 self.id, self.format
             ))
         })?;
-        let value = Param::new(self.value.name.clone(), ScalarValue::Float64(Some(default)));
+        let value = {
+            let __avenger_param_name = self.value.name.clone();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(default))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let value_markup = value_markup(&value, &self.format);
         avenger_chart_core::scalar_params_for_label_source(
             &value_markup,
@@ -235,7 +254,6 @@ impl ChartWidget for Slider {
             .baseline("middle")
             .typst();
 
-        let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let targets = [
             format!("{}.track", self.id),
@@ -258,9 +276,8 @@ impl ChartWidget for Slider {
             drag = drag.throttle_ms(throttle_ms);
         }
 
-        let expansion = ToolExpansion::new()
-            .param(value.clone(), shared.clone())
-            .cursor_param(cursor.clone(), shared)
+        let behavior = ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
+            .param(value.clone(), shared)
             .mark(track)
             .mark(fill)
             .mark(handle)
@@ -280,16 +297,17 @@ impl ChartWidget for Slider {
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
                     .marks(targets.clone())
-                    .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
+                    .set_cursor(event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
                     .marks(targets)
-                    .set_param(&cursor, event::cursor(CursorStyle::Default)),
+                    .set_cursor(event::cursor(CursorStyle::Default)),
             );
 
         Ok(WidgetExpansion {
-            expansion,
+            instance_id: ctx.instance_id,
+            behavior,
             items: None,
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::StyledFill {

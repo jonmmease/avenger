@@ -1,10 +1,12 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
 use async_trait::async_trait;
 use avenger_app::error::AvengerAppError;
+#[cfg(test)]
+use avenger_chart::plot::ScopedParamAssignment;
 use avenger_chart::{
     event::{
         self, ChartActionParamValue, ChartEventAssignmentScope, ChartEventBinding,
@@ -12,8 +14,9 @@ use avenger_chart::{
         ChartEventType, ChartParamChangeBinding, InteractionColumnRequests, param_change,
     },
     plot::{
-        CompiledPlot, ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment,
-        SelectionAssignment, SelectionStateUpdate, StoreStateUpdate,
+        CompiledPlot, ResolvedScopedParamAssignment, ResolvedScopedStoreAssignment,
+        ResolvedSelectionAssignment, ResolvedStateTransaction, ScopedParamStoreSnapshot,
+        SelectionStateUpdate, StoreStateUpdate,
     },
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedWidgetFrame, EvaluationMode,
@@ -21,19 +24,23 @@ use avenger_chart::{
     },
     serialization::LogicalExprNodeExt,
 };
+#[cfg(test)]
+use avenger_chart_core::{ChartActionStep, ChartEventParamAction, ResolvedStateTarget};
 use avenger_chart_core::{
-    CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec, CompiledStoreSpec,
-    CoordinationScope, InteractionPointInversionRequest, LegendSurfaceKind,
-    PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PlaceholderColumn,
-    ResolvedSelectionClauseScope, SceneGeometryCoordinateSpace, SceneGeometryHitPolicy,
-    SceneGeometryQuery, SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId,
-    SceneQueryDatumField, SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionUpdate,
+    ChartEventAction, CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec,
+    CompiledStateRegistry, CompiledStoreSpec, CoordinationScope, InteractionPointInversionRequest,
+    LegendSurfaceKind, MarkId, ParamRef, PhysicalScalarExpressionSpec,
+    PhysicalScalarProgramOptions, PlaceholderColumn, ResolvedSelectionClauseScope,
+    SceneGeometryCoordinateSpace, SceneGeometryHitPolicy, SceneGeometryQuery,
+    SceneGeometryQueryGeometry, SceneGeometryTarget, SceneQueryClauseId, SceneQueryDatumField,
+    SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionUpdate,
     SelectionEqualityDimensionValue, SelectionFacetContextValue, SelectionIntervalDimensionUpdate,
     SelectionIntervalDimensionValue, SelectionPredicateSpec, SelectionPredicateUpdate,
-    SelectionPredicateValue, SelectionPredicateValueUpdate, SelectionSceneQuery, SelectionUpdate,
-    SelectionValueExpr, StoreFieldPatch, StoreKey, StoreRow, StoreRowValue, StoreUpdate,
-    StoreValueExpr, collect_placeholder_ids, one_row_batch_from_scalars, schema_from_fields,
-    widget_runtime_input_data_type,
+    SelectionPredicateValue, SelectionPredicateValueUpdate, SelectionRef, SelectionSceneQuery,
+    SelectionUpdate, SelectionValueExpr, StoreFieldPatch, StoreKey, StoreRef, StoreRow,
+    StoreRowValue, StoreUpdate, StoreValueExpr, collect_placeholder_ids, encode_selection_tuple_id,
+    one_row_batch_from_scalars, schema_from_fields, selection_target_from_placeholder,
+    store_target_from_placeholder, widget_runtime_input_data_type,
 };
 use avenger_common::cursor::CursorStyle;
 use avenger_common::time::Instant;
@@ -41,22 +48,23 @@ use avenger_eventstream::{
     manager::EventStreamHandler,
     scene::{ModifiersState, SceneGraphEvent, SceneGraphEventType},
     stream::{
-        EventStreamConfig, EventStreamContext, EventStreamEventSnapshot, EventStreamFilter,
-        UpdateStatus,
+        EventAdmission, EventStreamConfig, EventStreamContext, EventStreamEventSnapshot,
+        EventStreamFilter, UpdateStatus,
     },
     window::{Key, MouseButton, MouseScrollDelta},
 };
 use avenger_geometry::{GeometryQueryHitPolicy, GeometryQueryShape, rtree::SceneGraphRTree};
 use avenger_scenegraph::marks::mark::MarkInstance;
+use datafusion::common::tree_node::{TreeNode, TreeNodeRecursion};
 use datafusion::{
     arrow::{
         datatypes::{DataType, Field, Schema},
         record_batch::RecordBatch,
     },
     dataframe::DataFrame,
-    datasource::MemTable,
+    datasource::{MemTable, provider_as_source},
     error::DataFusionError,
-    logical_expr::Expr,
+    logical_expr::{Expr, LogicalPlan, TableScan, cast, try_cast},
     prelude::SessionContext,
     scalar::ScalarValue,
 };
@@ -69,10 +77,95 @@ type CompiledEventStream = (
     Arc<dyn EventStreamHandler<ChartAppState>>,
 );
 type CompiledEventStreams = Vec<CompiledEventStream>;
+type MarkRuntimePathIndex = BTreeMap<MarkId, Vec<Vec<usize>>>;
 
+fn runtime_paths_for_mark_ids(
+    ids: &[MarkId],
+    index: Option<&MarkRuntimePathIndex>,
+) -> Result<Option<Vec<Vec<usize>>>, AvengerAppError> {
+    if ids.is_empty() {
+        return Ok(None);
+    }
+    let index = index.ok_or_else(|| {
+        AvengerAppError::InternalError(
+            "compiled mark targets require a runtime mark-path index".to_string(),
+        )
+    })?;
+    let mut paths = Vec::new();
+    for id in ids {
+        paths.extend(index.get(id).cloned().ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "compiled mark identity '{id}' has no runtime scene path"
+            ))
+        })?);
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(Some(paths))
+}
+pub(crate) type StreamParamProvider =
+    Arc<dyn Fn(&SceneGraphEvent) -> IndexMap<String, ScalarValue> + Send + Sync>;
+
+pub(crate) fn committed_stream_param_provider(state: &ChartAppState) -> StreamParamProvider {
+    let state = state.clone();
+    Arc::new(move |event| {
+        if let Ok(runtime) = state.runtime.try_lock() {
+            let routed_scope =
+                event.position().and_then(|position| {
+                    match route_interaction_scope(
+                        &runtime.last_interaction_state.scopes,
+                        Some(position),
+                        &std::collections::BTreeSet::new(),
+                    ) {
+                        InteractionRoute::Scope(scope) => Some(scope),
+                        InteractionRoute::None | InteractionRoute::Ambiguous => None,
+                    }
+                });
+            let owner_paths = routed_scope
+                .map(|scope| scope.sharing_owner_paths.clone())
+                .unwrap_or_default();
+            return runtime
+                .session
+                .effective_params_for_owner_paths(&owner_paths);
+        }
+        state
+            .params
+            .lock()
+            .expect("chart param lock poisoned")
+            .params
+            .clone()
+    })
+}
+type ParamSpecRegistry = CompiledStateRegistry<ParamRef, CompiledParamSpec>;
+type StoreSpecRegistry = CompiledStateRegistry<StoreRef, CompiledStoreSpec>;
+type SelectionSpecRegistry = CompiledStateRegistry<SelectionRef, CompiledSelectionSpec>;
+
+fn resolved_actions_for_binding(
+    binding: &ChartEventBinding,
+    _param_specs: &ParamSpecRegistry,
+    _store_specs: &StoreSpecRegistry,
+    _selection_specs: &SelectionSpecRegistry,
+) -> Result<Vec<ChartEventAction>, AvengerAppError> {
+    if binding.resolved_actions().is_empty() && !binding.action.ordered_steps().is_empty() {
+        return Err(AvengerAppError::InternalError(
+            "Chart event state targets were not resolved during chart compilation".to_string(),
+        ));
+    }
+    Ok(binding.resolved_actions().to_vec())
+}
+
+#[cfg(test)]
 pub(crate) fn event_streams_for_plot_bindings(
     compiled_plot: &CompiledPlot,
     ctx: &SessionContext,
+) -> Result<CompiledEventStreams, AvengerAppError> {
+    event_streams_for_plot_bindings_with_param_provider(compiled_plot, ctx, None)
+}
+
+pub(crate) fn event_streams_for_plot_bindings_with_param_provider(
+    compiled_plot: &CompiledPlot,
+    ctx: &SessionContext,
+    stream_param_provider: Option<StreamParamProvider>,
 ) -> Result<CompiledEventStreams, AvengerAppError> {
     let event_datum_types = compiled_plot.event_datum_types();
     let event_coord_types = compiled_plot
@@ -84,19 +177,19 @@ pub(crate) fn event_streams_for_plot_bindings(
         compiled_plot.param_specs(),
         compiled_plot.selection_specs(),
         compiled_plot.store_specs(),
-        compiled_plot.cursor_params(),
         &event_datum_types,
         &event_coord_types,
+        stream_param_provider,
+        Some(compiled_plot.mark_runtime_path_index()),
     )
 }
 
 pub(crate) fn event_streams_for_bindings(
     bindings: &[ChartEventBinding],
     ctx: &SessionContext,
-    param_specs: &IndexMap<String, CompiledParamSpec>,
-    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-    store_specs: &IndexMap<String, CompiledStoreSpec>,
-    cursor_params: &[String],
+    param_specs: &ParamSpecRegistry,
+    selection_specs: &SelectionSpecRegistry,
+    store_specs: &StoreSpecRegistry,
     event_datum_types: &IndexMap<String, DataType>,
 ) -> Result<CompiledEventStreams, AvengerAppError> {
     event_streams_for_bindings_with_coord_types(
@@ -105,9 +198,10 @@ pub(crate) fn event_streams_for_bindings(
         param_specs,
         selection_specs,
         store_specs,
-        cursor_params,
         event_datum_types,
         &IndexMap::new(),
+        None,
+        None,
     )
 }
 
@@ -117,12 +211,13 @@ pub(crate) fn event_streams_for_bindings(
 fn event_streams_for_bindings_with_coord_types(
     bindings: &[ChartEventBinding],
     ctx: &SessionContext,
-    param_specs: &IndexMap<String, CompiledParamSpec>,
-    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-    store_specs: &IndexMap<String, CompiledStoreSpec>,
-    cursor_params: &[String],
+    param_specs: &ParamSpecRegistry,
+    selection_specs: &SelectionSpecRegistry,
+    store_specs: &StoreSpecRegistry,
     event_datum_types: &IndexMap<String, DataType>,
     event_coord_types: &IndexMap<String, DataType>,
+    stream_param_provider: Option<StreamParamProvider>,
+    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
 ) -> Result<CompiledEventStreams, AvengerAppError> {
     let mut streams = Vec::new();
     for (binding_index, binding) in bindings.iter().enumerate() {
@@ -133,9 +228,10 @@ fn event_streams_for_bindings_with_coord_types(
             param_specs,
             selection_specs,
             store_specs,
-            cursor_params,
             event_datum_types,
             event_coord_types,
+            stream_param_provider.clone(),
+            mark_runtime_paths,
         )?);
         streams.push((
             runtime.event_stream_config.clone(),
@@ -162,10 +258,12 @@ struct CompiledChartEventBinding {
     binding_index: usize,
     event_stream_config: EventStreamConfig,
     program: CompiledScalarExpressionProgram,
+    deferred_expressions: HashMap<usize, DeferredEventExpression>,
+    deferred_program_options: PhysicalScalarProgramOptions,
+    session_context: SessionContext,
     filter_count: usize,
     assignments: Vec<CompiledParamAssignment>,
-    store_assignments: Vec<CompiledStoreAssignment>,
-    selection_assignments: Vec<CompiledSelectionAssignment>,
+    ordered_actions: Vec<CompiledOrderedAction>,
     evaluation_mode: ChartEventEvaluationMode,
     settle_exact: bool,
     interaction_requests: InteractionColumnRequests,
@@ -173,17 +271,57 @@ struct CompiledChartEventBinding {
     scope_target: Option<ChartEventScopeTarget>,
     surface_target: Option<ChartEventSurfaceTarget>,
     scope_target_uses_start_scope: bool,
-    cursor_params: Arc<HashSet<String>>,
+}
+
+#[derive(Clone)]
+struct DeferredEventExpression {
+    name: String,
+    expr: Expr,
+    expected_type: Option<DataType>,
+    null_on_cast_failure: bool,
 }
 
 #[derive(Clone)]
 struct CompiledParamAssignment {
+    runtime_id: ParamRef,
     param_name: String,
     sharing: CoordinationScope,
     default_value: ScalarValue,
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
     reject_null: bool,
+    value_index: usize,
+}
+
+#[derive(Clone)]
+enum CompiledOrderedAction {
+    SetParam(CompiledParamAssignment),
+    SetStore(CompiledStoreAssignment),
+    SetSelection(CompiledSelectionAssignment),
+    SetCursor { value_index: usize },
+}
+
+impl CompiledOrderedAction {
+    fn expression_indices(&self, filter_count: usize) -> Vec<usize> {
+        let mut indices = Vec::new();
+        match self {
+            Self::SetParam(assignment) => indices.push(assignment.value_index),
+            Self::SetStore(assignment) => collect_compiled_store_update_indices(
+                &assignment.update,
+                filter_count,
+                &mut indices,
+            ),
+            Self::SetSelection(assignment) => collect_compiled_selection_update_indices(
+                &assignment.update,
+                filter_count,
+                &mut indices,
+            ),
+            Self::SetCursor { value_index } => indices.push(*value_index),
+        }
+        indices.sort_unstable();
+        indices.dedup();
+        indices
+    }
 }
 
 /// Physical programs and dependency metadata for all parameter-change bindings.
@@ -193,15 +331,15 @@ struct CompiledParamAssignment {
 /// execution must follow changed-value waves rather than declaration order.
 pub(crate) struct CompiledChartParamChangeGraph {
     bindings: Vec<CompiledChartParamChangeBinding>,
-    bindings_by_source: IndexMap<String, Vec<usize>>,
+    bindings_by_source: IndexMap<ParamRef, Vec<usize>>,
     edges: Vec<(String, String)>,
 }
 
 pub(crate) struct EvaluatedParamChangeAction {
     pub binding_index: usize,
-    pub param_patch: IndexMap<String, ScalarValue>,
-    pub store_patch: Vec<ScopedStoreAssignment>,
-    pub selection_patch: Vec<SelectionAssignment>,
+    pub param_patch: Vec<ResolvedScopedParamAssignment>,
+    pub store_patch: Vec<ResolvedScopedStoreAssignment>,
+    pub selection_patch: Vec<ResolvedSelectionAssignment>,
     pub evaluation_mode: ChartEventEvaluationMode,
     pub settle_exact: bool,
 }
@@ -211,19 +349,19 @@ pub(crate) struct EvaluatedParamChangeAction {
 #[allow(dead_code)]
 struct CompiledChartParamChangeBinding {
     binding_index: usize,
+    source_runtime_id: ParamRef,
     source_param_name: String,
     source_default: ScalarValue,
     program: CompiledScalarExpressionProgram,
     filter_count: usize,
-    assignments: Vec<CompiledParamAssignment>,
-    store_assignments: Vec<CompiledStoreAssignment>,
-    selection_assignments: Vec<CompiledSelectionAssignment>,
+    ordered_actions: Vec<CompiledOrderedAction>,
     evaluation_mode: ChartEventEvaluationMode,
     settle_exact: bool,
 }
 
 #[derive(Clone)]
 struct CompiledStoreAssignment {
+    runtime_id: StoreRef,
     store_name: String,
     sharing: CoordinationScope,
     scope: ChartEventAssignmentScope,
@@ -262,6 +400,7 @@ struct CompiledStoreRow {
 
 #[derive(Clone)]
 struct CompiledSelectionAssignment {
+    runtime_id: SelectionRef,
     selection_id: String,
     spec: CompiledSelectionSpec,
     scope: ChartEventAssignmentScope,
@@ -281,6 +420,7 @@ struct CompiledSceneGeometryQuery {
     coordinate_space: SceneGeometryCoordinateSpace,
     hit_policy: SceneGeometryHitPolicy,
     target: SceneGeometryTarget,
+    runtime_mark_paths: Option<Vec<Vec<usize>>>,
     datum_fields: Vec<SceneQueryDatumField>,
     unique_by: Vec<String>,
     max_hits: Option<usize>,
@@ -400,12 +540,129 @@ struct CompiledSelectionPredicateValue {
     value: usize,
 }
 
+fn collect_compiled_store_update_indices(
+    update: &CompiledStoreUpdate,
+    filter_count: usize,
+    out: &mut Vec<usize>,
+) {
+    let mut collect_row = |row: &CompiledStoreRow| {
+        out.extend(
+            row.fields
+                .iter()
+                .map(|(_, index)| filter_count.saturating_add(*index)),
+        );
+    };
+    match update {
+        CompiledStoreUpdate::Clear => {}
+        CompiledStoreUpdate::ReplaceRows { rows }
+        | CompiledStoreUpdate::InsertRows { rows }
+        | CompiledStoreUpdate::UpsertRows { rows }
+        | CompiledStoreUpdate::ToggleRows { rows } => {
+            for row in rows {
+                collect_row(row);
+            }
+        }
+        CompiledStoreUpdate::UpdateByKey { key, fields } => {
+            collect_row(key);
+            collect_row(fields);
+        }
+        CompiledStoreUpdate::DeleteByKey { key } => collect_row(key),
+    }
+}
+
+fn collect_compiled_selection_update_indices(
+    update: &CompiledSelectionUpdate,
+    filter_count: usize,
+    out: &mut Vec<usize>,
+) {
+    let mut push = |index: usize| out.push(filter_count.saturating_add(index));
+    match update {
+        CompiledSelectionUpdate::Clear | CompiledSelectionUpdate::ClearInScope { .. } => {}
+        CompiledSelectionUpdate::ReplaceAllClauses { clauses }
+        | CompiledSelectionUpdate::ReplaceClausesInScope { clauses, .. }
+        | CompiledSelectionUpdate::UpsertClauses { clauses }
+        | CompiledSelectionUpdate::ToggleClauses { clauses } => {
+            for clause in clauses {
+                push(clause.id);
+                match &clause.predicate {
+                    CompiledSelectionPredicate::Interval { dimensions } => {
+                        for dimension in dimensions {
+                            push(dimension.min);
+                            push(dimension.max);
+                        }
+                    }
+                    CompiledSelectionPredicate::Equality { dimensions } => {
+                        for dimension in dimensions {
+                            push(dimension.value);
+                        }
+                    }
+                    CompiledSelectionPredicate::Predicate { values, .. } => {
+                        for value in values {
+                            push(value.value);
+                        }
+                    }
+                }
+            }
+        }
+        CompiledSelectionUpdate::ToggleEqualityValue { value, item_id, .. } => {
+            push(*value);
+            push(*item_id);
+        }
+        CompiledSelectionUpdate::ReplaceAllFromSceneQuery { query }
+        | CompiledSelectionUpdate::ReplaceFromSceneQueryInScope { query }
+        | CompiledSelectionUpdate::UpsertFromSceneQuery { query }
+        | CompiledSelectionUpdate::ToggleFromSceneQuery { query } => {
+            match &query.query.geometry {
+                CompiledSceneGeometryQueryGeometry::Rect { x0, y0, x1, y1 } => {
+                    push(*x0);
+                    push(*y0);
+                    push(*x1);
+                    push(*y1);
+                }
+                CompiledSceneGeometryQueryGeometry::Circle { cx, cy, radius } => {
+                    push(*cx);
+                    push(*cy);
+                    push(*radius);
+                }
+                CompiledSceneGeometryQueryGeometry::Polygon { points } => push(*points),
+            }
+            if let CompiledSceneQueryClauseId::Expr(index) = &query.clause_id {
+                push(*index);
+            }
+        }
+        CompiledSelectionUpdate::DeleteClauses { ids }
+        | CompiledSelectionUpdate::DeleteClausesInScope { ids, .. } => {
+            for index in ids {
+                push(*index);
+            }
+        }
+    }
+}
+
 struct StoreExpressionAssignment {
+    runtime_id: StoreRef,
     store_name: String,
     sharing: CoordinationScope,
     scope: ChartEventAssignmentScope,
     replace_scoped_values: bool,
     update: StoreExpressionUpdate,
+}
+
+enum PreparedEventAction {
+    SetParam {
+        runtime_id: ParamRef,
+        param_name: String,
+        sharing: CoordinationScope,
+        default_value: ScalarValue,
+        data_type: DataType,
+        scope: ChartEventAssignmentScope,
+        replace_scoped_values: bool,
+        reject_null: bool,
+        expr: Expr,
+    },
+    SetStore(StoreExpressionAssignment),
+    SetSelection(SelectionExpressionAssignment),
+    SetCursor(Expr),
 }
 
 enum StoreExpressionUpdate {
@@ -442,6 +699,7 @@ struct StoreExpressionField {
 }
 
 struct SelectionExpressionAssignment {
+    runtime_id: SelectionRef,
     selection_id: String,
     spec: CompiledSelectionSpec,
     scope: ChartEventAssignmentScope,
@@ -542,6 +800,7 @@ struct SceneGeometryQueryExpression {
     coordinate_space: SceneGeometryCoordinateSpace,
     hit_policy: SceneGeometryHitPolicy,
     target: SceneGeometryTarget,
+    runtime_mark_paths: Option<Vec<Vec<usize>>>,
     datum_fields: Vec<SceneQueryDatumField>,
     unique_by: Vec<String>,
     max_hits: Option<usize>,
@@ -570,6 +829,27 @@ enum SceneQueryClauseIdExpression {
     Expr(Expr),
 }
 
+fn event_expression_requires_deferred_evaluation(expr: &Expr) -> Result<bool, DataFusionError> {
+    let mut deferred = false;
+    expr.apply(|candidate| {
+        let requires = match candidate {
+            Expr::Exists(_) | Expr::InSubquery(_) | Expr::ScalarSubquery(_) => true,
+            Expr::Placeholder(placeholder) => {
+                selection_target_from_placeholder(&placeholder.id).is_some()
+                    || store_target_from_placeholder(&placeholder.id).is_some()
+            }
+            _ => false,
+        };
+        if requires {
+            deferred = true;
+            Ok(TreeNodeRecursion::Stop)
+        } else {
+            Ok(TreeNodeRecursion::Continue)
+        }
+    })?;
+    Ok(deferred)
+}
+
 impl CompiledChartEventBinding {
     #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
@@ -577,10 +857,9 @@ impl CompiledChartEventBinding {
         binding_index: usize,
         binding: &ChartEventBinding,
         ctx: &SessionContext,
-        param_specs: &IndexMap<String, CompiledParamSpec>,
-        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-        store_specs: &IndexMap<String, CompiledStoreSpec>,
-        cursor_params: &[String],
+        param_specs: &ParamSpecRegistry,
+        selection_specs: &SelectionSpecRegistry,
+        store_specs: &StoreSpecRegistry,
         event_datum_types: &IndexMap<String, DataType>,
     ) -> Result<Self, AvengerAppError> {
         Self::compile_with_event_coord_types(
@@ -590,9 +869,10 @@ impl CompiledChartEventBinding {
             param_specs,
             selection_specs,
             store_specs,
-            cursor_params,
             event_datum_types,
             &IndexMap::new(),
+            None,
+            None,
         )
     }
 
@@ -601,38 +881,37 @@ impl CompiledChartEventBinding {
         binding_index: usize,
         binding: &ChartEventBinding,
         ctx: &SessionContext,
-        param_specs: &IndexMap<String, CompiledParamSpec>,
-        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-        store_specs: &IndexMap<String, CompiledStoreSpec>,
-        cursor_params: &[String],
+        param_specs: &ParamSpecRegistry,
+        selection_specs: &SelectionSpecRegistry,
+        store_specs: &StoreSpecRegistry,
         event_datum_types: &IndexMap<String, DataType>,
         event_coord_types: &IndexMap<String, DataType>,
+        stream_param_provider: Option<StreamParamProvider>,
+        mark_runtime_paths: Option<&MarkRuntimePathIndex>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        for assignment in &binding.action.assignments {
-            if !param_specs.contains_key(&assignment.param_name) {
-                return Err(AvengerAppError::InternalError(format!(
-                    "Chart event binding assigns unknown param '{}'",
-                    assignment.param_name
-                )));
-            }
-        }
-        for assignment in &binding.action.store_assignments {
-            if !store_specs.contains_key(&assignment.store_name) {
-                return Err(AvengerAppError::InternalError(format!(
-                    "Chart event binding updates unknown store '{}'",
-                    assignment.store_name
-                )));
-            }
-        }
-        for assignment in &binding.action.selection_assignments {
-            if !selection_specs.contains_key(&assignment.selection_id) {
-                return Err(AvengerAppError::InternalError(format!(
-                    "Chart event binding updates unknown selection '{}'",
-                    assignment.selection_id
-                )));
+        let resolved_actions =
+            resolved_actions_for_binding(binding, param_specs, store_specs, selection_specs)?;
+        for action in &resolved_actions {
+            let valid = match action {
+                ChartEventAction::SetParam(action) => param_specs
+                    .get_by_id(&action.target.id)
+                    .is_some_and(|spec| spec.runtime_id == action.target.id),
+                ChartEventAction::SetStore(action) => store_specs
+                    .get_by_id(&action.target.id)
+                    .is_some_and(|spec| spec.runtime_id == action.target.id),
+                ChartEventAction::SetSelection(action) => selection_specs
+                    .get_by_id(&action.target.id)
+                    .is_some_and(|spec| spec.runtime_id == action.target.id),
+                ChartEventAction::SetCursor(_) => true,
+            };
+            if !valid {
+                return Err(AvengerAppError::InternalError(
+                    "Chart event binding contains a stale or mismatched resolved state target"
+                        .to_string(),
+                ));
             }
         }
 
@@ -646,64 +925,83 @@ impl CompiledChartEventBinding {
                     .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
             );
         }
-        let mut assignment_exprs = Vec::new();
-        for assignment in &binding.action.assignments {
-            let target = param_specs
-                .get(&assignment.param_name)
-                .expect("param assignment validated");
-            let expr = match &assignment.value {
-                ChartActionParamValue::Expr { expr } => expr
-                    .to_expr(ctx)
-                    .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
-                ChartActionParamValue::RegisteredDefault => {
-                    datafusion::prelude::lit(target.default.clone())
+        let mut prepared_actions = Vec::with_capacity(resolved_actions.len());
+        for action in resolved_actions {
+            prepared_actions.push(match action {
+                ChartEventAction::SetParam(action) => {
+                    let spec = param_specs
+                        .get_by_id(&action.target.id)
+                        .expect("resolved param action validated");
+                    let expr = match action.value {
+                        ChartActionParamValue::Expr { expr } => expr
+                            .to_expr(ctx)
+                            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                        ChartActionParamValue::RegisteredDefault => {
+                            datafusion::prelude::lit(spec.default.clone())
+                        }
+                    };
+                    PreparedEventAction::SetParam {
+                        runtime_id: action.target.id,
+                        param_name: action.target.source_name,
+                        sharing: spec.sharing,
+                        default_value: spec.default.clone(),
+                        data_type: spec.data_type.clone(),
+                        scope: action.scope,
+                        replace_scoped_values: action.replace_scoped_values,
+                        reject_null: action.reject_null,
+                        expr,
+                    }
                 }
-            };
-            assignment_exprs.push((
-                assignment.param_name.clone(),
-                expr,
-                assignment.scope,
-                assignment.replace_scoped_values,
-                assignment.reject_null,
-            ));
-        }
-        let mut store_exprs = Vec::new();
-        for assignment in &binding.action.store_assignments {
-            let store = store_specs
-                .get(&assignment.store_name)
-                .expect("store assignment validated");
-            store_exprs.push(StoreExpressionAssignment {
-                store_name: assignment.store_name.clone(),
-                sharing: store.sharing,
-                scope: assignment.scope,
-                replace_scoped_values: assignment.replace_scoped_values,
-                update: compile_store_expression_update(store, &assignment.update, ctx)?,
-            });
-        }
-        let mut selection_exprs = Vec::new();
-        for assignment in &binding.action.selection_assignments {
-            let spec = selection_specs
-                .get(&assignment.selection_id)
-                .expect("selection assignment validated");
-            selection_exprs.push(SelectionExpressionAssignment {
-                selection_id: assignment.selection_id.clone(),
-                spec: spec.clone(),
-                scope: assignment.scope,
-                update: compile_selection_expression_update(&assignment.update, ctx)?,
+                ChartEventAction::SetStore(action) => {
+                    let spec = store_specs
+                        .get_by_id(&action.target.id)
+                        .expect("resolved store action validated");
+                    PreparedEventAction::SetStore(StoreExpressionAssignment {
+                        runtime_id: action.target.id,
+                        store_name: action.target.source_name,
+                        sharing: spec.sharing,
+                        scope: action.scope,
+                        replace_scoped_values: action.replace_scoped_values,
+                        update: compile_store_expression_update(spec, &action.update, ctx)?,
+                    })
+                }
+                ChartEventAction::SetSelection(action) => {
+                    let spec = selection_specs
+                        .get_by_id(&action.target.id)
+                        .expect("resolved selection action validated");
+                    PreparedEventAction::SetSelection(SelectionExpressionAssignment {
+                        runtime_id: action.target.id,
+                        selection_id: action.target.source_name,
+                        spec: spec.clone(),
+                        scope: action.scope,
+                        update: compile_selection_expression_update(
+                            &action.update,
+                            ctx,
+                            mark_runtime_paths,
+                        )?,
+                    })
+                }
+                ChartEventAction::SetCursor(action) => PreparedEventAction::SetCursor(
+                    action
+                        .value
+                        .to_expr(ctx)
+                        .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                ),
             });
         }
 
         let mut scan_exprs = filter_exprs.clone();
-        scan_exprs.extend(
-            assignment_exprs
-                .iter()
-                .map(|(_, expr, _, _, _)| expr.clone()),
-        );
-        for assignment in &store_exprs {
-            scan_exprs.extend(store_expression_update_exprs(&assignment.update));
-        }
-        for assignment in &selection_exprs {
-            scan_exprs.extend(selection_expression_update_exprs(&assignment.update));
+        for action in &prepared_actions {
+            match action {
+                PreparedEventAction::SetParam { expr, .. }
+                | PreparedEventAction::SetCursor(expr) => scan_exprs.push(expr.clone()),
+                PreparedEventAction::SetStore(assignment) => {
+                    scan_exprs.extend(store_expression_update_exprs(&assignment.update));
+                }
+                PreparedEventAction::SetSelection(assignment) => {
+                    scan_exprs.extend(selection_expression_update_exprs(&assignment.update));
+                }
+            }
         }
         let mut widget_runtime_inputs = IndexMap::new();
         for expr in &scan_exprs {
@@ -720,35 +1018,38 @@ impl CompiledChartEventBinding {
         }
         widget_runtime_inputs.sort_keys();
         let mut interaction_requests = event::scan_interaction_columns(&scan_exprs);
-        for assignment in &selection_exprs {
-            for field in selection_expression_update_datum_fields(&assignment.update) {
-                interaction_requests
-                    .current_datum
-                    .insert(field.datum_field.clone());
-            }
-        }
-        for assignment in &store_exprs {
-            if assignment.sharing.to_level() != u8::MAX {
-                match assignment.scope {
-                    ChartEventAssignmentScope::Current => {
-                        interaction_requests.current_scope_id = true;
-                    }
-                    ChartEventAssignmentScope::Start => {
-                        interaction_requests.start_scope_id = true;
+        for action in &prepared_actions {
+            match action {
+                PreparedEventAction::SetStore(assignment) => {
+                    if assignment.sharing.to_level() != u8::MAX {
+                        match assignment.scope {
+                            ChartEventAssignmentScope::Current => {
+                                interaction_requests.current_scope_id = true;
+                            }
+                            ChartEventAssignmentScope::Start => {
+                                interaction_requests.start_scope_id = true;
+                            }
+                        }
                     }
                 }
-            }
-        }
-        for assignment in &selection_exprs {
-            if selection_update_needs_scope(&assignment.update) {
-                match assignment.scope {
-                    ChartEventAssignmentScope::Current => {
-                        interaction_requests.current_scope_id = true;
+                PreparedEventAction::SetSelection(assignment) => {
+                    for field in selection_expression_update_datum_fields(&assignment.update) {
+                        interaction_requests
+                            .current_datum
+                            .insert(field.datum_field.clone());
                     }
-                    ChartEventAssignmentScope::Start => {
-                        interaction_requests.start_scope_id = true;
+                    if selection_update_needs_scope(&assignment.update) {
+                        match assignment.scope {
+                            ChartEventAssignmentScope::Current => {
+                                interaction_requests.current_scope_id = true;
+                            }
+                            ChartEventAssignmentScope::Start => {
+                                interaction_requests.start_scope_id = true;
+                            }
+                        }
                     }
                 }
+                PreparedEventAction::SetParam { .. } | PreparedEventAction::SetCursor(_) => {}
             }
         }
 
@@ -794,76 +1095,131 @@ impl CompiledChartEventBinding {
         }
         let filter_count = specs.len();
         let mut assignments = Vec::new();
-        for (param_name, expr, scope, replace_scoped_values, reject_null) in assignment_exprs {
-            let spec = param_specs
-                .get(&param_name)
-                .expect("assignment param validated");
-            let target_type = spec.default.data_type();
-            let sharing = spec.sharing;
-            specs.push(
-                PhysicalScalarExpressionSpec::new(format!("assign_{param_name}"), expr)
-                    .with_expected_type(target_type)
-                    .with_nullable_cast(),
-            );
-            assignments.push(CompiledParamAssignment {
-                param_name,
-                sharing,
-                default_value: spec.default.clone(),
-                scope,
-                replace_scoped_values,
-                reject_null,
-            });
+        let mut ordered_actions = Vec::with_capacity(prepared_actions.len());
+        for action in prepared_actions {
+            match action {
+                PreparedEventAction::SetParam {
+                    runtime_id,
+                    param_name,
+                    sharing,
+                    default_value,
+                    data_type,
+                    scope,
+                    replace_scoped_values,
+                    reject_null,
+                    expr,
+                } => {
+                    let value_index = specs.len();
+                    specs.push(
+                        PhysicalScalarExpressionSpec::new(
+                            format!("assign_{param_name}_{value_index}"),
+                            expr,
+                        )
+                        .with_expected_type(data_type)
+                        .with_nullable_cast(),
+                    );
+                    let assignment = CompiledParamAssignment {
+                        runtime_id,
+                        param_name,
+                        sharing,
+                        default_value,
+                        scope,
+                        replace_scoped_values,
+                        reject_null,
+                        value_index,
+                    };
+                    assignments.push(assignment.clone());
+                    ordered_actions.push(CompiledOrderedAction::SetParam(assignment));
+                }
+                PreparedEventAction::SetStore(assignment) => {
+                    let update = append_store_expression_update_specs(
+                        &assignment.store_name,
+                        assignment.update,
+                        &mut specs,
+                        filter_count,
+                    );
+                    let assignment = CompiledStoreAssignment {
+                        runtime_id: assignment.runtime_id,
+                        store_name: assignment.store_name,
+                        sharing: assignment.sharing,
+                        scope: assignment.scope,
+                        replace_scoped_values: assignment.replace_scoped_values,
+                        update,
+                    };
+                    ordered_actions.push(CompiledOrderedAction::SetStore(assignment));
+                }
+                PreparedEventAction::SetSelection(assignment) => {
+                    let update = append_selection_expression_update_specs(
+                        &assignment.selection_id,
+                        assignment.update,
+                        &mut specs,
+                        filter_count,
+                    );
+                    let assignment = CompiledSelectionAssignment {
+                        runtime_id: assignment.runtime_id,
+                        selection_id: assignment.selection_id,
+                        spec: assignment.spec,
+                        scope: assignment.scope,
+                        update,
+                    };
+                    ordered_actions.push(CompiledOrderedAction::SetSelection(assignment));
+                }
+                PreparedEventAction::SetCursor(expr) => {
+                    let value_index = specs.len();
+                    specs.push(
+                        PhysicalScalarExpressionSpec::new(format!("cursor_{value_index}"), expr)
+                            .with_expected_type(DataType::Utf8)
+                            .with_nullable_cast(),
+                    );
+                    ordered_actions.push(CompiledOrderedAction::SetCursor { value_index });
+                }
+            }
         }
-        let mut store_assignments = Vec::new();
-        for assignment in store_exprs {
-            let update = append_store_expression_update_specs(
-                &assignment.store_name,
-                assignment.update,
-                &mut specs,
-                filter_count,
-            );
-            store_assignments.push(CompiledStoreAssignment {
-                store_name: assignment.store_name,
-                sharing: assignment.sharing,
-                scope: assignment.scope,
-                replace_scoped_values: assignment.replace_scoped_values,
-                update,
-            });
+        let mut deferred_expressions = HashMap::new();
+        for (index, spec) in specs.iter_mut().enumerate() {
+            if event_expression_requires_deferred_evaluation(&spec.expr)
+                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?
+            {
+                deferred_expressions.insert(
+                    index,
+                    DeferredEventExpression {
+                        name: spec.name.clone(),
+                        expr: spec.expr.clone(),
+                        expected_type: spec.expected_type.clone(),
+                        null_on_cast_failure: spec.null_on_cast_failure,
+                    },
+                );
+                spec.expr = datafusion::prelude::lit(ScalarValue::Null);
+            }
         }
-        let mut selection_assignments = Vec::new();
-        for assignment in selection_exprs {
-            let update = append_selection_expression_update_specs(
-                &assignment.selection_id,
-                assignment.update,
-                &mut specs,
-                filter_count,
-            );
-            selection_assignments.push(CompiledSelectionAssignment {
-                selection_id: assignment.selection_id,
-                spec: assignment.spec,
-                scope: assignment.scope,
-                update,
-            });
-        }
+        let deferred_program_options = PhysicalScalarProgramOptions::default()
+            .with_allowed_columns(allowed_columns)
+            .with_placeholder_columns(placeholder_columns);
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
             schema,
             specs,
-            PhysicalScalarProgramOptions::default()
-                .with_allowed_columns(allowed_columns)
-                .with_placeholder_columns(placeholder_columns),
+            deferred_program_options.clone(),
         )
         .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        let event_stream_config = event_stream_config_for_binding(binding, ctx, param_specs)?;
+        let event_stream_config = event_stream_config_for_binding(
+            binding,
+            ctx,
+            param_specs,
+            stream_param_provider,
+            mark_runtime_paths,
+        )?;
 
         Ok(Self {
             binding_index,
             event_stream_config,
             program,
+            deferred_expressions,
+            deferred_program_options,
+            session_context: ctx.clone(),
             filter_count,
             assignments,
-            store_assignments,
-            selection_assignments,
+            ordered_actions,
             evaluation_mode: binding.action.evaluation_mode,
             settle_exact: binding.action.settle_exact,
             interaction_requests,
@@ -873,7 +1229,6 @@ impl CompiledChartEventBinding {
             scope_target: binding.scope_target.clone(),
             surface_target: binding.surface_target.clone(),
             scope_target_uses_start_scope: binding.between.is_some(),
-            cursor_params: Arc::new(cursor_params.iter().cloned().collect()),
         })
     }
 }
@@ -888,6 +1243,7 @@ pub(crate) fn param_change_graph_for_plot(
         compiled_plot.param_specs(),
         compiled_plot.selection_specs(),
         compiled_plot.store_specs(),
+        Some(compiled_plot.mark_runtime_path_index()),
     )
 }
 
@@ -895,13 +1251,14 @@ impl CompiledChartParamChangeGraph {
     fn compile(
         bindings: &[ChartParamChangeBinding],
         ctx: &SessionContext,
-        param_specs: &IndexMap<String, CompiledParamSpec>,
-        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-        store_specs: &IndexMap<String, CompiledStoreSpec>,
+        param_specs: &ParamSpecRegistry,
+        selection_specs: &SelectionSpecRegistry,
+        store_specs: &StoreSpecRegistry,
+        mark_runtime_paths: Option<&MarkRuntimePathIndex>,
     ) -> Result<Self, AvengerAppError> {
         let edges = validate_param_change_graph(bindings, param_specs)?;
         let mut compiled_bindings = Vec::with_capacity(bindings.len());
-        let mut bindings_by_source: IndexMap<String, Vec<usize>> = IndexMap::new();
+        let mut bindings_by_source: IndexMap<ParamRef, Vec<usize>> = IndexMap::new();
         for (binding_index, binding) in bindings.iter().enumerate() {
             let compiled = CompiledChartParamChangeBinding::compile(
                 binding_index,
@@ -910,9 +1267,10 @@ impl CompiledChartParamChangeGraph {
                 param_specs,
                 selection_specs,
                 store_specs,
+                mark_runtime_paths,
             )?;
             bindings_by_source
-                .entry(binding.source_param_name.clone())
+                .entry(compiled.source_runtime_id.clone())
                 .or_default()
                 .push(binding_index);
             compiled_bindings.push(compiled);
@@ -940,37 +1298,53 @@ impl CompiledChartParamChangeGraph {
         self.edges.len()
     }
 
-    pub(crate) fn has_source(&self, source: &str) -> bool {
+    pub(crate) fn has_source(&self, source: &ParamRef) -> bool {
         self.bindings_by_source.contains_key(source)
     }
 
-    pub(crate) fn evaluate_source(
+    pub(crate) fn evaluate_sources(
         &self,
-        source: &str,
-        current_params: &IndexMap<String, ScalarValue>,
-        previous_value: &ScalarValue,
+        sources: &[(ParamRef, ScalarValue)],
+        working: &mut ResolvedStateTransaction,
+        fired_bindings: &mut HashSet<usize>,
     ) -> Result<Vec<EvaluatedParamChangeAction>, AvengerAppError> {
-        let Some(binding_indices) = self.bindings_by_source.get(source) else {
-            return Ok(Vec::new());
-        };
-        let source_value = current_params.get(source).ok_or_else(|| {
-            AvengerAppError::InternalError(format!(
-                "Parameter-change source '{source}' is missing from the staged parameter snapshot"
-            ))
-        })?;
-        let mut row_values = current_params
-            .iter()
-            .map(|(name, value)| (event::param_column_name(name), value.clone()))
-            .collect::<HashMap<_, _>>();
-        row_values.insert(param_change::VALUE_FIELD.to_string(), source_value.clone());
-        row_values.insert(
-            param_change::PREVIOUS_VALUE_FIELD.to_string(),
-            previous_value.clone(),
-        );
+        let mut scheduled = Vec::new();
+        for (source, previous_value) in sources {
+            if let Some(binding_indices) = self.bindings_by_source.get(source) {
+                scheduled.extend(
+                    binding_indices
+                        .iter()
+                        .filter(|binding_index| fired_bindings.insert(**binding_index))
+                        .map(|binding_index| (*binding_index, previous_value.clone())),
+                );
+            }
+        }
+        scheduled.sort_by_key(|(binding_index, _)| *binding_index);
+        let root_owner_paths = HashMap::new();
 
         let mut actions = Vec::new();
-        for binding_index in binding_indices {
-            let binding = &self.bindings[*binding_index];
+        for (binding_index, previous_value) in scheduled {
+            let binding = &self.bindings[binding_index];
+            let source_value = working
+                .effective_params_for_owner_paths(&root_owner_paths)
+                .get(&binding.source_param_name)
+                .cloned()
+                .ok_or_else(|| {
+                    AvengerAppError::InternalError(format!(
+                        "Parameter-change source '{}' is missing from the staged parameter snapshot",
+                        binding.source_param_name
+                    ))
+                })?;
+            let current_params = working.effective_params_for_owner_paths(&root_owner_paths);
+            let mut row_values = current_params
+                .iter()
+                .map(|(name, value)| (event::param_column_name(name), value.clone()))
+                .collect::<HashMap<_, _>>();
+            row_values.insert(param_change::VALUE_FIELD.to_string(), source_value.clone());
+            row_values.insert(
+                param_change::PREVIOUS_VALUE_FIELD.to_string(),
+                previous_value.clone(),
+            );
             let batch = one_row_batch_from_scalars(binding.program.schema().clone(), &row_values)
                 .map_err(|err| {
                 AvengerAppError::InternalError(format!(
@@ -978,71 +1352,140 @@ impl CompiledChartParamChangeGraph {
                     binding.binding_index
                 ))
             })?;
-            let values = binding.program.evaluate_values(&batch).map_err(|err| {
-                AvengerAppError::InternalError(format!(
-                    "Parameter-change binding {} from '{}' failed to evaluate: {err}",
-                    binding.binding_index, binding.source_param_name
-                ))
-            })?;
-            if !filters_pass(&values[..binding.filter_count]) {
+            let filter_values = (0..binding.filter_count)
+                .map(|index| binding.program.evaluate_value_at(index, &batch))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|err| {
+                    AvengerAppError::InternalError(format!(
+                        "Parameter-change binding {} from '{}' failed to evaluate filters: {err}",
+                        binding.binding_index, binding.source_param_name
+                    ))
+                })?;
+            if !filters_pass(&filter_values) {
                 continue;
             }
 
-            let mut param_patch = IndexMap::new();
-            for (assignment, value) in binding
-                .assignments
-                .iter()
-                .zip(values[binding.filter_count..].iter())
-            {
-                if !assignment_value_is_writable(value, &assignment.default_value) {
-                    if assignment.reject_null {
-                        return Err(AvengerAppError::InternalError(format!(
-                            "Parameter-change binding {} required assignment to '{}' evaluated to null or a degenerate value",
-                            binding.binding_index, assignment.param_name
-                        )));
-                    }
-                    continue;
-                }
-                param_patch.insert(assignment.param_name.clone(), value.clone());
-            }
-
+            let mut param_patch = Vec::new();
             let mut store_patch = Vec::new();
-            for assignment in &binding.store_assignments {
-                let Some(update) = store_state_update_from_values(
-                    &assignment.update,
-                    &values,
-                    binding.filter_count,
-                ) else {
-                    continue;
-                };
-                store_patch.push(ScopedStoreAssignment {
-                    store_name: assignment.store_name.clone(),
-                    owner_path: Vec::new(),
-                    replace_scoped_values: false,
-                    update,
-                });
-            }
-
             let mut selection_patch = Vec::new();
-            for assignment in &binding.selection_assignments {
-                if compiled_selection_update_is_scene_query(&assignment.update) {
-                    return Err(AvengerAppError::InternalError(format!(
-                        "Parameter-change binding {} selection '{}' uses a scene query without an event geometry context",
-                        binding.binding_index, assignment.selection_id
-                    )));
+            for ordered_action in &binding.ordered_actions {
+                let current_params = working.effective_params_for_owner_paths(&root_owner_paths);
+                let mut row_values = current_params
+                    .iter()
+                    .map(|(name, value)| (event::param_column_name(name), value.clone()))
+                    .collect::<HashMap<_, _>>();
+                row_values.insert(param_change::VALUE_FIELD.to_string(), source_value.clone());
+                row_values.insert(
+                    param_change::PREVIOUS_VALUE_FIELD.to_string(),
+                    previous_value.clone(),
+                );
+                let batch = one_row_batch_from_scalars(
+                    binding.program.schema().clone(),
+                    &row_values,
+                )
+                .map_err(|err| {
+                    AvengerAppError::InternalError(format!(
+                        "Parameter-change binding {} failed to build an ordered action row: {err}",
+                        binding.binding_index
+                    ))
+                })?;
+                let indices = ordered_action.expression_indices(binding.filter_count);
+                let mut values = vec![ScalarValue::Null; binding.program.expression_count()];
+                for index in indices {
+                    values[index] = binding.program.evaluate_value_at(index, &batch).map_err(|err| {
+                        AvengerAppError::InternalError(format!(
+                            "Parameter-change binding {} from '{}' failed to evaluate action: {err}",
+                            binding.binding_index, binding.source_param_name
+                        ))
+                    })?;
                 }
-                if let Some(update) = selection_state_update_from_values(
-                    &assignment.update,
-                    &assignment.spec,
-                    &values,
-                    binding.filter_count,
-                    None,
-                    false,
-                ) {
-                    selection_patch.push(SelectionAssignment {
-                        selection_id: assignment.selection_id.clone(),
-                        update,
-                    });
+                match ordered_action {
+                    CompiledOrderedAction::SetParam(assignment) => {
+                        let value = &values[assignment.value_index];
+                        if !assignment_value_is_writable(value, &assignment.default_value) {
+                            if assignment.reject_null {
+                                return Err(AvengerAppError::InternalError(format!(
+                                    "Parameter-change binding {} required assignment to '{}' evaluated to null or a degenerate value",
+                                    binding.binding_index, assignment.param_name
+                                )));
+                            }
+                            continue;
+                        }
+                        if current_params.get(&assignment.param_name) == Some(value) {
+                            continue;
+                        }
+                        let resolved = ResolvedScopedParamAssignment {
+                            runtime_id: assignment.runtime_id.clone(),
+                            source_name: assignment.param_name.clone(),
+                            owner_path: Vec::new(),
+                            value: value.clone(),
+                            replace_scoped_values: false,
+                        };
+                        working.apply_param(resolved.clone()).map_err(|err| {
+                            AvengerAppError::InternalError(format!(
+                                "Parameter-change binding {} failed to stage param '{}': {err}",
+                                binding.binding_index, assignment.param_name
+                            ))
+                        })?;
+                        param_patch.push(resolved);
+                    }
+                    CompiledOrderedAction::SetStore(assignment) => {
+                        let Some(update) = store_state_update_from_values(
+                            &assignment.update,
+                            &values,
+                            binding.filter_count,
+                        ) else {
+                            continue;
+                        };
+                        let resolved = ResolvedScopedStoreAssignment {
+                            runtime_id: assignment.runtime_id.clone(),
+                            source_name: assignment.store_name.clone(),
+                            owner_path: Vec::new(),
+                            replace_scoped_values: false,
+                            update,
+                        };
+                        working.apply_store(resolved.clone()).map_err(|err| {
+                            AvengerAppError::InternalError(format!(
+                                "Parameter-change binding {} failed to stage store '{}': {err}",
+                                binding.binding_index, assignment.store_name
+                            ))
+                        })?;
+                        store_patch.push(resolved);
+                    }
+                    CompiledOrderedAction::SetSelection(assignment) => {
+                        if compiled_selection_update_is_scene_query(&assignment.update) {
+                            return Err(AvengerAppError::InternalError(format!(
+                                "Parameter-change binding {} selection '{}' uses a scene query without an event geometry context",
+                                binding.binding_index, assignment.selection_id
+                            )));
+                        }
+                        if let Some(update) = selection_state_update_from_values(
+                            &assignment.update,
+                            &assignment.spec,
+                            &values,
+                            binding.filter_count,
+                            None,
+                            false,
+                        ) {
+                            let resolved = ResolvedSelectionAssignment {
+                                runtime_id: assignment.runtime_id.clone(),
+                                source_name: assignment.selection_id.clone(),
+                                update,
+                            };
+                            working.apply_selection(resolved.clone()).map_err(|err| {
+                                AvengerAppError::InternalError(format!(
+                                    "Parameter-change binding {} failed to stage selection '{}': {err}",
+                                    binding.binding_index, assignment.selection_id
+                                ))
+                            })?;
+                            selection_patch.push(resolved);
+                        }
+                    }
+                    CompiledOrderedAction::SetCursor { .. } => {
+                        return Err(AvengerAppError::InternalError(
+                            "Parameter-change bindings cannot publish cursor actions".to_string(),
+                        ));
+                    }
                 }
             }
 
@@ -1061,15 +1504,21 @@ impl CompiledChartParamChangeGraph {
 
 fn validate_param_change_graph(
     bindings: &[ChartParamChangeBinding],
-    param_specs: &IndexMap<String, CompiledParamSpec>,
+    param_specs: &ParamSpecRegistry,
 ) -> Result<Vec<(String, String)>, AvengerAppError> {
     let mut writers: HashMap<String, (String, usize)> = HashMap::new();
     let mut edges = Vec::new();
     for (binding_index, binding) in bindings.iter().enumerate() {
-        let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
+        let source_target = binding.resolved_source().ok_or_else(|| {
             AvengerAppError::InternalError(format!(
-                "Parameter-change binding {binding_index} has unknown source '{}'",
+                "Parameter-change binding {binding_index} source '{}' was not resolved during chart compilation",
                 binding.source_param_name
+            ))
+        })?;
+        let source = param_specs.get_by_id(&source_target.id).ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "Parameter-change binding {binding_index} has unknown resolved source '{}'",
+                source_target.source_name
             ))
         })?;
         if !source.sharing.is_fully_shared() {
@@ -1078,31 +1527,36 @@ fn validate_param_change_graph(
                 binding.source_param_name
             )));
         }
-        for assignment in &binding.action.assignments {
-            let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
-                AvengerAppError::InternalError(format!(
-                    "Parameter-change binding from '{}' assigns unknown param '{}'",
-                    binding.source_param_name, assignment.param_name
-                ))
-            })?;
+        for action in binding.resolved_actions() {
+            let ChartEventAction::SetParam(assignment) = action else {
+                continue;
+            };
+            let target = param_specs
+                .get_by_id(&assignment.target.id)
+                .ok_or_else(|| {
+                    AvengerAppError::InternalError(format!(
+                        "Parameter-change binding from '{}' assigns unknown resolved param '{}'",
+                        binding.source_param_name, assignment.target.source_name
+                    ))
+                })?;
             if !target.sharing.is_fully_shared() {
                 return Err(AvengerAppError::InternalError(format!(
                     "Parameter-change binding target '{}' must be shared",
-                    assignment.param_name
+                    assignment.target.source_name
                 )));
             }
             if let Some((first_source, first_binding)) = writers.insert(
-                assignment.param_name.clone(),
+                assignment.target.source_name.clone(),
                 (binding.source_param_name.clone(), binding_index),
             ) {
                 return Err(AvengerAppError::InternalError(format!(
                     "Parameter '{}' has more than one reactive writer: binding {first_binding} from '{first_source}' and binding {binding_index} from '{}'",
-                    assignment.param_name, binding.source_param_name
+                    assignment.target.source_name, binding.source_param_name
                 )));
             }
             edges.push((
                 binding.source_param_name.clone(),
-                assignment.param_name.clone(),
+                assignment.target.source_name.clone(),
             ));
         }
     }
@@ -1179,17 +1633,24 @@ impl CompiledChartParamChangeBinding {
         binding_index: usize,
         binding: &ChartParamChangeBinding,
         ctx: &SessionContext,
-        param_specs: &IndexMap<String, CompiledParamSpec>,
-        selection_specs: &IndexMap<String, CompiledSelectionSpec>,
-        store_specs: &IndexMap<String, CompiledStoreSpec>,
+        param_specs: &ParamSpecRegistry,
+        selection_specs: &SelectionSpecRegistry,
+        store_specs: &StoreSpecRegistry,
+        mark_runtime_paths: Option<&MarkRuntimePathIndex>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
+        let source_target = binding.resolved_source().ok_or_else(|| {
             AvengerAppError::InternalError(format!(
-                "Parameter-change binding has unknown source '{}'",
+                "Parameter-change binding source '{}' was not resolved during chart compilation",
                 binding.source_param_name
+            ))
+        })?;
+        let source = param_specs.get_by_id(&source_target.id).ok_or_else(|| {
+            AvengerAppError::InternalError(format!(
+                "Parameter-change binding has unknown resolved source '{}'",
+                source_target.source_name
             ))
         })?;
 
@@ -1202,67 +1663,11 @@ impl CompiledChartParamChangeBinding {
                     .map_err(|err| AvengerAppError::InternalError(err.to_string()))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mut assignment_exprs = Vec::new();
-        for assignment in &binding.action.assignments {
-            let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
-                AvengerAppError::InternalError(format!(
-                    "Parameter-change binding assigns unknown param '{}'",
-                    assignment.param_name
-                ))
-            })?;
-            let expr = match &assignment.value {
-                ChartActionParamValue::Expr { expr } => expr
-                    .to_expr(ctx)
-                    .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
-                ChartActionParamValue::RegisteredDefault => {
-                    datafusion::prelude::lit(target.default.clone())
-                }
-            };
-            assignment_exprs.push((assignment, target, expr));
-        }
-        let mut store_exprs = Vec::new();
-        for assignment in &binding.action.store_assignments {
-            let store = store_specs.get(&assignment.store_name).ok_or_else(|| {
-                AvengerAppError::InternalError(format!(
-                    "Parameter-change binding updates unknown store '{}'",
-                    assignment.store_name
-                ))
-            })?;
-            store_exprs.push(StoreExpressionAssignment {
-                store_name: assignment.store_name.clone(),
-                sharing: store.sharing,
-                scope: assignment.scope,
-                replace_scoped_values: assignment.replace_scoped_values,
-                update: compile_store_expression_update(store, &assignment.update, ctx)?,
-            });
-        }
-        let mut selection_exprs = Vec::new();
-        for assignment in &binding.action.selection_assignments {
-            let spec = selection_specs
-                .get(&assignment.selection_id)
-                .ok_or_else(|| {
-                    AvengerAppError::InternalError(format!(
-                        "Parameter-change binding updates unknown selection '{}'",
-                        assignment.selection_id
-                    ))
-                })?;
-            selection_exprs.push(SelectionExpressionAssignment {
-                selection_id: assignment.selection_id.clone(),
-                spec: spec.clone(),
-                scope: assignment.scope,
-                update: compile_selection_expression_update(&assignment.update, ctx)?,
-            });
-        }
-
-        let source_type = source.default.data_type();
+        let source_type = source.data_type.clone();
         let mut fields = param_specs
             .iter()
             .map(|(name, spec)| {
-                Field::new(
-                    event::param_column_name(name),
-                    spec.default.data_type(),
-                    true,
-                )
+                Field::new(event::param_column_name(name), spec.data_type.clone(), true)
             })
             .collect::<Vec<_>>();
         fields.push(Field::new(
@@ -1297,55 +1702,111 @@ impl CompiledChartParamChangeBinding {
             })
             .collect::<Vec<_>>();
         let filter_count = specs.len();
-        let mut assignments = Vec::new();
-        for (assignment, target, expr) in assignment_exprs {
-            specs.push(
-                PhysicalScalarExpressionSpec::new(
-                    format!("assign_{}", assignment.param_name),
-                    expr,
-                )
-                .with_expected_type(target.default.data_type())
-                .with_nullable_cast(),
-            );
-            assignments.push(CompiledParamAssignment {
-                param_name: assignment.param_name.clone(),
-                sharing: target.sharing,
-                default_value: target.default.clone(),
-                scope: assignment.scope,
-                replace_scoped_values: assignment.replace_scoped_values,
-                reject_null: assignment.reject_null,
-            });
-        }
-        let mut store_assignments = Vec::new();
-        for assignment in store_exprs {
-            let update = append_store_expression_update_specs(
-                &assignment.store_name,
-                assignment.update,
-                &mut specs,
-                filter_count,
-            );
-            store_assignments.push(CompiledStoreAssignment {
-                store_name: assignment.store_name,
-                sharing: assignment.sharing,
-                scope: assignment.scope,
-                replace_scoped_values: assignment.replace_scoped_values,
-                update,
-            });
-        }
-        let mut selection_assignments = Vec::new();
-        for assignment in selection_exprs {
-            let update = append_selection_expression_update_specs(
-                &assignment.selection_id,
-                assignment.update,
-                &mut specs,
-                filter_count,
-            );
-            selection_assignments.push(CompiledSelectionAssignment {
-                selection_id: assignment.selection_id,
-                spec: assignment.spec,
-                scope: assignment.scope,
-                update,
-            });
+        let mut ordered_actions = Vec::with_capacity(binding.resolved_actions().len());
+        for action in binding.resolved_actions() {
+            match action {
+                ChartEventAction::SetParam(assignment) => {
+                    let target = param_specs
+                        .get_by_id(&assignment.target.id)
+                        .ok_or_else(|| {
+                            AvengerAppError::InternalError(format!(
+                                "Parameter-change binding assigns unknown resolved param '{}'",
+                                assignment.target.source_name
+                            ))
+                        })?;
+                    let expr = match &assignment.value {
+                        ChartActionParamValue::Expr { expr } => expr
+                            .to_expr(ctx)
+                            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
+                        ChartActionParamValue::RegisteredDefault => {
+                            datafusion::prelude::lit(target.default.clone())
+                        }
+                    };
+                    let value_index = specs.len();
+                    specs.push(
+                        PhysicalScalarExpressionSpec::new(
+                            format!("assign_{}", assignment.target.source_name),
+                            expr,
+                        )
+                        .with_expected_type(target.data_type.clone())
+                        .with_nullable_cast(),
+                    );
+                    ordered_actions.push(CompiledOrderedAction::SetParam(
+                        CompiledParamAssignment {
+                            runtime_id: assignment.target.id.clone(),
+                            param_name: assignment.target.source_name.clone(),
+                            sharing: target.sharing,
+                            default_value: target.default.clone(),
+                            scope: assignment.scope,
+                            replace_scoped_values: assignment.replace_scoped_values,
+                            reject_null: assignment.reject_null,
+                            value_index,
+                        },
+                    ));
+                }
+                ChartEventAction::SetStore(assignment) => {
+                    let store = store_specs
+                        .get_by_id(&assignment.target.id)
+                        .ok_or_else(|| {
+                            AvengerAppError::InternalError(format!(
+                                "Parameter-change binding updates unknown resolved store '{}'",
+                                assignment.target.source_name
+                            ))
+                        })?;
+                    let update = compile_store_expression_update(store, &assignment.update, ctx)?;
+                    let update = append_store_expression_update_specs(
+                        &assignment.target.source_name,
+                        update,
+                        &mut specs,
+                        filter_count,
+                    );
+                    ordered_actions.push(CompiledOrderedAction::SetStore(
+                        CompiledStoreAssignment {
+                            runtime_id: assignment.target.id.clone(),
+                            store_name: assignment.target.source_name.clone(),
+                            sharing: store.sharing,
+                            scope: assignment.scope,
+                            replace_scoped_values: assignment.replace_scoped_values,
+                            update,
+                        },
+                    ));
+                }
+                ChartEventAction::SetSelection(assignment) => {
+                    let selection = selection_specs
+                        .get_by_id(&assignment.target.id)
+                        .ok_or_else(|| {
+                            AvengerAppError::InternalError(format!(
+                                "Parameter-change binding updates unknown resolved selection '{}'",
+                                assignment.target.source_name
+                            ))
+                        })?;
+                    let update = compile_selection_expression_update(
+                        &assignment.update,
+                        ctx,
+                        mark_runtime_paths,
+                    )?;
+                    let update = append_selection_expression_update_specs(
+                        &assignment.target.source_name,
+                        update,
+                        &mut specs,
+                        filter_count,
+                    );
+                    ordered_actions.push(CompiledOrderedAction::SetSelection(
+                        CompiledSelectionAssignment {
+                            runtime_id: assignment.target.id.clone(),
+                            selection_id: assignment.target.source_name.clone(),
+                            spec: selection.clone(),
+                            scope: assignment.scope,
+                            update,
+                        },
+                    ));
+                }
+                ChartEventAction::SetCursor(_) => {
+                    return Err(AvengerAppError::InternalError(
+                        "Parameter-change bindings cannot publish cursor actions".to_string(),
+                    ));
+                }
+            }
         }
         let program = CompiledScalarExpressionProgram::compile(
             ctx,
@@ -1364,13 +1825,12 @@ impl CompiledChartParamChangeBinding {
 
         Ok(Self {
             binding_index,
+            source_runtime_id: source_target.id.clone(),
             source_param_name: binding.source_param_name.clone(),
             source_default: source.default.clone(),
             program,
             filter_count,
-            assignments,
-            store_assignments,
-            selection_assignments,
+            ordered_actions,
             evaluation_mode: binding.action.evaluation_mode,
             settle_exact: binding.action.settle_exact,
         })
@@ -1601,6 +2061,7 @@ fn append_store_row_specs(
 fn compile_selection_expression_update(
     update: &SelectionUpdate,
     ctx: &SessionContext,
+    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
 ) -> Result<SelectionExpressionUpdate, AvengerAppError> {
     Ok(match update {
         SelectionUpdate::Clear => SelectionExpressionUpdate::Clear,
@@ -1637,22 +2098,22 @@ fn compile_selection_expression_update(
         },
         SelectionUpdate::ReplaceAllFromSceneQuery { query } => {
             SelectionExpressionUpdate::ReplaceAllFromSceneQuery {
-                query: compile_selection_scene_query(query, ctx)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
             }
         }
         SelectionUpdate::ReplaceFromSceneQueryInScope { query } => {
             SelectionExpressionUpdate::ReplaceFromSceneQueryInScope {
-                query: compile_selection_scene_query(query, ctx)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
             }
         }
         SelectionUpdate::UpsertFromSceneQuery { query } => {
             SelectionExpressionUpdate::UpsertFromSceneQuery {
-                query: compile_selection_scene_query(query, ctx)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
             }
         }
         SelectionUpdate::ToggleFromSceneQuery { query } => {
             SelectionExpressionUpdate::ToggleFromSceneQuery {
-                query: compile_selection_scene_query(query, ctx)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
             }
         }
         SelectionUpdate::DeleteClauses { ids } => SelectionExpressionUpdate::DeleteClauses {
@@ -1774,9 +2235,10 @@ fn selection_value_expr_to_expr(
 fn compile_selection_scene_query(
     update: &SelectionSceneQuery,
     ctx: &SessionContext,
+    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
 ) -> Result<SelectionSceneQueryExpression, AvengerAppError> {
     Ok(SelectionSceneQueryExpression {
-        query: compile_scene_geometry_query(&update.query, ctx)?,
+        query: compile_scene_geometry_query(&update.query, ctx, mark_runtime_paths)?,
         sharing: update.sharing,
         clause_id: compile_scene_query_clause_id(&update.clause_id, ctx)?,
     })
@@ -1785,6 +2247,7 @@ fn compile_selection_scene_query(
 fn compile_scene_geometry_query(
     query: &SceneGeometryQuery,
     ctx: &SessionContext,
+    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
 ) -> Result<SceneGeometryQueryExpression, AvengerAppError> {
     query
         .target
@@ -1832,6 +2295,10 @@ fn compile_scene_geometry_query(
         coordinate_space: query.coordinate_space,
         hit_policy: query.hit_policy,
         target: query.target.clone(),
+        runtime_mark_paths: runtime_paths_for_mark_ids(
+            query.target.resolved_mark_ids(),
+            mark_runtime_paths,
+        )?,
         datum_fields: query.datum_fields.clone(),
         unique_by: query.unique_by.clone(),
         max_hits: query.max_hits,
@@ -1947,6 +2414,7 @@ fn append_scene_geometry_query_specs(
         coordinate_space: query.coordinate_space,
         hit_policy: query.hit_policy,
         target: query.target,
+        runtime_mark_paths: query.runtime_mark_paths,
         datum_fields: query.datum_fields,
         unique_by: query.unique_by,
         max_hits: query.max_hits,
@@ -2342,7 +2810,7 @@ fn append_selection_value_spec(
     value_index
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct ChartEventBindingState {
     active_start: Option<Instant>,
     next_start_event_id: u64,
@@ -2355,9 +2823,179 @@ struct ChartEventBindingState {
     event_path: Vec<[f32; 2]>,
 }
 
+struct BindingStateAdmissionGuard<'a> {
+    state: &'a Mutex<ChartEventBindingState>,
+    checkpoint: Option<ChartEventBindingState>,
+}
+
+impl<'a> BindingStateAdmissionGuard<'a> {
+    fn new(state: &'a Mutex<ChartEventBindingState>) -> Self {
+        let checkpoint = state
+            .lock()
+            .expect("chart event binding lock poisoned")
+            .clone();
+        Self {
+            state,
+            checkpoint: Some(checkpoint),
+        }
+    }
+
+    fn commit(mut self) {
+        self.checkpoint = None;
+    }
+}
+
+impl Drop for BindingStateAdmissionGuard<'_> {
+    fn drop(&mut self) {
+        if let Some(checkpoint) = self.checkpoint.take() {
+            *self
+                .state
+                .lock()
+                .expect("chart event binding lock poisoned") = checkpoint;
+        }
+    }
+}
+
+fn rejected_event_status() -> UpdateStatus {
+    UpdateStatus {
+        admission: Some(EventAdmission::Rejected),
+        ..Default::default()
+    }
+}
+
+fn failed_event_status() -> UpdateStatus {
+    UpdateStatus {
+        admission: Some(EventAdmission::Failed),
+        ..Default::default()
+    }
+}
+
 struct ChartEventBindingHandler {
     runtime: Arc<CompiledChartEventBinding>,
     state: Mutex<ChartEventBindingState>,
+}
+
+/// Private all-or-nothing state assembled while an ordered event program runs.
+/// Dropping this value publishes nothing, including its cursor effect.
+struct EventTransaction {
+    working: ResolvedStateTransaction,
+    params: Vec<ResolvedScopedParamAssignment>,
+    stores: Vec<ResolvedScopedStoreAssignment>,
+    selections: Vec<ResolvedSelectionAssignment>,
+    cursor: Option<CursorStyle>,
+}
+
+async fn evaluate_event_expression_at(
+    runtime: &CompiledChartEventBinding,
+    index: usize,
+    batch: &RecordBatch,
+    working: &ResolvedStateTransaction,
+    current_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+) -> Result<ScalarValue, AvengerAppError> {
+    let Some(deferred) = runtime.deferred_expressions.get(&index) else {
+        return runtime
+            .program
+            .evaluate_value_at(index, batch)
+            .map_err(|error| AvengerAppError::InternalError(error.to_string()));
+    };
+    let allowed_columns = runtime
+        .program
+        .schema()
+        .fields()
+        .iter()
+        .map(|field| field.name().clone())
+        .collect::<HashSet<_>>();
+    let mut expr = working
+        .expand_selection_predicates(
+            deferred.expr.clone(),
+            &runtime.session_context,
+            Some(&allowed_columns),
+        )
+        .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+    expr = rewrite_working_store_subqueries(expr, working, current_owner_paths)
+        .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+    expr = avenger_chart_core::datafusion_physical_eval::rewrite_placeholders(
+        expr,
+        &runtime.deferred_program_options.placeholder_columns,
+    )
+    .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+    if let Some(expected_type) = &deferred.expected_type {
+        expr = if deferred.null_on_cast_failure {
+            try_cast(expr, expected_type.clone())
+        } else {
+            cast(expr, expected_type.clone())
+        };
+    }
+    let batches = runtime
+        .session_context
+        .read_batch(batch.clone())
+        .map_err(|error| AvengerAppError::InternalError(error.to_string()))?
+        .select(vec![expr.alias(&deferred.name)])
+        .map_err(|error| AvengerAppError::InternalError(error.to_string()))?
+        .collect()
+        .await
+        .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+    let batch = batches.first().ok_or_else(|| {
+        AvengerAppError::InternalError("deferred event expression returned no rows".to_string())
+    })?;
+    if batch.num_rows() != 1 || batch.num_columns() != 1 {
+        return Err(AvengerAppError::InternalError(format!(
+            "deferred event expression returned {} rows and {} columns",
+            batch.num_rows(),
+            batch.num_columns()
+        )));
+    }
+    ScalarValue::try_from_array(batch.column(0), 0)
+        .map_err(|error| AvengerAppError::InternalError(error.to_string()))
+}
+
+fn rewrite_working_store_subqueries(
+    expr: Expr,
+    working: &ResolvedStateTransaction,
+    current_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+) -> Result<Expr, DataFusionError> {
+    expr.transform(|candidate| {
+        let Expr::ScalarSubquery(mut subquery) = candidate else {
+            return Ok(datafusion::common::tree_node::Transformed::no(candidate));
+        };
+        let plan = subquery
+            .subquery
+            .as_ref()
+            .clone()
+            .transform_up_with_subqueries(|candidate| {
+                let LogicalPlan::TableScan(scan) = candidate else {
+                    return Ok(datafusion::common::tree_node::Transformed::no(candidate));
+                };
+                let Some(store) = working.store_ref_for_target(scan.table_name.table()) else {
+                    return Ok(datafusion::common::tree_node::Transformed::no(
+                        LogicalPlan::TableScan(scan),
+                    ));
+                };
+                let batch = working
+                    .materialize_store(&store, current_owner_paths)
+                    .map_err(|error| DataFusionError::Plan(error.to_string()))?;
+                let provider = Arc::new(
+                    MemTable::try_new(batch.schema(), vec![vec![batch]])
+                        .map_err(|error| DataFusionError::Plan(error.to_string()))?,
+                );
+                let scan = TableScan::try_new(
+                    scan.table_name,
+                    provider_as_source(provider),
+                    scan.projection,
+                    scan.filters,
+                    scan.fetch,
+                )?;
+                Ok(datafusion::common::tree_node::Transformed::yes(
+                    LogicalPlan::TableScan(scan),
+                ))
+            })?
+            .data;
+        subquery.subquery = Arc::new(plan);
+        Ok(datafusion::common::tree_node::Transformed::yes(
+            Expr::ScalarSubquery(subquery),
+        ))
+    })
+    .map(|transformed| transformed.data)
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
@@ -2369,7 +3007,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         _state: &mut ChartAppState,
         _rtree: &SceneGraphRTree,
     ) -> UpdateStatus {
-        UpdateStatus::default()
+        rejected_event_status()
     }
 
     async fn handle_with_context(
@@ -2381,6 +3019,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
     ) -> UpdateStatus {
         let mut app = state.runtime.lock().await;
         state.drain_pending_params_into_runtime(&mut app);
+        let binding_state_admission = BindingStateAdmissionGuard::new(&self.state);
         let eval_start = Instant::now();
         let current_mark_instance = event.mark_instance().or(context.mark_instance.as_ref());
         let event_mark_instance = if matches!(
@@ -2410,7 +3049,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     reason,
                 );
                 record_event_eval_elapsed(&mut app.event_metrics, eval_start);
-                return UpdateStatus::default();
+                return rejected_event_status();
             }
         };
 
@@ -2434,7 +3073,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     fields = ?item_only_fields,
                     "continuous colorbar legend events do not expose discrete legend item datum fields"
                 );
-                return UpdateStatus::default();
+                return failed_event_status();
             }
         }
         let required_channels = requests.all_channels();
@@ -2576,7 +3215,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                 "scope_target",
             );
             record_event_eval_elapsed(&mut app.event_metrics, eval_start);
-            return UpdateStatus::default();
+            return rejected_event_status();
         }
 
         // Resolve effective params for the current/start/previous scopes.
@@ -2706,225 +3345,354 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     error = %err,
                     "failed to build chart event batch"
                 );
-                return UpdateStatus::default();
+                return failed_event_status();
             }
         };
         app.event_metrics.event_batches_evaluated += 1;
 
-        let values = match self.runtime.program.evaluate_values(&batch) {
-            Ok(values) => values,
-            Err(err) => {
-                app.event_metrics.evaluation_errors += 1;
-                record_event_eval_elapsed(&mut app.event_metrics, eval_start);
-                tracing::warn!(
-                    target: "avenger_chart_app::event_binding",
-                    binding = self.runtime.binding_index,
-                    error = %err,
-                    "failed to evaluate chart event expressions"
-                );
-                return UpdateStatus::default();
-            }
-        };
-        app.event_metrics.physical_expression_evaluations +=
-            self.runtime.program.expression_count();
-
-        if !filters_pass(&values[..self.runtime.filter_count]) {
-            app.event_metrics.filter_failures += 1;
-            trace_chart_event_filter_failure(
-                self.runtime.binding_index,
-                event,
-                &values[..self.runtime.filter_count],
-            );
-            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
-            return UpdateStatus::default();
-        }
-        app.event_metrics.filter_passes += 1;
-
-        let mut patch: Vec<ScopedParamAssignment> = Vec::new();
-        for (assignment, value) in self
-            .runtime
-            .assignments
-            .iter()
-            .zip(values[self.runtime.filter_count..].iter())
-        {
-            // Derived interaction columns are null when the gesture has no routed
-            // scope (e.g. a drag that started outside any plot area). Such an
-            // assignment evaluates to a null or null-element value; writing it
-            // would corrupt the target param, so treat it as a no-op unless the
-            // binding intentionally writes the target's list-shaped default.
-            if !assignment_value_is_writable(value, &assignment.default_value) {
-                if assignment.reject_null {
+        let committed_working = app.session.begin_resolved_state_transaction();
+        let mut filter_values = Vec::with_capacity(self.runtime.filter_count);
+        for index in 0..self.runtime.filter_count {
+            match evaluate_event_expression_at(
+                &self.runtime,
+                index,
+                &batch,
+                &committed_working,
+                &current_owner_paths,
+            )
+            .await
+            {
+                Ok(value) => filter_values.push(value),
+                Err(error) => {
                     app.event_metrics.evaluation_errors += 1;
                     record_event_eval_elapsed(&mut app.event_metrics, eval_start);
                     tracing::warn!(
                         target: "avenger_chart_app::event_binding",
                         binding = self.runtime.binding_index,
-                        param = %assignment.param_name,
-                        "required chart event assignment evaluated to null or a degenerate value"
+                        error = %error,
+                        "failed to evaluate chart event filters"
                     );
-                    return UpdateStatus::default();
+                    return failed_event_status();
                 }
-                tracing::debug!(
-                    target: "avenger_chart_app::event_binding",
-                    binding = self.runtime.binding_index,
-                    param = %assignment.param_name,
-                    "skipping null/degenerate assignment value"
-                );
-                continue;
-            }
-            let assignment_scope = match assignment.scope {
-                ChartEventAssignmentScope::Current => current_scope.as_ref(),
-                ChartEventAssignmentScope::Start => start_scope.as_ref(),
-            };
-            let Some(owner_path) = assignment_owner_path_for_surface(
-                assignment.sharing,
-                assignment_scope,
-                legend_surface_match,
-            ) else {
-                // Non-shared param with no routed scope: skip rather than write
-                // to the wrong owner.
-                tracing::debug!(
-                    target: "avenger_chart_app::event_binding",
-                    binding = self.runtime.binding_index,
-                    param = %assignment.param_name,
-                    "skipping scoped assignment with no routed scope"
-                );
-                continue;
-            };
-            let comparison_owner_paths = if legend_surface_match {
-                HashMap::new()
-            } else {
-                assignment_scope
-                    .map(|scope| scope.sharing_owner_paths.clone())
-                    .unwrap_or_default()
-            };
-            let comparison_params = app
-                .session
-                .effective_params_for_owner_paths(&comparison_owner_paths);
-            if assignment.replace_scoped_values
-                || comparison_params.get(&assignment.param_name) != Some(value)
-            {
-                patch.push(ScopedParamAssignment {
-                    name: assignment.param_name.clone(),
-                    owner_path,
-                    value: value.clone(),
-                    replace_scoped_values: assignment.replace_scoped_values,
-                });
             }
         }
+        app.event_metrics.physical_expression_evaluations += self.runtime.filter_count;
 
-        let mut store_patch: Vec<ScopedStoreAssignment> = Vec::new();
-        for assignment in &self.runtime.store_assignments {
-            let assignment_scope = match assignment.scope {
-                ChartEventAssignmentScope::Current => current_scope.as_ref(),
-                ChartEventAssignmentScope::Start => start_scope.as_ref(),
-            };
-            let Some(owner_path) = assignment_owner_path_for_surface(
-                assignment.sharing,
-                assignment_scope,
-                legend_surface_match,
-            ) else {
-                tracing::debug!(
-                    target: "avenger_chart_app::event_binding",
-                    binding = self.runtime.binding_index,
-                    store = %assignment.store_name,
-                    "skipping scoped store assignment with no routed scope"
-                );
-                continue;
-            };
-            let Some(update) = store_state_update_from_values(
-                &assignment.update,
-                &values,
-                self.runtime.filter_count,
-            ) else {
-                continue;
-            };
-            store_patch.push(ScopedStoreAssignment {
-                store_name: assignment.store_name.clone(),
-                owner_path,
-                replace_scoped_values: assignment.replace_scoped_values,
-                update,
-            });
+        if !filters_pass(&filter_values) {
+            app.event_metrics.filter_failures += 1;
+            trace_chart_event_filter_failure(self.runtime.binding_index, event, &filter_values);
+            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+            return rejected_event_status();
         }
+        app.event_metrics.filter_passes += 1;
 
-        let mut selection_patch: Vec<SelectionAssignment> = Vec::new();
-        for assignment in &self.runtime.selection_assignments {
-            let assignment_scope = match assignment.scope {
-                ChartEventAssignmentScope::Current => current_scope.as_ref(),
-                ChartEventAssignmentScope::Start => start_scope.as_ref(),
-            };
-            let update_result = if compiled_selection_update_is_scene_query(&assignment.update) {
-                scene_query_selection_state_update_from_values(
-                    &assignment.update,
-                    &assignment.spec,
-                    &values,
-                    self.runtime.filter_count,
-                    assignment_scope,
-                    legend_surface_match,
-                    &app.last_interaction_state.scopes,
-                    self.runtime.scope_target.as_ref(),
-                    rtree,
-                    &app.last_event_datum_state,
-                )
-            } else {
-                Ok(selection_state_update_from_values(
-                    &assignment.update,
-                    &assignment.spec,
-                    &values,
-                    self.runtime.filter_count,
-                    assignment_scope,
-                    legend_surface_match,
-                ))
-            };
-            match update_result {
-                Ok(Some(update)) => {
-                    selection_patch.push(SelectionAssignment {
-                        selection_id: assignment.selection_id.clone(),
-                        update,
-                    });
-                }
-                Ok(None) => {
-                    tracing::debug!(
-                        target: "avenger_chart_app::event_binding",
-                        binding = self.runtime.binding_index,
-                        selection = %assignment.selection_id,
-                        "skipping selection assignment with no routed scope or null values"
-                    );
-                }
+        let mut transaction = EventTransaction {
+            working: app.session.begin_resolved_state_transaction(),
+            params: Vec::new(),
+            stores: Vec::new(),
+            selections: Vec::new(),
+            cursor: None,
+        };
+        let mut working_current_params = current_params.clone();
+        for action in &self.runtime.ordered_actions {
+            let action_batch = match event_record_batch(
+                self.runtime.program.schema().clone(),
+                event,
+                context,
+                EventBatchInputs {
+                    current_params: &working_current_params,
+                    start_params: start_params.as_ref(),
+                    previous_params: previous_params.as_ref(),
+                    interaction_values: &interaction_values,
+                    event_datum_values: &event_datum_values,
+                    start_event_id,
+                },
+            ) {
+                Ok(batch) => batch,
                 Err(err) => {
                     app.event_metrics.evaluation_errors += 1;
                     tracing::warn!(
                         target: "avenger_chart_app::event_binding",
                         binding = self.runtime.binding_index,
-                        selection = %assignment.selection_id,
                         error = %err,
-                        "failed to evaluate selection assignment"
+                        "failed to build ordered chart action input"
                     );
+                    record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                    return failed_event_status();
+                }
+            };
+            app.event_metrics.event_batches_evaluated += 1;
+            let action_indices = action.expression_indices(self.runtime.filter_count);
+            let mut values = vec![ScalarValue::Null; self.runtime.program.expression_count()];
+            for index in &action_indices {
+                match evaluate_event_expression_at(
+                    &self.runtime,
+                    *index,
+                    &action_batch,
+                    &transaction.working,
+                    &current_owner_paths,
+                )
+                .await
+                {
+                    Ok(value) => values[*index] = value,
+                    Err(err) => {
+                        app.event_metrics.evaluation_errors += 1;
+                        tracing::warn!(
+                            target: "avenger_chart_app::event_binding",
+                            binding = self.runtime.binding_index,
+                            action_index = index,
+                            error = %err,
+                            "failed to evaluate ordered chart action"
+                        );
+                        record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                        return failed_event_status();
+                    }
+                }
+            }
+            app.event_metrics.physical_expression_evaluations += action_indices.len();
+            match action {
+                CompiledOrderedAction::SetParam(assignment) => {
+                    let value = &values[assignment.value_index];
+                    if !assignment_value_is_writable(value, &assignment.default_value) {
+                        if assignment.reject_null {
+                            app.event_metrics.evaluation_errors += 1;
+                            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                            tracing::warn!(
+                                target: "avenger_chart_app::event_binding",
+                                binding = self.runtime.binding_index,
+                                param = %assignment.param_name,
+                                param_id = %assignment.runtime_id,
+                                "required chart event assignment evaluated to null or a degenerate value"
+                            );
+                            return failed_event_status();
+                        }
+                        continue;
+                    }
+                    let assignment_scope = match assignment.scope {
+                        ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                        ChartEventAssignmentScope::Start => start_scope.as_ref(),
+                    };
+                    let Some(owner_path) = assignment_owner_path_for_surface(
+                        assignment.sharing,
+                        assignment_scope,
+                        legend_surface_match,
+                    ) else {
+                        continue;
+                    };
+                    let comparison_owner_paths = if legend_surface_match {
+                        HashMap::new()
+                    } else {
+                        assignment_scope
+                            .map(|scope| scope.sharing_owner_paths.clone())
+                            .unwrap_or_default()
+                    };
+                    let comparison_params = transaction
+                        .working
+                        .effective_params_for_owner_paths(&comparison_owner_paths);
+                    let staged_value = comparison_params.get(&assignment.param_name);
+                    if assignment.replace_scoped_values || staged_value != Some(value) {
+                        let updates_current_scope = assignment_owner_path_for_surface(
+                            assignment.sharing,
+                            current_scope.as_ref(),
+                            legend_surface_match,
+                        )
+                        .is_some_and(|current_owner| current_owner == owner_path);
+                        let resolved = ResolvedScopedParamAssignment {
+                            runtime_id: assignment.runtime_id.clone(),
+                            source_name: assignment.param_name.clone(),
+                            owner_path: owner_path.clone(),
+                            value: value.clone(),
+                            replace_scoped_values: assignment.replace_scoped_values,
+                        };
+                        if let Err(err) = transaction.working.apply_param(resolved.clone()) {
+                            app.event_metrics.evaluation_errors += 1;
+                            tracing::warn!(
+                                target: "avenger_chart_app::event_binding",
+                                binding = self.runtime.binding_index,
+                                param = %assignment.param_name,
+                                param_id = %assignment.runtime_id,
+                                error = %err,
+                                "failed to stage ordered parameter action"
+                            );
+                            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                            return failed_event_status();
+                        }
+                        transaction.params.push(resolved);
+                        if updates_current_scope {
+                            working_current_params
+                                .insert(assignment.param_name.clone(), value.clone());
+                        }
+                    }
+                }
+                CompiledOrderedAction::SetStore(assignment) => {
+                    let assignment_scope = match assignment.scope {
+                        ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                        ChartEventAssignmentScope::Start => start_scope.as_ref(),
+                    };
+                    let Some(owner_path) = assignment_owner_path_for_surface(
+                        assignment.sharing,
+                        assignment_scope,
+                        legend_surface_match,
+                    ) else {
+                        continue;
+                    };
+                    let Some(update) = store_state_update_from_values(
+                        &assignment.update,
+                        &values,
+                        self.runtime.filter_count,
+                    ) else {
+                        continue;
+                    };
+                    let resolved = ResolvedScopedStoreAssignment {
+                        runtime_id: assignment.runtime_id.clone(),
+                        source_name: assignment.store_name.clone(),
+                        owner_path,
+                        replace_scoped_values: assignment.replace_scoped_values,
+                        update,
+                    };
+                    if let Err(err) = transaction.working.apply_store(resolved.clone()) {
+                        app.event_metrics.evaluation_errors += 1;
+                        tracing::warn!(
+                            target: "avenger_chart_app::event_binding",
+                            binding = self.runtime.binding_index,
+                            store = %assignment.store_name,
+                            store_id = %assignment.runtime_id,
+                            error = %err,
+                            "failed to stage ordered store action"
+                        );
+                        record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                        return failed_event_status();
+                    }
+                    transaction.stores.push(resolved);
+                }
+                CompiledOrderedAction::SetSelection(assignment) => {
+                    let assignment_scope = match assignment.scope {
+                        ChartEventAssignmentScope::Current => current_scope.as_ref(),
+                        ChartEventAssignmentScope::Start => start_scope.as_ref(),
+                    };
+                    if let Err(err) = validate_selection_expression_ids(
+                        &assignment.update,
+                        &values,
+                        self.runtime.filter_count,
+                    ) {
+                        app.event_metrics.evaluation_errors += 1;
+                        tracing::warn!(
+                            target: "avenger_chart_app::event_binding",
+                            binding = self.runtime.binding_index,
+                            selection = %assignment.selection_id,
+                            selection_id = %assignment.runtime_id,
+                            error = %err,
+                            "selection assignment produced an invalid clause ID"
+                        );
+                        record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                        return failed_event_status();
+                    }
+                    let update_result =
+                        if compiled_selection_update_is_scene_query(&assignment.update) {
+                            scene_query_selection_state_update_from_values(
+                                &assignment.update,
+                                &assignment.spec,
+                                &values,
+                                self.runtime.filter_count,
+                                assignment_scope,
+                                legend_surface_match,
+                                &app.last_interaction_state.scopes,
+                                self.runtime.scope_target.as_ref(),
+                                rtree,
+                                &app.last_event_datum_state,
+                            )
+                        } else {
+                            Ok(selection_state_update_from_values(
+                                &assignment.update,
+                                &assignment.spec,
+                                &values,
+                                self.runtime.filter_count,
+                                assignment_scope,
+                                legend_surface_match,
+                            ))
+                        };
+                    let update = match update_result {
+                        Ok(Some(update)) => update,
+                        Ok(None) => continue,
+                        Err(err) => {
+                            app.event_metrics.evaluation_errors += 1;
+                            tracing::warn!(
+                                target: "avenger_chart_app::event_binding",
+                                binding = self.runtime.binding_index,
+                                selection = %assignment.selection_id,
+                                selection_id = %assignment.runtime_id,
+                                error = %err,
+                                "failed to evaluate selection assignment"
+                            );
+                            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                            return failed_event_status();
+                        }
+                    };
+                    let resolved = ResolvedSelectionAssignment {
+                        runtime_id: assignment.runtime_id.clone(),
+                        source_name: assignment.selection_id.clone(),
+                        update,
+                    };
+                    if let Err(err) = transaction.working.apply_selection(resolved.clone()) {
+                        app.event_metrics.evaluation_errors += 1;
+                        tracing::warn!(
+                            target: "avenger_chart_app::event_binding",
+                            binding = self.runtime.binding_index,
+                            selection = %assignment.selection_id,
+                            selection_id = %assignment.runtime_id,
+                            error = %err,
+                            "failed to stage ordered selection action"
+                        );
+                        record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                        return failed_event_status();
+                    }
+                    transaction.selections.push(resolved);
+                }
+                CompiledOrderedAction::SetCursor { value_index } => {
+                    transaction.cursor = match &values[*value_index] {
+                        ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
+                            let Some(cursor) = CursorStyle::from_name(value) else {
+                                app.event_metrics.evaluation_errors += 1;
+                                tracing::warn!(
+                                    target: "avenger_chart_app::event_binding",
+                                    binding = self.runtime.binding_index,
+                                    cursor = value,
+                                    "cursor action evaluated to an unknown cursor name"
+                                );
+                                record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                                return failed_event_status();
+                            };
+                            Some(cursor)
+                        }
+                        value if value.is_null() => None,
+                        _ => {
+                            app.event_metrics.evaluation_errors += 1;
+                            record_event_eval_elapsed(&mut app.event_metrics, eval_start);
+                            return failed_event_status();
+                        }
+                    };
                 }
             }
         }
 
-        let cursor = cursor_from_patch(&patch, &self.runtime.cursor_params);
-        let visual_patch_count = patch
-            .iter()
-            .filter(|assignment| !self.runtime.cursor_params.contains(&assignment.name))
-            .count();
+        let visual_patch_count = transaction.params.len();
         let event_evaluation_mode = match self.runtime.evaluation_mode {
             ChartEventEvaluationMode::Preview => EvaluationMode::Preview,
             ChartEventEvaluationMode::Exact => EvaluationMode::Exact,
         };
-        let patch_len = patch.len();
+        let cursor = transaction.cursor;
+        let patch_len = transaction.params.len();
         let transaction_id = state.next_param_transaction_id();
-        let transaction = match state.apply_scoped_param_transaction_to_runtime(
+        let outcome = match state.apply_resolved_event_transaction_to_runtime(
             &mut app,
             crate::ParamTransactionContext::new(
                 transaction_id,
                 crate::ParamTransactionOrigin::ChartEvent,
                 event_evaluation_mode,
             ),
-            patch,
-            store_patch,
-            selection_patch,
+            transaction.params,
+            transaction.stores,
+            transaction.selections,
         ) {
             Ok(outcome) => outcome,
             Err(err) => {
@@ -2936,23 +3704,17 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
                     "failed to apply atomic chart event parameter transaction"
                 );
                 record_event_eval_elapsed(&mut app.event_metrics, eval_start);
-                return UpdateStatus {
-                    cursor,
-                    ..Default::default()
-                };
+                return failed_event_status();
             }
         };
-        let transaction_has_visual_param = transaction
-            .changes
-            .iter()
-            .any(|change| !self.runtime.cursor_params.contains(&change.name));
+        let transaction_has_visual_param = !outcome.changes.is_empty();
         let mut should_rerender = visual_patch_count > 0 || transaction_has_visual_param;
         if patch_len > 0 {
             app.event_metrics.param_patch_events += 1;
             app.event_metrics.params_patched += patch_len;
         }
-        let store_changed = transaction.store_changed;
-        let selection_changed = transaction.selection_changed;
+        let store_changed = outcome.store_changed;
+        let selection_changed = outcome.selection_changed;
         if store_changed {
             app.event_metrics.store_patch_events += 1;
         }
@@ -2963,6 +3725,16 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         {
             should_rerender = true;
         }
+        {
+            let mut binding_state = self
+                .state
+                .lock()
+                .expect("chart event binding lock poisoned");
+            binding_state.previous_params = Some(app.session.snapshot_scoped_params());
+            binding_state.previous_scope = current_scope.clone();
+        }
+        binding_state_admission.commit();
+
         if !should_rerender {
             if !self.runtime.assignments.is_empty() {
                 app.event_metrics.unchanged_patch_skips += 1;
@@ -2978,6 +3750,7 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             record_event_eval_elapsed(&mut app.event_metrics, eval_start);
             return UpdateStatus {
                 cursor,
+                admission: Some(EventAdmission::Committed),
                 ..Default::default()
             };
         }
@@ -2991,9 +3764,9 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
             );
         }
 
-        app.next_evaluation_mode = transaction.evaluation_mode;
-        if (self.runtime.settle_exact || transaction.settle_exact)
-            && transaction.evaluation_mode == EvaluationMode::Preview
+        app.next_evaluation_mode = outcome.evaluation_mode;
+        if (self.runtime.settle_exact || outcome.settle_exact)
+            && outcome.evaluation_mode == EvaluationMode::Preview
         {
             app.interaction_settle_exact_pending = true;
         }
@@ -3007,21 +3780,13 @@ impl EventStreamHandler<ChartAppState> for ChartEventBindingHandler {
         );
         record_event_eval_elapsed(&mut app.event_metrics, eval_start);
 
-        {
-            let mut binding_state = self
-                .state
-                .lock()
-                .expect("chart event binding lock poisoned");
-            binding_state.previous_params = Some(app.session.snapshot_scoped_params());
-            binding_state.previous_scope = current_scope.clone();
-        }
-
         UpdateStatus {
             rerender: true,
             rebuild_geometry: self.runtime.evaluation_mode == ChartEventEvaluationMode::Exact,
             cursor,
             commands: Vec::new(),
             consume: false,
+            admission: Some(EventAdmission::Committed),
         }
     }
 }
@@ -3161,22 +3926,6 @@ fn trace_chart_event_patch(
         selection_changed,
         rerender,
     );
-}
-
-fn cursor_from_patch(
-    patch: &[ScopedParamAssignment],
-    cursor_params: &HashSet<String>,
-) -> Option<CursorStyle> {
-    patch
-        .iter()
-        .rev()
-        .find(|assignment| cursor_params.contains(&assignment.name))
-        .and_then(|assignment| match &assignment.value {
-            ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
-                CursorStyle::from_name(value)
-            }
-            _ => None,
-        })
 }
 
 fn push_event_path_point(path: &mut Vec<[f32; 2]>, point: [f32; 2], min_distance_px: f32) {
@@ -3398,6 +4147,49 @@ fn compiled_selection_update_is_scene_query(update: &CompiledSelectionUpdate) ->
     )
 }
 
+fn validate_selection_expression_ids(
+    update: &CompiledSelectionUpdate,
+    values: &[ScalarValue],
+    filter_count: usize,
+) -> Result<(), AvengerAppError> {
+    let mut indices = Vec::new();
+    match update {
+        CompiledSelectionUpdate::ReplaceAllClauses { clauses }
+        | CompiledSelectionUpdate::ReplaceClausesInScope { clauses, .. }
+        | CompiledSelectionUpdate::UpsertClauses { clauses }
+        | CompiledSelectionUpdate::ToggleClauses { clauses } => {
+            indices.extend(clauses.iter().map(|clause| clause.id));
+        }
+        CompiledSelectionUpdate::ToggleEqualityValue { item_id, .. } => indices.push(*item_id),
+        CompiledSelectionUpdate::DeleteClauses { ids }
+        | CompiledSelectionUpdate::DeleteClausesInScope { ids, .. } => {
+            indices.extend(ids.iter().copied());
+        }
+        CompiledSelectionUpdate::ReplaceAllFromSceneQuery { query }
+        | CompiledSelectionUpdate::ReplaceFromSceneQueryInScope { query }
+        | CompiledSelectionUpdate::UpsertFromSceneQuery { query }
+        | CompiledSelectionUpdate::ToggleFromSceneQuery { query } => {
+            if let CompiledSceneQueryClauseId::Expr(index) = query.clause_id {
+                indices.push(index);
+            }
+        }
+        CompiledSelectionUpdate::Clear | CompiledSelectionUpdate::ClearInScope { .. } => {}
+    }
+    for index in indices {
+        let value = values.get(filter_count + index).ok_or_else(|| {
+            AvengerAppError::InternalError(
+                "Selection clause ID expression result is missing".to_string(),
+            )
+        })?;
+        if selection_clause_id_from_value(value).is_none() {
+            return Err(AvengerAppError::InternalError(format!(
+                "Selection clause ID must be a non-empty UTF-8 value, got {value:?}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 // Scene-query selection lowering needs both query inputs and resolved runtime
 // scope/index state in one transactional operation.
 #[allow(clippy::too_many_arguments)]
@@ -3504,7 +4296,12 @@ fn scene_geometry_query_result(
         .iter()
         .flat_map(|shape| rtree.query_shape(shape, hit_policy))
         .filter(|instance| {
-            scene_query_target_matches(&query.target, &instance.mark_instance, event_datums)
+            scene_query_target_matches(
+                &query.target,
+                query.runtime_mark_paths.as_deref(),
+                &instance.mark_instance,
+                event_datums,
+            )
         })
         .map(|instance| instance.mark_instance.clone())
         .collect::<Vec<_>>();
@@ -3700,6 +4497,7 @@ fn geometry_hit_policy(policy: SceneGeometryHitPolicy) -> GeometryQueryHitPolicy
 
 fn scene_query_target_matches(
     target: &SceneGeometryTarget,
+    runtime_mark_paths: Option<&[Vec<usize>]>,
     mark_instance: &MarkInstance,
     event_datums: &EvaluatedEventDatumState,
 ) -> bool {
@@ -3709,14 +4507,14 @@ fn scene_query_target_matches(
     {
         return false;
     }
-    if let Some(paths) = target.resolved_mark_paths()
+    if let Some(paths) = runtime_mark_paths
         && !paths
             .iter()
             .any(|path| mark_path_matches_resolved_path(&mark_instance.mark_path, path))
     {
         return false;
     }
-    if target.resolved_mark_paths().is_none()
+    if runtime_mark_paths.is_none()
         && !target.mark_ids().is_empty()
         && !target.mark_ids().contains(&mark_instance.name)
     {
@@ -3776,7 +4574,7 @@ fn scene_query_selection_clauses_from_batch(
         if row_has_null {
             continue;
         }
-        let Some(id) = scene_query_clause_id(&update.clause_id, &row_values, values, filter_count)
+        let Some(id) = scene_query_clause_id(&update.clause_id, &row_values, values, filter_count)?
         else {
             continue;
         };
@@ -3806,23 +4604,30 @@ fn scene_query_clause_id(
     row_values: &[(&SceneQueryDatumField, ScalarValue)],
     values: &[ScalarValue],
     filter_count: usize,
-) -> Option<String> {
-    match clause_id {
+) -> Result<Option<String>, AvengerAppError> {
+    let id = match clause_id {
         CompiledSceneQueryClauseId::Tuple => Some(
-            row_values
-                .iter()
-                .map(|(field, value)| format!("{}={value:?}", field.id))
-                .collect::<Vec<_>>()
-                .join("|"),
+            encode_selection_tuple_id(
+                row_values
+                    .iter()
+                    .map(|(field, value)| (field.id.as_str(), value)),
+            )
+            .map_err(|error| AvengerAppError::InternalError(error.to_string()))?,
         ),
         CompiledSceneQueryClauseId::Field(field) => row_values
             .iter()
             .find(|(datum_field, _)| &datum_field.id == field)
             .and_then(|(_, value)| selection_clause_id_from_value(value)),
-        CompiledSceneQueryClauseId::Expr(index) => {
-            selection_clause_id_from_value(values.get(filter_count + *index)?)
-        }
+        CompiledSceneQueryClauseId::Expr(index) => values
+            .get(filter_count + *index)
+            .and_then(selection_clause_id_from_value),
+    };
+    if id.is_none() {
+        return Err(AvengerAppError::InternalError(
+            "Scene-query selection clause ID must be a non-empty UTF-8 value".to_string(),
+        ));
     }
+    Ok(id)
 }
 
 fn selection_clauses_from_values(
@@ -3943,14 +4748,12 @@ fn selection_facet_context_values(
 
 fn selection_clause_id_from_value(value: &ScalarValue) -> Option<String> {
     match value {
-        ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => Some(value.clone()),
-        ScalarValue::Null
-        | ScalarValue::Utf8(None)
-        | ScalarValue::LargeUtf8(None)
-        | ScalarValue::Binary(None)
-        | ScalarValue::LargeBinary(None)
-        | ScalarValue::FixedSizeBinary(_, None) => None,
-        other => Some(format!("{other:?}")),
+        ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value))
+            if !value.is_empty() =>
+        {
+            Some(value.clone())
+        }
+        _ => None,
     }
 }
 
@@ -4588,12 +5391,14 @@ fn legend_colorbar_scope_for_mark_instance(
 fn event_stream_config_for_binding(
     binding: &ChartEventBinding,
     ctx: &SessionContext,
-    param_specs: &IndexMap<String, CompiledParamSpec>,
+    param_specs: &ParamSpecRegistry,
+    stream_param_provider: Option<StreamParamProvider>,
+    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     let mut config = EventStreamConfig {
         types: vec![scene_event_type_from_chart(binding.event_type)],
-        mark_paths: binding.resolved_mark_paths().map(ToOwned::to_owned),
-        mark_names: (!binding.mark_ids().is_empty()).then(|| binding.mark_ids().to_vec()),
+        mark_paths: runtime_paths_for_mark_ids(binding.resolved_mark_ids(), mark_runtime_paths)?,
+        mark_names: None,
         throttle: binding.throttle_ms,
         consume: binding.consume,
         ..Default::default()
@@ -4607,6 +5412,8 @@ fn event_stream_config_for_binding(
                 false,
                 ctx,
                 param_specs,
+                stream_param_provider.clone(),
+                mark_runtime_paths,
             )?),
             Box::new(stream_config_for_chart_stream(
                 &between.end,
@@ -4614,6 +5421,8 @@ fn event_stream_config_for_binding(
                 false,
                 ctx,
                 param_specs,
+                stream_param_provider,
+                mark_runtime_paths,
             )?),
         ));
     }
@@ -4625,7 +5434,9 @@ fn stream_config_for_chart_stream(
     throttle: Option<u64>,
     consume: bool,
     ctx: &SessionContext,
-    param_specs: &IndexMap<String, CompiledParamSpec>,
+    param_specs: &ParamSpecRegistry,
+    stream_param_provider: Option<StreamParamProvider>,
+    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     stream
         .validate()
@@ -4636,8 +5447,8 @@ fn stream_config_for_chart_stream(
             .map(|event_type| vec![scene_event_type_from_chart(event_type)])
             .unwrap_or_default(),
         source_group: stream.resolved_source_group().map(ToOwned::to_owned),
-        mark_paths: stream.resolved_mark_paths().map(ToOwned::to_owned),
-        mark_names: (!stream.mark_ids().is_empty()).then(|| stream.mark_ids().to_vec()),
+        mark_paths: runtime_paths_for_mark_ids(stream.resolved_mark_ids(), mark_runtime_paths)?,
+        mark_names: None,
         throttle,
         consume,
         ..Default::default()
@@ -4652,6 +5463,7 @@ fn stream_config_for_chart_stream(
             stream,
             ctx,
             param_specs,
+            stream_param_provider,
         )?]);
     }
     Ok(config)
@@ -4660,10 +5472,11 @@ fn stream_config_for_chart_stream(
 fn compile_low_level_stream_filter(
     stream: &ChartEventStream,
     ctx: &SessionContext,
-    _param_specs: &IndexMap<String, CompiledParamSpec>,
+    param_specs: &ParamSpecRegistry,
+    stream_param_provider: Option<StreamParamProvider>,
 ) -> Result<EventStreamFilter, AvengerAppError> {
     let schema = event_schema(
-        &IndexMap::new(),
+        param_specs,
         &event::InteractionColumnRequests::default(),
         &IndexMap::new(),
         &IndexMap::new(),
@@ -4672,7 +5485,15 @@ fn compile_low_level_stream_filter(
         .fields()
         .iter()
         .map(|field| field.name().clone())
+        .filter(|name| {
+            !name.starts_with(event::START_PARAM_PREFIX)
+                && !name.starts_with(event::PREVIOUS_PARAM_PREFIX)
+        })
         .collect::<HashSet<_>>();
+    let placeholder_columns = param_specs
+        .keys()
+        .map(|name| PlaceholderColumn::new(format!("${name}"), event::param_column_name(name)))
+        .collect::<Vec<_>>();
     let mut specs = Vec::new();
     for (index, filter) in stream.filters.iter().enumerate() {
         let expr = filter
@@ -4680,10 +5501,14 @@ fn compile_low_level_stream_filter(
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
         let placeholders = collect_placeholder_ids(&expr)
             .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-        if !placeholders.is_empty() {
-            return Err(AvengerAppError::InternalError(
-                "Chart event stream start/end filters cannot reference params yet".to_string(),
-            ));
+        if let Some(unsupported) = placeholders.iter().find(|placeholder| {
+            placeholder
+                .strip_prefix('$')
+                .is_none_or(|name| !param_specs.contains_key(name))
+        }) {
+            return Err(AvengerAppError::InternalError(format!(
+                "Chart event stream start/end filter contains unsupported state reference '{unsupported}'; only ordinary params are available"
+            )));
         }
         specs.push(
             PhysicalScalarExpressionSpec::new(format!("stream_filter_{index}"), expr)
@@ -4695,12 +5520,21 @@ fn compile_low_level_stream_filter(
             ctx,
             schema,
             specs,
-            PhysicalScalarProgramOptions::default().with_allowed_columns(allowed_columns),
+            PhysicalScalarProgramOptions::default()
+                .with_allowed_columns(allowed_columns)
+                .with_placeholder_columns(placeholder_columns),
         )
         .map_err(|err| AvengerAppError::InternalError(err.to_string()))?,
     );
+    let fallback_params = param_specs
+        .iter()
+        .map(|(name, spec)| (name.clone(), spec.default.clone()))
+        .collect::<IndexMap<_, _>>();
     Ok(EventStreamFilter::context(move |event, context, _rtree| {
-        let params = IndexMap::new();
+        let params = stream_param_provider
+            .as_ref()
+            .map(|provider| provider(event))
+            .unwrap_or_else(|| fallback_params.clone());
         let interaction_values = HashMap::new();
         let event_datum_values = HashMap::new();
         let batch = match event_record_batch(
@@ -4727,7 +5561,7 @@ fn compile_low_level_stream_filter(
 }
 
 fn event_schema(
-    param_specs: &IndexMap<String, CompiledParamSpec>,
+    param_specs: &ParamSpecRegistry,
     interaction: &event::InteractionColumnRequests,
     event_datum_types: &IndexMap<String, DataType>,
     event_coord_types: &IndexMap<String, DataType>,
@@ -4766,7 +5600,7 @@ fn event_schema(
         Field::new(event::PREVIOUS_ELAPSED_MS_FIELD, DataType::Float64, true),
     ];
     for (name, spec) in param_specs {
-        let data_type = spec.default.data_type();
+        let data_type = spec.data_type.clone();
         fields.push(Field::new(
             event::param_column_name(name),
             data_type.clone(),
@@ -5430,13 +6264,26 @@ mod tests {
     }
 
     #[test]
-    fn stream_config_uses_resolved_mark_paths_without_name_filter() {
+    fn stream_config_derives_paths_from_resolved_mark_ids() {
         let ctx = SessionContext::new();
+        let mut allocator =
+            avenger_chart_core::CompiledIdentityAllocator::new("stream-config-test");
+        let first = allocator.allocate_mark();
+        let second = allocator.allocate_mark();
         let stream = ChartEventStream::on(ChartEventType::MouseDown)
             .mark("manual_box_plot")
-            .with_resolved_mark_paths(vec![vec![0], vec![1]]);
-        let config = stream_config_for_chart_stream(&stream, None, false, &ctx, &IndexMap::new())
-            .expect("stream config");
+            .with_resolved_mark_ids(vec![first.clone(), second.clone()]);
+        let index = BTreeMap::from([(first, vec![vec![0]]), (second, vec![vec![1]])]);
+        let config = stream_config_for_chart_stream(
+            &stream,
+            None,
+            false,
+            &ctx,
+            &ParamSpecRegistry::default(),
+            None,
+            Some(&index),
+        )
+        .expect("stream config");
 
         assert_eq!(config.mark_paths, Some(vec![vec![0], vec![1]]));
         assert!(
@@ -5446,13 +6293,23 @@ mod tests {
     }
 
     #[test]
-    fn binding_config_uses_resolved_mark_paths_without_name_filter() {
+    fn binding_config_derives_paths_from_resolved_mark_ids() {
         let ctx = SessionContext::new();
+        let mut allocator =
+            avenger_chart_core::CompiledIdentityAllocator::new("binding-config-test");
+        let mark_id = allocator.allocate_mark();
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .mark("contract.box")
-            .with_resolved_mark_paths(vec![vec![0, 0]]);
-        let config = event_stream_config_for_binding(&binding, &ctx, &IndexMap::new())
-            .expect("binding config");
+            .with_resolved_mark_ids(vec![mark_id.clone()]);
+        let index = BTreeMap::from([(mark_id, vec![vec![0, 0]])]);
+        let config = event_stream_config_for_binding(
+            &binding,
+            &ctx,
+            &ParamSpecRegistry::default(),
+            None,
+            Some(&index),
+        )
+        .expect("binding config");
 
         assert_eq!(config.mark_paths, Some(vec![vec![0, 0]]));
         assert!(
@@ -5464,7 +6321,7 @@ mod tests {
     #[test]
     fn non_widget_event_leaves_frame_columns_null() {
         let schema = event_schema(
-            &IndexMap::new(),
+            &ParamSpecRegistry::default(),
             &InteractionColumnRequests::default(),
             &IndexMap::new(),
             &IndexMap::new(),
@@ -5526,6 +6383,7 @@ mod tests {
                 coordinate_space: SceneGeometryCoordinateSpace::Scene,
                 hit_policy: SceneGeometryHitPolicy::AnchorInside,
                 target: SceneGeometryTarget::default(),
+                runtime_mark_paths: None,
                 datum_fields: vec![
                     SceneQueryDatumField::new("item")
                         .datum("item")
@@ -5617,34 +6475,39 @@ mod tests {
         let target = SceneGeometryTarget::default().with_resolved_source_group(vec![2, 1]);
         assert!(scene_query_target_matches(
             &target,
+            None,
             &mark_instance,
             &event_datums
         ));
 
-        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![2, 1, 0]]);
+        let target = SceneGeometryTarget::default();
         assert!(scene_query_target_matches(
             &target,
+            Some(&[vec![2, 1, 0]]),
             &mark_instance,
             &event_datums
         ));
 
-        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![0]]);
+        let target = SceneGeometryTarget::default();
         assert!(scene_query_target_matches(
             &target,
+            Some(&[vec![0]]),
             &mark_instance,
             &event_datums
         ));
 
-        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![2, 1, 1]]);
+        let target = SceneGeometryTarget::default();
         assert!(!scene_query_target_matches(
             &target,
+            Some(&[vec![2, 1, 1]]),
             &mark_instance,
             &event_datums
         ));
 
-        let target = SceneGeometryTarget::default().with_resolved_mark_paths(vec![vec![1]]);
+        let target = SceneGeometryTarget::default();
         assert!(!scene_query_target_matches(
             &target,
+            Some(&[vec![1]]),
             &mark_instance,
             &event_datums
         ));
@@ -5654,6 +6517,7 @@ mod tests {
             .target;
         assert!(scene_query_target_matches(
             &target,
+            None,
             &mark_instance,
             &event_datums
         ));
@@ -5663,6 +6527,7 @@ mod tests {
             .target;
         assert!(!scene_query_target_matches(
             &target,
+            None,
             &mark_instance,
             &event_datums
         ));
@@ -6242,9 +7107,10 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
             &event_coord_types,
+            None,
+            Some(compiled.mark_runtime_path_index()),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
@@ -6349,8 +7215,7 @@ mod tests {
             .position(|binding| {
                 binding
                     .action
-                    .assignments
-                    .iter()
+                    .param_steps()
                     .any(|assignment| assignment.param_name == "__tool_box_zoom__x_domain")
             })
             .expect("release binding");
@@ -6368,7 +7233,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile release binding runtime");
@@ -6379,7 +7243,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile reset binding runtime");
@@ -7478,7 +8341,17 @@ mod tests {
 
     async fn bound_state(binding: ChartEventBinding) -> ChartAppState {
         let ctx = SessionContext::new();
-        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(640.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::<Cartesian>::new()
             .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -7494,7 +8367,17 @@ mod tests {
     async fn handler_for_binding(binding: ChartEventBinding) -> ChartEventBindingHandler {
         let ctx = SessionContext::new();
         let compiled = Chart::<Cartesian>::new()
-            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+            .param({
+                let __avenger_param_name = "width";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(Some(640.0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -7506,7 +8389,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
@@ -7536,7 +8418,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile reset binding runtime");
@@ -9035,21 +9916,21 @@ mod tests {
             Some(&ScalarValue::Float64(Some(800.0)))
         );
         let metrics = state.event_metrics().await;
-        assert_eq!(metrics.event_batches_evaluated, 1);
+        assert_eq!(
+            metrics.event_batches_evaluated, 2,
+            "the filter snapshot and ordered action snapshot are distinct batches"
+        );
         assert_eq!(metrics.param_patch_events, 1);
         assert_eq!(metrics.params_patched, 1);
     }
 
     #[tokio::test]
-    async fn cursor_only_patch_updates_cursor_without_rerender() {
+    async fn cursor_action_updates_cursor_without_rerender() {
         let ctx = SessionContext::new();
-        let cursor = Param::cursor("cursor", CursorStyle::Default);
         let compiled = Chart::<Cartesian>::new()
-            .param(cursor.clone())
-            .cursor_param(cursor.name.clone())
             .event_binding(
                 ChartEventBinding::on(ChartEventType::CursorMoved)
-                    .set_param(&cursor, event::cursor(CursorStyle::Crosshair))
+                    .set_cursor(event::cursor(CursorStyle::Crosshair))
                     .preview(),
             )
             .compile(&ctx)
@@ -9062,7 +9943,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile cursor binding runtime");
@@ -9090,10 +9970,7 @@ mod tests {
         assert_eq!(status.cursor, Some(CursorStyle::Crosshair));
         assert!(!status.rerender);
         assert!(!status.rebuild_geometry);
-        assert_eq!(
-            state.params().await.get("cursor"),
-            Some(&ScalarValue::Utf8(Some("crosshair".to_string())))
-        );
+        assert!(!state.params().await.contains_key("cursor"));
     }
 
     #[tokio::test]
@@ -9202,10 +10079,50 @@ mod tests {
         };
         let compiled = Chart::<PixelFrame>::new()
             .canvas_size(320.0, 180.0)
-            .param(Param::new("frame_x", ScalarValue::Float64(None)))
-            .param(Param::new("frame_y", ScalarValue::Float64(None)))
-            .param(Param::new("frame_width", ScalarValue::Float64(None)))
-            .param(Param::new("frame_height", ScalarValue::Float64(None)))
+            .param({
+                let __avenger_param_name = "frame_x";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(None)).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
+            .param({
+                let __avenger_param_name = "frame_y";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(None)).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
+            .param({
+                let __avenger_param_name = "frame_width";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(None)).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
+            .param({
+                let __avenger_param_name = "frame_height";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(None)).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .host_widget(Checkbox::new("regions", "Regions", false))
             .event_binding(frame_assignments(
                 ChartEventBinding::on(ChartEventType::CursorMoved)
@@ -10715,8 +11632,17 @@ mod tests {
     #[tokio::test]
     async fn decorated_treemap_header_click_zooms_and_double_click_resets() {
         let ctx = SessionContext::new();
-        let cursor = Param::cursor("decorated_treemap_cursor", CursorStyle::Default);
-        let root = Param::new("decorated_treemap_root", ScalarValue::Utf8(None));
+        let root = {
+            let __avenger_param_name = "decorated_treemap_root";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "region", "team", "product"])
@@ -10728,9 +11654,7 @@ mod tests {
         )
         .data(ctx.read_batch(decorated_treemap_batch()).unwrap())
         .plot_size(420.0, 280.0)
-        .param(cursor.clone())
         .param(root.clone())
-        .cursor_param(cursor.name.clone())
         .configure_guide(TreemapGuide::new().breadcrumbs(true).separators(true))
         .mark(TreeRect::new().id("cells").stroke_width(0.0))
         .mark(TreeHeader::new().id("headers").fill(col("division")))
@@ -10738,7 +11662,7 @@ mod tests {
         .event_binding(
             ChartEventBinding::on(ChartEventType::CursorMoved)
                 .filter(treemap_event::hierarchy_can_zoom().eq(lit(true)))
-                .set_param(&cursor, event::cursor(CursorStyle::Grab))
+                .set_cursor(event::cursor(CursorStyle::Grab))
                 .preview(),
         )
         .event_binding(
@@ -10870,7 +11794,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile store binding runtime");
@@ -10959,7 +11882,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile selection binding runtime");
@@ -11047,7 +11969,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile selection binding runtime");
@@ -11164,9 +12085,39 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_overlay_child_rect_click_exposes_axis_and_interval_row_data() {
         let ctx = SessionContext::new();
-        let clicked_axis = Param::new("clicked_axis", ScalarValue::Utf8(None));
-        let clicked_min = Param::new("clicked_min", ScalarValue::Float64(None));
-        let clicked_max = Param::new("clicked_max", ScalarValue::Float64(None));
+        let clicked_axis = {
+            let __avenger_param_name = "clicked_axis";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let clicked_min = {
+            let __avenger_param_name = "clicked_min";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let clicked_max = {
+            let __avenger_param_name = "clicked_max";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let parent_data = ctx
             .sql("SELECT 50.0 AS speed, 30.0 AS cost")
             .await
@@ -11731,9 +12682,39 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_header_mousedown_patches_drag_dimension_param() {
         let ctx = SessionContext::new();
-        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
-        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
-        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
+        let drag_dimension = {
+            let __avenger_param_name = "drag_dimension";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_start_x = {
+            let __avenger_param_name = "drag_start_x";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_display_x = {
+            let __avenger_param_name = "drag_display_x";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
@@ -11815,9 +12796,39 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_header_drag_move_updates_transient_display_x_param() {
         let ctx = SessionContext::new();
-        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
-        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
-        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
+        let drag_dimension = {
+            let __avenger_param_name = "drag_dimension";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_start_x = {
+            let __avenger_param_name = "drag_start_x";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_display_x = {
+            let __avenger_param_name = "drag_display_x";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
@@ -11965,21 +12976,58 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_header_drag_release_commits_order_and_clears_preview_params() {
         let ctx = SessionContext::new();
-        let order_param = Param::new(
-            "axis_order",
-            ScalarValue::List(ScalarValue::new_list(
-                &[
-                    ScalarValue::Utf8(Some("speed".to_string())),
-                    ScalarValue::Utf8(Some("efficiency".to_string())),
-                    ScalarValue::Utf8(Some("cost".to_string())),
-                ],
-                &DataType::Utf8,
-                true,
-            )),
-        );
-        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
-        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
-        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
+        let order_param = {
+            let __avenger_param_name = "axis_order";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::List(ScalarValue::new_list(
+                    &[
+                        ScalarValue::Utf8(Some("speed".to_string())),
+                        ScalarValue::Utf8(Some("efficiency".to_string())),
+                        ScalarValue::Utf8(Some("cost".to_string())),
+                    ],
+                    &DataType::Utf8,
+                    true,
+                ));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_dimension = {
+            let __avenger_param_name = "drag_dimension";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_start_x = {
+            let __avenger_param_name = "drag_start_x";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let drag_display_x = {
+            let __avenger_param_name = "drag_display_x";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
@@ -13896,7 +14944,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile selection binding runtime");
@@ -14000,7 +15047,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile store binding runtime");
@@ -14071,6 +15117,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn unrouted_free_store_write_is_a_committed_noop() {
+        use datafusion::arrow::datatypes::DataType;
+
+        let ctx = SessionContext::new();
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved).set_store(
+            "rows",
+            StoreUpdate::insert_rows([StoreRow::new().field("id", lit("unrouted"))]),
+        );
+        let compiled = Chart::<Cartesian>::new()
+            .store(
+                Store::empty("rows")
+                    .field("id", DataType::Utf8, false)
+                    .sharing(CoordinationScope::Free),
+            )
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile unrouted store binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile unrouted store runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [500.0, 500.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert!(!status.rerender);
+        let runtime = state.runtime.lock().await;
+        let rows = runtime.session.store_rows_for_diagnostics("rows");
+        assert_eq!(rows.len(), 1, "only the root seed instance exists");
+        assert!(rows[0].0.is_empty());
+        assert!(rows[0].1.is_empty());
+    }
+
+    #[tokio::test]
     async fn replacing_store_update_clears_previous_scoped_owners() {
         use datafusion::arrow::datatypes::DataType;
 
@@ -14108,7 +15213,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile store binding runtime");
@@ -14751,7 +15855,8 @@ mod tests {
                     owner_path: Vec::new(),
                     value: domain_list_scalar(2.0, 8.0),
                     replace_scoped_values: false,
-                }]);
+                }])
+                .unwrap();
         }
         assert_ne!(
             state.params().await.get("x_domain"),
@@ -14784,26 +15889,16 @@ mod tests {
     #[tokio::test]
     async fn event_binding_rejects_reset_of_unknown_param() {
         let ctx = SessionContext::new();
-        let compiled = Chart::<Cartesian>::new()
+        let result = Chart::<Cartesian>::new()
             .event_binding(
                 ChartEventBinding::on(ChartEventType::DoubleClick)
                     .reset_param("missing")
                     .exact(),
             )
             .compile(&ctx)
-            .await
-            .expect("compile chart artifact");
-        let error = match CompiledChartEventBinding::compile(
-            0,
-            compiled.event_bindings().first().unwrap(),
-            &ctx,
-            compiled.param_specs(),
-            compiled.selection_specs(),
-            compiled.store_specs(),
-            compiled.cursor_params(),
-            &compiled.event_datum_types(),
-        ) {
-            Ok(_) => panic!("unknown reset target should fail event compilation"),
+            .await;
+        let error = match result {
+            Ok(_) => panic!("unknown reset target should fail at the chart compilation boundary"),
             Err(error) => error,
         };
         assert!(
@@ -14997,40 +16092,605 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn low_level_stream_filter_rejects_param_columns() {
-        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
-            .between(
-                ChartEventStream::on(ChartEventType::MouseDown)
-                    .filter(event::start_param("width").gt(lit(0.0))),
-                ChartEventStream::on(ChartEventType::MouseUp),
-            )
-            .set_param("width", event::x())
-            .preview();
+    async fn ordered_param_actions_observe_preceding_writes() {
         let ctx = SessionContext::new();
+        let first = Param::typed("first", DataType::Int64, ScalarValue::Int64(Some(1)))
+            .expect("typed first param");
+        let second = Param::typed("second", DataType::Int64, ScalarValue::Int64(Some(0)))
+            .expect("typed second param");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_param(&first, lit(2_i64))
+            .set_param(&second, first.expr() + lit(1_i64));
         let compiled = Chart::<Cartesian>::new()
-            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+            .param(first)
+            .param(second)
             .event_binding(binding)
             .compile(&ctx)
             .await
-            .expect("compile");
-
-        let err = match CompiledChartEventBinding::compile(
+            .expect("compile ordered binding");
+        let runtime = CompiledChartEventBinding::compile(
             0,
             compiled.event_bindings().first().unwrap(),
             &ctx,
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
-        ) {
-            Ok(_) => panic!("param columns should be rejected in low-level filters"),
-            Err(err) => err,
+        )
+        .expect("compile ordered runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
         };
 
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        let params = state.params().await;
+        assert_eq!(params.get("first"), Some(&ScalarValue::Int64(Some(2))));
+        assert_eq!(params.get("second"), Some(&ScalarValue::Int64(Some(3))));
+    }
+
+    #[tokio::test]
+    async fn store_payload_observes_preceding_param_write() {
+        let ctx = SessionContext::new();
+        let value = Param::typed("value", DataType::Int64, ScalarValue::Int64(Some(1)))
+            .expect("typed param");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_param(&value, lit(2_i64))
+            .set_store(
+                "rows",
+                StoreUpdate::insert_rows([StoreRow::new().field("value", value.expr())]),
+            );
+        let compiled = Chart::<Cartesian>::new()
+            .param(value)
+            .store(Store::empty("rows").field("value", DataType::Int64, false))
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile ordered store binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile ordered store runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        let runtime = state.runtime.lock().await;
+        let rows = runtime.session.store_rows_for_diagnostics("rows");
+        assert_eq!(
+            rows.iter()
+                .find(|(owner, _)| owner.is_empty())
+                .expect("root rows")
+                .1[0]
+                .get("value"),
+            Some(&ScalarValue::Int64(Some(2)))
+        );
+    }
+
+    #[tokio::test]
+    async fn param_subquery_observes_preceding_store_write() {
+        let ctx = SessionContext::new();
+        let store_schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)]));
+        ctx.register_table(
+            "rows",
+            Arc::new(datafusion::datasource::empty::EmptyTable::new(store_schema)),
+        )
+        .expect("register authoring store placeholder");
+        let query = ctx
+            .sql("SELECT count(*) AS count FROM rows")
+            .await
+            .expect("plan count query");
+        let count_expr = Expr::ScalarSubquery(datafusion::logical_expr::Subquery {
+            subquery: Arc::new(query.logical_plan().clone()),
+            outer_ref_columns: Vec::new(),
+            spans: datafusion::common::Spans::new(),
+        });
+        let count = Param::typed("count", DataType::Int64, ScalarValue::Int64(Some(0)))
+            .expect("typed count param");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_store(
+                "rows",
+                StoreUpdate::insert_rows([StoreRow::new().field("id", lit("first"))]),
+            )
+            .set_param(&count, count_expr);
+        let compiled = Chart::<Cartesian>::new()
+            .param(count)
+            .store(Store::empty("rows").field("id", DataType::Utf8, false))
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile ordered store query binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile ordered store query runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert_eq!(
+            state.params().await.get("count"),
+            Some(&ScalarValue::Int64(Some(1)))
+        );
+    }
+
+    #[tokio::test]
+    async fn working_store_subqueries_do_not_cross_hit_between_action_generations() {
+        let ctx = SessionContext::new();
+        let store_schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)]));
+        ctx.register_table(
+            "rows",
+            Arc::new(datafusion::datasource::empty::EmptyTable::new(store_schema)),
+        )
+        .expect("register authoring store placeholder");
+        let query = ctx
+            .sql("SELECT count(*) AS count FROM rows")
+            .await
+            .expect("plan count query");
+        let count_expr = Expr::ScalarSubquery(datafusion::logical_expr::Subquery {
+            subquery: Arc::new(query.logical_plan().clone()),
+            outer_ref_columns: Vec::new(),
+            spans: datafusion::common::Spans::new(),
+        });
+        let first_count = Param::typed("first_count", DataType::Int64, ScalarValue::Int64(Some(0)))
+            .expect("typed first count");
+        let second_count =
+            Param::typed("second_count", DataType::Int64, ScalarValue::Int64(Some(0)))
+                .expect("typed second count");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_store(
+                "rows",
+                StoreUpdate::insert_rows([StoreRow::new().field("id", lit("first"))]),
+            )
+            .set_param(&first_count, count_expr.clone())
+            .set_store(
+                "rows",
+                StoreUpdate::insert_rows([StoreRow::new().field("id", lit("second"))]),
+            )
+            .set_param(&second_count, count_expr);
+        let compiled = Chart::<Cartesian>::new()
+            .param(first_count)
+            .param(second_count)
+            .store(Store::empty("rows").field("id", DataType::Utf8, false))
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile generation-isolation binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile generation-isolation runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        let params = state.params().await;
+        assert_eq!(
+            params.get("first_count"),
+            Some(&ScalarValue::Int64(Some(1)))
+        );
+        assert_eq!(
+            params.get("second_count"),
+            Some(&ScalarValue::Int64(Some(2)))
+        );
+    }
+
+    #[tokio::test]
+    async fn param_action_observes_preceding_selection_write() {
+        let ctx = SessionContext::new();
+        let picked = Selection::new("picked").empty_selects_nothing();
+        let selected = Param::typed(
+            "selected",
+            DataType::Boolean,
+            ScalarValue::Boolean(Some(false)),
+        )
+        .expect("typed selected param");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_selection(
+                "picked",
+                SelectionUpdate::replace_all_clauses([SelectionClauseUpdate::equality(lit(
+                    "active",
+                ))
+                .facet_scope(CoordinationScope::Shared)
+                .dimension(lit("field"), lit("field"))
+                .build()]),
+            )
+            .set_param(&selected, picked.predicate());
+        let compiled = Chart::<Cartesian>::new()
+            .selection(picked)
+            .param(selected)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile ordered selection binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile ordered selection runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert_eq!(
+            state.params().await.get("selected"),
+            Some(&ScalarValue::Boolean(Some(true)))
+        );
+    }
+
+    #[tokio::test]
+    async fn later_action_failure_rolls_back_state_and_cursor() {
+        let ctx = SessionContext::new();
+        let value = Param::typed("value", DataType::Int64, ScalarValue::Int64(Some(1)))
+            .expect("typed param");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_param(&value, lit(2_i64))
+            .set_cursor(lit("not-a-cursor"));
+        let compiled = Chart::<Cartesian>::new()
+            .param(value)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile rollback binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile rollback runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Failed));
+        assert_eq!(status.cursor, None);
+        assert_eq!(
+            state.params().await.get("value"),
+            Some(&ScalarValue::Int64(Some(1)))
+        );
+    }
+
+    #[tokio::test]
+    async fn cursor_only_action_commits_without_rerendering() {
+        let binding =
+            ChartEventBinding::on(ChartEventType::CursorMoved).set_cursor(lit("crosshair"));
+        let mut state = bound_state(binding.clone()).await;
+        let handler = handler_for_binding(binding).await;
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert_eq!(status.cursor, Some(CursorStyle::Crosshair));
+        assert!(!status.rerender);
+    }
+
+    #[tokio::test]
+    async fn staged_cursor_is_not_published_when_a_later_state_action_fails() {
+        let value = Param::typed("value", DataType::Int64, ScalarValue::Int64(Some(1)))
+            .expect("typed param");
+        let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
+            .set_cursor(lit("crosshair"))
+            .set_param_required(&value, lit(ScalarValue::Int64(None)));
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .param(value)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile rollback binding");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile rollback runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Failed));
+        assert_eq!(status.cursor, None);
+        assert_eq!(
+            state.params().await.get("value"),
+            Some(&ScalarValue::Int64(Some(1)))
+        );
+    }
+
+    #[tokio::test]
+    async fn ordinary_utf8_param_assignment_never_changes_cursor() {
+        let label = Param::typed(
+            "cursor_label",
+            DataType::Utf8,
+            ScalarValue::Utf8(Some("default".to_string())),
+        )
+        .expect("typed string param");
+        let binding =
+            ChartEventBinding::on(ChartEventType::CursorMoved).set_param(&label, lit("crosshair"));
+        let ctx = SessionContext::new();
+        let compiled = Chart::<Cartesian>::new()
+            .param(label)
+            .event_binding(binding)
+            .compile(&ctx)
+            .await
+            .expect("compile string assignment");
+        let runtime = CompiledChartEventBinding::compile(
+            0,
+            compiled.event_bindings().first().unwrap(),
+            &ctx,
+            compiled.param_specs(),
+            compiled.selection_specs(),
+            compiled.store_specs(),
+            &compiled.event_datum_types(),
+        )
+        .expect("compile string runtime");
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx));
+        let mut state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let handler = ChartEventBindingHandler {
+            runtime: Arc::new(runtime),
+            state: Mutex::new(ChartEventBindingState::default()),
+        };
+
+        let status = handler
+            .handle_with_context(
+                &SceneGraphEvent::CursorMoved(SceneCursorMovedEvent {
+                    position: [10.0, 20.0],
+                    mark_instance: None,
+                    modifiers: Default::default(),
+                }),
+                &EventStreamContext::default(),
+                &mut state,
+                &empty_rtree(),
+            )
+            .await;
+
+        assert_eq!(status.admission, Some(EventAdmission::Committed));
+        assert_eq!(status.cursor, None);
+        assert_eq!(
+            state.params().await.get("cursor_label"),
+            Some(&ScalarValue::Utf8(Some("crosshair".to_string())))
+        );
+    }
+
+    #[tokio::test]
+    async fn low_level_stream_filter_reads_routed_committed_params() {
+        let ctx = SessionContext::new();
+        let width = Param::typed("width", DataType::Float64, ScalarValue::Float64(Some(10.0)))
+            .expect("typed width");
+        let compiled = Chart::<Cartesian>::new()
+            .param_with_sharing(width, CoordinationScope::Free)
+            .compile(&ctx)
+            .await
+            .expect("compile");
+        let param_specs = compiled.param_specs().clone();
+        let policy = compiled.resize_policy();
+        let session = Arc::new(compiled).instantiate(Arc::new(ctx.clone()));
+        let state = ChartAppState::new(session, policy, crate::ChartAppOptions::default());
+        let owner_path = vec![ScalarValue::Utf8(Some("facet-a".to_string()))];
+        let mut scope = coord_scope(0, 0.0, 0.0, 100.0, 100.0, &[]);
+        scope.sharing_owner_paths.insert(0, owner_path.clone());
+        {
+            let mut runtime = state.runtime.lock().await;
+            runtime.last_interaction_state.scopes = vec![scope];
+            runtime
+                .session
+                .apply_scoped_param_patch(vec![ScopedParamAssignment {
+                    name: "width".to_string(),
+                    owner_path,
+                    value: ScalarValue::Float64(Some(640.0)),
+                    replace_scoped_values: false,
+                }])
+                .expect("apply routed committed value");
+        }
+        let stream = ChartEventStream::on(ChartEventType::MouseDown)
+            .filter(event::param("width").gt(lit(100.0)));
+        let config = stream_config_for_chart_stream(
+            &stream,
+            None,
+            false,
+            &ctx,
+            &param_specs,
+            Some(committed_stream_param_provider(&state)),
+            None,
+        )
+        .expect("compile stream filter");
+        let filter = config.filter.as_ref().unwrap().first().unwrap();
+        let event = SceneGraphEvent::MouseDown(SceneMouseDownEvent {
+            position: [50.0, 50.0],
+            button: MouseButton::Left,
+            mark_instance: None,
+            modifiers: Default::default(),
+        });
+        assert!(filter.matches(&event, &EventStreamContext::default(), &empty_rtree()));
+    }
+
+    #[test]
+    fn low_level_stream_filters_reject_temporal_params_and_store_state() {
+        let ctx = SessionContext::new();
+        let width = Param::typed("width", DataType::Float64, ScalarValue::Float64(Some(10.0)))
+            .expect("typed width");
+        let params = shared_param_specs(&[width]);
+        let temporal = ChartEventStream::on(ChartEventType::MouseDown)
+            .filter(event::start_param("width").gt(lit(0.0)));
+        let temporal_error =
+            stream_config_for_chart_stream(&temporal, None, false, &ctx, &params, None, None)
+                .expect_err("temporal params are unavailable in stream filters");
         assert!(
-            err.to_string()
+            temporal_error
+                .to_string()
                 .contains("Unknown physical scalar expression column")
+        );
+
+        let store = ChartEventStream::on(ChartEventType::MouseDown)
+            .filter(avenger_chart_core::store_placeholder_expr("rows").is_not_null());
+        let store_error =
+            stream_config_for_chart_stream(&store, None, false, &ctx, &params, None, None)
+                .expect_err("stores are unavailable in stream filters");
+        assert!(
+            store_error
+                .to_string()
+                .contains("unsupported state reference")
         );
     }
 
@@ -15061,7 +16721,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
@@ -15093,7 +16752,17 @@ mod tests {
             .preview();
         let ctx = SessionContext::new();
         let compiled = Chart::<Cartesian>::new()
-            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+            .param({
+                let __avenger_param_name = "width";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(Some(640.0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -15105,7 +16774,6 @@ mod tests {
             compiled.param_specs(),
             compiled.selection_specs(),
             compiled.store_specs(),
-            compiled.cursor_params(),
             &compiled.event_datum_types(),
         )
         .expect("compile binding runtime");
@@ -15122,29 +16790,108 @@ mod tests {
         assert!(!has_derived, "expected no derived interaction columns");
     }
 
-    fn shared_param_specs(params: &[Param]) -> IndexMap<String, CompiledParamSpec> {
-        params
+    fn shared_param_specs(params: &[Param]) -> ParamSpecRegistry {
+        let mut allocator = avenger_chart_core::CompiledIdentityAllocator::new("app-test");
+        ParamSpecRegistry::try_from_specs(
+            params.iter().map(|param| {
+                let mut spec = CompiledParamSpec::shared(param);
+                spec.runtime_id = allocator.allocate_param();
+                spec
+            }),
+            |spec| &spec.runtime_id,
+            |spec| spec.name.as_str(),
+        )
+        .unwrap()
+    }
+
+    fn resolve_param_only_change_bindings(
+        bindings: &[ChartParamChangeBinding],
+        specs: &ParamSpecRegistry,
+    ) -> Vec<ChartParamChangeBinding> {
+        bindings
             .iter()
-            .map(|param| (param.name.clone(), CompiledParamSpec::shared(param)))
+            .cloned()
+            .map(|binding| {
+                let source_id = specs
+                    .resolve_source_name(&binding.source_param_name)
+                    .expect("test source param")
+                    .clone();
+                let actions = binding
+                    .action
+                    .ordered_steps()
+                    .into_iter()
+                    .map(|step| match step {
+                        ChartActionStep::SetParam(assignment) => {
+                            let runtime_id = specs
+                                .resolve_source_name(&assignment.param_name)
+                                .expect("test target param")
+                                .clone();
+                            ChartEventAction::SetParam(ChartEventParamAction {
+                                target: ResolvedStateTarget::new(runtime_id, assignment.param_name),
+                                value: assignment.value,
+                                scope: assignment.scope,
+                                replace_scoped_values: assignment.replace_scoped_values,
+                                reject_null: assignment.reject_null,
+                            })
+                        }
+                        _ => panic!("param-only graph test received a non-param action"),
+                    })
+                    .collect();
+                let source_name = binding.source_param_name.clone();
+                binding
+                    .with_resolved_state(ResolvedStateTarget::new(source_id, source_name), actions)
+            })
             .collect()
     }
 
     #[test]
     fn param_change_graph_reports_complete_cycle_paths() {
         let params = [
-            Param::new("a", ScalarValue::Int64(Some(0))),
-            Param::new("b", ScalarValue::Int64(Some(0))),
-            Param::new("c", ScalarValue::Int64(Some(0))),
+            {
+                let __avenger_param_name = "a";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Int64(Some(0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
+            {
+                let __avenger_param_name = "b";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Int64(Some(0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
+            {
+                let __avenger_param_name = "c";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Int64(Some(0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
         ];
         let specs = shared_param_specs(&params);
         let ctx = SessionContext::new();
         let compile = |bindings: &[ChartParamChangeBinding]| {
+            let bindings = resolve_param_only_change_bindings(bindings, &specs);
             CompiledChartParamChangeGraph::compile(
-                bindings,
+                &bindings,
                 &ctx,
                 &specs,
-                &IndexMap::new(),
-                &IndexMap::new(),
+                &SelectionSpecRegistry::default(),
+                &StoreSpecRegistry::default(),
+                None,
             )
         };
 
@@ -15177,21 +16924,53 @@ mod tests {
     #[test]
     fn param_change_graph_rejects_duplicate_reactive_writers() {
         let params = [
-            Param::new("a", ScalarValue::Int64(Some(0))),
-            Param::new("b", ScalarValue::Int64(Some(0))),
-            Param::new("sink", ScalarValue::Int64(Some(0))),
+            {
+                let __avenger_param_name = "a";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Int64(Some(0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
+            {
+                let __avenger_param_name = "b";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Int64(Some(0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
+            {
+                let __avenger_param_name = "sink";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Int64(Some(0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
         ];
         let specs = shared_param_specs(&params);
         let bindings = [
             ChartParamChangeBinding::on(&params[0]).set_param(&params[2], param_change::value()),
             ChartParamChangeBinding::on(&params[1]).set_param(&params[2], param_change::value()),
         ];
+        let bindings = resolve_param_only_change_bindings(&bindings, &specs);
         let error = CompiledChartParamChangeGraph::compile(
             &bindings,
             &SessionContext::new(),
             &specs,
-            &IndexMap::new(),
-            &IndexMap::new(),
+            &SelectionSpecRegistry::default(),
+            &StoreSpecRegistry::default(),
+            None,
         )
         .err()
         .expect("duplicate writer must fail");
@@ -15205,9 +16984,39 @@ mod tests {
 
     #[tokio::test]
     async fn param_change_graph_is_equivalent_after_bincode() {
-        let a = Param::new("a", ScalarValue::Int64(Some(0)));
-        let b = Param::new("b", ScalarValue::Int64(Some(0)));
-        let c = Param::new("c", ScalarValue::Int64(Some(0)));
+        let a = {
+            let __avenger_param_name = "a";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let b = {
+            let __avenger_param_name = "b";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let c = {
+            let __avenger_param_name = "c";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let ctx = SessionContext::new();
         let compiled = Chart::<Cartesian>::new()
             .param(a.clone())
@@ -15249,12 +17058,72 @@ mod tests {
 
     #[test]
     fn param_change_programs_are_typed_and_filters_gate_actions() {
-        let number = Param::new("number", ScalarValue::Int64(Some(0)));
-        let number_copy = Param::new("number_copy", ScalarValue::Float64(Some(0.0)));
-        let text = Param::new("text", ScalarValue::Utf8(None));
-        let text_copy = Param::new("text_copy", ScalarValue::Utf8(None));
-        let flag = Param::new("flag", ScalarValue::Boolean(Some(false)));
-        let flag_copy = Param::new("flag_copy", ScalarValue::Boolean(Some(false)));
+        let number = {
+            let __avenger_param_name = "number";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let number_copy = {
+            let __avenger_param_name = "number_copy";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(0.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let text = {
+            let __avenger_param_name = "text";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let text_copy = {
+            let __avenger_param_name = "text_copy";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Utf8(None)).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let flag = {
+            let __avenger_param_name = "flag";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Boolean(Some(false))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let flag_copy = {
+            let __avenger_param_name = "flag_copy";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Boolean(Some(false))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let params = [
             number.clone(),
             number_copy.clone(),
@@ -15271,12 +17140,14 @@ mod tests {
             ChartParamChangeBinding::on(&text).set_param(&text_copy, param_change::value()),
             ChartParamChangeBinding::on(&flag).set_param(&flag_copy, param_change::value()),
         ];
+        let bindings = resolve_param_only_change_bindings(&bindings, &specs);
         let graph = CompiledChartParamChangeGraph::compile(
             &bindings,
             &SessionContext::new(),
             &specs,
-            &IndexMap::new(),
-            &IndexMap::new(),
+            &SelectionSpecRegistry::default(),
+            &StoreSpecRegistry::default(),
+            None,
         )
         .expect("compile typed reaction programs");
 

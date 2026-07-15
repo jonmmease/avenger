@@ -41,6 +41,7 @@ pub mod guide_context;
 pub mod guide_overflow_phase;
 pub mod guide_sharing;
 pub mod guide_update;
+pub mod identity;
 pub mod into_expr;
 pub mod layout_types;
 pub mod legend;
@@ -210,6 +211,12 @@ pub use guide_sharing::{
     axis_ownership_mode_from_params,
 };
 pub use guide_update::GuideUpdate;
+pub use identity::{
+    CompiledIdentityAllocator, CompiledStateRegistry, CompiledStateRegistryError, MarkId, ParamRef,
+    ResolvedStateTarget, SelectionRef, StateId, StateMigrationKey, StateSymbol,
+    StateSymbolConflict, StateSymbolKind, StateSymbolTable, StoreRef, ToolInstanceId, ViewId,
+    WidgetInstanceId,
+};
 pub use into_expr::IntoExpr;
 pub use layout_types::{
     EdgeSlabs, FrameAllocation, FrameDemand, FrameDimensionSizing, FrameLayout, FrameSizingPolicy,
@@ -259,8 +266,8 @@ pub use mark_group::{IntoPlotMark, MarkGroup, PlotMark, PlotMarkKind};
 pub use mark_render_context::MarkRenderContext;
 pub use mark_runtime_context::MarkRuntimeContext;
 pub use mark_state::{
-    CompiledMarkState, DETAIL_ARRAY_COLUMN_PREFIX, MarkDataMode, MarkState,
-    detail_array_column_name,
+    CompiledComponentProvenance, CompiledMarkIdentity, CompiledMarkState,
+    DETAIL_ARRAY_COLUMN_PREFIX, MarkDataMode, MarkState, detail_array_column_name,
 };
 pub use mark_state::{validate_mark_target_path, validate_structural_id};
 pub use materialization::{
@@ -277,7 +284,7 @@ pub use nested_band::{
 };
 pub use no_guide::NoGuide;
 pub use overflow::{MeasurementResult, OverflowSpaceRequirement};
-pub use param::{CompiledParamSpec, Param};
+pub use param::{CompiledParamSpec, Param, validate_param_value};
 pub use pattern_channel_value::PatternChannelValue;
 pub use pixel_frame::PixelFrame;
 pub use position_config::{GenericPositionConfig, PositionConfig};
@@ -318,10 +325,11 @@ pub use selection::{
     SelectionIntervalDimensionUpdate, SelectionIntervalDimensionValue, SelectionPredicateSpec,
     SelectionPredicateUpdate, SelectionPredicateValue, SelectionPredicateValueUpdate,
     SelectionUpdate, SelectionValueExpr, clause_value, compile_selections,
+    encode_selection_tuple_id, resolved_selection_placeholder_id,
     selection_clause_value_id_from_placeholder, selection_field_expr_fingerprint,
     selection_id_from_equality_membership_field_placeholder,
     selection_id_from_equality_membership_value_placeholder,
-    selection_id_from_predicate_placeholder,
+    selection_id_from_predicate_placeholder, selection_target_from_placeholder,
 };
 pub use serialization::{
     DefaultLogicalExprNodeExt, LogicalPlanNodeExt, SerializableDataFrame, SerializableDataType,
@@ -332,8 +340,9 @@ pub use sharing::{CoordinationAxis, SharingLevel};
 pub use sharing_mode::CoordinationScope;
 pub use store::{
     CompiledStoreSpec, STORE_METADATA_PREFIX, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
-    STORE_REVISION_COLUMN, Store, StoreData, StoreFieldPatch, StoreFieldRef, StoreFieldSpec,
-    StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr, store_placeholder_expr,
+    STORE_RELATION_PLACEHOLDER_PREFIX, STORE_REVISION_COLUMN, Store, StoreData, StoreFieldPatch,
+    StoreFieldRef, StoreFieldSpec, StoreKey, StoreRow, StoreRowValue, StoreUpdate, StoreValueExpr,
+    resolved_store_placeholder_expr, store_placeholder_expr, store_target_from_placeholder,
     validate_store_name,
 };
 pub use subplot_child_plot::{
@@ -353,7 +362,8 @@ pub use time_context::{TimeContext, WeekStart};
 pub use time_expr as time;
 pub use title_spec::{ChildPlotFurnishings, ChildPlotSizeSpec, TitleAlign, TitleSpan, TitleSpec};
 pub use tools::{
-    ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
+    ChartTool, CompiledToolBehavior, ResolvedStateDeclaration, ResolvedToolMark,
+    ToolBehaviorExpansion, ToolExpansionContext, ToolExport, ToolExportTarget, ToolMetadata,
     ToolParamSharing, ToolScaleEdit, ToolScaleTarget,
 };
 pub use transform::{
@@ -366,7 +376,7 @@ pub use unit_aspect::CartesianUnitAspect;
 pub use view::{
     CartesianView, CompiledCartesianViewSpec, CompiledPixelFrameViewSpec, CompiledViewScope,
     CompiledViewSpec, PixelFrameView, View, ViewAsyncPolicy, ViewRef, ViewScopeState, ViewSpec,
-    ViewStalePolicy,
+    ViewStalePolicy, validate_inline_view_references,
 };
 pub use widget::*;
 pub use zero_d::ZeroDCoord;

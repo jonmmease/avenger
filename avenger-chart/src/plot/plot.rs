@@ -12,18 +12,24 @@ use datafusion::{
         compute::can_cast_types,
         datatypes::{DataType, Field, Schema},
     },
-    common::ScalarValue,
+    common::{
+        ScalarValue,
+        tree_node::{Transformed, TreeNode},
+    },
     dataframe::DataFrame,
     functions_window::expr_fn::row_number,
+    logical_expr::{Expr, LogicalPlan, TableScan},
     prelude::{SessionContext, col, lit},
 };
 use datafusion_proto::protobuf::LogicalPlanNode;
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    AvengerChartError, Axis, AxisSpec, CanonicalJson, ChannelValue, ChartParamChangeBinding,
-    ChartTool, ChartWidget, ChildPlotFurnishings, CompileContext, CompiledComposedWidget,
-    CompiledDataContext, CompiledMark, CompiledMarkState, CompiledNativeWidgetSpec,
+    AvengerChartError, Axis, AxisSpec, CanonicalJson, ChannelValue, ChartActionStep,
+    ChartEventAction, ChartEventCursorAction, ChartEventParamAction, ChartEventSelectionAction,
+    ChartEventStoreAction, ChartParamChangeBinding, ChartTool, ChartWidget, ChildPlotFurnishings,
+    CompileContext, CompiledComposedWidget, CompiledDataContext, CompiledIdentityAllocator,
+    CompiledMark, CompiledMarkIdentity, CompiledMarkState, CompiledNativeWidgetSpec,
     CompiledParamSpec, CompiledScalarExpressionProgram, CompiledSelectionSpec,
     CompiledSubplotChildPlot, CompiledViewSpec, CompiledWidget, CompiledWidgetAttachment,
     CompiledWidgetItemPlan, CoordinateGuide, CoordinateSystem, CoordinateSystemTransformCore,
@@ -31,10 +37,12 @@ use avenger_chart_core::{
     FormattingContext, IntoPlotMark, Legend, LegendSurfaceKind, Mark, MarkDataMode, MarkState,
     NativeWidget, PhysicalScalarExpressionSpec, PhysicalScalarProgramOptions, PixelFrame,
     PlaceholderColumn, PlotMark, PlotMarkKind, PositionedChartWidget, PositionedNativeWidget,
-    RepeatContext, RepeatVariable, ScaleInferenceHint, SceneGeometryTarget, Selection,
-    SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme, TimeContext,
-    WidgetAttachment, WidgetExpansionContext, WidgetItemValidation, WidgetItems, WidgetPlacement,
-    compile_selections, schema_from_fields, validate_structural_id,
+    RepeatContext, RepeatVariable, ResolvedStateTarget, ScaleInferenceHint, SceneGeometryTarget,
+    Selection, SelectionSceneQuery, SelectionUpdate, Store, SubplotChildPlotSpec, Theme,
+    TimeContext, WidgetAttachment, WidgetExpansionContext, WidgetItemValidation, WidgetItems,
+    WidgetPlacement, compile_selections, resolved_selection_placeholder_id, schema_from_fields,
+    selection_target_from_placeholder, store_target_from_placeholder, validate_mark_target_path,
+    validate_structural_id,
 };
 use avenger_chart_marks::Subplot;
 use avenger_chart_scales::{PlotScaleSpec as ScaleSpec, serialization::LogicalPlanNodeExt};
@@ -96,7 +104,6 @@ pub(crate) struct RootChartFurnishings {
     pub(crate) param_specs: Vec<CompiledParamSpec>,
     pub(crate) selections: Vec<Selection>,
     pub(crate) stores: Vec<Store>,
-    pub(crate) cursor_params: Vec<String>,
 }
 
 fn child_layout_spec(furnishings: &ChildPlotFurnishings) -> LayoutSpec {
@@ -339,10 +346,19 @@ pub(crate) async fn compile_composed_widget(
     tool_context: &ToolCompileContext,
     widget_scene_index: usize,
     target_path_prefix: Option<&[usize]>,
+    widget_instance_id: avenger_chart_core::WidgetInstanceId,
+    _identity_allocator: &mut CompiledIdentityAllocator,
 ) -> Result<CompiledComposedWidgetOutput, AvengerChartError> {
     let id = widget.id().to_string();
     validate_structural_id("widget", &id)?;
-    let expansion = widget.expand(WidgetExpansionContext::new(&id))?;
+    let expansion = widget.expand(
+        WidgetExpansionContext::new(&id).with_resolved_instance(widget_instance_id.clone()),
+    )?;
+    if expansion.instance_id != widget_instance_id {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "widget '{id}' returned behavior for a different widget instance"
+        )));
+    }
     let items = expansion
         .items
         .clone()
@@ -352,18 +368,40 @@ pub(crate) async fn compile_composed_widget(
         .as_ref()
         .and_then(|items| items.data.dataframe_with_context(session_context));
     let identity = widget as *const dyn ChartWidget as *const () as usize;
+    let mark_runtime_ids = expansion
+        .behavior
+        .marks
+        .iter()
+        .map(|mark| mark.runtime_id.clone())
+        .collect::<Vec<_>>();
     let target_paths = target_path_prefix.map(|prefix| {
         expansion
-            .expansion
+            .behavior
             .marks
             .iter()
             .enumerate()
-            .filter_map(|(mark_index, mark)| {
-                mark.state().id.as_deref().map(|part| {
+            .filter_map(|(mark_index, resolved_mark)| {
+                resolved_mark.mark.state().id.as_deref().map(|part| {
                     let mut path = Vec::with_capacity(prefix.len() + 1);
                     path.extend_from_slice(prefix);
                     path.push(mark_index);
                     (format!("{public_widget_path}.{part}"), vec![path])
+                })
+            })
+            .collect()
+    });
+    let target_ids = target_path_prefix.map(|_| {
+        expansion
+            .behavior
+            .marks
+            .iter()
+            .enumerate()
+            .filter_map(|(mark_index, resolved_mark)| {
+                resolved_mark.mark.state().id.as_deref().map(|part| {
+                    (
+                        format!("{public_widget_path}.{part}"),
+                        vec![mark_runtime_ids[mark_index].clone()],
+                    )
                 })
             })
             .collect()
@@ -373,25 +411,29 @@ pub(crate) async fn compile_composed_widget(
             &id,
             public_widget_path,
             identity,
-            &expansion.expansion,
+            &expansion.behavior,
             target_paths,
+            target_ids,
         )?;
     } else {
         tool_context.register_widget_expansion(
             &id,
             identity,
             widget_scene_index,
-            &expansion.expansion,
+            &expansion.behavior,
+            &mark_runtime_ids,
         )?;
     }
 
-    let mut compiled_marks = Vec::with_capacity(expansion.expansion.marks.len());
+    let mut compiled_marks = Vec::with_capacity(expansion.behavior.marks.len());
     let mut local_scale_specs = HashMap::new();
     let mut suppressed_axes = HashMap::new();
     let mut suppressed_legends = IndexMap::new();
     let mut local_scale_channels = HashMap::new();
     let mut relative_target_paths = std::collections::BTreeMap::new();
-    for (mark_index, mark) in expansion.expansion.marks.iter().enumerate() {
+    let mut relative_target_ids = std::collections::BTreeMap::new();
+    for (mark_index, resolved_mark) in expansion.behavior.marks.iter().enumerate() {
+        let mark = &resolved_mark.mark;
         let part = mark.state().id.as_ref().ok_or_else(|| {
             AvengerChartError::InvalidArgument(format!(
                 "Widget '{id}' marks must declare stable part ids"
@@ -424,6 +466,8 @@ pub(crate) async fn compile_composed_widget(
                 "Widget '{id}' declares duplicate part '{part}'"
             )));
         }
+        let runtime_id = mark_runtime_ids[mark_index].clone();
+        relative_target_ids.insert(public_target_path.clone(), vec![runtime_id.clone()]);
         let state = CompiledMarkState::from_mark_state(
             mark.state(),
             widget_item_dataframe
@@ -431,11 +475,16 @@ pub(crate) async fn compile_composed_widget(
                 .or_else(|| mark.state().data.dataframe().cloned()),
         )
         .with_mark_index(mark_index)
-        .with_public_target_path(Some(public_target_path))
-        .with_widget_theme(avenger_chart_core::WidgetThemeProvenance {
-            widget_kind: widget.kind().to_string(),
-            widget_id: id.clone(),
-            part: part.clone(),
+        .with_identity(CompiledMarkIdentity {
+            runtime_id,
+            source_name: Some(part.clone()),
+            public_aliases: vec![public_target_path],
+            private_ancestry: Vec::new(),
+            component: Some(avenger_chart_core::CompiledComponentProvenance {
+                component_kind: widget.kind().to_string(),
+                component_id: Some(id.clone()),
+                part_alias: part.clone(),
+            }),
         });
         compiled_marks.push(mark.compile(state, session_context).await?);
     }
@@ -452,8 +501,11 @@ pub(crate) async fn compile_composed_widget(
         widget: CompiledComposedWidget {
             id,
             kind: widget.kind().to_string(),
+            behavior_instance_id: expansion.behavior.instance_id.clone(),
+            behavior_exports: expansion.behavior.exports.clone(),
             marks: compiled_marks,
             relative_target_paths,
+            relative_target_ids,
             measure: expansion.measure,
             items,
             presentation,
@@ -531,6 +583,20 @@ impl<C: CoordinateSystem> Plot<C> {
             widgets: Vec::new(),
         }
     }
+
+    /// Add an erased tool produced by a language or host registry.
+    #[doc(hidden)]
+    pub fn tool_arc(mut self, tool: Arc<dyn ChartTool<C>>) -> Self {
+        self.tools.push(tool);
+        self
+    }
+
+    /// Add an erased widget attachment produced by a language or host registry.
+    #[doc(hidden)]
+    pub fn widget_attachment(mut self, widget: WidgetAttachment) -> Self {
+        self.widgets.push(widget);
+        self
+    }
 }
 
 fn validate_param_change_binding_registry(
@@ -539,7 +605,7 @@ fn validate_param_change_binding_registry(
     store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,
     selection_specs: &IndexMap<String, CompiledSelectionSpec>,
 ) -> Result<(), AvengerChartError> {
-    let mut param_writers = HashMap::<&str, &str>::new();
+    let mut param_writers = HashMap::<String, String>::new();
     for binding in bindings {
         binding.validate()?;
         let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
@@ -554,52 +620,286 @@ fn validate_param_change_binding_registry(
                 binding.source_param_name
             )));
         }
-        for assignment in &binding.action.assignments {
-            let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
-                AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding from '{}' assigns unknown param '{}'",
-                    binding.source_param_name, assignment.param_name
-                ))
-            })?;
-            if !target.sharing.is_fully_shared() {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding target '{}' must be shared at root scope",
-                    assignment.param_name
-                )));
-            }
-            if let Some(previous_source) =
-                param_writers.insert(&assignment.param_name, &binding.source_param_name)
-            {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter '{}' has multiple reactive writers from '{}' and '{}'",
-                    assignment.param_name, previous_source, binding.source_param_name
-                )));
-            }
-        }
-        for assignment in &binding.action.store_assignments {
-            let target = store_specs.get(&assignment.store_name).ok_or_else(|| {
-                AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding from '{}' updates unknown store '{}'",
-                    binding.source_param_name, assignment.store_name
-                ))
-            })?;
-            if !target.sharing.is_fully_shared() {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding store target '{}' must be shared at root scope",
-                    assignment.store_name
-                )));
-            }
-        }
-        for assignment in &binding.action.selection_assignments {
-            if !selection_specs.contains_key(&assignment.selection_id) {
-                return Err(AvengerChartError::InvalidArgument(format!(
-                    "Parameter-change binding from '{}' updates unknown selection '{}'",
-                    binding.source_param_name, assignment.selection_id
-                )));
+        for step in binding.action.ordered_steps() {
+            match step {
+                ChartActionStep::SetParam(assignment) => {
+                    let target = param_specs.get(&assignment.param_name).ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding from '{}' assigns unknown param '{}'",
+                            binding.source_param_name, assignment.param_name
+                        ))
+                    })?;
+                    if !target.sharing.is_fully_shared() {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding target '{}' must be shared at root scope",
+                            assignment.param_name
+                        )));
+                    }
+                    if let Some(previous_source) = param_writers.insert(
+                        assignment.param_name.clone(),
+                        binding.source_param_name.clone(),
+                    ) {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter '{}' has multiple reactive writers from '{}' and '{}'",
+                            assignment.param_name, previous_source, binding.source_param_name
+                        )));
+                    }
+                }
+                ChartActionStep::SetStore(assignment) => {
+                    let target = store_specs.get(&assignment.store_name).ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding from '{}' updates unknown store '{}'",
+                            binding.source_param_name, assignment.store_name
+                        ))
+                    })?;
+                    if !target.sharing.is_fully_shared() {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding store target '{}' must be shared at root scope",
+                            assignment.store_name
+                        )));
+                    }
+                }
+                ChartActionStep::SetSelection(assignment) => {
+                    if !selection_specs.contains_key(&assignment.selection_id) {
+                        return Err(AvengerChartError::InvalidArgument(format!(
+                            "Parameter-change binding from '{}' updates unknown selection '{}'",
+                            binding.source_param_name, assignment.selection_id
+                        )));
+                    }
+                }
+                ChartActionStep::SetCursor(_) => {
+                    unreachable!("parameter-change binding validation rejects cursor actions")
+                }
             }
         }
     }
     Ok(())
+}
+
+fn resolve_event_binding_state_targets(
+    binding: ChartEventBinding,
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+    store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+) -> Result<ChartEventBinding, AvengerChartError> {
+    let actions = binding
+        .action
+        .ordered_steps()
+        .into_iter()
+        .map(|step| match step {
+            ChartActionStep::SetParam(assignment) => {
+                let spec = param_specs.get(&assignment.param_name).ok_or_else(|| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Chart event binding assigns unknown param '{}'",
+                        assignment.param_name
+                    ))
+                })?;
+                Ok(ChartEventAction::SetParam(ChartEventParamAction {
+                    target: ResolvedStateTarget::new(
+                        spec.runtime_id.clone(),
+                        assignment.param_name,
+                    ),
+                    value: assignment.value,
+                    scope: assignment.scope,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                    reject_null: assignment.reject_null,
+                }))
+            }
+            ChartActionStep::SetStore(assignment) => {
+                let spec = store_specs.get(&assignment.store_name).ok_or_else(|| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Chart event binding updates unknown store '{}'",
+                        assignment.store_name
+                    ))
+                })?;
+                Ok(ChartEventAction::SetStore(ChartEventStoreAction {
+                    target: ResolvedStateTarget::new(
+                        spec.runtime_id.clone(),
+                        assignment.store_name,
+                    ),
+                    update: assignment.update,
+                    scope: assignment.scope,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                }))
+            }
+            ChartActionStep::SetSelection(assignment) => {
+                let spec = selection_specs
+                    .get(&assignment.selection_id)
+                    .ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Chart event binding updates unknown selection '{}'",
+                            assignment.selection_id
+                        ))
+                    })?;
+                Ok(ChartEventAction::SetSelection(ChartEventSelectionAction {
+                    target: ResolvedStateTarget::new(
+                        spec.runtime_id.clone(),
+                        assignment.selection_id,
+                    ),
+                    update: assignment.update,
+                    scope: assignment.scope,
+                }))
+            }
+            ChartActionStep::SetCursor(action) => {
+                Ok(ChartEventAction::SetCursor(ChartEventCursorAction {
+                    value: action.value,
+                }))
+            }
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?
+        .into_iter()
+        .map(|action| {
+            action.map_exprs(&mut |expr| {
+                resolve_state_relation_placeholders(expr, store_specs, selection_specs)
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    Ok(binding.with_resolved_actions(actions))
+}
+
+fn resolve_param_change_binding_state_targets(
+    binding: ChartParamChangeBinding,
+    param_specs: &IndexMap<String, CompiledParamSpec>,
+    store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+) -> Result<ChartParamChangeBinding, AvengerChartError> {
+    let source = param_specs.get(&binding.source_param_name).ok_or_else(|| {
+        AvengerChartError::InvalidArgument(format!(
+            "Parameter-change binding references unknown source param '{}'",
+            binding.source_param_name
+        ))
+    })?;
+    let source_target =
+        ResolvedStateTarget::new(source.runtime_id.clone(), binding.source_param_name.clone());
+    let actions = binding
+        .action
+        .ordered_steps()
+        .into_iter()
+        .map(|step| match step {
+            ChartActionStep::SetParam(assignment) => {
+                let spec = param_specs
+                    .get(&assignment.param_name)
+                    .expect("parameter-change target validated");
+                Ok(ChartEventAction::SetParam(ChartEventParamAction {
+                    target: ResolvedStateTarget::new(
+                        spec.runtime_id.clone(),
+                        assignment.param_name,
+                    ),
+                    value: assignment.value,
+                    scope: assignment.scope,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                    reject_null: assignment.reject_null,
+                }))
+            }
+            ChartActionStep::SetStore(assignment) => {
+                let spec = store_specs
+                    .get(&assignment.store_name)
+                    .expect("parameter-change store target validated");
+                Ok(ChartEventAction::SetStore(ChartEventStoreAction {
+                    target: ResolvedStateTarget::new(
+                        spec.runtime_id.clone(),
+                        assignment.store_name,
+                    ),
+                    update: assignment.update,
+                    scope: assignment.scope,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                }))
+            }
+            ChartActionStep::SetSelection(assignment) => {
+                let spec = selection_specs
+                    .get(&assignment.selection_id)
+                    .expect("parameter-change selection target validated");
+                Ok(ChartEventAction::SetSelection(ChartEventSelectionAction {
+                    target: ResolvedStateTarget::new(
+                        spec.runtime_id.clone(),
+                        assignment.selection_id,
+                    ),
+                    update: assignment.update,
+                    scope: assignment.scope,
+                }))
+            }
+            ChartActionStep::SetCursor(_) => {
+                unreachable!("parameter-change binding validation rejects cursor actions")
+            }
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?
+        .into_iter()
+        .map(|action| {
+            action.map_exprs(&mut |expr| {
+                resolve_state_relation_placeholders(expr, store_specs, selection_specs)
+            })
+        })
+        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+    Ok(binding.with_resolved_state(source_target, actions))
+}
+
+fn resolve_state_relation_placeholders(
+    expr: Expr,
+    store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,
+    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+) -> Result<Expr, AvengerChartError> {
+    expr.transform(|candidate| {
+        if let Expr::ScalarSubquery(mut subquery) = candidate {
+            subquery.subquery = Arc::new(resolve_store_relation_plan(
+                subquery.subquery.as_ref().clone(),
+                store_specs,
+            )?);
+            return Ok(Transformed::yes(Expr::ScalarSubquery(subquery)));
+        }
+        let mut placeholder = match candidate {
+            Expr::Placeholder(placeholder) => placeholder,
+            other => return Ok(Transformed::no(other)),
+        };
+        if let Some(source_name) = store_target_from_placeholder(&placeholder.id) {
+            let spec = store_specs.get(source_name).ok_or_else(|| {
+                datafusion::error::DataFusionError::Plan(format!(
+                    "Expression references unknown store '{source_name}'"
+                ))
+            })?;
+            placeholder.id = format!(
+                "{}{}",
+                avenger_chart_core::STORE_RELATION_PLACEHOLDER_PREFIX,
+                spec.runtime_id.as_opaque_str()
+            );
+            return Ok(Transformed::yes(Expr::Placeholder(placeholder)));
+        }
+        if let Some(source_name) = selection_target_from_placeholder(&placeholder.id) {
+            let spec = selection_specs.get(source_name).ok_or_else(|| {
+                datafusion::error::DataFusionError::Plan(format!(
+                    "Expression references unknown selection '{source_name}'"
+                ))
+            })?;
+            placeholder.id = resolved_selection_placeholder_id(&placeholder.id, &spec.runtime_id)
+                .expect("decoded selection placeholder must preserve its operation");
+            return Ok(Transformed::yes(Expr::Placeholder(placeholder)));
+        }
+        Ok(Transformed::no(Expr::Placeholder(placeholder)))
+    })
+    .map(|transformed| transformed.data)
+    .map_err(AvengerChartError::DataFusionError)
+}
+
+fn resolve_store_relation_plan(
+    plan: LogicalPlan,
+    store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,
+) -> Result<LogicalPlan, datafusion::error::DataFusionError> {
+    plan.transform_up_with_subqueries(|candidate| {
+        let LogicalPlan::TableScan(scan) = candidate else {
+            return Ok(Transformed::no(candidate));
+        };
+        let Some(spec) = store_specs.get(scan.table_name.table()) else {
+            return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+        };
+        let scan = TableScan::try_new(
+            spec.runtime_id.as_opaque_str(),
+            scan.source,
+            scan.projection,
+            scan.filters,
+            scan.fetch,
+        )?;
+        Ok(Transformed::yes(LogicalPlan::TableScan(scan)))
+    })
+    .map(|transformed| transformed.data)
 }
 
 fn validate_param_change_binding_expressions(
@@ -620,13 +920,13 @@ fn validate_param_change_binding_expressions(
         let source = param_specs
             .get(&binding.source_param_name)
             .expect("parameter-change source validated");
-        let source_type = source.default.data_type();
+        let source_type = source.data_type.clone();
         let mut fields = param_specs
             .iter()
             .map(|(name, spec)| {
                 Field::new(
                     avenger_chart_core::event::param_column_name(name),
-                    spec.default.data_type(),
+                    spec.data_type.clone(),
                     true,
                 )
             })
@@ -672,8 +972,19 @@ fn validate_param_change_binding_expressions(
             ));
             expected_results.push(ExpectedResult::BooleanFilter);
         }
-        for assignment in &binding.action.assignments {
-            let avenger_chart_core::ChartActionParamValue::Expr { expr } = &assignment.value else {
+        for assignment in binding
+            .action
+            .ordered_steps()
+            .into_iter()
+            .filter_map(|step| {
+                if let ChartActionStep::SetParam(assignment) = step {
+                    Some(assignment)
+                } else {
+                    None
+                }
+            })
+        {
+            let avenger_chart_core::ChartActionParamValue::Expr { expr } = assignment.value else {
                 continue;
             };
             let expr = expr.to_expr(session_context).map_err(|error| {
@@ -700,8 +1011,13 @@ fn validate_param_change_binding_expressions(
         // Store and selection updates can contain expressions too. They do not
         // have one uniform result type, but compiling them into the same
         // one-row schema rejects event/datum/coordinate columns here.
-        let mut side_effect_action = binding.action.clone();
-        side_effect_action.assignments.clear();
+        let mut side_effect_action = avenger_chart_core::ChartAction::new();
+        side_effect_action.steps = binding
+            .action
+            .ordered_steps()
+            .into_iter()
+            .filter(|step| !matches!(step, ChartActionStep::SetParam(_)))
+            .collect();
         let mut side_effect_index = 0usize;
         side_effect_action.map_exprs(&mut |expr| {
             specs.push(PhysicalScalarExpressionSpec::new(
@@ -878,34 +1194,25 @@ impl<C: CoordinateSystem> Plot<C> {
         child_furnishings: ChildPlotFurnishings,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let is_root = root_furnishings.is_some();
-        let (
-            root_param_specs,
-            root_selections,
-            root_stores,
-            root_cursor_params,
-            layout_spec,
-            title,
-            subtitle,
-        ) = match root_furnishings {
-            Some(root) => (
-                root.param_specs,
-                root.selections,
-                root.stores,
-                root.cursor_params,
-                root.layout_spec,
-                root.title,
-                root.subtitle,
-            ),
-            None => (
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                Vec::new(),
-                child_layout_spec(&child_furnishings),
-                child_furnishings.caption,
-                None,
-            ),
-        };
+        let (root_param_specs, root_selections, root_stores, layout_spec, title, subtitle) =
+            match root_furnishings {
+                Some(root) => (
+                    root.param_specs,
+                    root.selections,
+                    root.stores,
+                    root.layout_spec,
+                    root.title,
+                    root.subtitle,
+                ),
+                None => (
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    child_layout_spec(&child_furnishings),
+                    child_furnishings.caption,
+                    None,
+                ),
+            };
         let effective_time_context = inherited_tool_context
             .map(|context| context.time_context())
             .cloned()
@@ -915,6 +1222,11 @@ impl<C: CoordinateSystem> Plot<C> {
             .cloned()
             .unwrap_or_default();
         let tool_context = ToolCompileContext::from_parent(inherited_tool_context);
+        // Source names and public aliases are deliberately absent from this
+        // seed. The structural coordinate-node path plus stable traversal order
+        // supplies deterministic identity across nested plot compilation.
+        let mut identity_allocator =
+            CompiledIdentityAllocator::new(tool_context.compiled_identity_seed());
         if is_root {
             tool_context.register_root_stores(&root_stores)?;
         }
@@ -986,6 +1298,7 @@ impl<C: CoordinateSystem> Plot<C> {
             &self.tools,
             &tool_scale_targets,
             &tool_coordinate_metrics,
+            &mut identity_allocator,
         )?;
         if tool_context.is_multiplied_host() && !self.widgets.is_empty() {
             return Err(AvengerChartError::InvalidArgument(
@@ -1016,6 +1329,7 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut widget_scale_specs = HashMap::new();
         let mut composed_widget_scene_index = 0usize;
         for (declaration_order, attachment) in self.widgets.iter().enumerate() {
+            let instance_id = identity_allocator.allocate_widget_instance();
             let compiled_widget = if let Some(widget) = attachment.source.composed_widget() {
                 let output = compile_composed_widget(
                     widget,
@@ -1024,6 +1338,8 @@ impl<C: CoordinateSystem> Plot<C> {
                     &tool_context,
                     composed_widget_scene_index,
                     None,
+                    instance_id.clone(),
+                    &mut identity_allocator,
                 )
                 .await?;
                 widget_scale_specs.insert(output.widget.id.clone(), output.scale_specs);
@@ -1032,7 +1348,7 @@ impl<C: CoordinateSystem> Plot<C> {
             } else if let Some(widget) = attachment.source.native_widget() {
                 let id = widget.id().to_string();
                 validate_structural_id("widget", &id)?;
-                let state = widget.state();
+                let state = widget.state().with_instance_identity(&instance_id);
                 let identity = widget as *const dyn NativeWidget as *const () as usize;
                 tool_context.register_native_widget(&id, identity, &state)?;
                 CompiledWidget::Native(CompiledNativeWidgetSpec {
@@ -1049,6 +1365,7 @@ impl<C: CoordinateSystem> Plot<C> {
                 ));
             };
             compiled_widgets.push(CompiledWidgetAttachment {
+                instance_id,
                 widget: compiled_widget,
                 placement: attachment.placement,
                 declaration_order: declaration_order as u64,
@@ -1062,6 +1379,9 @@ impl<C: CoordinateSystem> Plot<C> {
 
         let mut selection_specs: IndexMap<String, CompiledSelectionSpec> =
             compile_selections(&root_selections)?;
+        for spec in selection_specs.values_mut() {
+            spec.runtime_id = identity_allocator.allocate_selection();
+        }
 
         // Start with plot-level configurations
         let mut axis_specs: HashMap<String, AxisSpec> = HashMap::new();
@@ -1069,6 +1389,30 @@ impl<C: CoordinateSystem> Plot<C> {
         let mut scale_specs: HashMap<String, ScaleSpec> = self.scale_specs.clone();
         let mut scale_to_coord_channel: HashMap<String, String> = HashMap::new();
 
+        let user_flat_mark_count = pre_tool_flat_marks.marks.len();
+        let tool_mark_metadata = active_tool_expansions
+            .iter()
+            .flat_map(|active| {
+                active
+                    .expansion
+                    .marks
+                    .iter()
+                    .enumerate()
+                    .map(|(ordinal, mark)| {
+                        (
+                            mark.runtime_id.clone(),
+                            avenger_chart_core::CompiledComponentProvenance {
+                                component_kind: active.expansion.component_kind.clone(),
+                                component_id: active.expansion.component_id.clone(),
+                                part_alias: mark
+                                    .part_alias
+                                    .clone()
+                                    .unwrap_or_else(|| format!("mark-{ordinal}")),
+                            },
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
         let mut marks = self.marks;
         for active in &active_tool_expansions {
             marks.extend(
@@ -1076,8 +1420,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .expansion
                     .marks
                     .iter()
-                    .cloned()
-                    .map(PlotMark::from_mark_arc),
+                    .map(|mark| PlotMark::from_mark_arc(mark.mark.clone())),
             );
         }
         let mut flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
@@ -1099,12 +1442,25 @@ impl<C: CoordinateSystem> Plot<C> {
                 flat_marks
                     .mark_target_registry
                     .insert(target.clone(), paths)?;
+                let target_ids = widget.relative_target_ids.get(target).ok_or_else(|| {
+                    AvengerChartError::InternalError(format!(
+                        "composed widget target '{target}' lacks compiled mark identities"
+                    ))
+                })?;
+                flat_marks
+                    .mark_target_registry
+                    .bind_target_ids(target, target_ids.clone())?;
             }
             composed_widget_index += 1;
         }
         let mut resolved_mark_states =
             resolve_mark_states(&flat_marks.marks, tool_context.repeat_context())?;
         lower_group_views(&flat_marks, &mut resolved_mark_states)?;
+        resolve_inline_view_identities(
+            &mut flat_marks,
+            &mut resolved_mark_states,
+            &mut identity_allocator,
+        )?;
         let resolved_mark_states = resolved_mark_states;
         let coord_system = coord_system.resolve_from_mark_states(&resolved_mark_states)?;
         coord_system.validate()?;
@@ -1150,6 +1506,7 @@ impl<C: CoordinateSystem> Plot<C> {
         // runtime so faceted marks aggregate after mark-level data scope has been
         // resolved.
         let mut compiled_marks: Vec<Arc<dyn CompiledMark>> = Vec::new();
+        let mut regular_mark_ids = Vec::with_capacity(flat_marks.marks.len());
         for (mark_index, (m, mark_state)) in flat_marks
             .marks
             .iter()
@@ -1169,14 +1526,32 @@ impl<C: CoordinateSystem> Plot<C> {
                     .or_else(|| self.data.clone())
             };
 
+            let tool_metadata = mark_index
+                .checked_sub(user_flat_mark_count)
+                .and_then(|index| tool_mark_metadata.get(index));
+            let runtime_id = tool_metadata
+                .map(|(runtime_id, _)| runtime_id.clone())
+                .unwrap_or_else(|| identity_allocator.allocate_mark());
             let compiled_state = CompiledMarkState::from_mark_state(mark_state, df_opt)
                 .with_mark_index(mark_index)
-                .with_public_target_path(flat_marks.public_target_paths[mark_index].clone());
+                .with_identity(CompiledMarkIdentity {
+                    runtime_id: runtime_id.clone(),
+                    source_name: mark_state.id.clone(),
+                    public_aliases: flat_marks.public_target_aliases[mark_index].clone(),
+                    private_ancestry: flat_marks.private_ancestries[mark_index].clone(),
+                    component: tool_metadata
+                        .map(|(_, component)| component.clone())
+                        .or_else(|| flat_marks.component_provenance[mark_index].clone()),
+                });
             let compiled_mark = m
                 .compile_with_context(compiled_state, session_context, Some(erased_tool_context))
                 .await?;
+            regular_mark_ids.push(runtime_id);
             compiled_marks.push(compiled_mark);
         }
+        flat_marks
+            .mark_target_registry
+            .bind_regular_mark_ids(&regular_mark_ids)?;
         let mark_groups = compile_mark_group_states(&flat_marks.group_states);
         crate::plot::channel::extract_channel_configs_from_compiled_domain_channels(
             &compiled_marks,
@@ -1266,17 +1641,12 @@ impl<C: CoordinateSystem> Plot<C> {
         if is_root {
             event_bindings.extend(legend_event_bindings);
         }
-        let mut cursor_params = root_cursor_params;
         let mut tool_metadata = Vec::new();
+        let mut tool_behaviors = Vec::new();
         if is_root {
             let artifacts = tool_context.finalize_root()?;
             param_source_specs.extend(artifacts.param_specs);
             param_source_specs.extend(artifacts.native_widget_param_specs);
-            for cursor_param in artifacts.cursor_params {
-                if !cursor_params.contains(&cursor_param) {
-                    cursor_params.push(cursor_param);
-                }
-            }
             store_source_specs.extend(artifacts.store_specs);
             for spec in artifacts.selection_specs {
                 if selection_specs.contains_key(&spec.id) {
@@ -1285,13 +1655,32 @@ impl<C: CoordinateSystem> Plot<C> {
                         spec.id
                     )));
                 }
+                let mut spec = spec;
+                if spec.runtime_id.is_unresolved() {
+                    spec.runtime_id = identity_allocator.allocate_selection();
+                }
                 selection_specs.insert(spec.id.clone(), spec);
             }
             event_bindings.extend(artifacts.event_bindings);
             param_change_bindings.extend(artifacts.param_change_bindings);
             tool_metadata.extend(artifacts.metadata);
+            tool_behaviors.extend(artifacts.behaviors);
             for (target, paths) in artifacts.child_widget_target_paths {
-                flat_marks.mark_target_registry.insert(target, paths)?;
+                let ids = artifacts
+                    .child_widget_target_ids
+                    .get(&target)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AvengerChartError::InternalError(format!(
+                            "child widget target '{target}' lacks compiled mark identities"
+                        ))
+                    })?;
+                flat_marks
+                    .mark_target_registry
+                    .insert(target.clone(), paths)?;
+                flat_marks
+                    .mark_target_registry
+                    .bind_target_ids(&target, ids)?;
             }
         }
 
@@ -1331,7 +1720,11 @@ impl<C: CoordinateSystem> Plot<C> {
                     spec.name
                 )));
             }
-            param_specs.insert(spec.name.clone(), spec.clone());
+            let mut spec = spec.clone();
+            if spec.runtime_id.is_unresolved() {
+                spec.runtime_id = identity_allocator.allocate_param();
+            }
+            param_specs.insert(spec.name.clone(), spec);
         }
 
         // Derive the flat default-param map for existing callers from the specs.
@@ -1341,15 +1734,30 @@ impl<C: CoordinateSystem> Plot<C> {
             .collect();
 
         let mut store_specs = IndexMap::new();
-        for spec in store_source_specs {
+        for mut spec in store_source_specs {
             if store_specs.contains_key(&spec.name) {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Duplicate plot store '{}'",
                     spec.name
                 )));
             }
+            if spec.runtime_id.is_unresolved() {
+                spec.runtime_id = identity_allocator.allocate_store();
+            }
             store_specs.insert(spec.name.clone(), spec);
         }
+
+        event_bindings = event_bindings
+            .into_iter()
+            .map(|binding| {
+                resolve_event_binding_state_targets(
+                    binding,
+                    &param_specs,
+                    &store_specs,
+                    &selection_specs,
+                )
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
 
         validate_param_change_binding_registry(
             &param_change_bindings,
@@ -1362,6 +1770,39 @@ impl<C: CoordinateSystem> Plot<C> {
             &param_specs,
             session_context,
         )?;
+        param_change_bindings = param_change_bindings
+            .into_iter()
+            .map(|binding| {
+                resolve_param_change_binding_state_targets(
+                    binding,
+                    &param_specs,
+                    &store_specs,
+                    &selection_specs,
+                )
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+
+        let param_specs = avenger_chart_core::CompiledStateRegistry::try_from_specs(
+            param_specs.into_values(),
+            |spec| &spec.runtime_id,
+            |spec| spec.name.as_str(),
+        )
+        .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
+        let store_specs = avenger_chart_core::CompiledStateRegistry::try_from_specs(
+            store_specs.into_values(),
+            |spec| &spec.runtime_id,
+            |spec| spec.name.as_str(),
+        )
+        .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
+        let selection_specs = avenger_chart_core::CompiledStateRegistry::try_from_specs(
+            selection_specs.into_values(),
+            |spec| &spec.runtime_id,
+            |spec| spec.id.as_str(),
+        )
+        .map_err(|err| AvengerChartError::InvalidArgument(err.to_string()))?;
+        let mark_runtime_paths = flat_marks
+            .mark_target_registry
+            .runtime_index(&regular_mark_ids)?;
 
         // 5. Build CompiledPlot (we do not store a persistent ScaleBuilder; it is
         // rebuilt per evaluation using current params for correctness.)
@@ -1371,6 +1812,7 @@ impl<C: CoordinateSystem> Plot<C> {
             marks: compiled_marks,
             mark_groups,
             mark_group_index_by_mark: flat_marks.mark_group_indices,
+            mark_runtime_paths,
             axis_specs,
             legends,
             legend_colorbar_overlays,
@@ -1392,8 +1834,8 @@ impl<C: CoordinateSystem> Plot<C> {
             event_datum_fields: Vec::new(),
             event_coord_fields: Vec::new(),
             selection_specs,
-            cursor_params,
             tool_metadata,
+            tool_behaviors,
             widgets: compiled_widgets,
             baked_tables: Vec::new(),
             bake_report: None,
@@ -1714,11 +2156,19 @@ struct AuthoringMarkGroupState {
     view: Option<avenger_chart_core::ViewScopeState>,
 }
 
+#[derive(Clone)]
+struct AuthoringComponentContext {
+    kind: String,
+    id: Option<String>,
+}
+
 struct FlattenedPlotMarks<C: CoordinateSystem> {
     marks: Vec<Arc<dyn Mark<C>>>,
     group_states: Vec<AuthoringMarkGroupState>,
     mark_group_indices: Vec<Option<usize>>,
-    public_target_paths: Vec<Option<String>>,
+    public_target_aliases: Vec<Vec<String>>,
+    private_ancestries: Vec<Vec<usize>>,
+    component_provenance: Vec<Option<avenger_chart_core::CompiledComponentProvenance>>,
     /// Root marks and children of idless groups share this unqualified id
     /// namespace even when the child id is not exposed as a public target.
     unqualified_mark_ids: HashSet<String>,
@@ -1740,6 +2190,7 @@ impl<C: CoordinateSystem> FlattenedPlotMarks<C> {
 #[derive(Clone, Debug, Default)]
 struct MarkTargetRegistry {
     paths: HashMap<String, Vec<Vec<usize>>>,
+    ids: HashMap<String, Vec<avenger_chart_core::MarkId>>,
 }
 
 impl MarkTargetRegistry {
@@ -1760,10 +2211,100 @@ impl MarkTargetRegistry {
         Ok(())
     }
 
-    fn resolve(&self, target: &str) -> Result<Vec<Vec<usize>>, AvengerChartError> {
-        self.paths.get(target).cloned().ok_or_else(|| {
+    fn bind_target_ids(
+        &mut self,
+        target: &str,
+        mut ids: Vec<avenger_chart_core::MarkId>,
+    ) -> Result<(), AvengerChartError> {
+        if !self.paths.contains_key(target) {
+            return Err(AvengerChartError::InternalError(format!(
+                "cannot bind identities for unknown mark target '{target}'"
+            )));
+        }
+        ids.sort();
+        ids.dedup();
+        if ids.is_empty() {
+            return Err(AvengerChartError::InternalError(format!(
+                "mark target '{target}' resolved to no compiled identities"
+            )));
+        }
+        self.ids.insert(target.to_string(), ids);
+        Ok(())
+    }
+
+    fn bind_regular_mark_ids(
+        &mut self,
+        regular_mark_ids: &[avenger_chart_core::MarkId],
+    ) -> Result<(), AvengerChartError> {
+        let bindings = self
+            .paths
+            .iter()
+            .filter(|(target, _)| !self.ids.contains_key(*target))
+            .filter_map(|(target, paths)| {
+                let ids = paths
+                    .iter()
+                    .map(|path| match path.as_slice() {
+                        [mark_index] => regular_mark_ids.get(*mark_index).cloned(),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some((target.clone(), ids))
+            })
+            .collect::<Vec<_>>();
+        for (target, ids) in bindings {
+            self.bind_target_ids(&target, ids)?;
+        }
+        Ok(())
+    }
+
+    fn resolve_ids(
+        &self,
+        target: &str,
+    ) -> Result<Vec<avenger_chart_core::MarkId>, AvengerChartError> {
+        self.ids.get(target).cloned().ok_or_else(|| {
             AvengerChartError::InvalidArgument(format!("Unknown mark target '{target}'"))
         })
+    }
+
+    fn runtime_index(
+        &self,
+        regular_mark_ids: &[avenger_chart_core::MarkId],
+    ) -> Result<
+        std::collections::BTreeMap<avenger_chart_core::MarkId, Vec<Vec<usize>>>,
+        AvengerChartError,
+    > {
+        let mut index = std::collections::BTreeMap::new();
+        for (mark_index, id) in regular_mark_ids.iter().enumerate() {
+            index
+                .entry(id.clone())
+                .or_insert_with(Vec::new)
+                .push(vec![mark_index]);
+        }
+        for (target, ids) in &self.ids {
+            let paths = self.paths.get(target).ok_or_else(|| {
+                AvengerChartError::InternalError(format!(
+                    "compiled mark target '{target}' lacks runtime paths"
+                ))
+            })?;
+            if ids.len() != paths.len() {
+                return Err(AvengerChartError::InternalError(format!(
+                    "compiled mark target '{target}' has {} identities but {} runtime paths",
+                    ids.len(),
+                    paths.len()
+                )));
+            }
+            for (id, path) in ids.iter().zip(paths) {
+                index
+                    .entry(id.clone())
+                    .or_insert_with(Vec::new)
+                    .push(path.clone());
+            }
+        }
+        for paths in index.values_mut() {
+            paths.sort();
+            paths.dedup();
+        }
+        Ok(index)
     }
 }
 
@@ -1783,11 +2324,13 @@ fn flatten_plot_marks<C: CoordinateSystem>(
         marks: Vec::new(),
         group_states: Vec::new(),
         mark_group_indices: Vec::new(),
-        public_target_paths: Vec::new(),
+        public_target_aliases: Vec::new(),
+        private_ancestries: Vec::new(),
+        component_provenance: Vec::new(),
         unqualified_mark_ids: HashSet::new(),
         mark_target_registry: MarkTargetRegistry::default(),
     };
-    flatten_plot_mark_elements(elements, None, &[], repeat_context, &mut flat)?;
+    flatten_plot_mark_elements(elements, None, &[], &[], None, repeat_context, &mut flat)?;
     Ok(flat)
 }
 
@@ -1795,6 +2338,8 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
     elements: &[PlotMark<C>],
     parent_group_index: Option<usize>,
     public_path_prefix: &[String],
+    private_ancestry: &[usize],
+    component: Option<&AuthoringComponentContext>,
     repeat_context: &RepeatContext,
     flat: &mut FlattenedPlotMarks<C>,
 ) -> Result<Vec<usize>, AvengerChartError> {
@@ -1805,6 +2350,9 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                 return Err(AvengerChartError::InvalidArgument(message.clone()));
             }
             PlotMarkKind::Primitive(mark) => {
+                for alias in &mark.state().public_aliases {
+                    validate_mark_target_path("mark alias", alias)?;
+                }
                 if let Some(id) = mark.state().id.as_deref() {
                     validate_structural_id("mark", id)?;
                     if public_path_prefix.is_empty() {
@@ -1826,18 +2374,34 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                         ));
                     }
                 }
+                if component.is_some() && mark.state().id.is_none() {
+                    return Err(AvengerChartError::InvalidArgument(
+                        "Primitive marks in a component group must declare stable part ids"
+                            .to_string(),
+                    ));
+                }
                 let mark_index = flat.marks.len();
-                let public_target_path = mark_public_target_path(
+                let public_target_aliases = mark_public_target_aliases(
                     mark.state().id.as_deref(),
+                    &mark.state().public_aliases,
                     parent_group_index,
                     public_path_prefix,
                 );
                 flat.marks.push(mark.clone());
                 flat.mark_group_indices.push(parent_group_index);
-                flat.public_target_paths.push(public_target_path.clone());
-                if let Some(public_target_path) = public_target_path {
+                flat.public_target_aliases
+                    .push(public_target_aliases.clone());
+                flat.private_ancestries.push(private_ancestry.to_vec());
+                flat.component_provenance.push(component.map(|component| {
+                    avenger_chart_core::CompiledComponentProvenance {
+                        component_kind: component.kind.clone(),
+                        component_id: component.id.clone(),
+                        part_alias: mark.state().id.clone().expect("component part validated"),
+                    }
+                }));
+                for public_target_alias in public_target_aliases {
                     flat.mark_target_registry
-                        .insert(public_target_path, vec![vec![mark_index]])?;
+                        .insert(public_target_alias, vec![vec![mark_index]])?;
                 }
                 descendant_mark_indices.push(mark_index);
             }
@@ -1863,10 +2427,21 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                         .map(|view| view.resolve_repeat(repeat_context))
                         .transpose()?,
                 });
+                let mut child_private_ancestry = private_ancestry.to_vec();
+                child_private_ancestry.push(group_index);
+                let nested_component =
+                    group
+                        .component_kind_ref()
+                        .map(|kind| AuthoringComponentContext {
+                            kind: kind.to_string(),
+                            id: group.id_ref().map(ToString::to_string),
+                        });
                 let group_descendants = flatten_plot_mark_elements(
                     group.children(),
                     Some(group_index),
                     &group_public_path_prefix,
+                    &child_private_ancestry,
+                    nested_component.as_ref().or(component),
                     repeat_context,
                     flat,
                 )?;
@@ -1893,38 +2468,50 @@ fn group_public_path_prefix(parent: &[String], group_id: Option<&str>) -> Vec<St
     prefix
 }
 
-fn mark_public_target_path(
+fn mark_public_target_aliases(
     mark_id: Option<&str>,
+    explicit_aliases: &[String],
     parent_group_index: Option<usize>,
     public_path_prefix: &[String],
-) -> Option<String> {
-    let mark_id = mark_id?;
-    if public_path_prefix.is_empty() {
-        parent_group_index.is_none().then(|| mark_id.to_string())
-    } else {
-        let mut segments = public_path_prefix.to_vec();
-        segments.push(mark_id.to_string());
-        Some(segments.join("."))
+) -> Vec<String> {
+    let mut aliases = Vec::new();
+    if let Some(mark_id) = mark_id {
+        if public_path_prefix.is_empty() {
+            if parent_group_index.is_none() {
+                aliases.push(mark_id.to_string());
+            }
+        } else {
+            let mut segments = public_path_prefix.to_vec();
+            segments.push(mark_id.to_string());
+            aliases.push(segments.join("."));
+        }
     }
+    for explicit in explicit_aliases {
+        let mut segments = public_path_prefix.to_vec();
+        segments.extend(explicit.split('.').map(ToString::to_string));
+        aliases.push(segments.join("."));
+    }
+    aliases.sort();
+    aliases.dedup();
+    aliases
 }
 
 fn resolve_event_binding_mark_targets(
     mut binding: ChartEventBinding,
     registry: &MarkTargetRegistry,
 ) -> Result<ChartEventBinding, AvengerChartError> {
-    let paths = resolve_mark_target_paths(binding.mark_ids(), registry)?;
-    if !paths.is_empty() {
-        binding = binding.with_resolved_mark_paths(paths);
+    let ids = resolve_mark_target_ids(binding.mark_ids(), registry)?;
+    if !ids.is_empty() {
+        binding = binding.with_resolved_mark_ids(ids);
     }
     if let Some(mut between) = binding.between.take() {
         between.start = resolve_event_stream_mark_targets(between.start, registry)?;
         between.end = resolve_event_stream_mark_targets(between.end, registry)?;
         binding.between = Some(between);
     }
-    for assignment in &mut binding.action.selection_assignments {
-        assignment.update =
-            resolve_selection_update_scene_query_mark_targets(assignment.update.clone(), registry)?;
-    }
+    binding.action = binding.action.try_map_selection_updates(|update| {
+        resolve_selection_update_scene_query_mark_targets(update, registry)
+    })?;
     Ok(binding)
 }
 
@@ -1932,11 +2519,11 @@ fn resolve_event_stream_mark_targets(
     stream: ChartEventStream,
     registry: &MarkTargetRegistry,
 ) -> Result<ChartEventStream, AvengerChartError> {
-    let paths = resolve_mark_target_paths(stream.mark_ids(), registry)?;
-    Ok(if paths.is_empty() {
+    let ids = resolve_mark_target_ids(stream.mark_ids(), registry)?;
+    Ok(if ids.is_empty() {
         stream
     } else {
-        stream.with_resolved_mark_paths(paths)
+        stream.with_resolved_mark_ids(ids)
     })
 }
 
@@ -1977,25 +2564,25 @@ fn resolve_scene_geometry_target_mark_targets(
     target: SceneGeometryTarget,
     registry: &MarkTargetRegistry,
 ) -> Result<SceneGeometryTarget, AvengerChartError> {
-    let paths = resolve_mark_target_paths(target.mark_ids(), registry)?;
-    Ok(if paths.is_empty() {
+    let ids = resolve_mark_target_ids(target.mark_ids(), registry)?;
+    Ok(if ids.is_empty() {
         target
     } else {
-        target.with_resolved_mark_paths(paths)
+        target.with_resolved_mark_ids(ids)
     })
 }
 
-fn resolve_mark_target_paths(
+fn resolve_mark_target_ids(
     targets: &[String],
     registry: &MarkTargetRegistry,
-) -> Result<Vec<Vec<usize>>, AvengerChartError> {
-    let mut paths = Vec::new();
+) -> Result<Vec<avenger_chart_core::MarkId>, AvengerChartError> {
+    let mut ids = Vec::new();
     for target in targets {
-        paths.extend(registry.resolve(target)?);
+        ids.extend(registry.resolve_ids(target)?);
     }
-    paths.sort();
-    paths.dedup();
-    Ok(paths)
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
 }
 
 /// Lower group view scopes onto child marks.
@@ -2013,13 +2600,13 @@ fn lower_group_views<C: CoordinateSystem>(
     flat: &FlattenedPlotMarks<C>,
     mark_states: &mut [MarkState],
 ) -> Result<(), AvengerChartError> {
-    // Validate that view ids are unique across the plot (group scopes plus
+    // Validate that view source names are unique across the plot (group scopes plus
     // mark-level scopes), and that viewed groups do not nest.
-    let mut seen_view_ids: HashSet<String> = HashSet::new();
-    let mut register_view_id = |id: &str| -> Result<(), AvengerChartError> {
-        if !seen_view_ids.insert(id.to_string()) {
+    let mut seen_view_names: HashSet<String> = HashSet::new();
+    let mut register_view_name = |name: &str| -> Result<(), AvengerChartError> {
+        if !seen_view_names.insert(name.to_string()) {
             return Err(AvengerChartError::InvalidArgument(format!(
-                "Duplicate view id '{id}': view scopes must be unique within a plot"
+                "Duplicate inline view name '{name}': view scopes must be unique within a plot"
             )));
         }
         Ok(())
@@ -2028,15 +2615,15 @@ fn lower_group_views<C: CoordinateSystem>(
         let Some(view) = group.view.as_ref() else {
             continue;
         };
-        register_view_id(view.spec.id())?;
+        register_view_name(view.spec.source_name())?;
         let mut ancestor = group.parent_group_index;
         while let Some(index) = ancestor {
             let parent = &flat.group_states[index];
             if let Some(parent_view) = parent.view.as_ref() {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Group view scope '{}' is nested inside group view scope '{}'; nested view scopes are not supported",
-                    view.spec.id(),
-                    parent_view.spec.id()
+                    view.spec.source_name(),
+                    parent_view.spec.source_name()
                 )));
             }
             ancestor = parent.parent_group_index;
@@ -2044,7 +2631,7 @@ fn lower_group_views<C: CoordinateSystem>(
     }
     for state in mark_states.iter() {
         if let Some(view) = state.view.as_ref() {
-            register_view_id(view.spec.id())?;
+            register_view_name(view.spec.source_name())?;
         }
     }
 
@@ -2065,8 +2652,8 @@ fn lower_group_views<C: CoordinateSystem>(
         if let Some(mark_view) = state.view.as_ref() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Mark view scope '{}' is nested inside group view scope '{}'; nested view scopes are not supported",
-                mark_view.spec.id(),
-                group_view.spec.id()
+                mark_view.spec.source_name(),
+                group_view.spec.source_name()
             )));
         }
         let view_data = std::mem::take(&mut state.data);
@@ -2074,6 +2661,65 @@ fn lower_group_views<C: CoordinateSystem>(
             group_view.spec.clone(),
             view_data,
         ));
+    }
+
+    for group in &flat.group_states {
+        avenger_chart_core::validate_inline_view_references(&group.data, None, "group base data")?;
+        if let Some(view) = &group.view {
+            avenger_chart_core::validate_inline_view_references(
+                &view.data,
+                Some(view.spec.source_name()),
+                "group view-local data",
+            )?;
+        }
+    }
+    for state in mark_states {
+        avenger_chart_core::validate_inline_view_references(&state.data, None, "mark base data")?;
+        if let Some(view) = &state.view {
+            avenger_chart_core::validate_inline_view_references(
+                &view.data,
+                Some(view.spec.source_name()),
+                "mark view-local data",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Assign one opaque identity to every unique inline view declaration after
+/// group views have been lowered onto their descendant mark states.
+fn resolve_inline_view_identities<C: CoordinateSystem>(
+    flat: &mut FlattenedPlotMarks<C>,
+    mark_states: &mut [MarkState],
+    allocator: &mut CompiledIdentityAllocator,
+) -> Result<(), AvengerChartError> {
+    let mut ids_by_source_name = HashMap::new();
+    for group in &mut flat.group_states {
+        let Some(view) = group.view.as_mut() else {
+            continue;
+        };
+        let source_name = view.spec.source_name().to_string();
+        let runtime_id = ids_by_source_name
+            .entry(source_name)
+            .or_insert_with(|| allocator.allocate_view())
+            .clone();
+        view.spec.set_runtime_id(runtime_id);
+    }
+    for state in mark_states {
+        let Some(view) = state.view.as_mut() else {
+            continue;
+        };
+        let source_name = view.spec.source_name().to_string();
+        let runtime_id = ids_by_source_name
+            .entry(source_name)
+            .or_insert_with(|| allocator.allocate_view())
+            .clone();
+        view.spec.set_runtime_id(runtime_id);
+        if view.spec.runtime_id().is_unresolved() {
+            return Err(AvengerChartError::InternalError(
+                "inline view identity remained unresolved after plot compilation".to_string(),
+            ));
+        }
     }
     Ok(())
 }
@@ -2572,8 +3218,8 @@ mod tests {
         ScaleInferenceHint, ScaleTypePreference, SceneGeometryQuery, SceneQueryDatumField,
         Selection, SelectionClause, SelectionClauseUpdate, SelectionEqualityDimensionValue,
         SelectionPredicateSpec, SelectionPredicateUpdate, SelectionSceneQuery, SelectionUpdate,
-        StoreRow, StoreUpdate, SubplotDataSource, collect_repeat_placeholder_kinds, repeat,
-        simplify_to_scalar_sync,
+        Store, StoreRow, StoreUpdate, SubplotDataSource, collect_placeholder_ids,
+        collect_repeat_placeholder_kinds, repeat, simplify_to_scalar_sync, store_placeholder_expr,
     };
     use avenger_chart_marks::{Rect, Subplot, Symbol};
     use avenger_chart_parallel::{
@@ -2591,6 +3237,7 @@ mod tests {
         line::SceneLineMark,
         mark::{MarkInstance, SceneMark},
     };
+
     use datafusion::{
         arrow::{
             array::Float64Array,
@@ -2607,6 +3254,36 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
     use tokio::sync::Mutex;
+
+    #[test]
+    fn event_state_relation_placeholders_normalize_to_opaque_ids() {
+        let mut allocator = CompiledIdentityAllocator::new("placeholder-test");
+        let mut store = Store::empty("rows").compile().unwrap();
+        store.runtime_id = allocator.allocate_store();
+        let mut selection = Selection::new("picked").compile().unwrap();
+        selection.runtime_id = allocator.allocate_selection();
+        let stores = IndexMap::from([("rows".to_string(), store.clone())]);
+        let selections = IndexMap::from([("picked".to_string(), selection.clone())]);
+
+        let expr = store_placeholder_expr("rows")
+            .is_not_null()
+            .and(Selection::new("picked").predicate());
+        let resolved = resolve_state_relation_placeholders(expr, &stores, &selections).unwrap();
+        let placeholders = collect_placeholder_ids(&resolved).unwrap();
+
+        assert!(
+            placeholders
+                .iter()
+                .any(|id| id.contains(store.runtime_id.as_opaque_str()))
+        );
+        assert!(
+            placeholders
+                .iter()
+                .any(|id| id.contains(selection.runtime_id.as_opaque_str()))
+        );
+        assert!(placeholders.iter().all(|id| !id.ends_with("rows")));
+        assert!(placeholders.iter().all(|id| !id.ends_with("picked")));
+    }
 
     fn resolved_repeat(id: &str) -> ResolvedRepeatVariable {
         ResolvedRepeatVariable {
@@ -2860,16 +3537,16 @@ mod tests {
         let public_paths = compiled
             .marks
             .iter()
-            .map(|mark| mark.state().public_target_path.clone())
+            .map(|mark| mark.state().identity.public_aliases.clone())
             .collect::<Vec<_>>();
         assert_eq!(
             public_paths,
             vec![
-                Some("a".to_string()),
-                Some("summary.b".to_string()),
-                Some("summary.c".to_string()),
-                Some("compound_symbol".to_string()),
-                Some("compound_rect".to_string()),
+                vec!["a".to_string()],
+                vec!["summary.b".to_string()],
+                vec!["summary.c".to_string()],
+                vec!["compound_symbol".to_string()],
+                vec!["compound_rect".to_string()],
             ]
         );
     }
@@ -2894,8 +3571,81 @@ mod tests {
         assert_eq!(compiled.mark_groups[1].parent_group_index, Some(0));
         assert_eq!(compiled.mark_group_index_by_mark, vec![Some(1)]);
         assert_eq!(
-            compiled.marks[0].state().public_target_path.as_deref(),
-            Some("outer.inner.leaf")
+            compiled.marks[0].state().identity.public_aliases,
+            vec!["outer.inner.leaf"]
+        );
+    }
+
+    #[tokio::test]
+    async fn compiled_mark_identity_separates_aliases_private_structure_and_component_parts() {
+        let ctx = SessionContext::new();
+        let compiled = crate::plot::Chart::<Cartesian>::new()
+            .mark(
+                Symbol::new()
+                    .id("points")
+                    .alias("primary")
+                    .alias("secondary")
+                    .x(lit(1.0))
+                    .y(lit(1.0)),
+            )
+            .mark(MarkGroup::new().mark(Symbol::new().id("private_leaf").x(lit(2.0)).y(lit(2.0))))
+            .mark(
+                MarkGroup::new()
+                    .id("summary")
+                    .component_kind("box-plot")
+                    .mark(Rect::new().id("box").x(lit(3.0)).y(lit(3.0))),
+            )
+            .compile(&ctx)
+            .await
+            .expect("compile identity fixture");
+
+        let exported = &compiled.marks[0].state().identity;
+        assert!(!exported.runtime_id.is_unresolved());
+        assert_eq!(
+            exported.public_aliases,
+            vec!["points", "primary", "secondary"]
+        );
+
+        let private = &compiled.marks[1].state().identity;
+        assert!(private.public_aliases.is_empty());
+        assert_eq!(private.private_ancestry, vec![0]);
+
+        let component = compiled.marks[2]
+            .state()
+            .identity
+            .component
+            .as_ref()
+            .expect("component provenance");
+        assert_eq!(component.component_kind, "box-plot");
+        assert_eq!(component.component_id.as_deref(), Some("summary"));
+        assert_eq!(component.part_alias, "box");
+
+        let restored: CompiledPlot = bincode::deserialize(
+            &bincode::serialize(&compiled).expect("serialize identity fixture"),
+        )
+        .expect("deserialize identity fixture");
+        assert_eq!(
+            restored.marks[0].state().identity,
+            compiled.marks[0].state().identity
+        );
+        assert_eq!(
+            restored
+                .runtime_paths_for_mark_ids(&[restored.marks[0]
+                    .state()
+                    .identity
+                    .runtime_id
+                    .clone()])
+                .unwrap(),
+            vec![vec![0]]
+        );
+
+        let (baked, _) = compiled
+            .bake(&ctx, &crate::bake::BakePolicy::default())
+            .await
+            .expect("bake identity fixture");
+        assert_eq!(
+            baked.marks[2].state().identity,
+            compiled.marks[2].state().identity
         );
     }
 
@@ -2920,12 +3670,12 @@ mod tests {
         let binding = compiled.event_bindings().first().expect("event binding");
         let between = binding.between.as_ref().expect("between binding");
         assert_eq!(
-            between.start.resolved_mark_paths(),
-            Some(&[vec![1usize]][..])
+            between.start.resolved_mark_ids(),
+            &[compiled.marks[1].state().identity.runtime_id.clone()]
         );
         assert_eq!(
-            compiled.marks[1].state().public_target_path.as_deref(),
-            Some("manual_box_plot.outliers")
+            compiled.marks[1].state().identity.public_aliases,
+            vec!["manual_box_plot.outliers"]
         );
     }
 
@@ -2945,8 +3695,10 @@ mod tests {
         let binding = compiled.event_bindings().first().expect("event binding");
         let between = binding.between.as_ref().expect("between binding");
         assert_eq!(
-            between.start.resolved_mark_paths(),
-            Some(&[vec![0usize]][..])
+            compiled
+                .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+                .unwrap(),
+            vec![vec![0usize]]
         );
     }
 
@@ -2971,8 +3723,10 @@ mod tests {
         let binding = compiled.event_bindings().first().expect("event binding");
         let between = binding.between.as_ref().expect("between binding");
         assert_eq!(
-            between.start.resolved_mark_paths(),
-            Some(&[vec![0usize], vec![1usize]][..])
+            compiled
+                .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+                .unwrap(),
+            vec![vec![0usize], vec![1usize]]
         );
     }
 
@@ -3019,18 +3773,20 @@ mod tests {
         let binding = compiled.event_bindings().first().expect("event binding");
         let between = binding.between.as_ref().expect("between binding");
         assert_eq!(
-            between.start.resolved_mark_paths(),
-            Some(&[vec![0usize], vec![1usize]][..])
+            compiled
+                .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+                .unwrap(),
+            vec![vec![0usize], vec![1usize]]
         );
         assert_eq!(
             compiled
                 .marks
                 .iter()
-                .map(|mark| mark.state().public_target_path.clone())
+                .map(|mark| mark.state().identity.public_aliases.clone())
                 .collect::<Vec<_>>(),
             vec![
-                Some("a.outliers".to_string()),
-                Some("b.outliers".to_string())
+                vec!["a.outliers".to_string()],
+                vec!["b.outliers".to_string()]
             ]
         );
     }
@@ -3084,13 +3840,13 @@ mod tests {
 
         let binding = compiled.event_bindings().first().expect("event binding");
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-            &binding.action.selection_assignments[0].update
+            &binding.action.selection_steps().next().unwrap().update
         else {
             panic!("expected scene query update");
         };
         assert_eq!(
-            query.query.target.resolved_mark_paths(),
-            Some(&[vec![1usize]][..])
+            query.query.target.resolved_mark_ids(),
+            &[compiled.marks[1].state().identity.runtime_id.clone()]
         );
     }
 
@@ -3215,8 +3971,8 @@ mod tests {
             vec![ScaleInferenceHint::new("x", ScaleTypePreference::Point)]
         );
         assert_eq!(
-            compiled.marks[0].state().public_target_path.as_deref(),
-            Some("transparent.leaf")
+            compiled.marks[0].state().identity.public_aliases,
+            vec!["transparent.leaf"]
         );
 
         let data = xy_dataframe(&ctx).await;
@@ -3883,7 +4639,16 @@ mod tests {
     async fn repeat_grid_pan_scroll_zoom_expands_across_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<RepeatGrid>::new()
-            .param(Param::new("explicit_root", true))
+            .param({
+                let __avenger_param_name = "explicit_root";
+                let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -3934,13 +4699,11 @@ mod tests {
         assert!(drag_bindings.iter().any(|binding| {
             binding
                 .action
-                .assignments
-                .iter()
+                .param_steps()
                 .any(|assignment| assignment.param_name == "__tool_pan_scroll_zoom__domain__a")
                 && binding
                     .action
-                    .assignments
-                    .iter()
+                    .param_steps()
                     .any(|assignment| assignment.param_name == "__tool_pan_scroll_zoom__domain__b")
         }));
 
@@ -3968,7 +4731,16 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<Cartesian>::new()
-            .param(Param::new("explicit_root", true))
+            .param({
+                let __avenger_param_name = "explicit_root";
+                let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .mark(Symbol::new().x(lit(1.0)).y(lit(2.0)).size(64.0))
             .tool(PanScrollZoom::cartesian())
             .compile(&ctx)
@@ -5013,6 +5785,15 @@ mod tests {
                 ),
             );
         let compiled = crate::plot::Chart::<RepeatGrid>::new()
+            .store(
+                Store::empty("brush_boxes")
+                    .field("cell_id", DataType::Utf8, false)
+                    .field("row_id", DataType::Utf8, false)
+                    .field("column_id", DataType::Utf8, false)
+                    .primary_key(["cell_id"]),
+            )
+            .selection(Selection::new("brush"))
+            .selection(Selection::new("field_pick"))
             .data(ctx.read_batch(batch)?)
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a"]))
@@ -5035,7 +5816,8 @@ mod tests {
             ScalarValue::Boolean(Some(true))
         );
 
-        let StoreUpdate::UpsertRows { rows } = &binding.action.store_assignments[0].update else {
+        let StoreUpdate::UpsertRows { rows } = &binding.action.store_steps().next().unwrap().update
+        else {
             panic!("expected store upsert");
         };
         let cell_id = rows[0]
@@ -5067,7 +5849,7 @@ mod tests {
         );
 
         let SelectionUpdate::UpsertClauses { clauses } =
-            &binding.action.selection_assignments[0].update
+            &binding.action.selection_steps().next().unwrap().update
         else {
             panic!("expected selection upsert");
         };
@@ -5083,7 +5865,7 @@ mod tests {
         assert_eq!(dimensions[1].field_expr.to_expr(&ctx)?.to_string(), "a");
 
         let SelectionUpdate::ReplaceAllClauses { clauses } =
-            &binding.action.selection_assignments[1].update
+            &binding.action.selection_steps().nth(1).unwrap().update
         else {
             panic!("expected selection replacement");
         };
@@ -5115,8 +5897,26 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_compiles_and_round_trips_with_typed_value() {
         let ctx = SessionContext::new();
-        let source = Param::new("source", 1_i64);
-        let mirror = Param::new("mirror", 0_i64);
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let mirror = {
+            let __avenger_param_name = "mirror";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let binding = ChartParamChangeBinding::on(&source)
             .filter(param_change::previous_value().not_eq(param_change::value()))
             .set_param(&mirror, param_change::value())
@@ -5128,22 +5928,51 @@ mod tests {
             .compile(&ctx)
             .await
             .expect("compile reaction");
+        let compiled_binding = compiled
+            .param_change_bindings()
+            .first()
+            .expect("compiled reaction");
         assert_eq!(
-            compiled.param_change_bindings(),
-            std::slice::from_ref(&binding)
+            compiled_binding.source_param_name,
+            binding.source_param_name
         );
+        assert_eq!(compiled_binding.filters, binding.filters);
+        assert_eq!(compiled_binding.action, binding.action);
+        assert!(compiled_binding.resolved_source().is_some());
+        assert_eq!(compiled_binding.resolved_actions().len(), 1);
 
         let bytes = bincode::serialize(&compiled).expect("serialize compiled reaction");
         let restored: CompiledPlot =
             bincode::deserialize(&bytes).expect("deserialize compiled reaction");
-        assert_eq!(restored.param_change_bindings(), &[binding]);
+        assert_eq!(
+            restored.param_change_bindings(),
+            compiled.param_change_bindings()
+        );
     }
 
     #[tokio::test]
     async fn child_param_change_binding_merges_once_across_structural_copies() {
         let ctx = SessionContext::new();
-        let source = Param::new("source", 1_i64);
-        let mirror = Param::new("mirror", 0_i64);
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let mirror = {
+            let __avenger_param_name = "mirror";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let binding = ChartParamChangeBinding::on(&source)
             .set_param(&mirror, param_change::value())
             .exact();
@@ -5156,14 +5985,43 @@ mod tests {
             .compile(&ctx)
             .await
             .expect("compile child reactions");
-        assert_eq!(compiled.param_change_bindings(), &[binding]);
+        let compiled_binding = compiled
+            .param_change_bindings()
+            .first()
+            .expect("merged compiled reaction");
+        assert_eq!(compiled.param_change_bindings().len(), 1);
+        assert_eq!(
+            compiled_binding.source_param_name,
+            binding.source_param_name
+        );
+        assert_eq!(compiled_binding.action, binding.action);
+        assert!(compiled_binding.resolved_source().is_some());
+        assert_eq!(compiled_binding.resolved_actions().len(), 1);
     }
 
     #[tokio::test]
     async fn param_change_binding_rejects_unknown_and_non_shared_params() {
         let ctx = SessionContext::new();
-        let source = Param::new("source", 1_i64);
-        let mirror = Param::new("mirror", 0_i64);
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let mirror = {
+            let __avenger_param_name = "mirror";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
 
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(mirror.clone())
@@ -5219,9 +6077,36 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_rejects_duplicate_writers_and_unknown_state_targets() {
         let ctx = SessionContext::new();
-        let source_a = Param::new("source_a", 1_i64);
-        let source_b = Param::new("source_b", 2_i64);
-        let mirror = Param::new("mirror", 0_i64);
+        let source_a = {
+            let __avenger_param_name = "source_a";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let source_b = {
+            let __avenger_param_name = "source_b";
+            let __avenger_param_default: datafusion::common::ScalarValue = (2_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let mirror = {
+            let __avenger_param_name = "mirror";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(source_a.clone())
             .param(source_b.clone())
@@ -5270,7 +6155,16 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_rejects_incompatible_and_event_only_expressions() {
         let ctx = SessionContext::new();
-        let source = Param::new("source", true);
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let domain = Param::raw_domain("domain");
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(source.clone())
@@ -5284,7 +6178,16 @@ mod tests {
             .expect("incompatible result type should fail");
         assert!(error.to_string().contains("failed expression validation"));
 
-        let target = Param::new("target", 0.0_f64);
+        let target = {
+            let __avenger_param_name = "target";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0.0_f64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(source.clone())
             .param(target.clone())
@@ -5298,7 +6201,16 @@ mod tests {
             .expect("event-only column should fail");
         assert!(error.to_string().contains("failed expression validation"));
 
-        let number_source = Param::new("number_source", 1_i64);
+        let number_source = {
+            let __avenger_param_name = "number_source";
+            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(number_source.clone())
             .param_change_binding(

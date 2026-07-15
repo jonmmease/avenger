@@ -51,7 +51,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let picked = Selection::new("picked").empty_selects_nothing();
     let selected_predicate = picked.predicate();
-    let cursor = Param::cursor("pick_cursor", CursorStyle::Default);
 
     let background = Rect::new().transform(grouped_count(), |mark, count| {
         mark.id("full_counts")
@@ -81,7 +80,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let cell = Plot::<Cartesian>::new()
         .mark(background)
         .mark(foreground)
-        .event_binding(cursor_binding(&cursor))
+        .event_binding(cursor_binding())
         .event_binding(select_bar_binding())
         .event_binding(clear_selection_binding());
 
@@ -91,8 +90,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .data(ctx.read_batch(source_batch()).expect("read data"))
         .plot_size(380.0, 250.0)
         .selection(picked)
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .configure_coord(|c| {
             c.columns(vec![
                 RepeatVariable::field("team").title("Team"),
@@ -137,13 +134,13 @@ fn configure_grouped_x(x: CartesianPositionConfig) -> CartesianPositionConfig {
         })
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_bar = ev::datum("quarter").is_not_null();
     let cursor_expr = when(over_bar, ev::cursor(CursorStyle::Grab))
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 

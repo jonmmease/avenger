@@ -3,7 +3,7 @@
 mod event_binding;
 
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex as StdMutex},
 };
 
@@ -18,7 +18,8 @@ use avenger_chart::{
         CompiledPlot, EvaluationRequest, NativeWidgetDispatchOutcome, NativeWidgetEvaluationIntent,
         NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetHostServices,
         NativeWidgetHostTransform, NativeWidgetPlotId, NativeWidgetRuntimeResources, PlotSession,
-        PlotSessionOptions, ScopedParamAssignment,
+        PlotSessionOptions, ResolvedScopedParamAssignment, ResolvedScopedStoreAssignment,
+        ResolvedSelectionAssignment, ScopedParamAssignment,
     },
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
@@ -50,8 +51,8 @@ use indexmap::IndexMap;
 use tokio::sync::Mutex;
 
 use crate::event_binding::{
-    CompiledChartParamChangeGraph, event_streams_for_bindings, event_streams_for_plot_bindings,
-    param_change_graph_for_plot,
+    CompiledChartParamChangeGraph, committed_stream_param_provider, event_streams_for_bindings,
+    event_streams_for_plot_bindings_with_param_provider, param_change_graph_for_plot,
 };
 
 #[cfg(feature = "winit-wgpu")]
@@ -938,7 +939,84 @@ impl ChartAppState {
             inputs = initiating_patch.len(),
             "processing parameter transaction"
         );
-        if initiating_patch.is_empty()
+        let param_patch = initiating_patch
+            .into_iter()
+            .map(|(source_name, value)| {
+                let runtime_id = runtime
+                    .session
+                    .resolve_param_name(&source_name)
+                    .ok_or_else(|| {
+                        AvengerAppError::InternalError(format!(
+                            "Parameter transaction assigns unknown param '{source_name}'"
+                        ))
+                    })?;
+                Ok(ResolvedScopedParamAssignment {
+                    runtime_id,
+                    source_name,
+                    owner_path: Vec::new(),
+                    value,
+                    replace_scoped_values: false,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerAppError>>()?;
+        let store_patch = initiating_store_patch
+            .into_iter()
+            .map(|assignment| {
+                let runtime_id = runtime
+                    .session
+                    .resolve_store_name(&assignment.store_name)
+                    .ok_or_else(|| {
+                        AvengerAppError::InternalError(format!(
+                            "Parameter transaction updates unknown store '{}'",
+                            assignment.store_name
+                        ))
+                    })?;
+                Ok(ResolvedScopedStoreAssignment {
+                    runtime_id,
+                    source_name: assignment.store_name,
+                    owner_path: assignment.owner_path,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                    update: assignment.update,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerAppError>>()?;
+        let selection_patch = initiating_selection_patch
+            .into_iter()
+            .map(|assignment| {
+                let runtime_id = runtime
+                    .session
+                    .resolve_selection_name(&assignment.selection_id)
+                    .ok_or_else(|| {
+                        AvengerAppError::InternalError(format!(
+                            "Parameter transaction updates unknown selection '{}'",
+                            assignment.selection_id
+                        ))
+                    })?;
+                Ok(ResolvedSelectionAssignment {
+                    runtime_id,
+                    source_name: assignment.selection_id,
+                    update: assignment.update,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerAppError>>()?;
+        self.apply_resolved_reactive_transaction_to_runtime(
+            runtime,
+            context,
+            param_patch,
+            store_patch,
+            selection_patch,
+        )
+    }
+
+    fn apply_resolved_reactive_transaction_to_runtime(
+        &self,
+        runtime: &mut ChartAppRuntime,
+        context: ParamTransactionContext,
+        initiating_param_patch: Vec<ResolvedScopedParamAssignment>,
+        initiating_store_patch: Vec<ResolvedScopedStoreAssignment>,
+        initiating_selection_patch: Vec<ResolvedSelectionAssignment>,
+    ) -> Result<ParamTransactionOutcome, AvengerAppError> {
+        if initiating_param_patch.is_empty()
             && initiating_store_patch.is_empty()
             && initiating_selection_patch.is_empty()
         {
@@ -952,99 +1030,111 @@ impl ChartAppState {
                 settle_exact: false,
             });
         }
-        let Some(graph) = runtime.param_change_graph.clone() else {
-            let (param_changed, store_changed, selection_changed) = runtime
-                .session
-                .apply_root_state_transaction(
-                    initiating_patch,
-                    initiating_store_patch,
-                    initiating_selection_patch,
-                )
-                .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
-            let changes = self.sync_param_state_from_runtime(runtime, context.id);
-            return Ok(ParamTransactionOutcome {
-                transaction_id: context.id,
-                param_changed,
-                changes,
-                store_changed,
-                selection_changed,
-                evaluation_mode: context.evaluation_mode,
-                settle_exact: false,
-            });
-        };
 
         let entry = runtime.session.params().clone();
-        let mut staged = entry.clone();
-        let mut wave = initiating_patch;
-        let mut change_order = Vec::new();
-        let mut fired_bindings = HashSet::new();
-        let mut store_sinks = initiating_store_patch
-            .iter()
-            .map(|assignment| assignment.store_name.clone())
-            .collect::<HashSet<_>>();
-        let mut selection_sinks = initiating_selection_patch
-            .iter()
-            .map(|assignment| assignment.selection_id.clone())
-            .collect::<HashSet<_>>();
+        let mut working = runtime.session.begin_resolved_state_transaction();
+        for assignment in &initiating_param_patch {
+            working
+                .apply_param(assignment.clone())
+                .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+        }
+        for assignment in &initiating_store_patch {
+            working
+                .apply_store(assignment.clone())
+                .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+        }
+        for assignment in &initiating_selection_patch {
+            working
+                .apply_selection(assignment.clone())
+                .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
+        }
+
+        let graph = runtime.param_change_graph.clone();
+        let working_root = working.effective_params_for_owner_paths(&HashMap::new());
+        let mut wave = Vec::new();
+        let mut wave_ids = HashSet::new();
+        if let Some(graph) = graph.as_ref() {
+            for assignment in &initiating_param_patch {
+                if assignment.owner_path.is_empty()
+                    && graph.has_source(&assignment.runtime_id)
+                    && entry.get(&assignment.source_name)
+                        != working_root.get(&assignment.source_name)
+                    && wave_ids.insert(assignment.runtime_id.clone())
+                {
+                    let previous =
+                        entry.get(&assignment.source_name).cloned().ok_or_else(|| {
+                            AvengerAppError::InternalError(format!(
+                                "Parameter-change source '{}' has no transaction-entry value",
+                                assignment.source_name
+                            ))
+                        })?;
+                    wave.push((assignment.runtime_id.clone(), previous));
+                }
+            }
+        }
+
+        let mut param_patch = initiating_param_patch;
         let mut store_patch = initiating_store_patch;
         let mut selection_patch = initiating_selection_patch;
+        let mut store_sinks = store_patch
+            .iter()
+            .map(|assignment| (assignment.runtime_id.clone(), usize::MAX))
+            .collect::<HashMap<_, _>>();
+        let mut selection_sinks = selection_patch
+            .iter()
+            .map(|assignment| (assignment.runtime_id.clone(), usize::MAX))
+            .collect::<HashMap<_, _>>();
+        let mut fired_bindings = HashSet::new();
         let mut evaluation_mode = context.evaluation_mode;
         let mut settle_exact = false;
 
         while !wave.is_empty() {
-            let mut changed_sources = Vec::new();
-            for (name, value) in wave {
-                if staged.get(&name) == Some(&value) {
-                    continue;
-                }
-                staged.insert(name.clone(), value);
-                if !change_order.iter().any(|candidate| candidate == &name) {
-                    change_order.push(name.clone());
-                }
-                changed_sources.push(name);
-            }
-            if changed_sources.is_empty() {
+            let Some(graph) = graph.as_ref() else {
                 break;
-            }
-
-            let mut actions = Vec::new();
-            for source in changed_sources {
-                if !graph.has_source(&source) {
-                    continue;
-                }
-                let previous = entry.get(&source).ok_or_else(|| {
-                    AvengerAppError::InternalError(format!(
-                        "Parameter-change source '{source}' has no transaction-entry value"
-                    ))
-                })?;
-                actions.extend(graph.evaluate_source(&source, &staged, previous)?);
-            }
-            actions.sort_by_key(|action| action.binding_index);
-
-            let mut next_wave = IndexMap::new();
+            };
+            let actions = graph.evaluate_sources(&wave, &mut working, &mut fired_bindings)?;
+            let mut next_wave = Vec::new();
+            let mut next_wave_ids = HashSet::new();
             for action in actions {
-                if !fired_bindings.insert(action.binding_index) {
-                    continue;
-                }
                 for assignment in action.store_patch {
-                    if !store_sinks.insert(assignment.store_name.clone()) {
+                    if let Some(first_binding) =
+                        store_sinks.insert(assignment.runtime_id.clone(), action.binding_index)
+                        && first_binding != action.binding_index
+                    {
                         return Err(AvengerAppError::InternalError(format!(
                             "Parameter-change transaction has multiple active reactions targeting store '{}'",
-                            assignment.store_name
+                            assignment.source_name
                         )));
                     }
                     store_patch.push(assignment);
                 }
                 for assignment in action.selection_patch {
-                    if !selection_sinks.insert(assignment.selection_id.clone()) {
+                    if let Some(first_binding) =
+                        selection_sinks.insert(assignment.runtime_id.clone(), action.binding_index)
+                        && first_binding != action.binding_index
+                    {
                         return Err(AvengerAppError::InternalError(format!(
                             "Parameter-change transaction has multiple active reactions targeting selection '{}'",
-                            assignment.selection_id
+                            assignment.source_name
                         )));
                     }
                     selection_patch.push(assignment);
                 }
-                next_wave.extend(action.param_patch);
+                for assignment in action.param_patch {
+                    if graph.has_source(&assignment.runtime_id)
+                        && next_wave_ids.insert(assignment.runtime_id.clone())
+                    {
+                        let previous =
+                            entry.get(&assignment.source_name).cloned().ok_or_else(|| {
+                                AvengerAppError::InternalError(format!(
+                                    "Parameter-change source '{}' has no transaction-entry value",
+                                    assignment.source_name
+                                ))
+                            })?;
+                        next_wave.push((assignment.runtime_id.clone(), previous));
+                    }
+                    param_patch.push(assignment);
+                }
                 if action.evaluation_mode == ChartEventEvaluationMode::Exact {
                     evaluation_mode = EvaluationMode::Exact;
                 }
@@ -1053,19 +1143,10 @@ impl ChartAppState {
             wave = next_wave;
         }
 
-        let mut final_patch = IndexMap::new();
-        for name in change_order {
-            let Some(value) = staged.get(&name) else {
-                continue;
-            };
-            if entry.get(&name) != Some(value) {
-                final_patch.insert(name, value.clone());
-            }
-        }
         let (param_changed, store_changed, selection_changed) = runtime
             .session
-            .apply_root_state_transaction(final_patch, store_patch, selection_patch)
-            .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+            .apply_resolved_state_transaction(param_patch, store_patch, selection_patch)
+            .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
         let changes = self.sync_param_state_from_runtime(runtime, context.id);
         Ok(ParamTransactionOutcome {
             transaction_id: context.id,
@@ -1103,12 +1184,32 @@ impl ChartAppState {
             selection_patch,
         )?;
         if !scoped_patch.is_empty() {
-            runtime.session.apply_scoped_param_patch(scoped_patch);
+            runtime
+                .session
+                .apply_scoped_param_patch(scoped_patch)
+                .map_err(|error| AvengerAppError::InternalError(error.to_string()))?;
             outcome
                 .changes
                 .extend(self.sync_param_state_from_runtime(runtime, context.id));
         }
         Ok(outcome)
+    }
+
+    pub(crate) fn apply_resolved_event_transaction_to_runtime(
+        &self,
+        runtime: &mut ChartAppRuntime,
+        context: ParamTransactionContext,
+        param_patch: Vec<ResolvedScopedParamAssignment>,
+        store_patch: Vec<ResolvedScopedStoreAssignment>,
+        selection_patch: Vec<ResolvedSelectionAssignment>,
+    ) -> Result<ParamTransactionOutcome, AvengerAppError> {
+        self.apply_resolved_reactive_transaction_to_runtime(
+            runtime,
+            context,
+            param_patch,
+            store_patch,
+            selection_patch,
+        )
     }
 
     fn sync_param_state_from_runtime(
@@ -1573,6 +1674,7 @@ fn native_widget_outcome_status(
         cursor: outcome.cursor,
         commands: outcome.commands,
         consume: outcome.consume,
+        admission: None,
     }
 }
 
@@ -1783,6 +1885,7 @@ async fn chart_avenger_app_inner(
     options: ChartAppOptions,
     runtime_resources: Option<ChartRuntimeResources>,
 ) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
+    let compiled_plot = Arc::new(compiled_plot);
     let resize_policy = compiled_plot.resize_policy();
     let param_change_graph = Arc::new(param_change_graph_for_plot(&compiled_plot, ctx.as_ref())?);
     tracing::debug!(
@@ -1792,22 +1895,12 @@ async fn chart_avenger_app_inner(
         edges = param_change_graph.edge_count(),
         "compiled parameter-change reaction graph"
     );
-    let mut event_streams = event_streams_for_plot_bindings(&compiled_plot, ctx.as_ref())?;
     let resize_bindings = resize_event_bindings(
         resize_policy,
         &options.resize_binding,
         options.resize_throttle_ms,
     );
-    event_streams.extend(event_streams_for_bindings(
-        &resize_bindings,
-        ctx.as_ref(),
-        compiled_plot.param_specs(),
-        compiled_plot.selection_specs(),
-        compiled_plot.store_specs(),
-        &[],
-        &IndexMap::new(),
-    )?);
-    let mut session = Arc::new(compiled_plot).instantiate(ctx);
+    let mut session = compiled_plot.clone().instantiate(ctx.clone());
     if let Some(resources) = runtime_resources.as_ref() {
         session.set_options(PlotSessionOptions::from_native_widget_resources(
             &resources.native_widget_runtime,
@@ -1828,6 +1921,20 @@ async fn chart_avenger_app_inner(
         state.has_param_reactions = true;
         state.runtime.lock().await.param_change_graph = Some(param_change_graph);
     }
+    let stream_param_provider = committed_stream_param_provider(&state);
+    let mut event_streams = event_streams_for_plot_bindings_with_param_provider(
+        compiled_plot.as_ref(),
+        ctx.as_ref(),
+        Some(stream_param_provider),
+    )?;
+    event_streams.extend(event_streams_for_bindings(
+        &resize_bindings,
+        ctx.as_ref(),
+        compiled_plot.param_specs(),
+        compiled_plot.selection_specs(),
+        compiled_plot.store_specs(),
+        &IndexMap::new(),
+    )?);
     // Native ownership and gesture capture must precede authored streams.
     // Native consumption is dynamic and can stop propagation after the live
     // instance accepts a particular event.
@@ -2320,8 +2427,28 @@ mod tests {
 
     async fn resize_test_state() -> ChartAppState {
         let ctx = SessionContext::new();
-        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
-        let height = Param::new("height", ScalarValue::Float64(Some(480.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(640.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let height = {
+            let __avenger_param_name = "height";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(480.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::<Cartesian>::new()
             .params([width.clone(), height.clone()])
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -2865,7 +2992,17 @@ mod tests {
     #[tokio::test]
     async fn param_bool_reads_bool_param() {
         let ctx = SessionContext::new();
-        let enabled = Param::new("enabled", ScalarValue::Boolean(Some(true)));
+        let enabled = {
+            let __avenger_param_name = "enabled";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Boolean(Some(true))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::<Cartesian>::new()
             .param(enabled)
             .compile(&ctx)
@@ -2975,7 +3112,17 @@ mod tests {
     #[tokio::test]
     async fn resize_handler_ignores_unbound_canvas_axes() {
         let ctx = SessionContext::new();
-        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(640.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::<Cartesian>::new()
             .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -3190,9 +3337,39 @@ mod tests {
 
     #[tokio::test]
     async fn param_transaction_cascades_in_typed_waves() {
-        let a = Param::new("a", ScalarValue::Int64(Some(0)));
-        let b = Param::new("b", ScalarValue::Int64(Some(10)));
-        let c = Param::new("c", ScalarValue::Int64(Some(100)));
+        let a = {
+            let __avenger_param_name = "a";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let b = {
+            let __avenger_param_name = "b";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(10))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let c = {
+            let __avenger_param_name = "c";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(100))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let chart = Chart::<Cartesian>::new()
             .param(a.clone())
             .param(b.clone())
@@ -3241,9 +3418,58 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn param_reaction_actions_observe_preceding_writes() {
+        let source = Param::typed("source", DataType::Int64, ScalarValue::Int64(Some(0)))
+            .expect("typed source");
+        let first = Param::typed("first", DataType::Int64, ScalarValue::Int64(Some(0)))
+            .expect("typed first");
+        let second = Param::typed("second", DataType::Int64, ScalarValue::Int64(Some(0)))
+            .expect("typed second");
+        let chart = Chart::<Cartesian>::new()
+            .param(source.clone())
+            .param(first.clone())
+            .param(second.clone())
+            .param_change_binding(
+                ChartParamChangeBinding::on(&source).then(
+                    ChartAction::new()
+                        .set_param(&first, param_change::value() + lit(1_i64))
+                        .set_param(&second, first.expr() + lit(1_i64)),
+                ),
+            );
+        let state = reaction_test_state(chart, SessionContext::new()).await;
+
+        state
+            .set_param("source", 4_i64)
+            .expect("run ordered reaction");
+
+        assert_eq!(state.param_f64("first"), Some(5.0));
+        assert_eq!(state.param_f64("second"), Some(6.0));
+    }
+
+    #[tokio::test]
     async fn public_set_param_reports_complete_reaction_batch() {
-        let source = Param::new("source", ScalarValue::Int64(Some(0)));
-        let sink = Param::new("sink", ScalarValue::Int64(Some(0)));
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let sink = {
+            let __avenger_param_name = "sink";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3278,8 +3504,28 @@ mod tests {
 
     #[tokio::test]
     async fn param_transaction_rolls_back_on_reaction_error() {
-        let source = Param::new("source", ScalarValue::Int64(Some(0)));
-        let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let sink = {
+            let __avenger_param_name = "sink";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(9))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3323,7 +3569,17 @@ mod tests {
 
     #[tokio::test]
     async fn button_action_failure_rolls_back_activation_and_never_latches() {
-        let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
+        let sink = {
+            let __avenger_param_name = "sink";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(9))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let button = avenger_chart_widgets::Button::new("clear")
             .label("Clear")
             .action(ChartAction::new().set_param_required(&sink, lit(ScalarValue::Int64(None))));
@@ -3347,9 +3603,36 @@ mod tests {
 
     #[tokio::test]
     async fn one_reaction_atomically_resets_copies_and_clears_all_state_kinds() {
-        let source = Param::new("source", 0_u64);
-        let scalar = Param::new("scalar", 7_i64);
-        let audit = Param::new("audit", 0_u64);
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let scalar = {
+            let __avenger_param_name = "scalar";
+            let __avenger_param_default: datafusion::common::ScalarValue = (7_i64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let audit = {
+            let __avenger_param_name = "audit";
+            let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
         let initial_store =
             RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1_i64]))])
@@ -3453,8 +3736,28 @@ mod tests {
 
     #[tokio::test]
     async fn busy_runtime_preserves_fifo_reaction_transactions() {
-        let source = Param::new("source", ScalarValue::Int64(Some(0)));
-        let sink = Param::new("sink", ScalarValue::Int64(Some(0)));
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let sink = {
+            let __avenger_param_name = "sink";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3503,8 +3806,28 @@ mod tests {
 
     #[tokio::test]
     async fn param_transaction_filters_and_equal_writes_are_noops() {
-        let source = Param::new("source", ScalarValue::Int64(Some(0)));
-        let sink = Param::new("sink", ScalarValue::Int64(Some(7)));
+        let source = {
+            let __avenger_param_name = "source";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let sink = {
+            let __avenger_param_name = "sink";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(7))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3554,8 +3877,28 @@ mod tests {
 
     #[tokio::test]
     async fn simultaneous_reaction_sink_collision_rolls_back_batch() {
-        let a = Param::new("a", ScalarValue::Int64(Some(0)));
-        let b = Param::new("b", ScalarValue::Int64(Some(0)));
+        let a = {
+            let __avenger_param_name = "a";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let b = {
+            let __avenger_param_name = "b";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Int64(Some(0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let chart = Chart::<Cartesian>::new()
             .param(a.clone())
             .param(b.clone())

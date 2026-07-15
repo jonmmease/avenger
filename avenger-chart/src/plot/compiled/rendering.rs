@@ -2698,7 +2698,7 @@ impl CompiledPlot {
             }
         };
         let mut marks = rendered.marks;
-        if let Some(id) = mark.state().public_target_path.as_deref() {
+        if let Some(id) = mark.state().identity.public_aliases.first() {
             for scene_mark in &mut marks {
                 set_scene_mark_name(scene_mark, id);
             }
@@ -3004,9 +3004,10 @@ impl CompiledPlot {
                 ));
                 let part = mark
                     .state()
-                    .widget_theme
+                    .identity
+                    .component
                     .as_ref()
-                    .map(|provenance| provenance.part.as_str())
+                    .map(|provenance| provenance.part_alias.as_str())
                     .ok_or_else(|| {
                         AvengerChartError::InternalError(format!(
                             "Compiled widget '{}' mark lacks part provenance",
@@ -3121,19 +3122,19 @@ impl CompiledPlot {
                 .marks
                 .iter()
                 .map(|mark| {
-                    let provenance = mark.state().widget_theme.as_ref().ok_or_else(|| {
+                    let provenance = mark.state().identity.component.as_ref().ok_or_else(|| {
                         AvengerChartError::InternalError(format!(
                             "Compiled widget '{}' mark lacks part provenance",
                             widget.id
                         ))
                     })?;
                     Ok(WidgetPartManifest {
-                        name: provenance.part.clone(),
+                        name: provenance.part_alias.clone(),
                         scene_mark_kind: mark.mark_type().to_string(),
                         style_properties: WidgetStyleProperty::ALL.to_vec(),
                         states: Vec::new(),
                         interactive: !avenger_chart_core::is_decorative_widget_part(
-                            &provenance.part,
+                            &provenance.part_alias,
                         ),
                     })
                 })
@@ -3270,9 +3271,10 @@ impl CompiledPlot {
             for mark in &widget.marks {
                 let part = mark
                     .state()
-                    .widget_theme
+                    .identity
+                    .component
                     .as_ref()
-                    .map(|provenance| provenance.part.as_str())
+                    .map(|provenance| provenance.part_alias.as_str())
                     .ok_or_else(|| {
                         AvengerChartError::InternalError(format!(
                             "Compiled widget '{}' mark lacks part provenance",
@@ -3356,6 +3358,8 @@ impl CompiledPlot {
     ) -> Result<WidgetMeasurement, AvengerChartError> {
         let mut host = self.clone();
         host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
+            instance_id: avenger_chart_core::CompiledIdentityAllocator::new("composed-widget-cell")
+                .allocate_widget_instance(),
             widget: avenger_chart_core::CompiledWidget::Composed(widget.clone()),
             placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
             declaration_order: 0,
@@ -3381,6 +3385,8 @@ impl CompiledPlot {
     ) -> Result<WidgetMeasurement, AvengerChartError> {
         let mut host = self.clone();
         host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
+            instance_id: avenger_chart_core::CompiledIdentityAllocator::new("native-widget-cell")
+                .allocate_widget_instance(),
             widget: avenger_chart_core::CompiledWidget::Native(widget.clone()),
             placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
             declaration_order: 0,
@@ -3422,6 +3428,8 @@ impl CompiledPlot {
 
         let mut host = self.clone();
         host.widgets = vec![avenger_chart_core::CompiledWidgetAttachment {
+            instance_id: avenger_chart_core::CompiledIdentityAllocator::new("rendered-widget-cell")
+                .allocate_widget_instance(),
             widget: cell.widget().clone(),
             placement: avenger_chart_core::WidgetPlacement::ExplicitFrame,
             declaration_order: 0,
@@ -7658,7 +7666,9 @@ impl CompiledPlot {
                 Some(Arc::new(Mutex::new(MaterializationCache::default()))),
                 None,
                 None,
-                Some(Arc::new(ScopedStoreState::new(self.store_specs.clone()))),
+                Some(Arc::new(ScopedStoreState::new(
+                    self.store_specs_by_id().clone(),
+                ))),
             ),
         )
         .await?;
@@ -10730,8 +10740,28 @@ mod tests {
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
         let df = deeply_nested_dataframe(ctx);
-        let x0 = Param::new("x0", ScalarValue::Float64(Some(0.0)));
-        let x1 = Param::new("x1", ScalarValue::Float64(Some(10.0)));
+        let x0 = {
+            let __avenger_param_name = "x0";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(0.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let x1 = {
+            let __avenger_param_name = "x1";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(10.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let x0_expr = x0.expr();
         let x1_expr = x1.expr();
         crate::plot::Chart::<Cartesian>::new()

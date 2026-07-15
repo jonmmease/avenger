@@ -53,8 +53,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .facet_context_field("group_name", col("group_name"));
     let selected = brush.predicate();
 
-    let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
-
     let overlay = Rect::<Cartesian>::new()
         .data_store(StoreData::new("brush_boxes"))
         .exclude_from_scale_domains()
@@ -84,8 +82,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .canvas_size(1120.0, 520.0)
         .store(brush_box_store(CoordinationScope::Free))
         .selection(brush)
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(Subplot::new(faceted).name("faceted").label("Faceted"))
         .mark(
             Subplot::new(all_points)
@@ -93,8 +89,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .name("all")
                 .label("All rows"),
         )
-        .event_binding(cursor_binding(&cursor))
-        .event_binding(selection_drag_binding(&cursor))
+        .event_binding(cursor_binding())
+        .event_binding(selection_drag_binding())
         .event_binding(selection_release_binding())
         .event_binding(selection_clear_binding());
 
@@ -135,7 +131,7 @@ fn selectable_start_scope() -> Expr {
     ev::start_facet_value(0).is_not_null()
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_selectable = ev::event_coord("x")
         .is_not_null()
         .and(ev::event_coord("y").is_not_null())
@@ -144,11 +140,11 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor case expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 
-fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn selection_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -159,7 +155,7 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_selection_at_start_scope("brush", replace_selection_update())
         .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()

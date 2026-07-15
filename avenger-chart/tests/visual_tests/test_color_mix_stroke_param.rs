@@ -27,7 +27,17 @@ async fn test_color_mix_stroke_with_param() {
     .expect("create batch");
     let df = ctx.read_batch(batch).expect("read batch");
 
-    let accent = Param::new("--accent", ScalarValue::Utf8(Some("#2563eb".into())));
+    let accent = {
+        let __avenger_param_name = "--accent";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(Some("#2563eb".into()))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let mut theme = Theme::light();
     theme
@@ -80,7 +90,17 @@ async fn test_color_mix_stroke_with_param_override() {
     .expect("create batch");
     let df = ctx.read_batch(batch).expect("read batch");
 
-    let accent = Param::new("--accent", ScalarValue::Utf8(Some("#2563eb".into())));
+    let accent = {
+        let __avenger_param_name = "--accent";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(Some("#2563eb".into()))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let mut theme = Theme::light();
     theme

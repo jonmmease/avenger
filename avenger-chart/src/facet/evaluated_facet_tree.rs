@@ -3074,7 +3074,17 @@ mod tests {
     #[tokio::test]
     async fn responsive_wrap_columns_accept_params() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
-        let target = Param::new("target_width", ScalarValue::Float32(Some(160.0)));
+        let target = {
+            let __avenger_param_name = "target_width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float32(Some(160.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let plot = crate::plot::Chart::<FacetWrap>::new()
             .data(responsive_wrap_data(&ctx).await)
             .param(target.clone())

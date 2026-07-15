@@ -6,7 +6,7 @@
 
 use avenger_chart_core::{
     AvengerChartError, ChannelValue, ChartEventBinding, ChartEventStream, ChartEventType,
-    ChartTool, CoordinationScope, Param, ToolExpansion, ToolExpansionContext, ToolMetadata,
+    ChartTool, CoordinationScope, Param, ToolBehaviorExpansion, ToolExpansionContext, ToolMetadata,
     ToolParamSharing, event as ev,
 };
 use avenger_chart_marks::Rect;
@@ -129,10 +129,17 @@ impl GeoPanZoom {
     }
 
     fn overlay_param(&self, suffix: &str) -> Param {
-        Param::new(
-            generated_tool_name(&self.id, suffix),
-            ScalarValue::Float64(Some(0.0)),
-        )
+        {
+            let __avenger_param_name = generated_tool_name(&self.id, suffix);
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Float64(Some(0.0));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        }
     }
 
     fn center_x_param_name(&self) -> String {
@@ -169,8 +176,8 @@ impl ChartTool<Geo> for GeoPanZoom {
 
     fn expand(
         &self,
-        _ctx: ToolExpansionContext<'_>,
-    ) -> Result<ToolExpansion<Geo>, AvengerChartError> {
+        ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolBehaviorExpansion<Geo>, AvengerChartError> {
         if self.viewport_id.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "tool '{}' requires a non-empty Geo viewport id",
@@ -193,10 +200,17 @@ impl ChartTool<Geo> for GeoPanZoom {
             )));
         }
 
-        let enabled = Param::new(
-            self.enabled_param_name(),
-            ScalarValue::Boolean(Some(self.enabled_by_default)),
-        );
+        let enabled = {
+            let __avenger_param_name = self.enabled_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Boolean(Some(self.enabled_by_default));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let center_x = viewport_param(self.center_x_param_name());
         let center_y = viewport_param(self.center_y_param_name());
         let units_per_pixel = viewport_param(self.units_per_pixel_param_name());
@@ -214,7 +228,7 @@ impl ChartTool<Geo> for GeoPanZoom {
             focus_y,
         };
 
-        let mut expansion = ToolExpansion::new()
+        let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
@@ -261,7 +275,17 @@ impl ChartTool<Geo> for GeoPanZoom {
         }
 
         if self.box_zoom {
-            let active = Param::new(self.active_param_name(), ScalarValue::Boolean(Some(false)));
+            let active = {
+                let __avenger_param_name = self.active_param_name();
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Boolean(Some(false))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            };
             let box_x0 = self.overlay_param("box_x0");
             let box_y0 = self.overlay_param("box_y0");
             let box_x1 = self.overlay_param("box_x1");
@@ -327,7 +351,7 @@ impl ChartTool<Geo> for GeoPanZoom {
                     &active,
                     self.box_zoom_requires_shift,
                 ))
-                .mark(overlay);
+                .mark_part("selection", overlay);
 
             expansion = expansion.event_binding(box_zoom_release_binding(
                 &enabled.name,
@@ -360,7 +384,17 @@ struct ViewportParams {
 }
 
 fn viewport_param(name: impl Into<String>) -> Param {
-    Param::new(name, ScalarValue::Float64(None))
+    {
+        let __avenger_param_name = name;
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(None)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    }
 }
 
 fn drag_pan_binding(
@@ -776,57 +810,59 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 11);
+        assert_eq!(
+            expansion
+                .state
+                .iter()
+                .filter(|state| matches!(
+                    state,
+                    avenger_chart_core::ResolvedStateDeclaration::Param { .. }
+                ))
+                .count(),
+            11
+        );
         assert_eq!(expansion.event_bindings.len(), 7);
         assert!(expansion.scale_edits.is_empty());
         assert_eq!(expansion.marks.len(), 1);
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__tool_geo_pan_zoom__enabled")
+                .params()
+                .any(|(param, _)| param.name == "__tool_geo_pan_zoom__enabled")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__geo_map_center_x")
+                .params()
+                .any(|(param, _)| param.name == "__geo_map_center_x")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__geo_map_center_y")
+                .params()
+                .any(|(param, _)| param.name == "__geo_map_center_y")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__geo_map_units_per_pixel")
+                .params()
+                .any(|(param, _)| param.name == "__geo_map_units_per_pixel")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__geo_map_focus_x")
+                .params()
+                .any(|(param, _)| param.name == "__geo_map_focus_x")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__geo_map_focus_y")
+                .params()
+                .any(|(param, _)| param.name == "__geo_map_focus_y")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__tool_geo_pan_zoom__box_active")
+                .params()
+                .any(|(param, _)| param.name == "__tool_geo_pan_zoom__box_active")
         );
         assert!(
             expansion
-                .params
-                .iter()
-                .any(|param| param.param.name == "__tool_geo_pan_zoom__box_x0")
+                .params()
+                .any(|(param, _)| param.name == "__tool_geo_pan_zoom__box_x0")
         );
 
         let reset = expansion
@@ -834,7 +870,7 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("reset binding");
-        assert_eq!(reset.action.assignments.len(), 4);
+        assert_eq!(reset.action.param_steps().count(), 4);
         assert_eq!(
             reset.action.evaluation_mode,
             ChartEventEvaluationMode::Exact
@@ -845,12 +881,11 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::MouseWheel)
             .expect("wheel binding");
-        assert_eq!(wheel.action.assignments.len(), 5);
+        assert_eq!(wheel.action.param_steps().count(), 5);
         assert!(
             wheel
                 .action
-                .assignments
-                .iter()
+                .param_steps()
                 .any(|assignment| assignment.param_name == "__geo_map_focus_x")
         );
         assert!(wheel.consume);
@@ -863,7 +898,7 @@ mod tests {
                     && binding.action.evaluation_mode == ChartEventEvaluationMode::Exact
             })
             .expect("box zoom binding");
-        assert_eq!(box_zoom.action.assignments.len(), 4);
+        assert_eq!(box_zoom.action.param_steps().count(), 4);
         assert_eq!(
             box_zoom.action.evaluation_mode,
             ChartEventEvaluationMode::Exact
@@ -877,8 +912,7 @@ mod tests {
                     && binding.action.evaluation_mode == ChartEventEvaluationMode::Preview
                     && binding
                         .action
-                        .assignments
-                        .iter()
+                        .param_steps()
                         .any(|assignment| assignment.param_name.ends_with("box_x0"))
             })
             .expect("overlay drag binding");
@@ -891,17 +925,15 @@ mod tests {
                 binding.event_type == ChartEventType::CursorMoved
                     && binding
                         .action
-                        .assignments
-                        .iter()
+                        .param_steps()
                         .any(|assignment| assignment.param_name == "__geo_map_center_x")
             })
             .expect("pan drag binding");
-        assert_eq!(pan_drag.action.assignments.len(), 5);
+        assert_eq!(pan_drag.action.param_steps().count(), 5);
         assert!(
             pan_drag
                 .action
-                .assignments
-                .iter()
+                .param_steps()
                 .any(|assignment| assignment.param_name == "__geo_map_focus_y")
         );
     }
@@ -916,10 +948,11 @@ mod tests {
         assert_eq!(expansion.event_bindings.len(), 2);
         assert!(
             expansion
-                .params
-                .iter()
-                .filter(|param| param.param.name.starts_with("__geo_default_"))
-                .all(|param| param.sharing == ToolParamSharing::Explicit(CoordinationScope::Free))
+                .params()
+                .filter(|(param, _)| param.name.starts_with("__geo_default_"))
+                .all(|(_, sharing)| {
+                    sharing == &ToolParamSharing::Explicit(CoordinationScope::Free)
+                })
         );
     }
 

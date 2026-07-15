@@ -32,19 +32,27 @@ fn create_test_data(ctx: &SessionContext) -> DataFrame {
 }
 
 fn tick_spacing_param() -> Param {
-    Param::new(
-        "y_tick_spacing",
-        ScalarValue::Struct(Arc::new(StructArray::from(vec![
-            (
-                Arc::new(Field::new("start", DataType::Float64, false)),
-                Arc::new(Float64Array::from(vec![-2.0])) as ArrayRef,
-            ),
-            (
-                Arc::new(Field::new("step", DataType::Float64, false)),
-                Arc::new(Float64Array::from(vec![2.0])) as ArrayRef,
-            ),
-        ]))),
-    )
+    {
+        let __avenger_param_name = "y_tick_spacing";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Struct(Arc::new(StructArray::from(vec![
+                (
+                    Arc::new(Field::new("start", DataType::Float64, false)),
+                    Arc::new(Float64Array::from(vec![-2.0])) as ArrayRef,
+                ),
+                (
+                    Arc::new(Field::new("step", DataType::Float64, false)),
+                    Arc::new(Float64Array::from(vec![2.0])) as ArrayRef,
+                ),
+            ]))))
+            .into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    }
 }
 
 #[tokio::test]
@@ -53,7 +61,17 @@ async fn test_conditional_axis_grid() {
     let df = create_test_data(&ctx);
 
     // Create a parameter to control grid visibility
-    let show_grid_param = Param::new("show_grid", ScalarValue::Boolean(Some(true)));
+    let show_grid_param = {
+        let __avenger_param_name = "show_grid";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Boolean(Some(true))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create plot with conditional grid (note: can pass Param directly, no need for .expr())
     let plot = Chart::<Cartesian>::new()
@@ -103,7 +121,17 @@ async fn test_conditional_axis_position() {
     let df = create_test_data(&ctx);
 
     // Create a parameter to control axis position
-    let axis_pos_param = Param::new("axis_pos", ScalarValue::Utf8(Some("bottom".to_string())));
+    let axis_pos_param = {
+        let __avenger_param_name = "axis_pos";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(Some("bottom".to_string()))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create CASE expression for axis position
     let position_expr = when(axis_pos_param.expr().eq(lit("top")), lit("top"))
@@ -164,7 +192,17 @@ async fn test_conditional_axis_visibility() {
     let df = create_test_data(&ctx);
 
     // Create a parameter to control axis visibility
-    let show_axis_param = Param::new("show_x_axis", ScalarValue::Boolean(Some(true)));
+    let show_axis_param = {
+        let __avenger_param_name = "show_x_axis";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Boolean(Some(true))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Create plot with conditional axis visibility (note: can pass Param directly)
     let plot = Chart::<Cartesian>::new()

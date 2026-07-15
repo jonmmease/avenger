@@ -103,10 +103,11 @@ impl ChartWidget for ContractWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new()
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
                 .mark(
                     Rect::<PixelFrame>::new()
                         .id("box")
@@ -197,10 +198,11 @@ impl ChartWidget for DecorativeTargetWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new()
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
                 .mark(
                     Rect::<PixelFrame>::new()
                         .id("focus-ring")
@@ -237,10 +239,11 @@ impl ChartWidget for FixedContractWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Rect::<PixelFrame>::new()
                     .id("box")
                     .x(0.0)
@@ -284,10 +287,16 @@ impl NativeWidget for ContractNativeWidget {
     }
 
     fn state(&self) -> NativeWidgetStateSpec {
-        NativeWidgetStateSpec::try_new(vec![CompiledParamSpec::shared(&Param::new(
-            "native-contract-value",
-            "ready",
-        ))])
+        NativeWidgetStateSpec::try_new(vec![CompiledParamSpec::shared(&{
+            let __avenger_param_name = "native-contract-value";
+            let __avenger_param_default: datafusion::common::ScalarValue = ("ready").into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        })])
         .unwrap()
     }
 }
@@ -343,7 +352,7 @@ impl ChartWidget for ScaledContractWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         let items = self
             .categories
@@ -363,7 +372,8 @@ impl ChartWidget for ScaledContractWidget {
             })
             .collect();
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Symbol::<PixelFrame>::new()
                     .id("dot")
                     .x(20.0)
@@ -392,7 +402,8 @@ impl ChartWidget for ThemedGeometryWidget {
         ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Rect::<PixelFrame>::new()
                     .id("box")
                     .x(0.0)
@@ -419,10 +430,11 @@ impl ChartWidget for DataFrameContractWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new(),
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()),
             items: Some(WidgetItems::DataFrame {
                 data: self.data.clone(),
                 order_key: vec![col("value")],
@@ -450,10 +462,11 @@ impl ChartWidget for DataFrameValidationWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new(),
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()),
             items: Some(WidgetItems::DataFrame {
                 data: self.data.clone(),
                 order_key: vec![self.order_key.clone()],
@@ -482,7 +495,7 @@ impl ChartWidget for CanonicalItemsWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         let items = WidgetItems::DataFrame {
             data: self.data.clone(),
@@ -494,7 +507,8 @@ impl ChartWidget for CanonicalItemsWidget {
             role: "canonical value".to_string(),
         });
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new(),
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()),
             items: Some(items),
             measure: WidgetMeasureSpec::fixed(40.0, 20.0),
             presentation: WidgetPresentationBindings::default(),
@@ -516,7 +530,8 @@ impl ChartWidget for DataFrameScaledWidget {
         ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new()
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
                 .mark(
                     Symbol::<PixelFrame>::new()
                         .id("dot")
@@ -556,10 +571,11 @@ impl ChartWidget for ExplicitPartDataWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Symbol::<PixelFrame>::new()
                     .id("dot")
                     .data(self.data.clone())
@@ -585,10 +601,11 @@ impl ChartWidget for MaterializedPartWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Symbol::<PixelFrame>::new()
                     .id("dot")
                     .data(self.data.clone())
@@ -628,10 +645,11 @@ impl ChartWidget for CartesianViewPartWidget {
 
     fn expand(
         &self,
-        _ctx: WidgetExpansionContext<'_>,
+        ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Symbol::<PixelFrame>::new()
                     .id("dot")
                     .data(self.data.clone())
@@ -664,7 +682,8 @@ impl ChartWidget for EnvironmentContractWidget {
         ctx: WidgetExpansionContext<'_>,
     ) -> Result<WidgetExpansion, AvengerChartError> {
         Ok(WidgetExpansion {
-            expansion: ToolExpansion::new().mark(
+            instance_id: ctx.instance_id.clone(),
+            behavior: ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone()).mark(
                 Rect::<PixelFrame>::new()
                     .id("box")
                     .x(0.0)
@@ -714,12 +733,29 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
     assert_eq!(widget.kind, "contract-widget");
     assert_eq!(widget.marks.len(), 3);
     assert_eq!(
+        widget.behavior_instance_id,
+        CompiledIdentityAllocator::default().widget_behavior_instance(&attachment.instance_id)
+    );
+    assert_eq!(widget.behavior_exports.len(), 3);
+    for export in &widget.behavior_exports {
+        let ToolExportTarget::Mark(mark_id) = &export.target else {
+            panic!("contract widget exports only mark parts")
+        };
+        assert!(
+            widget
+                .marks
+                .iter()
+                .any(|mark| &mark.state().identity.runtime_id == mark_id)
+        );
+    }
+    assert_eq!(
         widget.marks[0]
             .state()
-            .widget_theme
+            .identity
+            .component
             .as_ref()
             .expect("widget theme provenance")
-            .part,
+            .part_alias,
         "box"
     );
     assert_eq!(widget.relative_target_paths["contract.box"], vec![vec![0]]);
@@ -782,14 +818,17 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
         .find(|binding| binding.between.is_some())
         .expect("widget drag binding");
     assert!(drag_binding.mark_ids().is_empty());
-    let resolved = drag_binding
-        .between
-        .as_ref()
-        .unwrap()
-        .start
-        .resolved_mark_paths()
+    let resolved = decoded
+        .runtime_paths_for_mark_ids(
+            drag_binding
+                .between
+                .as_ref()
+                .unwrap()
+                .start
+                .resolved_mark_ids(),
+        )
         .unwrap();
-    assert_eq!(resolved, &[vec![0, 0]]);
+    assert_eq!(resolved, vec![vec![0, 0]]);
     let box_path = find_rect_path(&evaluated.scene_graph.marks, "box", &mut Vec::new()).unwrap();
     assert!(box_path.ends_with(&resolved[0]));
     let box_datums = evaluated
@@ -825,8 +864,10 @@ async fn composed_widget_schema_round_trips_with_symbolic_measurement() {
         &["contract.box".to_string(), "contract.label".to_string()]
     );
     assert_eq!(
-        click_binding.resolved_mark_paths().unwrap(),
-        &[vec![0, 0], vec![0, 1]]
+        decoded
+            .runtime_paths_for_mark_ids(click_binding.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![0, 0], vec![0, 1]]
     );
 }
 
@@ -1084,7 +1125,16 @@ async fn dataframe_widget_item_validation_rejects_invalid_keys_after_bincode() {
 #[tokio::test]
 async fn dataframe_widget_item_validation_rechecks_param_driven_revisions() {
     let ctx = Arc::new(datafusion::prelude::SessionContext::new());
-    let collapse = Param::new("collapse_widget_order", false);
+    let collapse = {
+        let __avenger_param_name = "collapse_widget_order";
+        let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let data = ctx
         .sql("SELECT * FROM (VALUES (1), (2)) AS t(value)")
         .await
@@ -1444,11 +1494,56 @@ async fn widget_style_environment_recomputes_while_item_plan_stays_cached() {
         .sql("SELECT 0 AS item_order")
         .await
         .expect("environment widget item data");
-    let width = Param::new("environment_width", 80.0_f32);
-    let height = Param::new("environment_height", 100.0_f32);
-    let base_font = Param::new("--base-font-size", "12px");
-    let color_scheme = Param::new("color-scheme", "light");
-    let unrelated = Param::new("--unrelated-widget-token", "initial");
+    let width = {
+        let __avenger_param_name = "environment_width";
+        let __avenger_param_default: datafusion::common::ScalarValue = (80.0_f32).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let height = {
+        let __avenger_param_name = "environment_height";
+        let __avenger_param_default: datafusion::common::ScalarValue = (100.0_f32).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let base_font = {
+        let __avenger_param_name = "--base-font-size";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("12px").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let color_scheme = {
+        let __avenger_param_name = "color-scheme";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("light").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let unrelated = {
+        let __avenger_param_name = "--unrelated-widget-token";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("initial").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let mut theme = Theme::light();
     theme
         .append_css(
@@ -1631,8 +1726,26 @@ async fn host_and_widget_visual_scales_keep_independent_domains_after_bincode() 
 #[tokio::test]
 async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
     let ctx = Arc::new(datafusion::prelude::SessionContext::new());
-    let group = Param::new("widget_group", "low");
-    let paint = Param::new("--widget-test-fill", "#0072b2");
+    let group = {
+        let __avenger_param_name = "widget_group";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("low").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let paint = {
+        let __avenger_param_name = "--widget-test-fill";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("#0072b2").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let all_items = ctx
         .sql(
             "SELECT * FROM (VALUES \

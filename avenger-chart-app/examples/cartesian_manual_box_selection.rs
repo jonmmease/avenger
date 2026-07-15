@@ -1,7 +1,7 @@
 //! Manual Cartesian box selection prototype.
 //!
 //! This example intentionally uses the public low-level pieces directly:
-//! `Selection`, cursor params, ordinary event bindings, and a unit `Rect`
+//! `Selection`, explicit cursor actions, ordinary event bindings, and a unit `Rect`
 //! overlay mark. The bundled `BoxSelection` tool will be a convenience wrapper
 //! over this shape.
 
@@ -52,8 +52,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let brush = Selection::new("brush").empty_selects_nothing();
     let selected = brush.predicate();
 
-    let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
-
     let overlay = Rect::<Cartesian>::new()
         .data_store(StoreData::new("brush_boxes"))
         .exclude_from_scale_domains()
@@ -71,8 +69,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .data(df)
         .selection(brush)
         .store(brush_box_store(CoordinationScope::Shared))
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(
             Symbol::new()
                 .x(col("source_a"))
@@ -87,9 +83,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .size(180.0),
         )
         .mark(overlay)
-        .event_binding(cursor_binding(&cursor))
-        .event_binding(selection_drag_binding(&cursor))
-        .event_binding(selection_add_drag_binding(&cursor))
+        .event_binding(cursor_binding())
+        .event_binding(selection_drag_binding())
+        .event_binding(selection_add_drag_binding())
         .event_binding(selection_release_binding())
         .event_binding(selection_add_release_binding())
         .event_binding(selection_clear_binding());
@@ -109,7 +105,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .expect("build chart app")
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_plot = ev::event_coord("x")
         .is_not_null()
         .and(ev::event_coord("y").is_not_null());
@@ -117,11 +113,11 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor case expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 
-fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn selection_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -132,13 +128,13 @@ fn selection_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(false)))
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_selection_at_start_scope("brush", replace_selection_update(CoordinationScope::Shared))
         .set_store_at_start_scope_replacing_scopes("brush_boxes", replace_store_update())
         .preview()
 }
 
-fn selection_add_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn selection_add_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -149,7 +145,7 @@ fn selection_add_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(true)))
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_selection_at_start_scope("brush", upsert_selection_update(CoordinationScope::Shared))
         .set_store_at_start_scope("brush_boxes", upsert_store_update())
         .preview()

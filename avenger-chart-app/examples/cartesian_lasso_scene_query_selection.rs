@@ -56,7 +56,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
 
     let picked = Selection::new("picked").empty_selects_nothing();
     let selected = picked.predicate();
-    let cursor = Param::cursor("lasso_cursor", CursorStyle::Default);
     let overlay = PathMark::<Cartesian>::new()
         .data_store(StoreData::new("selection_lasso"))
         .exclude_from_scale_domains()
@@ -76,8 +75,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             "selection_lasso",
             CoordinationScope::Shared,
         ))
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(
             Symbol::new()
                 .id("points")
@@ -105,8 +102,8 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .size(72.0),
         )
         .mark(overlay)
-        .event_binding(cursor_binding(&cursor))
-        .event_binding(lasso_drag_binding(&cursor))
+        .event_binding(cursor_binding())
+        .event_binding(lasso_drag_binding())
         .event_binding(lasso_clear_binding());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
@@ -124,7 +121,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .expect("build chart app")
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_plot = ev::event_coord("x")
         .is_not_null()
         .and(ev::event_coord("y").is_not_null());
@@ -132,11 +129,11 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 
-fn lasso_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn lasso_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -145,7 +142,7 @@ fn lasso_drag_binding(cursor: &Param) -> ChartEventBinding {
         .filter(ev::start_coord("x").is_not_null())
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_path_svg().is_not_null())
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_store_at_start_scope_replacing_scopes(
             "selection_lasso",
             lasso_overlay_update("active"),

@@ -132,7 +132,17 @@ async fn axis_y_numfmt_typst_math_ticks_and_title() {
     );
 
     let plot = Chart::<Cartesian>::new()
-        .params([Param::new("peak_force", ScalarValue::Float64(Some(1.2e6)))])
+        .params([{
+            let __avenger_param_name = "peak_force";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(1.2e6))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        }])
         .configure_title("Peak force #numfmt(peak_force, \".2e\") N", |t| t.typst())
         .data(df)
         .mark(
@@ -192,7 +202,17 @@ async fn axis_x_datefmt_ldml_ticks_and_title() {
                 .datetime_locale("visual-datetime")
                 .datetime_locale_spec("visual-datetime", datetime_locale_spec),
         )
-        .params([Param::new("report_date", ScalarValue::Date32(Some(19727)))])
+        .params([{
+            let __avenger_param_name = "report_date";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Date32(Some(19727))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        }])
         .configure_title("Report #datefmt(report_date, \"{date:long}\")", |t| {
             t.typst()
         })

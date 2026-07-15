@@ -290,7 +290,17 @@ fn wrap_cell_preview_flow() -> Plot<Cartesian> {
 }
 
 fn responsive_repeat_wrap_inside_facet_column_plot(df: DataFrame) -> Chart<FacetColumn> {
-    let width = Param::new("width", ScalarValue::Float64(Some(780.0)));
+    let width = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(780.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let repeat = Plot::<RepeatWrap>::new().configure_coord(|c| {
         c.items(repeat_variables_four())
             .responsive_columns(230.0)

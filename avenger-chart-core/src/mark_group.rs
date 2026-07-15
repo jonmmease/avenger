@@ -18,6 +18,7 @@ use crate::{
 #[derive(Clone)]
 pub struct MarkGroup<C: CoordinateSystemCore> {
     pub(crate) id: Option<String>,
+    pub(crate) component_kind: Option<String>,
     pub(crate) data: DataContext,
     pub(crate) data_mode: MarkDataMode,
     pub(crate) facet_data_scope: FacetDataScope,
@@ -31,6 +32,7 @@ impl<C: CoordinateSystemCore> Default for MarkGroup<C> {
     fn default() -> Self {
         Self {
             id: None,
+            component_kind: None,
             data: DataContext::default(),
             data_mode: MarkDataMode::Inherit,
             facet_data_scope: FacetDataScope::FILTERED,
@@ -51,6 +53,17 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
     pub fn id(mut self, id: impl Into<String>) -> Self {
         self.id = Some(id.into());
         self
+    }
+
+    /// Mark this group as a component expansion whose descendant primitive
+    /// marks carry stable part provenance.
+    pub fn component_kind(mut self, kind: impl Into<String>) -> Self {
+        self.component_kind = Some(kind.into());
+        self
+    }
+
+    pub fn component_kind_ref(&self) -> Option<&str> {
+        self.component_kind.as_deref()
     }
 
     /// Set explicit data for this group.
@@ -185,28 +198,43 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
     /// view-local, and their x/y render channels do not contribute to
     /// positional domain inference (the view's `x_domain`/`y_domain`
     /// declarations do).
-    pub fn view<V, F>(mut self, view: V, f: F) -> Self
+    pub fn view<V, F>(self, view: V, f: F) -> Self
     where
         V: ViewSpec,
         F: FnOnce(Self, ViewRef) -> Self,
     {
+        self.try_view(view, |group, view_ref| Ok(f(group, view_ref)))
+            .expect("Failed to build group view scope")
+    }
+
+    /// Fallible form of [`MarkGroup::view`].
+    ///
+    /// Use this when constructing reusable authoring components so invalid or
+    /// nested inline views are returned as structured chart diagnostics.
+    pub fn try_view<V, F>(mut self, view: V, f: F) -> Result<Self, AvengerChartError>
+    where
+        V: ViewSpec,
+        F: FnOnce(Self, ViewRef) -> Result<Self, AvengerChartError>,
+    {
         if self.view.is_some() {
-            panic!("Nested group view(...) scopes are not supported");
+            return Err(AvengerChartError::InvalidArgument(
+                "Nested group view(...) scopes are not supported".to_string(),
+            ));
         }
 
-        let (compiled_view, view_ref) = view
-            .into_compiled_and_ref()
-            .expect("Failed to build view scope");
+        let (compiled_view, view_ref) = view.into_compiled_and_ref()?;
         let base_data = std::mem::take(&mut self.data);
-        let mut group = f(self, view_ref);
+        let mut group = f(self, view_ref)?;
 
         if group.view.is_some() {
-            panic!("Nested group view(...) scopes are not supported");
+            return Err(AvengerChartError::InvalidArgument(
+                "Nested group view(...) scopes are not supported".to_string(),
+            ));
         }
 
         let view_data = std::mem::replace(&mut group.data, base_data);
         group.view = Some(ViewScopeState::new(compiled_view, view_data));
-        group
+        Ok(group)
     }
 
     /// The view scope configured via [`MarkGroup::view`], if any.
@@ -292,6 +320,9 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
         if let Some(id) = self.id.as_deref() {
             validate_structural_id("mark group", id)?;
         }
+        if let Some(kind) = self.component_kind.as_deref() {
+            validate_structural_id("component kind", kind)?;
+        }
         Ok(())
     }
 }
@@ -317,6 +348,15 @@ where
 #[derive(Clone)]
 pub struct PlotMark<C: CoordinateSystemCore> {
     kind: PlotMarkKind<C>,
+}
+
+impl<C> IntoPlotMark<C> for PlotMark<C>
+where
+    C: CoordinateSystemCore,
+{
+    fn into_plot_marks(self) -> Vec<PlotMark<C>> {
+        vec![self]
+    }
 }
 
 impl<C: CoordinateSystemCore> PlotMark<C> {

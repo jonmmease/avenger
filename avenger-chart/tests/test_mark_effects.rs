@@ -2077,7 +2077,7 @@ async fn compound_box_plot_generated_children_keep_public_target_paths()
     let mut paths = compiled
         .marks()
         .iter()
-        .filter_map(|mark| mark.state().public_target_path.clone())
+        .flat_map(|mark| mark.state().identity.public_aliases.clone())
         .collect::<Vec<_>>();
     paths.sort();
 

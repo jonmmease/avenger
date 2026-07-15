@@ -26,11 +26,11 @@ use indexmap::IndexMap;
 use tracing::debug;
 
 use avenger_chart_core::{
-    Auto, ChannelInfo, CompiledSelectionSpec, ConfiguredScaleLegendExt, DomainValues,
-    EmptyCoordMeasurement, LegendChannel, LegendContinuousOrientation, LegendContinuousSurface,
-    LegendPosition, LegendRenderItem, LegendRenderer, LegendRendererSelection, MergeKey,
-    ScalarValueHelpers, Scale, SharingLevel, apply_opacity_to_color, one_row_batch_from_scalars,
-    params_to_datafusion,
+    Auto, ChannelInfo, CompiledSelectionSpec, CompiledStateRegistry, ConfiguredScaleLegendExt,
+    DomainValues, EmptyCoordMeasurement, LegendChannel, LegendContinuousOrientation,
+    LegendContinuousSurface, LegendPosition, LegendRenderItem, LegendRenderer,
+    LegendRendererSelection, MergeKey, ScalarValueHelpers, Scale, SelectionRef, SharingLevel,
+    apply_opacity_to_color, one_row_batch_from_scalars, params_to_datafusion,
 };
 use avenger_scales::scales::{ConfiguredScale, DomainKind};
 
@@ -395,7 +395,7 @@ fn insert_colorbar_overlay_group(
 
 async fn apply_related_legend_item_opacity(
     eval_ctx: &EvaluationContext,
-    selection_specs: &IndexMap<String, CompiledSelectionSpec>,
+    selection_specs: &CompiledStateRegistry<SelectionRef, CompiledSelectionSpec>,
     channels: &[LegendChannel],
     legend_group: &mut avenger_scenegraph::marks::group::SceneGroup,
     items: &[LegendRenderItem],

@@ -27,15 +27,15 @@ use datafusion_proto::protobuf::{LogicalExprNode, LogicalPlanNode};
 use indexmap::IndexMap;
 
 use avenger_chart_core::{
-    CompiledDataContext, CompiledSelectionSpec, CompiledViewScope, CompiledViewSpec,
-    DataTransformExecutionContext, DataTransformFacetContext, DataTransformStage, DerivedScalarMap,
-    FacetDataScope, MarkDataMode, MaterializationPolicy, MaterializationResult, SelectionClause,
-    SelectionCombine, SelectionPredicateSpec, SharingLevel, ViewMaterializationContext,
-    ViewMaterializationRequest, ViewStalePolicy, collect_derived_scalar_ids, contains_aggregate,
-    detail_array_column_name, item_frame_column_refs, params_to_datafusion,
-    resolve_known_derived_scalars, resolve_known_derived_scalars_in_channel_value,
-    selection_clause_value_id_from_placeholder, selection_field_expr_fingerprint,
-    selection_id_from_equality_membership_field_placeholder,
+    CompiledDataContext, CompiledSelectionSpec, CompiledStateRegistry, CompiledViewScope,
+    CompiledViewSpec, DataTransformExecutionContext, DataTransformFacetContext, DataTransformStage,
+    DerivedScalarMap, FacetDataScope, MarkDataMode, MaterializationPolicy, MaterializationResult,
+    SelectionClause, SelectionCombine, SelectionPredicateSpec, SelectionRef, SharingLevel,
+    ViewMaterializationContext, ViewMaterializationRequest, ViewStalePolicy,
+    collect_derived_scalar_ids, contains_aggregate, detail_array_column_name,
+    item_frame_column_refs, params_to_datafusion, resolve_known_derived_scalars,
+    resolve_known_derived_scalars_in_channel_value, selection_clause_value_id_from_placeholder,
+    selection_field_expr_fingerprint, selection_id_from_equality_membership_field_placeholder,
     selection_id_from_equality_membership_value_placeholder,
     selection_id_from_predicate_placeholder,
 };
@@ -141,7 +141,7 @@ fn view_param_snapshot(
     view_scope: &CompiledViewScope,
     eval_ctx: &EvaluationContext,
 ) -> Vec<(String, ScalarValue)> {
-    let prefix = format!("__avenger_view_{}_", view_scope.spec.id());
+    let prefix = format!("__avenger_view_{}_", view_scope.spec.source_name());
     eval_ctx
         .params()
         .iter()
@@ -1271,7 +1271,7 @@ pub(crate) fn expand_selection_predicates_with_fallback_specs(
     expr: Expr,
     eval_ctx: &EvaluationContext,
     available_columns: Option<&HashSet<String>>,
-    fallback_specs: Option<&IndexMap<String, CompiledSelectionSpec>>,
+    fallback_specs: Option<&CompiledStateRegistry<SelectionRef, CompiledSelectionSpec>>,
 ) -> Result<Expr, AvengerChartError> {
     let ctx = eval_ctx.session_context.as_ref();
     expr.transform(|candidate| {
@@ -1299,6 +1299,45 @@ pub(crate) fn expand_selection_predicates_with_fallback_specs(
                 fallback_specs,
             )
             .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
+            return Ok(Transformed::yes(replacement));
+        }
+        Ok(Transformed::no(candidate))
+    })
+    .map(|transformed| transformed.data)
+    .map_err(AvengerChartError::DataFusionError)
+}
+
+pub(crate) fn expand_selection_predicates_with_lookup(
+    expr: Expr,
+    ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
+    mut lookup: impl FnMut(&str) -> Option<(CompiledSelectionSpec, Vec<SelectionClause>)>,
+) -> Result<Expr, AvengerChartError> {
+    expr.transform(|candidate| {
+        if let Some((selection_id, field_expr, value_expr)) =
+            selection_equality_membership_marker(&candidate)
+        {
+            let Some((_spec, clauses)) = lookup(selection_id) else {
+                return Err(datafusion::error::DataFusionError::Plan(format!(
+                    "Selection membership references unknown selection '{selection_id}'"
+                )));
+            };
+            let replacement =
+                selection_equality_membership_expr_from_clauses(field_expr, value_expr, &clauses)
+                    .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
+            return Ok(Transformed::yes(replacement));
+        }
+        if let Expr::Placeholder(placeholder) = &candidate
+            && let Some(selection_id) = selection_id_from_predicate_placeholder(&placeholder.id)
+        {
+            let Some((spec, clauses)) = lookup(selection_id) else {
+                return Err(datafusion::error::DataFusionError::Plan(format!(
+                    "Selection predicate references unknown selection '{selection_id}'"
+                )));
+            };
+            let replacement =
+                selection_predicate_expr_from_parts(&spec, &clauses, ctx, available_columns)
+                    .map_err(|err| datafusion::error::DataFusionError::Plan(err.to_string()))?;
             return Ok(Transformed::yes(replacement));
         }
         Ok(Transformed::no(candidate))
@@ -1371,12 +1410,10 @@ fn selection_equality_membership_expr(
     field_expr: Expr,
     value_expr: Expr,
     eval_ctx: &EvaluationContext,
-    fallback_specs: Option<&IndexMap<String, CompiledSelectionSpec>>,
+    fallback_specs: Option<&CompiledStateRegistry<SelectionRef, CompiledSelectionSpec>>,
 ) -> Result<Expr, AvengerChartError> {
-    let field_fingerprint =
-        selection_field_expr_fingerprint(&LogicalExprNode::from_expr(field_expr)?);
     let clauses = if let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() {
-        if !selection_store.specs().contains_key(selection_id) {
+        if selection_store.spec_for_source_name(selection_id).is_none() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Selection membership references unknown selection '{selection_id}'"
             )));
@@ -1395,6 +1432,16 @@ fn selection_equality_membership_expr(
         return Ok(lit(false));
     };
 
+    selection_equality_membership_expr_from_clauses(field_expr, value_expr, &clauses)
+}
+
+fn selection_equality_membership_expr_from_clauses(
+    field_expr: Expr,
+    value_expr: Expr,
+    clauses: &[SelectionClause],
+) -> Result<Expr, AvengerChartError> {
+    let field_fingerprint =
+        selection_field_expr_fingerprint(&LogicalExprNode::from_expr(field_expr)?);
     let matching_values = clauses.iter().filter_map(|clause| {
         let SelectionPredicateSpec::Equality { dimensions } = &clause.predicate else {
             return None;
@@ -1417,10 +1464,10 @@ fn selection_predicate_expr(
     eval_ctx: &EvaluationContext,
     ctx: &SessionContext,
     available_columns: Option<&HashSet<String>>,
-    fallback_specs: Option<&IndexMap<String, CompiledSelectionSpec>>,
+    fallback_specs: Option<&CompiledStateRegistry<SelectionRef, CompiledSelectionSpec>>,
 ) -> Result<Expr, AvengerChartError> {
     let (spec, clauses) = if let Some(selection_store) = eval_ctx.scoped_selection_store.as_ref() {
-        let Some(spec) = selection_store.specs().get(selection_id) else {
+        let Some(spec) = selection_store.spec_for_source_name(selection_id) else {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "Selection predicate references unknown selection '{selection_id}'"
             )));
@@ -1439,6 +1486,15 @@ fn selection_predicate_expr(
     } else {
         return Ok(lit(false));
     };
+    selection_predicate_expr_from_parts(spec, &clauses, ctx, available_columns)
+}
+
+fn selection_predicate_expr_from_parts(
+    spec: &CompiledSelectionSpec,
+    clauses: &[SelectionClause],
+    ctx: &SessionContext,
+    available_columns: Option<&HashSet<String>>,
+) -> Result<Expr, AvengerChartError> {
     if clauses.is_empty() {
         return Ok(lit(matches!(
             spec.empty,
@@ -2066,7 +2122,8 @@ fn resolved_view_params(
                 .map_err(AvengerChartError::ScaleError)?;
 
             tracing::debug!(
-                view = spec.id(),
+                view_id = %spec.runtime_id(),
+                view_name = spec.source_name(),
                 x_domain_start,
                 x_domain_end,
                 y_domain_start,
@@ -2277,7 +2334,7 @@ pub(crate) async fn schedule_view_materializations_for_mark(
     {
         let mut identity = format!(
             "preview-schedule:{}:{}",
-            view_scope.spec.id(),
+            view_scope.spec.source_name(),
             mark.state().mark_index()
         );
         if let Some(scope) = request.facet_data_scope.as_ref() {
@@ -3048,7 +3105,7 @@ mod tests {
         zerod::ZeroDCoord,
     };
     use avenger_chart_core::{
-        CompiledSelectionSpec, CoordinateSystem, CoordinationScope, DataTransformResult, Param,
+        CoordinateSystem, CoordinationScope, DataTransformResult, Param,
         ResolvedSelectionClauseScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN,
         STORE_REVISION_COLUMN, Selection, SelectionEqualityDimensionValue, Store, StoreData,
         StoreRowValue, View, detail_array_column_name,
@@ -3091,8 +3148,10 @@ mod tests {
         clauses: Vec<SelectionClause>,
     ) -> Result<Vec<bool>, AvengerChartError> {
         let session = Arc::new(SessionContext::new());
-        let mut specs = IndexMap::<String, CompiledSelectionSpec>::new();
-        specs.insert(selection.id.clone(), selection.compile()?);
+        let mut spec = selection.compile()?;
+        spec.runtime_id = avenger_chart_core::CompiledIdentityAllocator::new("membership-test")
+            .allocate_selection();
+        let specs = IndexMap::from([(spec.runtime_id.clone(), spec)]);
         let mut store = ScopedSelectionStore::new(specs);
         store.apply_selection_patch([SelectionAssignment {
             selection_id: selection.id.clone(),
@@ -3629,15 +3688,16 @@ mod tests {
     fn brush_store_state(
         sharing: CoordinationScope,
     ) -> Result<ScopedStoreState, AvengerChartError> {
-        let spec = Store::empty("brush_boxes")
+        let mut spec = Store::empty("brush_boxes")
             .field("id", DataType::Utf8, false)
             .field("x_min", DataType::Float64, false)
             .field("x_max", DataType::Float64, false)
             .primary_key(["id"])
             .sharing(sharing)
             .compile()?;
-        let mut specs = IndexMap::new();
-        specs.insert(spec.name.clone(), spec);
+        spec.runtime_id =
+            avenger_chart_core::CompiledIdentityAllocator::new("brush-store-test").allocate_store();
+        let specs = IndexMap::from([(spec.runtime_id.clone(), spec)]);
         Ok(ScopedStoreState::new(specs))
     }
 
@@ -4047,7 +4107,17 @@ mod tests {
         let session = Arc::new(SessionContext::new());
         let df = nested_category_dataframe(&session);
         let plot_node = plot_data_node(&df)?;
-        let band_end = Param::new("band_end", ScalarValue::Float64(Some(1.0)));
+        let band_end = {
+            let __avenger_param_name = "band_end";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(1.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let mark = Rect::new()
             .x_with(nested(["group", "member"]), |x| x.band(0.0))
             .x2_with(col(":x"), |x| x.band(band_end.expr()))

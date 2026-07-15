@@ -56,7 +56,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let free_selected = free_brush.predicate();
     let shared_brush = Selection::new("shared_brush").empty_selects_nothing();
     let shared_selected = shared_brush.predicate();
-    let cursor = Param::cursor("brush_cursor", CursorStyle::Default);
 
     let free_leaf = Plot::<Cartesian>::new()
         .mark(selection_points(free_selected, "#2563eb", 92.0))
@@ -69,13 +68,11 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .label("Store sharing: Free"),
         )
         .event_binding(selection_drag_binding(
-            &cursor,
             FREE_STORE,
             "free_brush",
             CoordinationScope::Free,
         ))
         .event_binding(selection_add_drag_binding(
-            &cursor,
             FREE_STORE,
             "free_brush",
             CoordinationScope::Free,
@@ -103,13 +100,11 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .label("Store sharing: Shared"),
         )
         .event_binding(selection_drag_binding(
-            &cursor,
             SHARED_STORE,
             "shared_brush",
             CoordinationScope::Shared,
         ))
         .event_binding(selection_add_drag_binding(
-            &cursor,
             SHARED_STORE,
             "shared_brush",
             CoordinationScope::Shared,
@@ -132,11 +127,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .store(brush_box_store(SHARED_STORE, CoordinationScope::Shared))
         .selection(free_brush)
         .selection(shared_brush)
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(Subplot::new(free_facets).name("free"))
         .mark(Subplot::new(shared_facets).name("shared"))
-        .event_binding(cursor_binding(&cursor));
+        .event_binding(cursor_binding());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
@@ -189,7 +182,7 @@ fn selectable_start_scope() -> Expr {
     ev::start_facet_value(0).is_not_null()
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_selectable = ev::event_coord("x")
         .is_not_null()
         .and(ev::event_coord("y").is_not_null())
@@ -198,12 +191,11 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor case expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 
 fn selection_drag_binding(
-    cursor: &Param,
     store_name: &str,
     selection_id: &str,
     facet_scope: CoordinationScope,
@@ -219,14 +211,13 @@ fn selection_drag_binding(
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(false)))
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_selection_at_start_scope(selection_id, replace_selection_update(facet_scope))
         .set_store_at_start_scope_replacing_scopes(store_name, replace_store_update())
         .preview()
 }
 
 fn selection_add_drag_binding(
-    cursor: &Param,
     store_name: &str,
     selection_id: &str,
     facet_scope: CoordinationScope,
@@ -242,7 +233,7 @@ fn selection_add_drag_binding(
         .filter(ev::event_at_start_clipped_coord("x").is_not_null())
         .filter(ev::event_at_start_clipped_coord("y").is_not_null())
         .filter(ev::shift().eq(lit(true)))
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_selection_at_start_scope(selection_id, upsert_selection_update(facet_scope))
         .set_store_at_start_scope(store_name, upsert_store_update())
         .preview()

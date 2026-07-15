@@ -6,8 +6,9 @@ use avenger_chart_core::{
     ChartTool, CoordinateSystemCore, CoordinationScope, CursorStyle, DomainCoordination,
     DomainCoordinationGroup, EmptySelectionBehavior, IntoExpr, Param, SceneGeometryHitPolicy,
     SceneGeometryQuery, SceneQueryDatumField, Selection, SelectionClauseUpdate, SelectionCombine,
-    SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate, ToolExpansion,
-    ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit, event as ev, repeat,
+    SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreRow, StoreUpdate,
+    ToolBehaviorExpansion, ToolExpansionContext, ToolMetadata, ToolParamSharing, ToolScaleEdit,
+    event as ev, repeat,
 };
 use avenger_chart_marks::Rect;
 use datafusion::{
@@ -172,13 +173,21 @@ impl ChartTool<Cartesian> for PanScrollZoom {
     fn expand(
         &self,
         ctx: ToolExpansionContext<'_>,
-    ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
-        let enabled = Param::new(
-            self.enabled_param_name(),
-            ScalarValue::Boolean(Some(self.enabled_by_default)),
-        );
-        let mut expansion = ToolExpansion::new()
-            .param(
+    ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
+        let enabled = {
+            let __avenger_param_name = self.enabled_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Boolean(Some(self.enabled_by_default));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
+            .param_as(
+                "enabled",
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
             )
@@ -263,9 +272,10 @@ impl ChartTool<Cartesian> for PanScrollZoom {
                         self.id, param.name
                     )));
                 }
+                expansion = expansion.export_param_as(format!("{channel}_domain"), &param);
             } else {
                 registered_domain_params.push((param.name.clone(), sharing.clone()));
-                expansion = expansion.param(param.clone(), sharing);
+                expansion = expansion.param_as(format!("{channel}_domain"), param.clone(), sharing);
             }
             expansion = expansion.scale_edit(ToolScaleEdit::raw_domain(channel, param.name));
         }
@@ -471,21 +481,23 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
 
     fn expand(
         &self,
-        _ctx: ToolExpansionContext<'_>,
-    ) -> Result<ToolExpansion<C>, AvengerChartError> {
-        let enabled = Param::new(
-            self.enabled_param_name(),
-            ScalarValue::Boolean(Some(self.enabled_by_default)),
-        );
-        let cursor = Param::cursor(
-            generated_tool_name(&self.tool_id, "cursor"),
-            CursorStyle::Default,
-        );
+        ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolBehaviorExpansion<C>, AvengerChartError> {
+        let enabled = {
+            let __avenger_param_name = self.enabled_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Boolean(Some(self.enabled_by_default));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let clause = self.clause()?;
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
-        let mut expansion = ToolExpansion::new()
+        let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(enabled.clone(), shared.clone())
-            .cursor_param(cursor.clone(), shared)
             .selection(self.selection())
             .event_binding(point_selection_replace_binding(
                 &enabled.name,
@@ -496,14 +508,12 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
             .event_binding(point_selection_cursor_binding(
                 ChartEventType::MarkMouseEnter,
                 &enabled.name,
-                &cursor,
                 &self.dimensions,
                 CursorStyle::Pointer,
             ))
             .event_binding(point_selection_cursor_binding(
                 ChartEventType::MarkMouseLeave,
                 &enabled.name,
-                &cursor,
                 &self.dimensions,
                 CursorStyle::Default,
             ))
@@ -534,7 +544,6 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
 fn point_selection_cursor_binding(
     event_type: ChartEventType,
     enabled_param: &str,
-    cursor: &Param,
     dimensions: &[PointSelectionDimension],
     style: CursorStyle,
 ) -> ChartEventBinding {
@@ -542,7 +551,7 @@ fn point_selection_cursor_binding(
     if event_type == ChartEventType::MarkMouseEnter {
         binding = binding.filter(ev::param(enabled_param).eq(lit(true)));
     }
-    binding = binding.set_param(cursor, ev::cursor(style));
+    binding = binding.set_cursor(ev::cursor(style));
     for dimension in dimensions {
         binding = binding.filter(ev::datum(&dimension.datum_field).is_not_null());
     }
@@ -780,13 +789,20 @@ impl<C: CoordinateSystemCore> ChartTool<C> for LassoSelection {
 
     fn expand(
         &self,
-        _ctx: ToolExpansionContext<'_>,
-    ) -> Result<ToolExpansion<C>, AvengerChartError> {
-        let enabled = Param::new(
-            self.enabled_param_name(),
-            ScalarValue::Boolean(Some(self.enabled_by_default)),
-        );
-        let mut expansion = ToolExpansion::new()
+        ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolBehaviorExpansion<C>, AvengerChartError> {
+        let enabled = {
+            let __avenger_param_name = self.enabled_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Boolean(Some(self.enabled_by_default));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
@@ -1188,7 +1204,7 @@ impl ChartTool<Cartesian> for BoxSelection {
     fn expand(
         &self,
         ctx: ToolExpansionContext<'_>,
-    ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
+    ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
         if self.x_channel.is_empty() || self.y_channel.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "tool '{}' requires non-empty x and y channels",
@@ -1196,19 +1212,26 @@ impl ChartTool<Cartesian> for BoxSelection {
             )));
         }
         let unit_aspect_box = resolve_unit_aspect_box(
-            ctx,
+            &ctx,
             self.unit_aspect_box,
             &self.tool_id,
             &self.x_channel,
             &self.y_channel,
         )?;
 
-        let enabled = Param::new(
-            self.enabled_param_name(),
-            ScalarValue::Boolean(Some(self.enabled_by_default)),
-        );
+        let enabled = {
+            let __avenger_param_name = self.enabled_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Boolean(Some(self.enabled_by_default));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let store = self.store();
-        let mut expansion = ToolExpansion::new()
+        let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
@@ -1434,10 +1457,17 @@ impl BoxZoom {
     }
 
     fn overlay_param(&self, suffix: &str) -> Param {
-        Param::new(
-            generated_tool_name(&self.id, suffix),
-            ScalarValue::Float64(Some(0.0)),
-        )
+        {
+            let __avenger_param_name = generated_tool_name(&self.id, suffix);
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Float64(Some(0.0));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        }
     }
 }
 
@@ -1449,7 +1479,7 @@ impl ChartTool<Cartesian> for BoxZoom {
     fn expand(
         &self,
         ctx: ToolExpansionContext<'_>,
-    ) -> Result<ToolExpansion<Cartesian>, AvengerChartError> {
+    ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
         if self.x_channel.is_empty() || self.y_channel.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
                 "tool '{}' requires non-empty x and y channels",
@@ -1463,18 +1493,35 @@ impl ChartTool<Cartesian> for BoxZoom {
             )));
         }
         let unit_aspect_box = resolve_unit_aspect_box(
-            ctx,
+            &ctx,
             self.unit_aspect_box,
             &self.id,
             &self.x_channel,
             &self.y_channel,
         )?;
 
-        let enabled = Param::new(
-            self.enabled_param_name(),
-            ScalarValue::Boolean(Some(self.enabled_by_default)),
-        );
-        let active = Param::new(self.active_param_name(), ScalarValue::Boolean(Some(false)));
+        let enabled = {
+            let __avenger_param_name = self.enabled_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                ScalarValue::Boolean(Some(self.enabled_by_default));
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let active = {
+            let __avenger_param_name = self.active_param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Boolean(Some(false))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let box_x0 = self.overlay_param("x0");
         let box_y0 = self.overlay_param("y0");
         let box_x1 = self.overlay_param("x1");
@@ -1515,7 +1562,7 @@ impl ChartTool<Cartesian> for BoxZoom {
             (self.y_channel.clone(), y_domain.clone()),
         ];
 
-        Ok(ToolExpansion::new()
+        Ok(ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
@@ -1591,7 +1638,7 @@ impl ChartTool<Cartesian> for BoxZoom {
                 unit_aspect_box,
             ))
             .event_binding(box_zoom_reset_binding(&enabled.name, &active, &channels))
-            .mark(overlay)
+            .mark_part("selection", overlay)
             .metadata(
                 ToolMetadata::new(self.id.clone(), "Box Zoom").enabled_param(enabled.name.clone()),
             ))
@@ -1757,7 +1804,7 @@ fn drag_distance_squared() -> Expr {
 }
 
 fn resolve_unit_aspect_box(
-    ctx: ToolExpansionContext<'_>,
+    ctx: &ToolExpansionContext<'_>,
     requested: Option<UnitAspectBox>,
     tool_id: &str,
     x_channel: &str,
@@ -2035,6 +2082,43 @@ mod tests {
         ToolExpansionContext::empty(tool_id).with_coordinate_metrics(metrics)
     }
 
+    fn params<C: CoordinateSystemCore>(expansion: &ToolBehaviorExpansion<C>) -> Vec<&Param> {
+        expansion
+            .state
+            .iter()
+            .filter_map(|state| match state {
+                avenger_chart_core::ResolvedStateDeclaration::Param { param, .. } => Some(param),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn stores<C: CoordinateSystemCore>(expansion: &ToolBehaviorExpansion<C>) -> Vec<&Store> {
+        expansion
+            .state
+            .iter()
+            .filter_map(|state| match state {
+                avenger_chart_core::ResolvedStateDeclaration::Store { store, .. } => Some(store),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn selections<C: CoordinateSystemCore>(
+        expansion: &ToolBehaviorExpansion<C>,
+    ) -> Vec<&Selection> {
+        expansion
+            .state
+            .iter()
+            .filter_map(|state| match state {
+                avenger_chart_core::ResolvedStateDeclaration::Selection { selection, .. } => {
+                    Some(selection)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     fn xy_coordinate_metric() -> CoordinateMetricDescriptor {
         CoordinateMetricDescriptor::new("unit_aspect", "x", "y")
     }
@@ -2150,27 +2234,24 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 3);
+        assert_eq!(params(&expansion).len(), 3);
         assert_eq!(expansion.event_bindings.len(), 3);
         assert_eq!(expansion.scale_edits.len(), 2);
         assert_eq!(expansion.metadata.len(), 1);
         assert!(
-            expansion
-                .params
+            params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_pan_scroll_zoom__enabled")
+                .any(|p| p.name == "__tool_pan_scroll_zoom__enabled")
         );
         assert!(
-            expansion
-                .params
+            params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_pan_scroll_zoom__x_domain")
+                .any(|p| p.name == "__tool_pan_scroll_zoom__x_domain")
         );
         assert!(
-            expansion
-                .params
+            params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_pan_scroll_zoom__y_domain")
+                .any(|p| p.name == "__tool_pan_scroll_zoom__y_domain")
         );
         let reset = expansion
             .event_bindings
@@ -2178,7 +2259,7 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("double-click reset binding");
         assert_eq!(reset.filters.len(), 3);
-        assert_eq!(reset.action.assignments.len(), 2);
+        assert_eq!(reset.action.param_steps().count(), 2);
         assert_eq!(
             reset.action.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Exact
@@ -2192,26 +2273,24 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 2);
+        assert_eq!(params(&expansion).len(), 2);
         let reset = expansion
             .event_bindings
             .iter()
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("double-click reset binding");
         assert_eq!(reset.filters.len(), 2);
-        assert_eq!(reset.action.assignments.len(), 1);
+        assert_eq!(reset.action.param_steps().count(), 1);
         assert_eq!(expansion.scale_edits.len(), 1);
         assert!(
-            expansion
-                .params
+            params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_nav__x_domain")
+                .any(|p| p.name == "__tool_nav__x_domain")
         );
         assert!(
-            !expansion
-                .params
+            !params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_nav__y_domain")
+                .any(|p| p.name == "__tool_nav__y_domain")
         );
     }
 
@@ -2258,12 +2337,11 @@ mod tests {
             .expand(ToolExpansionContext::new(ChartTool::id(&tool), &targets))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 2);
+        assert_eq!(params(&expansion).len(), 2);
         assert!(
-            expansion
-                .params
+            params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_pan_scroll_zoom__domain__measurement")
+                .any(|p| p.name == "__tool_pan_scroll_zoom__domain__measurement")
         );
         assert_eq!(expansion.scale_edits.len(), 2);
 
@@ -2272,9 +2350,9 @@ mod tests {
             .iter()
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
-        assert_eq!(drag.action.assignments.len(), 1);
+        assert_eq!(drag.action.param_steps().count(), 1);
         assert_eq!(
-            drag.action.assignments[0].param_name,
+            drag.action.param_steps().next().unwrap().param_name,
             "__tool_pan_scroll_zoom__domain__measurement"
         );
     }
@@ -2288,17 +2366,16 @@ mod tests {
         )
         .expect("expand");
 
-        assert_eq!(expansion.params.len(), 2);
-        assert_eq!(expansion.selections.len(), 1);
+        assert_eq!(params(&expansion).len(), 2);
+        assert_eq!(selections(&expansion).len(), 1);
         assert_eq!(expansion.event_bindings.len(), 5);
         assert_eq!(expansion.metadata.len(), 1);
-        assert!(expansion.stores.is_empty());
+        assert!(stores(&expansion).is_empty());
         assert!(expansion.marks.is_empty());
         assert!(expansion.scale_edits.is_empty());
-        assert_eq!(expansion.params[0].param.name, "__tool_picked__enabled");
-        assert_eq!(expansion.params[1].param.name, "__tool_picked__cursor");
-        assert_eq!(expansion.cursor_params, ["__tool_picked__cursor"]);
-        assert_eq!(expansion.selections[0].id, "picked");
+        assert_eq!(params(&expansion)[0].name, "__tool_picked__enabled");
+        assert_eq!(params(&expansion)[1].name, "__tool_picked__cursor");
+        assert_eq!(selections(&expansion)[0].id, "picked");
         assert_eq!(expansion.metadata[0].id, "picked");
         assert_eq!(
             expansion
@@ -2310,7 +2387,7 @@ mod tests {
         );
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding.event_type == ChartEventType::DoubleClick
-                && binding.action.selection_assignments.len() == 1
+                && binding.action.selection_steps().count() == 1
         }));
     }
 
@@ -2341,7 +2418,7 @@ mod tests {
         .expect("expand");
 
         assert_eq!(
-            expansion.params[0].param.default,
+            params(&expansion)[0].default,
             ScalarValue::Boolean(Some(false))
         );
         assert!(
@@ -2366,15 +2443,15 @@ mod tests {
         )
         .expect("expand");
 
-        assert_eq!(expansion.params.len(), 1);
-        assert_eq!(expansion.selections.len(), 1);
+        assert_eq!(params(&expansion).len(), 1);
+        assert_eq!(selections(&expansion).len(), 1);
         assert_eq!(expansion.event_bindings.len(), 2);
         assert_eq!(expansion.metadata.len(), 1);
-        assert!(expansion.stores.is_empty());
+        assert!(stores(&expansion).is_empty());
         assert!(expansion.marks.is_empty());
         assert!(expansion.scale_edits.is_empty());
-        assert_eq!(expansion.params[0].param.name, "__tool_picked__enabled");
-        assert_eq!(expansion.selections[0].id, "picked");
+        assert_eq!(params(&expansion)[0].name, "__tool_picked__enabled");
+        assert_eq!(selections(&expansion)[0].id, "picked");
         assert_eq!(expansion.metadata[0].id, "picked");
 
         let drag = expansion
@@ -2384,14 +2461,14 @@ mod tests {
             .expect("drag binding");
         assert!(drag.between.is_some());
         assert_eq!(drag.event_path_min_distance_px, Some(7.0));
-        assert_eq!(drag.action.selection_assignments.len(), 1);
+        assert_eq!(drag.action.selection_steps().count(), 1);
         assert_eq!(
             drag.action.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Preview
         );
         assert!(drag.action.settle_exact);
 
-        let assignment = &drag.action.selection_assignments[0];
+        let assignment = drag.action.selection_steps().next().unwrap();
         assert_eq!(assignment.selection_id, "picked");
         let SelectionUpdate::ReplaceAllFromSceneQuery { query } = &assignment.update else {
             panic!("lasso drag should use a scene-query selection update");
@@ -2411,7 +2488,7 @@ mod tests {
 
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding.event_type == ChartEventType::DoubleClick
-                && binding.action.selection_assignments.len() == 1
+                && binding.action.selection_steps().count() == 1
         }));
     }
 
@@ -2468,20 +2545,20 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 1);
-        assert_eq!(expansion.stores.len(), 1);
-        assert_eq!(expansion.selections.len(), 1);
+        assert_eq!(params(&expansion).len(), 1);
+        assert_eq!(stores(&expansion).len(), 1);
+        assert_eq!(selections(&expansion).len(), 1);
         assert_eq!(expansion.event_bindings.len(), 3);
         assert_eq!(expansion.marks.len(), 1);
         assert_eq!(expansion.metadata.len(), 1);
-        assert_eq!(expansion.params[0].param.name, "__tool_brush__enabled");
-        assert_eq!(expansion.stores[0].name, "__tool_brush__boxes");
-        assert_eq!(expansion.stores[0].primary_key, ["id"]);
-        assert_eq!(expansion.stores[0].sharing, CoordinationScope::Free);
-        assert_eq!(expansion.selections[0].id, "brush");
-        assert_eq!(expansion.selections[0].combine, SelectionCombine::Union);
+        assert_eq!(params(&expansion)[0].name, "__tool_brush__enabled");
+        assert_eq!(stores(&expansion)[0].name, "__tool_brush__boxes");
+        assert_eq!(stores(&expansion)[0].primary_key, ["id"]);
+        assert_eq!(stores(&expansion)[0].sharing, CoordinationScope::Free);
+        assert_eq!(selections(&expansion)[0].id, "brush");
+        assert_eq!(selections(&expansion)[0].combine, SelectionCombine::Union);
         assert_eq!(
-            expansion.selections[0].empty,
+            selections(&expansion)[0].empty,
             EmptySelectionBehavior::SelectNothing
         );
         assert!(
@@ -2489,21 +2566,21 @@ mod tests {
                 .event_bindings
                 .iter()
                 .any(|binding| binding.event_type == ChartEventType::CursorMoved
-                    && binding.action.selection_assignments.len() == 1
-                    && binding.action.store_assignments.len() == 1)
+                    && binding.action.selection_steps().count() == 1
+                    && binding.action.store_steps().count() == 1)
         );
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding
                 .between
                 .as_ref()
                 .is_some_and(|between| between.emit_end_event)
-                && binding.action.selection_assignments.len() == 1
-                && binding.action.store_assignments.len() == 1
+                && binding.action.selection_steps().count() == 1
+                && binding.action.store_steps().count() == 1
         }));
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding.event_type == ChartEventType::DoubleClick
-                && binding.action.selection_assignments.len() == 1
-                && binding.action.store_assignments.len() == 1
+                && binding.action.selection_steps().count() == 1
+                && binding.action.store_steps().count() == 1
         }));
     }
 
@@ -2517,19 +2594,20 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.selections[0].combine, SelectionCombine::Union);
+        assert_eq!(selections(&expansion)[0].combine, SelectionCombine::Union);
         let drag = expansion
             .event_bindings
             .iter()
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
         let SelectionUpdate::UpsertClauses { clauses } =
-            &drag.action.selection_assignments[0].update
+            &drag.action.selection_steps().next().unwrap().update
         else {
             panic!("repeat union should upsert selection clauses");
         };
         assert_eq!(clauses.len(), 1);
-        let StoreUpdate::UpsertRows { rows } = &drag.action.store_assignments[0].update else {
+        let StoreUpdate::UpsertRows { rows } = &drag.action.store_steps().next().unwrap().update
+        else {
             panic!("repeat union should upsert store rows");
         };
         assert_eq!(rows.len(), 1);
@@ -2543,9 +2621,12 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.selections[0].combine, SelectionCombine::Intersect);
         assert_eq!(
-            expansion.selections[0].empty,
+            selections(&expansion)[0].combine,
+            SelectionCombine::Intersect
+        );
+        assert_eq!(
+            selections(&expansion)[0].empty,
             EmptySelectionBehavior::SelectAll
         );
     }
@@ -2557,16 +2638,15 @@ mod tests {
             .expand(ToolExpansionContext::empty(ChartTool::id(&tool)))
             .expect("expand");
 
-        assert_eq!(expansion.params.len(), 8);
+        assert_eq!(params(&expansion).len(), 8);
         assert_eq!(expansion.event_bindings.len(), 5);
         assert_eq!(expansion.scale_edits.len(), 2);
         assert_eq!(expansion.marks.len(), 1);
         assert_eq!(expansion.metadata.len(), 1);
         assert!(
-            expansion
-                .params
+            params(&expansion)
                 .iter()
-                .any(|p| p.param.name == "__tool_box_zoom__active")
+                .any(|p| p.name == "__tool_box_zoom__active")
         );
         assert!(expansion.event_bindings.iter().any(|binding| {
             binding
@@ -2578,7 +2658,7 @@ mod tests {
             expansion
                 .event_bindings
                 .iter()
-                .flat_map(|binding| binding.action.assignments.iter())
+                .flat_map(|binding| binding.action.param_steps())
                 .any(|assignment| assignment.scope
                     == avenger_chart_core::event::ChartEventAssignmentScope::Start)
         );
@@ -2588,7 +2668,7 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::DoubleClick)
             .expect("double-click reset binding");
         assert_eq!(reset.filters.len(), 3);
-        assert_eq!(reset.action.assignments.len(), 3);
+        assert_eq!(reset.action.param_steps().count(), 3);
         assert_eq!(
             reset.action.evaluation_mode,
             avenger_chart_core::event::ChartEventEvaluationMode::Exact
@@ -2609,6 +2689,6 @@ mod tests {
             .find(|binding| binding.event_type == ChartEventType::CursorMoved)
             .expect("drag binding");
         assert_eq!(drag.filters.len(), 9);
-        assert_eq!(drag.action.assignments.len(), 5);
+        assert_eq!(drag.action.param_steps().count(), 5);
     }
 }

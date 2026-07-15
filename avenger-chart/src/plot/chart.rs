@@ -38,7 +38,6 @@ pub struct Chart<C: CoordinateSystem> {
     param_specs: Vec<CompiledParamSpec>,
     selections: Vec<Selection>,
     stores: Vec<Store>,
-    cursor_params: Vec<String>,
 }
 
 impl<C: CoordinateSystem> Chart<C> {
@@ -55,7 +54,6 @@ impl<C: CoordinateSystem> Chart<C> {
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
-            cursor_params: Vec::new(),
         }
     }
 
@@ -72,7 +70,6 @@ impl<C: CoordinateSystem> Chart<C> {
             param_specs: Vec::new(),
             selections: Vec::new(),
             stores: Vec::new(),
-            cursor_params: Vec::new(),
         }
     }
 
@@ -368,12 +365,6 @@ impl<C: CoordinateSystem> Chart<C> {
         self
     }
 
-    /// Mark a declared parameter as app cursor state.
-    pub fn cursor_param(mut self, param: impl Into<String>) -> Self {
-        self.cursor_params.push(param.into());
-        self
-    }
-
     /// Compile this root chart.
     pub async fn compile(
         self,
@@ -392,7 +383,6 @@ impl<C: CoordinateSystem> Chart<C> {
                     param_specs: self.param_specs,
                     selections: self.selections,
                     stores: self.stores,
-                    cursor_params: self.cursor_params,
                 },
             )
             .await
@@ -491,11 +481,31 @@ mod tests {
     #[tokio::test]
     async fn canonical_state_methods_compile_to_root_artifact() {
         let chart = Chart::<Cartesian>::new()
-            .param(Param::new("shared", 1_i64))
-            .param_with_sharing(Param::new("local", 2_i64), CoordinationScope::Free)
+            .param({
+                let __avenger_param_name = "shared";
+                let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
+            .param_with_sharing(
+                {
+                    let __avenger_param_name = "local";
+                    let __avenger_param_default: datafusion::common::ScalarValue = (2_i64).into();
+                    Param::typed(
+                        __avenger_param_name,
+                        __avenger_param_default.data_type(),
+                        __avenger_param_default,
+                    )
+                    .expect("a parameter default must match its selected physical type")
+                },
+                CoordinationScope::Free,
+            )
             .selection(Selection::new("picked"))
-            .store(Store::empty("rows"))
-            .cursor_param("cursor");
+            .store(Store::empty("rows"));
         let compiled = chart.compile(&SessionContext::new()).await.unwrap();
 
         assert_eq!(
@@ -508,7 +518,6 @@ mod tests {
         );
         assert!(compiled.selection_specs().contains_key("picked"));
         assert!(compiled.store_specs().contains_key("rows"));
-        assert_eq!(compiled.cursor_params(), &["cursor"]);
     }
 
     #[test]
@@ -596,7 +605,16 @@ mod tests {
 
     #[test]
     fn root_layout_builders_retain_fixed_expression_and_constraint_modes() {
-        let width = Param::new("root_width", 320.0_f64);
+        let width = {
+            let __avenger_param_name = "root_width";
+            let __avenger_param_default: datafusion::common::ScalarValue = (320.0_f64).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let fixed = Chart::<Cartesian>::new().plot_size(width.expr(), 200.0);
         let SizeMode::Fixed {
             width: fixed_width,
@@ -731,7 +749,17 @@ mod tests {
     #[tokio::test]
     async fn positioned_subplot_size_expression_evaluates_from_params() {
         let ctx = SessionContext::new();
-        let width = Param::new("child_width", ScalarValue::Float64(Some(80.0)));
+        let width = {
+            let __avenger_param_name = "child_width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(80.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = Chart::<Cartesian>::new()
             .plot_size(320.0, 200.0)
             .param(width.clone())

@@ -518,8 +518,10 @@ async fn box_plot_from_mark_group_branches() {
     let event_binding = compiled.event_bindings().first().expect("event binding");
     let between = event_binding.between.as_ref().expect("between binding");
     assert_eq!(
-        between.start.resolved_mark_paths(),
-        Some(&[vec![3usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![3usize]]
     );
     assert_visual_match_default(
         &compiled,
@@ -552,8 +554,10 @@ async fn box_plot_from_mark_group_nested_band() {
     let event_binding = compiled.event_bindings().first().expect("event binding");
     let between = event_binding.between.as_ref().expect("between binding");
     assert_eq!(
-        between.start.resolved_mark_paths(),
-        Some(&[vec![3usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![3usize]]
     );
     assert_visual_match_default(
         &compiled,

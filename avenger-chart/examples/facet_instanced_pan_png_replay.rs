@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 value: list_domain(0.0 - shift * 0.8, 10.0 - shift * 0.8),
                 replace_scoped_values: false,
             },
-        ]);
+        ])?;
 
         let eval_start = Instant::now();
         let (evaluated, metrics) = session

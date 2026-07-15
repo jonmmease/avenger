@@ -380,9 +380,10 @@ async fn assemble_plot_tree(
             }
             let part = mark
                 .state()
-                .widget_theme
+                .identity
+                .component
                 .as_ref()
-                .map(|provenance| provenance.part.clone())
+                .map(|provenance| provenance.part_alias.clone())
                 .unwrap_or_else(|| format!("mark-{mark_index}"));
             let target = BakeTarget {
                 plot_path: plot_path.clone(),
@@ -1134,7 +1135,7 @@ mod tests {
     use avenger_chart_core::{
         CoordinationScope, DataTransform, DataTransformCompileContext, DataTransformStage,
     };
-    use avenger_chart_transforms::{Aggregate, Calculate, Filter, Kde, Sql};
+    use avenger_chart_transforms::{Aggregate, Calculate, Filter, Kde, Pipeline, Sql};
     use datafusion::{
         arrow::{
             array::{Float64Array, StringArray},
@@ -1191,7 +1192,17 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let ctx = SessionContext::new();
         let dataframe = register_sales(&ctx).await;
-        let min = Param::new("min", ScalarValue::Float64(Some(0.0)));
+        let min = {
+            let __avenger_param_name = "min";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(0.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let data_context = data_context(
             dataframe,
             vec![
@@ -1237,6 +1248,59 @@ mod tests {
         assert!(display.contains("Filter"), "{display}");
         assert!(display.contains("double_value"), "{display}");
         assert!(display.contains("$min"), "{display}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pipeline_serializes_and_enters_baking_as_one_parent_stage()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let ctx = SessionContext::new();
+        let dataframe = register_sales(&ctx).await;
+        let parent = stage(
+            Pipeline::new()
+                .transform(
+                    Calculate::new().expr("doubled", col("value") * lit(2.0)),
+                    |pipeline, _| pipeline,
+                )
+                .transform(
+                    Aggregate::new()
+                        .group_by([col("region")])
+                        .sum("total", col("doubled")),
+                    |pipeline, _| pipeline,
+                )
+                .output("region", col("region"))
+                .output("total", col("total")),
+        );
+        assert_eq!(transform_tag(&parent).as_deref(), Some("pipeline"));
+
+        let restored: DataTransformStage = bincode::deserialize(&bincode::serialize(&parent)?)?;
+        let data_context = data_context(dataframe, vec![restored]);
+        assert_eq!(data_context.transforms().len(), 1);
+        let assembled = assemble_data_context(
+            &data_context,
+            BakeTarget {
+                plot_path: Vec::new(),
+                kind: BakeTargetKind::MarkGroup {
+                    index: 0,
+                    keep_transforms: false,
+                },
+            },
+            BakeContextId::MarkGroup {
+                index: 0,
+                id: Some("pipeline".to_string()),
+            },
+            &ctx,
+            TimeContext::default(),
+            MarkDataMode::Inherit,
+            None,
+            false,
+        )
+        .await
+        .map_err(|reason| format!("pipeline bake assembly failed: {reason:?}"))?
+        .expect("pipeline should produce a bake context");
+        let display = assembled.plan.display_indent().to_string();
+        assert!(display.contains("total"), "{display}");
+        assert!(!display.contains("doubled AS doubled"), "{display}");
         Ok(())
     }
 

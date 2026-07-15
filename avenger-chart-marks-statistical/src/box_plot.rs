@@ -719,6 +719,7 @@ impl BoxPlot {
             &self.median_style,
         );
         let mut root = MarkGroup::new()
+            .component_kind("box-plot")
             .with_data_context(self.data, self.data_mode)
             .facet_data_scope(self.facet_data_scope);
         if let Some(hint) = band_scale_hint(

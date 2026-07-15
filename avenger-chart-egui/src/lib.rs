@@ -376,7 +376,17 @@ mod tests {
 
     async fn test_handle() -> AvengerPlotHandle {
         let ctx = SessionContext::new();
-        let width = chart::Param::new("width", scalar_f64(640.0));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (scalar_f64(640.0)).into();
+            chart::Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = chart::Chart::<chart::Cartesian>::new()
             .param(width)
             .compile(&ctx)
@@ -436,7 +446,17 @@ mod tests {
     #[tokio::test]
     async fn from_app_preserves_param_access() {
         let ctx = Arc::new(SessionContext::new());
-        let width = chart::Param::new("width", scalar_f64(640.0));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (scalar_f64(640.0)).into();
+            chart::Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = chart::Chart::<chart::Cartesian>::new()
             .param(width.clone())
             .canvas_constraint(chart::CanvasConstraint::width(width.expr()))
@@ -482,7 +502,17 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn chart_wrapper_dispatches_routed_resize_events() {
         let ctx = Arc::new(SessionContext::new());
-        let width = chart::Param::new("width", scalar_f64(640.0));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (scalar_f64(640.0)).into();
+            chart::Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let compiled = chart::Chart::<chart::Cartesian>::new()
             .param(width.clone())
             .canvas_constraint(chart::CanvasConstraint::width(width.expr()))

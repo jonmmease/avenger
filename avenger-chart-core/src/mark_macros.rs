@@ -18,6 +18,7 @@ macro_rules! impl_mark_base {
                 Self {
                     state: $crate::MarkState {
                         id: None,
+                        public_aliases: Vec::new(),
                         data: $crate::DataContext::default(),
                         view: None,
                         data_mode: $crate::MarkDataMode::Inherit,
@@ -47,6 +48,12 @@ macro_rules! impl_mark_base {
             /// Set a structural id used by chart interaction targeting.
             pub fn id(mut self, id: impl Into<String>) -> Self {
                 self.state.id = Some(id.into());
+                self
+            }
+
+            /// Add a public interaction/export alias for this mark.
+            pub fn alias(mut self, alias: impl Into<String>) -> Self {
+                self.state.public_aliases.push(alias.into());
                 self
             }
 
@@ -149,28 +156,47 @@ macro_rules! impl_mark_base {
             /// pre-view transforms on the mark's base data context. Transforms
             /// and channel encodings configured inside the closure are stored
             /// in a view-local data context.
-            pub fn view<V, F>(mut self, view: V, f: F) -> Self
+            pub fn view<V, F>(self, view: V, f: F) -> Self
             where
                 V: $crate::ViewSpec,
                 F: FnOnce(Self, $crate::ViewRef) -> Self,
             {
+                self.try_view(view, |mark, view_ref| Ok(f(mark, view_ref)))
+                    .expect("Failed to build mark view scope")
+            }
+
+            /// Fallible form of `view(...)` for reusable authoring components.
+            pub fn try_view<V, F>(
+                mut self,
+                view: V,
+                f: F,
+            ) -> Result<Self, $crate::AvengerChartError>
+            where
+                V: $crate::ViewSpec,
+                F: FnOnce(
+                    Self,
+                    $crate::ViewRef,
+                ) -> Result<Self, $crate::AvengerChartError>,
+            {
                 if self.state.view.is_some() {
-                    panic!("Nested mark.view(...) scopes are not supported");
+                    return Err($crate::AvengerChartError::InvalidArgument(
+                        "Nested mark.view(...) scopes are not supported".to_string(),
+                    ));
                 }
 
-                let (compiled_view, view_ref) = view
-                    .into_compiled_and_ref()
-                    .expect("Failed to build view scope");
+                let (compiled_view, view_ref) = view.into_compiled_and_ref()?;
                 let base_data = std::mem::take(&mut self.state.data);
-                let mut mark = f(self, view_ref);
+                let mut mark = f(self, view_ref)?;
 
                 if mark.state.view.is_some() {
-                    panic!("Nested mark.view(...) scopes are not supported");
+                    return Err($crate::AvengerChartError::InvalidArgument(
+                        "Nested mark.view(...) scopes are not supported".to_string(),
+                    ));
                 }
 
                 let view_data = std::mem::replace(&mut mark.state.data, base_data);
                 mark.state.view = Some($crate::ViewScopeState::new(compiled_view, view_data));
-                mark
+                Ok(mark)
             }
 
             /// Apply a no-output data transform and configure this mark without a dummy output argument.

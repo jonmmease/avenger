@@ -5,7 +5,7 @@ use avenger_chart::{
     pixel_frame::{PixelFrameRectPositionChannels, PixelFrameTextPositionChannels},
     prelude::{
         AvengerChartError, ChartAction, ChartParamChangeBinding, ChartWidget, CoordinationScope,
-        CursorStyle, Param, PixelFrame, Rect, Text, ToolExpansion, ToolParamSharing,
+        CursorStyle, Param, PixelFrame, Rect, Text, ToolBehaviorExpansion, ToolParamSharing,
         WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext, WidgetMeasureExpr,
         WidgetMeasureSpec, WidgetPresentationBindings, WidgetStyleProperty, WidgetTextMeasureAxis,
     },
@@ -50,7 +50,16 @@ impl Button {
     pub fn new(id: impl Into<String>) -> Self {
         let id = id.into();
         Self {
-            activations: Param::new(format!("{id}__activations"), 0_u64),
+            activations: {
+                let __avenger_param_name = format!("{id}__activations");
+                let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
             id,
             label: String::new(),
             variant: ButtonVariant::Neutral,
@@ -146,9 +155,26 @@ impl ChartWidget for Button {
             .y2(height + focus_gap)
             .fill("transparent");
 
-        let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
-        let hover = Param::new(format!("{}__hover", self.id), false);
-        let pressed = Param::new(format!("{}__pressed", self.id), false);
+        let hover = {
+            let __avenger_param_name = format!("{}__hover", self.id);
+            let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let pressed = {
+            let __avenger_param_name = format!("{}__pressed", self.id);
+            let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let next_activation = when(
             self.activations()
@@ -156,11 +182,10 @@ impl ChartWidget for Button {
             self.activations() + lit(ScalarValue::UInt64(Some(1))),
         )
         .otherwise(lit(ScalarValue::UInt64(None)))?;
-        let mut expansion = ToolExpansion::new()
+        let mut behavior = ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
             .param(self.activations.clone(), shared.clone())
             .param(hover.clone(), shared.clone())
             .param(pressed.clone(), shared.clone())
-            .cursor_param(cursor.clone(), shared)
             .mark(box_mark)
             .mark(label_mark)
             .mark(focus_mark)
@@ -171,13 +196,13 @@ impl ChartWidget for Button {
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
                     .set_param(&hover, true)
-                    .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
+                    .set_cursor(event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
                     .set_param(&hover, false)
                     .set_param(&pressed, false)
-                    .set_param(&cursor, event::cursor(CursorStyle::Default)),
+                    .set_cursor(event::cursor(CursorStyle::Default)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MouseDown)
@@ -194,13 +219,14 @@ impl ChartWidget for Button {
                 .set_param(&pressed, false),
             );
         if let Some(action) = &self.action {
-            expansion = expansion.param_change_binding(
+            behavior = behavior.param_change_binding(
                 ChartParamChangeBinding::on(&self.activations).then(action.clone()),
             );
         }
 
         Ok(WidgetExpansion {
-            expansion,
+            instance_id: ctx.instance_id,
+            behavior,
             items: None,
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {

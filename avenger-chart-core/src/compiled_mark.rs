@@ -369,31 +369,36 @@ pub fn default_channel_value_for_eval<M: CompiledMarkCore + ?Sized>(
     channel: &str,
     eval_ctx: &EvaluationContext,
 ) -> Option<ScalarValue> {
-    let theme_default = if let Some(provenance) = mark.state().widget_theme.as_ref() {
-        if let Some(styles) = eval_ctx.widget_style_snapshots.as_ref() {
+    let theme_default = if let Some(provenance) = mark.state().identity.component.as_ref() {
+        let widget_snapshot = eval_ctx.widget_style_snapshots.as_ref().and_then(|styles| {
             crate::WidgetStyleProperty::for_mark_channel(channel).and_then(|property| {
-                styles
-                    .get(&provenance.widget_id)
-                    .and_then(|styles| styles.parts.get(&provenance.part))
-                    .and_then(|style| style.values.get(&property))
-                    .and_then(|value| {
-                        eval_ctx.theme().evaluate_mark_channel_value(
-                            property.name(),
-                            value,
-                            eval_ctx.params(),
-                        )
-                    })
+                provenance.component_id.as_ref().and_then(|component_id| {
+                    styles
+                        .get(component_id)
+                        .and_then(|styles| styles.parts.get(&provenance.part_alias))
+                        .and_then(|style| style.values.get(&property))
+                        .and_then(|value| {
+                            eval_ctx.theme().evaluate_mark_channel_value(
+                                property.name(),
+                                value,
+                                eval_ctx.params(),
+                            )
+                        })
+                })
             })
-        } else {
-            let host = ThemeContext::new(&provenance.widget_kind, eval_ctx.params().clone())
-                .with_id(&provenance.widget_id);
+        });
+        widget_snapshot.or_else(|| {
+            let mut host = ThemeContext::new(&provenance.component_kind, eval_ctx.params().clone());
+            if let Some(component_id) = provenance.component_id.as_ref() {
+                host = host.with_id(component_id);
+            }
             let part = ThemeContext::new("mark", eval_ctx.params().clone())
                 .with_subtype(mark.mark_type())
-                .with_part(&provenance.part, host);
+                .with_part(&provenance.part_alias, host);
             eval_ctx
                 .theme()
                 .mark_default_in_context(&part, channel, eval_ctx.params())
-        }
+        })
     } else {
         eval_ctx.mark_default(mark.mark_type(), channel)
     };

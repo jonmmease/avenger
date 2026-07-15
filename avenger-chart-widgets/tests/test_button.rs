@@ -43,10 +43,16 @@ impl NativeWidget for TestNativeWidget {
     }
 
     fn state(&self) -> NativeWidgetStateSpec {
-        NativeWidgetStateSpec::try_new(vec![CompiledParamSpec::shared(&Param::new(
-            "native_value",
-            false,
-        ))])
+        NativeWidgetStateSpec::try_new(vec![CompiledParamSpec::shared(&{
+            let __avenger_param_name = "native_value";
+            let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        })])
         .unwrap()
     }
 }
@@ -484,7 +490,6 @@ async fn button_round_trips_counter_contract_and_accent_presentation() {
         compiled.get_default_params().get("clear__activations"),
         Some(&ScalarValue::UInt64(Some(0)))
     );
-    assert_eq!(compiled.cursor_params(), &["clear__cursor"]);
     assert!(compiled.param_change_bindings().is_empty());
     for event_type in [
         ChartEventType::Click,
@@ -519,7 +524,16 @@ async fn button_round_trips_counter_contract_and_accent_presentation() {
 #[tokio::test]
 async fn button_action_matches_explicit_binding_and_round_trips() {
     let ctx = SessionContext::new();
-    let target = Param::new("target", 7_i64);
+    let target = {
+        let __avenger_param_name = "target";
+        let __avenger_param_default: datafusion::common::ScalarValue = (7_i64).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let button = Button::new("clear").label("Clear");
     let activation = button.activation_param();
     let action = ChartAction::new().reset_param(&target).exact();
@@ -581,8 +595,26 @@ async fn button_action_matches_explicit_binding_and_round_trips() {
 #[tokio::test]
 async fn button_actions_keep_activation_sources_and_targets_disjoint() {
     let ctx = SessionContext::new();
-    let first_target = Param::new("first_target", false);
-    let second_target = Param::new("second_target", false);
+    let first_target = {
+        let __avenger_param_name = "first_target";
+        let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let second_target = {
+        let __avenger_param_name = "second_target";
+        let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let compiled = Chart::<Cartesian>::new()
         .param(first_target.clone())
         .param(second_target.clone())
@@ -605,10 +637,13 @@ async fn button_actions_keep_activation_sources_and_targets_disjoint() {
     let bindings = compiled.param_change_bindings();
     assert_eq!(bindings.len(), 2);
     assert_eq!(bindings[0].source_param_name, "first__activations");
-    assert_eq!(bindings[0].action.assignments[0].param_name, "first_target");
+    assert_eq!(
+        bindings[0].action.param_steps().next().unwrap().param_name,
+        "first_target"
+    );
     assert_eq!(bindings[1].source_param_name, "second__activations");
     assert_eq!(
-        bindings[1].action.assignments[0].param_name,
+        bindings[1].action.param_steps().next().unwrap().param_name,
         "second_target"
     );
 }
@@ -682,7 +717,17 @@ async fn button_rejects_missing_label_and_non_unsigned_counter() {
             .widget(
                 Button::new("bad")
                     .label("Bad")
-                    .with_activation_param(avenger_chart::prelude::Param::new("bad_count", 0_i64))
+                    .with_activation_param({
+                        let __avenger_param_name = "bad_count";
+                        let __avenger_param_default: datafusion::common::ScalarValue =
+                            (0_i64).into();
+                        avenger_chart::prelude::Param::typed(
+                            __avenger_param_name,
+                            __avenger_param_default.data_type(),
+                            __avenger_param_default,
+                        )
+                        .expect("a parameter default must match its selected physical type")
+                    })
                     .position(ChromePosition::Left),
             )
             .compile(&ctx)

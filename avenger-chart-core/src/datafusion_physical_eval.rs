@@ -192,6 +192,26 @@ impl CompiledScalarExpressionProgram {
             .collect()
     }
 
+    /// Evaluate one expression by its stable program index.
+    ///
+    /// Ordered action runtimes use this to avoid evaluating later instructions
+    /// before their turn. That distinction matters when a later expression is
+    /// only valid after preceding transactional state changes.
+    pub fn evaluate_value_at(
+        &self,
+        index: usize,
+        batch: &RecordBatch,
+    ) -> DataFusionResult<ScalarValue> {
+        self.expressions
+            .get(index)
+            .ok_or_else(|| {
+                DataFusionError::Internal(format!(
+                    "physical scalar expression index {index} is out of bounds"
+                ))
+            })?
+            .evaluate(batch)
+    }
+
     pub fn evaluate_batch(&self, batch: &RecordBatch) -> DataFusionResult<RecordBatch> {
         let input_rows = batch.num_rows();
         let mut fields = Vec::with_capacity(self.expressions.len());

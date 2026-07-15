@@ -661,8 +661,10 @@ async fn box_plot_compound_matches_mark_group_baseline() {
     let event_binding = compiled.event_bindings().first().expect("event binding");
     let between = event_binding.between.as_ref().expect("between binding");
     assert_eq!(
-        between.start.resolved_mark_paths(),
-        Some(&[vec![3usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![3usize]]
     );
     assert_visual_match_default(
         &compiled,
@@ -701,14 +703,13 @@ async fn box_plot_compound_event_targets_resolve_standard_parts() {
         .event_bindings()
         .iter()
         .map(|binding| {
-            binding
+            let ids = binding
                 .between
                 .as_ref()
                 .expect("between binding")
                 .start
-                .resolved_mark_paths()
-                .map(|paths| paths.to_vec())
-                .expect("resolved mark paths")
+                .resolved_mark_ids();
+            compiled.runtime_paths_for_mark_ids(ids).unwrap()
         })
         .collect::<Vec<_>>();
 
@@ -875,13 +876,15 @@ async fn box_plot_compound_scene_query_targets_resolve_part_path() {
 
     let binding = compiled.event_bindings().first().expect("event binding");
     let SelectionUpdate::ReplaceAllFromSceneQuery { query } =
-        &binding.action.selection_assignments[0].update
+        &binding.action.selection_steps().next().unwrap().update
     else {
         panic!("expected scene query selection update");
     };
     assert_eq!(
-        query.query.target.resolved_mark_paths(),
-        Some(&[vec![3usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(query.query.target.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![3usize]]
     );
 }
 
@@ -904,8 +907,10 @@ async fn box_plot_compound_part_ids_are_scoped_by_root() {
     let binding = compiled.event_bindings().first().expect("event binding");
     let between = binding.between.as_ref().expect("between binding");
     assert_eq!(
-        between.start.resolved_mark_paths(),
-        Some(&[vec![3usize], vec![9usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![3usize], vec![9usize]]
     );
 }
 
@@ -984,8 +989,10 @@ async fn box_plot_grouped_nested_band_fill_by_segment() {
     let event_binding = compiled.event_bindings().first().expect("event binding");
     let between = event_binding.between.as_ref().expect("between binding");
     assert_eq!(
-        between.start.resolved_mark_paths(),
-        Some(&[vec![3usize]][..])
+        compiled
+            .runtime_paths_for_mark_ids(between.start.resolved_mark_ids())
+            .unwrap(),
+        vec![vec![3usize]]
     );
     assert_visual_match_default(
         &compiled,
@@ -1209,8 +1216,28 @@ async fn box_plot_part_styling() {
 #[tokio::test]
 async fn box_plot_scalar_param_style() {
     let ctx = SessionContext::new();
-    let box_fill = Param::new("box_fill", ScalarValue::Utf8(Some("#e0f2fe".to_string())));
-    let median_width = Param::new("median_width", ScalarValue::Float32(Some(3.5)));
+    let box_fill = {
+        let __avenger_param_name = "box_fill";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(Some("#e0f2fe".to_string()))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let median_width = {
+        let __avenger_param_name = "median_width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(3.5))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let plot = Chart::<Cartesian>::new()
         .title("Param-styled box plot")
         .canvas_size(720.0, 420.0)

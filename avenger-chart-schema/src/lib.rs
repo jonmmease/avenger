@@ -1,0 +1,475 @@
+//! Dependency-light metadata for Avenger's language-facing native surface.
+//!
+//! These types describe authoring declarations, not parser nodes and not the
+//! compiled chart serialization format. Hosts compose entries explicitly and
+//! serialize the resulting schema for documentation, validation, completion,
+//! and compatibility profiles.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SchemaVersion {
+    pub major: u32,
+    pub minor: u32,
+}
+
+impl SchemaVersion {
+    pub const V1: Self = Self { major: 1, minor: 0 };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeKindNamespace {
+    Coordinate,
+    Mark,
+    Transform,
+    Tool,
+    Widget,
+    Scale,
+    Axis,
+    Legend,
+    Layout,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct NativeKindKey {
+    pub namespace: NativeKindNamespace,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coordinate: Option<String>,
+}
+
+/// Family-specific aliases make registry signatures self-documenting while
+/// preserving one compact schema representation.
+pub type CoordinateSchema = KindSchema;
+pub type MarkSchema = KindSchema;
+pub type TransformSchema = KindSchema;
+pub type ToolSchema = KindSchema;
+pub type WidgetSchema = KindSchema;
+pub type ScaleSchema = KindSchema;
+pub type AxisSchema = KindSchema;
+pub type LegendSchema = KindSchema;
+pub type LayoutSchema = KindSchema;
+
+impl NativeKindKey {
+    pub fn new(namespace: NativeKindNamespace, kind: impl Into<String>) -> Self {
+        Self {
+            namespace,
+            kind: kind.into(),
+            coordinate: None,
+        }
+    }
+
+    pub fn mark(coordinate: impl Into<String>, kind: impl Into<String>) -> Self {
+        Self {
+            namespace: NativeKindNamespace::Mark,
+            kind: kind.into(),
+            coordinate: Some(coordinate.into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "shape", content = "detail", rename_all = "snake_case")]
+pub enum ValueShape {
+    Boolean,
+    Integer,
+    Number,
+    String,
+    Atom {
+        values: Vec<EnumValueSchema>,
+    },
+    SqlExpression,
+    SqlQuery,
+    ScalarBinding,
+    TableBinding,
+    TypedReference {
+        namespaces: BTreeSet<NativeKindNamespace>,
+    },
+    Array(Box<ValueShape>),
+    Object(BTreeMap<String, PropertySchema>),
+    Any,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EnumValueSchema {
+    pub value: String,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PropertySchema {
+    pub shape: ValueShape,
+    pub required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
+    pub docs: String,
+}
+
+impl PropertySchema {
+    pub fn required(shape: ValueShape, docs: impl Into<String>) -> Self {
+        Self {
+            shape,
+            required: true,
+            default: None,
+            docs: docs.into(),
+        }
+    }
+
+    pub fn optional(shape: ValueShape, docs: impl Into<String>) -> Self {
+        Self {
+            shape,
+            required: false,
+            default: None,
+            docs: docs.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ChannelSchema {
+    pub name: String,
+    pub required: bool,
+    pub shape: ValueShape,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PartSchema {
+    pub alias: String,
+    pub runtime_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_alias: Option<String>,
+    pub targetable: bool,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExportSchema {
+    pub alias: String,
+    pub value_kind: String,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TransformOutputSchema {
+    pub name: String,
+    pub shape: ValueShape,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KindSchema {
+    pub key: NativeKindKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_kind: Option<String>,
+    pub docs: String,
+    #[serde(default)]
+    pub properties: BTreeMap<String, PropertySchema>,
+    #[serde(default)]
+    pub channels: BTreeMap<String, ChannelSchema>,
+    #[serde(default)]
+    pub parts: BTreeMap<String, PartSchema>,
+    #[serde(default)]
+    pub exports: BTreeMap<String, ExportSchema>,
+    #[serde(default)]
+    pub outputs: BTreeMap<String, TransformOutputSchema>,
+    #[serde(default)]
+    pub compatible_coordinates: BTreeSet<String>,
+    #[serde(default)]
+    pub stateless: bool,
+    #[serde(default)]
+    pub child_rules: Vec<ChildRule>,
+}
+
+impl KindSchema {
+    pub fn new(key: NativeKindKey, docs: impl Into<String>) -> Self {
+        Self {
+            key,
+            runtime_kind: None,
+            docs: docs.into(),
+            properties: BTreeMap::new(),
+            channels: BTreeMap::new(),
+            parts: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            outputs: BTreeMap::new(),
+            compatible_coordinates: BTreeSet::new(),
+            stateless: false,
+            child_rules: Vec::new(),
+        }
+    }
+
+    pub fn property(mut self, name: impl Into<String>, property: PropertySchema) -> Self {
+        self.properties.insert(name.into(), property);
+        self
+    }
+
+    pub fn runtime_kind(mut self, runtime_kind: impl Into<String>) -> Self {
+        self.runtime_kind = Some(runtime_kind.into());
+        self
+    }
+
+    pub fn channel(mut self, channel: ChannelSchema) -> Self {
+        self.channels.insert(channel.name.clone(), channel);
+        self
+    }
+
+    pub fn part(mut self, part: PartSchema) -> Self {
+        self.parts.insert(part.alias.clone(), part);
+        self
+    }
+
+    pub fn export(mut self, export: ExportSchema) -> Self {
+        self.exports.insert(export.alias.clone(), export);
+        self
+    }
+
+    pub fn output(mut self, output: TransformOutputSchema) -> Self {
+        self.outputs.insert(output.name.clone(), output);
+        self
+    }
+
+    pub fn child_rule(mut self, rule: ChildRule) -> Self {
+        self.child_rules.push(rule);
+        self
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChildRule {
+    pub role: String,
+    pub min: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<usize>,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeclarationSchema {
+    pub name: String,
+    pub docs: String,
+    pub allowed_children: Vec<NativeKindNamespace>,
+    pub ordered_body: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NativeSchemaSnapshot {
+    pub version: SchemaVersion,
+    pub profile_label: String,
+    #[serde(with = "entry_map")]
+    pub entries: BTreeMap<NativeKindKey, KindSchema>,
+}
+
+mod entry_map {
+    use std::collections::BTreeMap;
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+
+    use super::{KindSchema, NativeKindKey};
+
+    pub fn serialize<S>(
+        entries: &BTreeMap<NativeKindKey, KindSchema>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        entries.values().collect::<Vec<_>>().serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<BTreeMap<NativeKindKey, KindSchema>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let schemas = Vec::<KindSchema>::deserialize(deserializer)?;
+        let mut entries = BTreeMap::new();
+        for schema in schemas {
+            let key = schema.key.clone();
+            if entries.insert(key.clone(), schema).is_some() {
+                return Err(D::Error::custom(format!(
+                    "duplicate native schema entry {key:?}"
+                )));
+            }
+        }
+        Ok(entries)
+    }
+}
+
+impl NativeSchemaSnapshot {
+    pub fn canonical_json(&self) -> Result<Vec<u8>, SchemaError> {
+        serde_json::to_vec(self).map_err(SchemaError::Serialize)
+    }
+
+    pub fn validate_docs(&self) -> Result<(), SchemaError> {
+        for (key, schema) in &self.entries {
+            require_docs(&schema.docs, format!("{key:?}"))?;
+            for (name, property) in &schema.properties {
+                require_docs(&property.docs, format!("{key:?} property '{name}'"))?;
+                validate_shape_docs(&property.shape, format!("{key:?} property '{name}'"))?;
+            }
+            for (name, channel) in &schema.channels {
+                require_docs(&channel.docs, format!("{key:?} channel '{name}'"))?;
+                validate_shape_docs(&channel.shape, format!("{key:?} channel '{name}'"))?;
+            }
+            for (name, part) in &schema.parts {
+                require_docs(&part.docs, format!("{key:?} part '{name}'"))?;
+            }
+            for (name, export) in &schema.exports {
+                require_docs(&export.docs, format!("{key:?} export '{name}'"))?;
+            }
+            for (name, output) in &schema.outputs {
+                require_docs(&output.docs, format!("{key:?} output '{name}'"))?;
+                validate_shape_docs(&output.shape, format!("{key:?} output '{name}'"))?;
+            }
+            for child in &schema.child_rules {
+                require_docs(&child.docs, format!("{key:?} child role '{}'", child.role))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Deterministic documentation data generated from the same entries used
+    /// for validation and registry lowering.
+    pub fn markdown_reference(&self) -> String {
+        let mut output = format!(
+            "# Avenger native schema: {}\n\nLanguage schema {}.{}.\n",
+            self.profile_label, self.version.major, self.version.minor
+        );
+        for (key, schema) in &self.entries {
+            output.push_str(&format!(
+                "\n## `{:?}.{}{}`\n\n{}\n",
+                key.namespace,
+                key.coordinate
+                    .as_ref()
+                    .map(|coordinate| format!("{coordinate}."))
+                    .unwrap_or_default(),
+                key.kind,
+                schema.docs
+            ));
+            if !schema.properties.is_empty() || !schema.channels.is_empty() {
+                output.push_str("\n| Name | Role | Required | Description |\n|---|---|---:|---|\n");
+                for (name, property) in &schema.properties {
+                    output.push_str(&format!(
+                        "| `{name}` | property | {} | {} |\n",
+                        property.required, property.docs
+                    ));
+                }
+                for (name, channel) in &schema.channels {
+                    output.push_str(&format!(
+                        "| `{name}` | channel | {} | {} |\n",
+                        channel.required, channel.docs
+                    ));
+                }
+            }
+            if !schema.exports.is_empty() {
+                output.push_str("\nExports:\n");
+                for export in schema.exports.values() {
+                    output.push_str(&format!(
+                        "\n- `{}` (`{}`): {}\n",
+                        export.alias, export.value_kind, export.docs
+                    ));
+                }
+            }
+        }
+        output
+    }
+}
+
+fn validate_shape_docs(shape: &ValueShape, context: String) -> Result<(), SchemaError> {
+    match shape {
+        ValueShape::Atom { values } => {
+            for value in values {
+                require_docs(&value.docs, format!("{context} enum '{}'", value.value))?;
+            }
+        }
+        ValueShape::Array(inner) => validate_shape_docs(inner, context)?,
+        ValueShape::Object(properties) => {
+            for (name, property) in properties {
+                require_docs(&property.docs, format!("{context} field '{name}'"))?;
+                validate_shape_docs(&property.shape, format!("{context} field '{name}'"))?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn require_docs(docs: &str, context: String) -> Result<(), SchemaError> {
+    if docs.trim().is_empty() {
+        Err(SchemaError::MissingDocs { context })
+    } else {
+        Ok(())
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SchemaError {
+    #[error("language schema is missing documentation for {context}")]
+    MissingDocs { context: String },
+    #[error("failed to serialize language schema: {0}")]
+    Serialize(serde_json::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_snapshot_order_is_independent_of_registration_order() {
+        let left = KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Coordinate, "left"),
+            "Left coordinate.",
+        );
+        let right = KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Coordinate, "right"),
+            "Right coordinate.",
+        );
+        let snapshot = |entries: Vec<KindSchema>| NativeSchemaSnapshot {
+            version: SchemaVersion::V1,
+            profile_label: "test".to_string(),
+            entries: entries
+                .into_iter()
+                .map(|entry| (entry.key.clone(), entry))
+                .collect(),
+        };
+        assert_eq!(
+            snapshot(vec![left.clone(), right.clone()])
+                .canonical_json()
+                .unwrap(),
+            snapshot(vec![right, left]).canonical_json().unwrap()
+        );
+    }
+
+    #[test]
+    fn documentation_lint_reaches_enum_values() {
+        let schema = KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Layout, "flow"),
+            "Flow layout.",
+        )
+        .property(
+            "direction",
+            PropertySchema::required(
+                ValueShape::Atom {
+                    values: vec![EnumValueSchema {
+                        value: "row".to_string(),
+                        docs: String::new(),
+                    }],
+                },
+                "Flow direction.",
+            ),
+        );
+        let snapshot = NativeSchemaSnapshot {
+            version: SchemaVersion::V1,
+            profile_label: "test".to_string(),
+            entries: [(schema.key.clone(), schema)].into_iter().collect(),
+        };
+        assert!(matches!(
+            snapshot.validate_docs(),
+            Err(SchemaError::MissingDocs { .. })
+        ));
+    }
+}

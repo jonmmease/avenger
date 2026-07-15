@@ -46,6 +46,7 @@ impl<C: WidgetCellCoordinate> WidgetCell<C> {
         Self {
             state: MarkState {
                 id: None,
+                public_aliases: Vec::new(),
                 data: DataContext::default(),
                 view: None,
                 data_mode: MarkDataMode::Unit,
@@ -144,6 +145,10 @@ impl<C: WidgetCellCoordinate> WidgetCell<C> {
         let (widget, scale_specs) = if let Some(widget) = self.source.composed_widget() {
             let public_widget_path = format!("{name}.{}", widget.id());
             let target_prefix = tool_context.target_path_with_child(compiled_state.mark_index());
+            let mut identity_allocator = avenger_chart_core::CompiledIdentityAllocator::new(
+                compiled_state.identity.runtime_id.as_opaque_str(),
+            );
+            let widget_instance_id = identity_allocator.allocate_widget_instance();
             let output = compile_composed_widget(
                 widget,
                 &public_widget_path,
@@ -151,6 +156,8 @@ impl<C: WidgetCellCoordinate> WidgetCell<C> {
                 tool_context,
                 0,
                 Some(&target_prefix),
+                widget_instance_id,
+                &mut identity_allocator,
             )
             .await?;
             (CompiledWidget::Composed(output.widget), output.scale_specs)
@@ -158,7 +165,11 @@ impl<C: WidgetCellCoordinate> WidgetCell<C> {
             let id = widget.id().to_string();
             validate_structural_id("widget", &id)?;
             validate_structural_id("widget kind", widget.kind())?;
-            let state = widget.state();
+            let mut identity_allocator = avenger_chart_core::CompiledIdentityAllocator::new(
+                compiled_state.identity.runtime_id.as_opaque_str(),
+            );
+            let widget_instance_id = identity_allocator.allocate_widget_instance();
+            let state = widget.state().with_instance_identity(&widget_instance_id);
             let identity = widget as *const dyn NativeWidget as *const () as usize;
             tool_context.register_native_widget(&id, identity, &state)?;
             (

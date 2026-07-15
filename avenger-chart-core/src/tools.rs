@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use crate::{
-    AvengerChartError, CoordinateMetricDescriptor, CoordinateSystemCore, CoordinationScope,
-    DomainCoordination, Mark, Param, RepeatContext, Selection, Store,
+    AvengerChartError, CompiledIdentityAllocator, CoordinateMetricDescriptor, CoordinateSystemCore,
+    CoordinationScope, DomainCoordination, Mark, MarkId, Param, ParamRef, RepeatContext, Selection,
+    SelectionRef, Store, StoreRef, ToolInstanceId,
     event::{ChartEventBinding, ChartParamChangeBinding},
 };
 use serde::{Deserialize, Serialize};
@@ -14,12 +15,17 @@ use serde::{Deserialize, Serialize};
 pub trait ChartTool<C: CoordinateSystemCore>: Send + Sync + 'static {
     fn id(&self) -> &str;
 
-    fn expand(&self, ctx: ToolExpansionContext<'_>) -> Result<ToolExpansion<C>, AvengerChartError>;
+    fn expand(
+        &self,
+        ctx: ToolExpansionContext<'_>,
+    ) -> Result<ToolBehaviorExpansion<C>, AvengerChartError>;
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ToolExpansionContext<'a> {
     pub tool_id: &'a str,
+    pub instance_id: ToolInstanceId,
+    pub instance_ancestry: Vec<ToolInstanceId>,
     pub scale_targets: &'a [ToolScaleTarget],
     pub coordinate_metrics: &'a [CoordinateMetricDescriptor],
     pub repeat_context: Option<&'a RepeatContext>,
@@ -27,8 +33,12 @@ pub struct ToolExpansionContext<'a> {
 
 impl<'a> ToolExpansionContext<'a> {
     pub fn new(tool_id: &'a str, scale_targets: &'a [ToolScaleTarget]) -> Self {
+        let instance_id = CompiledIdentityAllocator::new(format!("tool-context:{tool_id}"))
+            .allocate_tool_instance();
         Self {
             tool_id,
+            instance_id,
+            instance_ancestry: Vec::new(),
             scale_targets,
             coordinate_metrics: &[],
             repeat_context: None,
@@ -46,6 +56,17 @@ impl<'a> ToolExpansionContext<'a> {
 
     pub fn with_coordinate_metrics(mut self, metrics: &'a [CoordinateMetricDescriptor]) -> Self {
         self.coordinate_metrics = metrics;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn with_resolved_instance(
+        mut self,
+        instance_id: ToolInstanceId,
+        instance_ancestry: Vec<ToolInstanceId>,
+    ) -> Self {
+        self.instance_id = instance_id;
+        self.instance_ancestry = instance_ancestry;
         self
     }
 
@@ -106,74 +127,235 @@ pub struct ToolScaleTarget {
     pub domain_coordination: DomainCoordination,
 }
 
-pub struct ToolExpansion<C: CoordinateSystemCore> {
-    pub params: Vec<ToolParamExpansion>,
-    pub cursor_params: Vec<String>,
-    pub stores: Vec<Store>,
-    pub selections: Vec<Selection>,
+#[derive(Clone, Debug)]
+pub enum ResolvedStateDeclaration {
+    Param {
+        runtime_id: ParamRef,
+        param: Param,
+        sharing: ToolParamSharing,
+    },
+    Store {
+        runtime_id: StoreRef,
+        store: Store,
+    },
+    Selection {
+        runtime_id: SelectionRef,
+        selection: Selection,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolExportTarget {
+    Param(ParamRef),
+    Store(StoreRef),
+    Selection(SelectionRef),
+    Mark(MarkId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolExport {
+    pub alias: String,
+    pub target: ToolExportTarget,
+}
+
+/// Serializable identity and export surface retained after tool expansion.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompiledToolBehavior {
+    pub source_id: String,
+    pub instance_id: ToolInstanceId,
+    pub instance_ancestry: Vec<ToolInstanceId>,
+    pub component_kind: String,
+    pub component_id: Option<String>,
+    pub exports: Vec<ToolExport>,
+}
+
+pub struct ResolvedToolMark<C: CoordinateSystemCore> {
+    pub runtime_id: MarkId,
+    pub mark: Arc<dyn Mark<C>>,
+    pub part_alias: Option<String>,
+}
+
+impl<C: CoordinateSystemCore> Clone for ResolvedToolMark<C> {
+    fn clone(&self) -> Self {
+        Self {
+            runtime_id: self.runtime_id.clone(),
+            mark: self.mark.clone(),
+            part_alias: self.part_alias.clone(),
+        }
+    }
+}
+
+/// Canonical resolved behavior produced by native and future DSL-defined tools.
+pub struct ToolBehaviorExpansion<C: CoordinateSystemCore> {
+    pub instance_id: ToolInstanceId,
+    pub instance_ancestry: Vec<ToolInstanceId>,
+    pub component_kind: String,
+    pub component_id: Option<String>,
+    pub state: Vec<ResolvedStateDeclaration>,
     pub event_bindings: Vec<ChartEventBinding>,
     pub param_change_bindings: Vec<ChartParamChangeBinding>,
     pub scale_edits: Vec<ToolScaleEdit>,
-    pub marks: Vec<Arc<dyn Mark<C>>>,
+    pub marks: Vec<ResolvedToolMark<C>>,
+    pub nested_tools: Vec<Arc<dyn ChartTool<C>>>,
+    pub exports: Vec<ToolExport>,
     pub metadata: Vec<ToolMetadata>,
 }
 
-impl<C: CoordinateSystemCore> Clone for ToolExpansion<C> {
+impl<C: CoordinateSystemCore> Clone for ToolBehaviorExpansion<C> {
     fn clone(&self) -> Self {
         Self {
-            params: self.params.clone(),
-            cursor_params: self.cursor_params.clone(),
-            stores: self.stores.clone(),
-            selections: self.selections.clone(),
+            instance_id: self.instance_id.clone(),
+            instance_ancestry: self.instance_ancestry.clone(),
+            component_kind: self.component_kind.clone(),
+            component_id: self.component_id.clone(),
+            state: self.state.clone(),
             event_bindings: self.event_bindings.clone(),
             param_change_bindings: self.param_change_bindings.clone(),
             scale_edits: self.scale_edits.clone(),
             marks: self.marks.clone(),
+            nested_tools: self.nested_tools.clone(),
+            exports: self.exports.clone(),
             metadata: self.metadata.clone(),
         }
     }
 }
 
-impl<C: CoordinateSystemCore> Default for ToolExpansion<C> {
-    fn default() -> Self {
+impl<C: CoordinateSystemCore> ToolBehaviorExpansion<C> {
+    pub fn new(instance_id: ToolInstanceId) -> Self {
         Self {
-            params: Vec::new(),
-            cursor_params: Vec::new(),
-            stores: Vec::new(),
-            selections: Vec::new(),
+            instance_id,
+            instance_ancestry: Vec::new(),
+            component_kind: "tool".to_string(),
+            component_id: None,
+            state: Vec::new(),
             event_bindings: Vec::new(),
             param_change_bindings: Vec::new(),
             scale_edits: Vec::new(),
             marks: Vec::new(),
+            nested_tools: Vec::new(),
+            exports: Vec::new(),
             metadata: Vec::new(),
         }
     }
-}
 
-impl<C: CoordinateSystemCore> ToolExpansion<C> {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn param(mut self, param: Param, sharing: ToolParamSharing) -> Self {
-        self.params.push(ToolParamExpansion { param, sharing });
+    pub fn with_instance_ancestry(mut self, ancestry: Vec<ToolInstanceId>) -> Self {
+        self.instance_ancestry = ancestry;
         self
     }
 
-    /// Register a generated parameter whose event patches control the host cursor.
-    pub fn cursor_param(mut self, param: Param, sharing: ToolParamSharing) -> Self {
-        self.cursor_params.push(param.name.clone());
-        self.params.push(ToolParamExpansion { param, sharing });
+    /// Iterate the parameter declarations owned by this resolved behavior.
+    pub fn params(&self) -> impl Iterator<Item = (&Param, &ToolParamSharing)> {
+        self.state.iter().filter_map(|state| match state {
+            ResolvedStateDeclaration::Param { param, sharing, .. } => Some((param, sharing)),
+            _ => None,
+        })
+    }
+
+    pub fn component(mut self, kind: impl Into<String>, id: impl Into<String>) -> Self {
+        self.component_kind = kind.into();
+        self.component_id = Some(id.into());
         self
     }
 
-    pub fn store(mut self, store: Store) -> Self {
-        self.stores.push(store);
+    pub fn param(self, param: Param, sharing: ToolParamSharing) -> Self {
+        let alias = param.name.clone();
+        self.param_as(alias, param, sharing)
+    }
+
+    pub fn param_as(
+        mut self,
+        alias: impl Into<String>,
+        param: Param,
+        sharing: ToolParamSharing,
+    ) -> Self {
+        let runtime_id = CompiledIdentityAllocator::derive_tool_param(
+            &self.instance_id,
+            self.state
+                .iter()
+                .filter(|state| matches!(state, ResolvedStateDeclaration::Param { .. }))
+                .count() as u64,
+        );
+        self.exports.push(ToolExport {
+            alias: alias.into(),
+            target: ToolExportTarget::Param(runtime_id.clone()),
+        });
+        self.state.push(ResolvedStateDeclaration::Param {
+            runtime_id,
+            param,
+            sharing,
+        });
         self
     }
 
-    pub fn selection(mut self, selection: Selection) -> Self {
-        self.selections.push(selection);
+    /// Add another public alias for an already-declared parameter state slot.
+    pub fn export_param_as(mut self, alias: impl Into<String>, param: &Param) -> Self {
+        let runtime_id = self
+            .state
+            .iter()
+            .find_map(|state| match state {
+                ResolvedStateDeclaration::Param {
+                    runtime_id,
+                    param: declared,
+                    ..
+                } if declared.name == param.name => Some(runtime_id.clone()),
+                _ => None,
+            })
+            .expect("export_param_as requires a parameter already declared by this behavior");
+        let alias = alias.into();
+        if !self.exports.iter().any(|export| {
+            export.alias == alias && export.target == ToolExportTarget::Param(runtime_id.clone())
+        }) {
+            self.exports.push(ToolExport {
+                alias,
+                target: ToolExportTarget::Param(runtime_id),
+            });
+        }
+        self
+    }
+
+    pub fn store(self, store: Store) -> Self {
+        let alias = store.name.clone();
+        self.store_as(alias, store)
+    }
+
+    pub fn store_as(mut self, alias: impl Into<String>, store: Store) -> Self {
+        let runtime_id = CompiledIdentityAllocator::derive_tool_store(
+            &self.instance_id,
+            self.state
+                .iter()
+                .filter(|state| matches!(state, ResolvedStateDeclaration::Store { .. }))
+                .count() as u64,
+        );
+        self.exports.push(ToolExport {
+            alias: alias.into(),
+            target: ToolExportTarget::Store(runtime_id.clone()),
+        });
+        self.state
+            .push(ResolvedStateDeclaration::Store { runtime_id, store });
+        self
+    }
+
+    pub fn selection(self, selection: Selection) -> Self {
+        let alias = selection.id.clone();
+        self.selection_as(alias, selection)
+    }
+
+    pub fn selection_as(mut self, alias: impl Into<String>, selection: Selection) -> Self {
+        let runtime_id = CompiledIdentityAllocator::derive_tool_selection(
+            &self.instance_id,
+            self.state
+                .iter()
+                .filter(|state| matches!(state, ResolvedStateDeclaration::Selection { .. }))
+                .count() as u64,
+        );
+        self.exports.push(ToolExport {
+            alias: alias.into(),
+            target: ToolExportTarget::Selection(runtime_id.clone()),
+        });
+        self.state.push(ResolvedStateDeclaration::Selection {
+            runtime_id,
+            selection,
+        });
         self
     }
 
@@ -193,12 +375,39 @@ impl<C: CoordinateSystemCore> ToolExpansion<C> {
     }
 
     pub fn mark(mut self, mark: impl Mark<C>) -> Self {
-        self.marks.push(Arc::new(mark));
+        self = self.mark_arc(Arc::new(mark));
         self
     }
 
     pub fn mark_arc(mut self, mark: Arc<dyn Mark<C>>) -> Self {
-        self.marks.push(mark);
+        let part_alias = mark.state().id.clone();
+        self.push_mark(mark, part_alias);
+        self
+    }
+
+    pub fn mark_part(mut self, part_alias: impl Into<String>, mark: impl Mark<C>) -> Self {
+        self.push_mark(Arc::new(mark), Some(part_alias.into()));
+        self
+    }
+
+    fn push_mark(&mut self, mark: Arc<dyn Mark<C>>, part_alias: Option<String>) {
+        let runtime_id =
+            CompiledIdentityAllocator::derive_tool_mark(&self.instance_id, self.marks.len() as u64);
+        if let Some(alias) = &part_alias {
+            self.exports.push(ToolExport {
+                alias: alias.clone(),
+                target: ToolExportTarget::Mark(runtime_id.clone()),
+            });
+        }
+        self.marks.push(ResolvedToolMark {
+            runtime_id,
+            mark,
+            part_alias,
+        });
+    }
+
+    pub fn nested_tool(mut self, tool: Arc<dyn ChartTool<C>>) -> Self {
+        self.nested_tools.push(tool);
         self
     }
 
@@ -206,12 +415,6 @@ impl<C: CoordinateSystemCore> ToolExpansion<C> {
         self.metadata.push(metadata);
         self
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct ToolParamExpansion {
-    pub param: Param,
-    pub sharing: ToolParamSharing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

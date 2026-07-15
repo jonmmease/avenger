@@ -32,14 +32,15 @@ pub use crate::widget_cell::{WidgetCell, WidgetCellCoordinate};
 pub use avenger_chart_cartesian::{Cartesian, CartesianUnitAspect};
 pub use avenger_chart_core::time;
 pub use avenger_chart_core::{
-    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChildPlotSizeSpec, CoordinationScope,
-    CursorStyle, EmptySelectionBehavior, FacetEmptyCellPolicy, FormattingContext, IntoExpr,
-    IntoPlotMark, MarkGroup, MaterializationIdentity, MaterializationKey, MaterializationKind,
-    MaterializationOutputKind, MaterializationPolicy, MaterializationRequest, PixelFrame,
-    PixelFrameView, PlotMark, Selection, SelectionClauseUpdate, SelectionCombine,
-    SelectionSceneQuery, SelectionUpdate, Store, StoreData, StoreFieldPatch, StoreFieldRef,
-    StoreKey, StoreRow, StoreUpdate, TimeContext, View, ViewAsyncPolicy, ViewRef, ViewStalePolicy,
-    WeekStart, ZeroDCoord,
+    AxisGuideVisibilityConfig, AxisGuideVisibilityPolicy, ChildPlotSizeSpec,
+    CompiledComponentProvenance, CompiledMarkIdentity, CoordinationScope, CursorStyle,
+    EmptySelectionBehavior, FacetEmptyCellPolicy, FormattingContext, IntoExpr, IntoPlotMark,
+    MarkGroup, MarkId, MaterializationIdentity, MaterializationKey, MaterializationKind,
+    MaterializationOutputKind, MaterializationPolicy, MaterializationRequest, ParamRef, PixelFrame,
+    PixelFrameView, PlotMark, Selection, SelectionClauseUpdate, SelectionCombine, SelectionRef,
+    SelectionSceneQuery, SelectionUpdate, StateMigrationKey, Store, StoreData, StoreFieldPatch,
+    StoreFieldRef, StoreKey, StoreRef, StoreRow, StoreUpdate, TimeContext, ToolInstanceId, View,
+    ViewAsyncPolicy, ViewId, ViewRef, ViewStalePolicy, WeekStart, WidgetInstanceId, ZeroDCoord,
 };
 pub use avenger_chart_core::{
     CanonicalJson, ChartWidget, ChartWidgetPlacementExt, ChromePosition, CompiledComposedWidget,
@@ -90,8 +91,9 @@ pub use crate::plot::{
 };
 pub use crate::render::{WidgetFrame, WidgetFrameAssignments};
 pub use avenger_chart_core::{
-    ChartTool, ToolExpansion, ToolExpansionContext, ToolMetadata, ToolParamExpansion,
-    ToolParamSharing, ToolScaleEdit,
+    ChartTool, CompiledIdentityAllocator, CompiledToolBehavior, ResolvedStateDeclaration,
+    ResolvedToolMark, ToolBehaviorExpansion, ToolExpansionContext, ToolExport, ToolExportTarget,
+    ToolMetadata, ToolParamSharing, ToolScaleEdit,
 };
 pub use avenger_chart_tools::{
     BoxSelection, BoxSelectionResolve, BoxZoom, LassoSelection, PanScrollZoom, PointSelection,
@@ -211,6 +213,8 @@ pub use avenger_chart_core::param::Param;
 
 // Re-export DataFusion types for data manipulation
 pub use datafusion::{
+    arrow::datatypes::DataType,
     dataframe::DataFrame,
     prelude::{Expr, col, lit},
+    scalar::ScalarValue,
 };

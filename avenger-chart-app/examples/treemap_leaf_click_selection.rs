@@ -53,7 +53,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let ctx = Arc::new(SessionContext::new());
     let picked = Selection::new("picked").empty_selects_nothing();
     let selected = picked.predicate();
-    let cursor = Param::cursor("treemap_pick_cursor", CursorStyle::Default);
 
     let plot = Chart::with_coord(
         Treemap::new()
@@ -64,8 +63,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .canvas_size(SIZE[0], SIZE[1])
     .data(ctx.read_batch(treemap_batch()).expect("read data"))
     .selection(picked)
-    .param(cursor.clone())
-    .cursor_param(cursor.name.clone())
     .configure_guide(
         TreemapGuide::new()
             .headers(true)
@@ -93,7 +90,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                     .no_legend()
             }),
     )
-    .event_binding(cursor_binding(&cursor))
+    .event_binding(cursor_binding())
     .event_binding(select_leaf_binding())
     .event_binding(clear_selection_binding());
 
@@ -112,14 +109,14 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .expect("build chart app")
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_leaf =
         treemap_event::hierarchy_surface_kind().eq(lit(HIERARCHY_SURFACE_KIND_LEAF_RECT));
     let cursor_expr = when(over_leaf, ev::cursor(CursorStyle::Grab))
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 

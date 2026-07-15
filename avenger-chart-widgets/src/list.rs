@@ -9,7 +9,7 @@ use avenger_chart::{
     },
     prelude::{
         AvengerChartError, ChannelExpr, ChartWidget, CoordinationScope, CursorStyle, IntoExpr,
-        Param, PixelFrame, Rect, Selection, SelectionUpdate, Symbol, Text, ToolExpansion,
+        Param, PixelFrame, Rect, Selection, SelectionUpdate, Symbol, Text, ToolBehaviorExpansion,
         ToolParamSharing, WidgetAxisMeasureSpec, WidgetExpansion, WidgetExpansionContext,
         WidgetItemValidation, WidgetItems, WidgetMeasureExpr, WidgetMeasureSpec,
         WidgetPresentationBindings, WidgetStyleProperty, WidgetTextMeasureAxis,
@@ -155,19 +155,13 @@ impl ChartWidget for CheckboxList {
             .y2(row_y + row_height.clone() + focus_gap)
             .fill("transparent");
 
-        let cursor = avenger_chart::prelude::Param::cursor(
-            format!("{}__cursor", self.id),
-            CursorStyle::Default,
-        );
         let targets = [
             format!("{}.box", self.id),
             format!("{}.check", self.id),
             format!("{}.label", self.id),
         ];
-        let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
-        let expansion = ToolExpansion::new()
+        let behavior = ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
             .selection(self.selection.clone())
-            .cursor_param(cursor.clone(), shared)
             .mark(container)
             .mark(row)
             .mark(box_mark)
@@ -194,12 +188,12 @@ impl ChartWidget for CheckboxList {
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
                     .marks(targets.clone())
-                    .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
+                    .set_cursor(event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
                     .marks(targets)
-                    .set_param(&cursor, event::cursor(CursorStyle::Default)),
+                    .set_cursor(event::cursor(CursorStyle::Default)),
             );
 
         let items = self
@@ -217,7 +211,8 @@ impl ChartWidget for CheckboxList {
             });
 
         Ok(WidgetExpansion {
-            expansion,
+            instance_id: ctx.instance_id,
+            behavior,
             items: Some(items),
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {
@@ -297,6 +292,7 @@ pub struct RadioButtonList {
     item_value: Expr,
     label: Expr,
     default: Option<ScalarValue>,
+    value_param: Option<Param>,
 }
 
 impl RadioButtonList {
@@ -310,6 +306,7 @@ impl RadioButtonList {
             item_value: col("value"),
             label: col("label"),
             default: None,
+            value_param: None,
         }
     }
 
@@ -332,9 +329,31 @@ impl RadioButtonList {
         self
     }
 
+    /// Bind the selected value to an existing typed parameter.
+    ///
+    /// Generated and supplied forms occupy the same widget state slot and
+    /// therefore receive the same resolved widget-owned identity.
+    pub fn value_param(mut self, param: Param) -> Self {
+        self.value_param = Some(param);
+        self
+    }
+
     /// A scalar expression for the currently selected value.
     pub fn value(&self) -> Expr {
-        Param::new(self.param_name(), self.placeholder_default()).expr()
+        self.value_param
+            .clone()
+            .unwrap_or_else(|| {
+                let __avenger_param_name = self.param_name();
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (self.placeholder_default()).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
+            .expr()
     }
 
     fn param_name(&self) -> String {
@@ -349,6 +368,15 @@ impl RadioButtonList {
     }
 
     fn resolved_param(&self) -> Result<Param, AvengerChartError> {
+        if let Some(param) = &self.value_param {
+            if param.default.is_null() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "RadioButtonList '{}' requires its supplied value parameter to have a non-null default",
+                    self.id
+                )));
+            }
+            return Ok(param.clone());
+        }
         let default = match &self.default {
             Some(default) => default.clone(),
             None => inferred_static_default(&self.items, &self.item_value).map_err(|message| {
@@ -364,7 +392,16 @@ impl RadioButtonList {
                 self.id
             )));
         }
-        Ok(Param::new(self.param_name(), default))
+        Ok({
+            let __avenger_param_name = self.param_name();
+            let __avenger_param_default: datafusion::common::ScalarValue = (default).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        })
     }
 }
 
@@ -473,16 +510,14 @@ impl ChartWidget for RadioButtonList {
             .shape("circle")
             .fill("transparent");
 
-        let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
         let targets = [
             format!("{}.control", self.id),
             format!("{}.center", self.id),
             format!("{}.label", self.id),
         ];
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
-        let expansion = ToolExpansion::new()
-            .param(selected_value.clone(), shared.clone())
-            .cursor_param(cursor.clone(), shared)
+        let behavior = ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
+            .param_as("value", selected_value.clone(), shared)
             .mark(container)
             .mark(row)
             .mark(control)
@@ -500,12 +535,12 @@ impl ChartWidget for RadioButtonList {
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
                     .marks(targets.clone())
-                    .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
+                    .set_cursor(event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
                     .marks(targets)
-                    .set_param(&cursor, event::cursor(CursorStyle::Default)),
+                    .set_cursor(event::cursor(CursorStyle::Default)),
             );
 
         let items = self
@@ -533,7 +568,8 @@ impl ChartWidget for RadioButtonList {
             });
 
         Ok(WidgetExpansion {
-            expansion,
+            instance_id: ctx.instance_id,
+            behavior,
             items: Some(items),
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {
@@ -649,18 +685,31 @@ mod tests {
             .expand(WidgetExpansionContext::new("regions"))
             .expect("checkbox list expansion");
 
-        assert_eq!(expanded.expansion.marks.len(), 7);
-        assert_eq!(expanded.expansion.selections.len(), 1);
-        for binding in &expanded.expansion.event_bindings {
+        assert_eq!(expanded.behavior.marks.len(), 7);
+        assert_eq!(
+            expanded
+                .behavior
+                .state
+                .iter()
+                .filter(|state| matches!(
+                    state,
+                    avenger_chart::prelude::ResolvedStateDeclaration::Selection { .. }
+                ))
+                .count(),
+            1
+        );
+        for binding in &expanded.behavior.event_bindings {
             assert_eq!(
                 binding.mark_ids(),
                 &["regions.box", "regions.check", "regions.label"]
             );
         }
         assert!(matches!(
-            expanded.expansion.event_bindings[0]
+            expanded.behavior.event_bindings[0]
                 .action
-                .selection_assignments[0]
+                .selection_steps()
+                .next()
+                .unwrap()
                 .update,
             SelectionUpdate::ToggleEqualityValue {
                 facet_scope: CoordinationScope::Shared,
@@ -706,23 +755,25 @@ mod tests {
             .expand(WidgetExpansionContext::new("numbers"))
             .expect("radio-button list expansion");
 
-        assert_eq!(expanded.expansion.marks.len(), 7);
-        assert_eq!(expanded.expansion.params[0].param.name, "numbers__value");
-        for binding in &expanded.expansion.event_bindings {
+        assert_eq!(expanded.behavior.marks.len(), 7);
+        let avenger_chart::prelude::ResolvedStateDeclaration::Param { param, .. } =
+            &expanded.behavior.state[0]
+        else {
+            panic!("first radio-list state must be the value param")
+        };
+        assert_eq!(param.name, "numbers__value");
+        for binding in &expanded.behavior.event_bindings {
             assert_eq!(
                 binding.mark_ids(),
                 &["numbers.control", "numbers.center", "numbers.label"]
             );
         }
+        assert_eq!(param.default, ScalarValue::Int64(Some(7)));
         assert_eq!(
-            expanded.expansion.params[0].param.default,
-            ScalarValue::Int64(Some(7))
-        );
-        assert_eq!(
-            expanded.expansion.event_bindings[0]
+            expanded.behavior.event_bindings[0]
                 .action
-                .assignments
-                .len(),
+                .param_steps()
+                .count(),
             1
         );
         let Some(WidgetItems::Configured { validations, .. }) = expanded.items else {

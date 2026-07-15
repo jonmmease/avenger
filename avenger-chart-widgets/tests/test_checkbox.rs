@@ -73,7 +73,6 @@ async fn checkbox_round_trips_and_checked_param_controls_inset_vector() {
         compiled.get_default_params().get("regions__checked"),
         Some(&ScalarValue::Boolean(Some(false)))
     );
-    assert_eq!(compiled.cursor_params(), &["regions__cursor"]);
     for event_type in [
         ChartEventType::Click,
         ChartEventType::MarkMouseEnter,

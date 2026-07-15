@@ -274,7 +274,17 @@ async fn pre_view_scalar_seeds_view_local_stage() {
 async fn param_change_updates_scalar_gate() {
     let ctx = SessionContext::new();
     let df = xy_dataframe(&ctx, 5).await;
-    let cutoff = Param::new("cutoff", ScalarValue::Float64(Some(5.0)));
+    let cutoff = {
+        let __avenger_param_name = "cutoff";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(5.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let plot = Chart::<Cartesian>::new()
         .param(cutoff.clone())
         .data(df)

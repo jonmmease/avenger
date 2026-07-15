@@ -32,7 +32,17 @@ async fn test_case_expression_title_no_media_query() {
     let df = ctx.read_batch(batch).expect("Failed to read batch");
 
     // Width param for CASE expression
-    let width_param = Param::new("width", ScalarValue::Float32(Some(400.0)));
+    let width_param = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float32(Some(400.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // CASE expression for title (same as media query test)
     let title_expr = when(width_param.expr().lt(lit(600)), lit("Small Screen (400px)"))

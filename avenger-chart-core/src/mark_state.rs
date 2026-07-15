@@ -10,7 +10,8 @@ use datafusion_proto::protobuf::LogicalExprNode;
 
 use crate::{
     AvengerChartError, Axis, CompiledDataContext, DataContext, DefaultLogicalExprNodeExt,
-    FacetDataScope, GeometrySpace, RepeatContext, SerializableExpr, resolve_repeat_placeholders,
+    FacetDataScope, GeometrySpace, MarkId, RepeatContext, SerializableExpr,
+    resolve_repeat_placeholders,
     view::{CompiledViewScope, ViewScopeState},
 };
 
@@ -67,6 +68,8 @@ pub enum MarkDataMode {
 #[derive(Clone)]
 pub struct MarkState {
     pub id: Option<String>,
+    /// Additional public interaction/export aliases for this mark.
+    pub public_aliases: Vec<String>,
     pub data: DataContext,
     pub view: Option<ViewScopeState>,
     pub data_mode: MarkDataMode,
@@ -84,6 +87,42 @@ pub struct MarkState {
     pub axis_configs: HashMap<String, Arc<dyn Axis>>,
 }
 
+/// Component/part provenance retained independently of public target aliases.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompiledComponentProvenance {
+    pub component_kind: String,
+    pub component_id: Option<String>,
+    pub part_alias: String,
+}
+
+/// Canonical identity and source metadata for one compiled primitive mark.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompiledMarkIdentity {
+    pub runtime_id: MarkId,
+    #[serde(default)]
+    pub source_name: Option<String>,
+    #[serde(default)]
+    pub public_aliases: Vec<String>,
+    /// Private authoring group ordinals. These are diagnostic structure, not a
+    /// public lookup path and not part of runtime identity.
+    #[serde(default)]
+    pub private_ancestry: Vec<usize>,
+    #[serde(default)]
+    pub component: Option<CompiledComponentProvenance>,
+}
+
+impl Default for CompiledMarkIdentity {
+    fn default() -> Self {
+        Self {
+            runtime_id: MarkId::default(),
+            source_name: None,
+            public_aliases: Vec::new(),
+            private_ancestry: Vec::new(),
+            component: None,
+        }
+    }
+}
+
 /// State shared by all mark types (compiled version)
 /// Used after compilation - stores serialized LogicalPlanNodes
 #[serde_as]
@@ -92,7 +131,7 @@ pub struct CompiledMarkState {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
-    pub public_target_path: Option<String>,
+    pub identity: CompiledMarkIdentity,
     pub data: CompiledDataContext,
     #[serde(default)]
     pub view: Option<CompiledViewScope>,
@@ -114,10 +153,6 @@ pub struct CompiledMarkState {
     pub zindex: Option<i32>,
     #[serde(default)]
     pub geometry_space: Option<GeometrySpace>,
-
-    /// Widget shadow-host/part identity for context-aware CSS resolution.
-    #[serde(default)]
-    pub widget_theme: Option<crate::WidgetThemeProvenance>,
 
     // Store axis configurations from channels
     pub axis_configs: HashMap<String, Arc<dyn Axis>>,
@@ -143,7 +178,11 @@ impl CompiledMarkState {
         };
         Self {
             id: state.id.clone(),
-            public_target_path: None,
+            identity: CompiledMarkIdentity {
+                source_name: state.id.clone(),
+                public_aliases: state.public_aliases.clone(),
+                ..Default::default()
+            },
             data,
             view: state
                 .view
@@ -157,7 +196,6 @@ impl CompiledMarkState {
             details: state.details.clone(),
             zindex: state.zindex,
             geometry_space: state.geometry_space,
-            widget_theme: None,
             axis_configs: state.axis_configs.clone(),
         }
     }
@@ -177,13 +215,15 @@ impl CompiledMarkState {
     }
 
     #[doc(hidden)]
-    pub fn with_public_target_path(mut self, public_target_path: Option<String>) -> Self {
-        self.public_target_path = public_target_path;
+    pub fn with_identity(mut self, identity: CompiledMarkIdentity) -> Self {
+        debug_assert!(!identity.runtime_id.is_unresolved());
+        self.id = identity.source_name.clone();
+        self.identity = identity;
         self
     }
 
-    pub fn with_widget_theme(mut self, widget_theme: crate::WidgetThemeProvenance) -> Self {
-        self.widget_theme = Some(widget_theme);
+    pub fn with_component_provenance(mut self, component: CompiledComponentProvenance) -> Self {
+        self.identity.component = Some(component);
         self
     }
 }
@@ -237,7 +277,7 @@ mod tests {
     fn compiled_mark_state_deserializes_without_geometry_space_field() {
         let state = CompiledMarkState {
             id: Some("line".to_string()),
-            public_target_path: None,
+            identity: CompiledMarkIdentity::default(),
             data: CompiledDataContext::default(),
             view: None,
             data_mode: MarkDataMode::Inherit,
@@ -248,7 +288,6 @@ mod tests {
             details: None,
             zindex: None,
             geometry_space: Some(GeometrySpace::Display),
-            widget_theme: None,
             axis_configs: HashMap::new(),
         };
 

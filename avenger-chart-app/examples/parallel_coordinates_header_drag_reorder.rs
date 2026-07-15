@@ -35,27 +35,61 @@ fn main() {
 
 async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
-    let cursor = Param::cursor("parallel_reorder_cursor", CursorStyle::Default);
-    let order = Param::new(
-        ORDER_PARAM,
-        parallel_common::string_list_scalar(&dimension_ids()),
-    );
-    let drag_dimension = Param::new(DRAG_DIMENSION_PARAM, ScalarValue::Utf8(None));
-    let drag_start_x = Param::new(DRAG_START_X_PARAM, ScalarValue::Float64(None));
-    let drag_display_x = Param::new(DRAG_DISPLAY_X_PARAM, ScalarValue::Float64(None));
+    let order = {
+        let __avenger_param_name = ORDER_PARAM;
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (parallel_common::string_list_scalar(&dimension_ids())).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let drag_dimension = {
+        let __avenger_param_name = DRAG_DIMENSION_PARAM;
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(None)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let drag_start_x = {
+        let __avenger_param_name = DRAG_START_X_PARAM;
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(None)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let drag_display_x = {
+        let __avenger_param_name = DRAG_DISPLAY_X_PARAM;
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(None)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let coord = parallel_common::demo_parallel()
         .order_param(order.name.clone())
         .active_axis_display_params(drag_dimension.name.clone(), drag_display_x.name.clone());
 
     let mut plot = Chart::with_coord(coord)
         .params([
-            cursor.clone(),
             order.clone(),
             drag_dimension.clone(),
             drag_start_x.clone(),
             drag_display_x.clone(),
         ])
-        .cursor_param(cursor.name.clone())
         .canvas_size(
             parallel_common::CANVAS_SIZE[0],
             parallel_common::CANVAS_SIZE[1],
@@ -78,16 +112,16 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .size(18.0)
                 .opacity(0.72),
         )
-        .event_binding(cursor_binding(&cursor))
-        .event_binding(start_drag_binding(&cursor))
-        .event_binding(preview_drag_binding(&cursor));
+        .event_binding(cursor_binding())
+        .event_binding(start_drag_binding())
+        .event_binding(preview_drag_binding());
 
     for source_id in dimension_ids() {
         for target_index in 0..parallel_common::NUMERIC_DIMENSIONS.len() {
             plot = plot.event_binding(commit_order_binding(source_id, target_index));
         }
     }
-    plot = plot.event_binding(clear_drag_binding(&cursor));
+    plot = plot.event_binding(clear_drag_binding());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(compiled, ctx, parallel_common::app_options())
@@ -95,28 +129,28 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
         .expect("build chart app")
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_header = parallel_ev::parallel_dimension_id().is_not_null();
     let cursor_expr = when(over_header, ev::cursor(CursorStyle::Grab))
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("cursor conditional");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 
-fn start_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn start_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::MouseDown)
         .filter(ev::button().eq(lit("left")))
         .filter(parallel_ev::parallel_dimension_id().is_not_null())
         .set_param(DRAG_DIMENSION_PARAM, parallel_ev::parallel_dimension_id())
         .set_param(DRAG_START_X_PARAM, parallel_ev::parallel_display_x())
         .set_param(DRAG_DISPLAY_X_PARAM, parallel_ev::parallel_display_x())
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .preview()
 }
 
-fn preview_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn preview_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::CursorMoved)
         .between(
             ChartEventStream::on(ChartEventType::MouseDown).filter(ev::button().eq(lit("left"))),
@@ -127,7 +161,7 @@ fn preview_drag_binding(cursor: &Param) -> ChartEventBinding {
             DRAG_DISPLAY_X_PARAM,
             ev::param(DRAG_START_X_PARAM) + ev::dx(),
         )
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .preview()
 }
 
@@ -150,12 +184,12 @@ fn commit_order_binding(source_id: &'static str, target_index: usize) -> ChartEv
     .exact()
 }
 
-fn clear_drag_binding(cursor: &Param) -> ChartEventBinding {
+fn clear_drag_binding() -> ChartEventBinding {
     ChartEventBinding::on(ChartEventType::MouseUp)
         .set_param(DRAG_DIMENSION_PARAM, lit(ScalarValue::Utf8(None)))
         .set_param(DRAG_START_X_PARAM, lit(ScalarValue::Float64(None)))
         .set_param(DRAG_DISPLAY_X_PARAM, lit(ScalarValue::Float64(None)))
-        .set_param(cursor, ev::cursor(CursorStyle::Default))
+        .set_cursor(ev::cursor(CursorStyle::Default))
         .exact()
 }
 

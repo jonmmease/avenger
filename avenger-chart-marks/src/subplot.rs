@@ -108,6 +108,7 @@ impl<OuterC: CoordinateSystemCore> Subplot<OuterC> {
         Self {
             state: MarkState {
                 id: None,
+                public_aliases: Vec::new(),
                 data: DataContext::default(),
                 view: None,
                 data_mode: MarkDataMode::Inherit,

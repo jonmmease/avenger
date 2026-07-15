@@ -157,6 +157,29 @@ pub struct UpdateStatus {
     /// Stop propagation after this handler. Unlike `EventStreamConfig::consume`,
     /// this is decided dynamically from the accepted event.
     pub consume: bool,
+    /// Whether the handler adopted the matched event. `None` preserves the
+    /// historical behavior for non-transactional handlers and is interpreted
+    /// as committed by the manager.
+    pub admission: Option<EventAdmission>,
+}
+
+/// The adoption result of a matched event after its handler has run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventAdmission {
+    Rejected,
+    Committed,
+    Failed,
+}
+
+impl EventAdmission {
+    pub(crate) fn merge(self, other: Self) -> Self {
+        use EventAdmission::{Committed, Failed, Rejected};
+        match (self, other) {
+            (Failed, _) | (_, Failed) => Failed,
+            (Committed, _) | (_, Committed) => Committed,
+            (Rejected, Rejected) => Rejected,
+        }
+    }
 }
 
 impl UpdateStatus {
@@ -172,8 +195,20 @@ impl UpdateStatus {
                 .cloned()
                 .collect(),
             consume: self.consume || other.consume,
+            admission: match (self.admission, other.admission) {
+                (Some(left), Some(right)) => Some(left.merge(right)),
+                (Some(admission), None) | (None, Some(admission)) => Some(admission),
+                (None, None) => None,
+            },
         }
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct EventStreamAdmissionCheckpoint {
+    between_state: Option<BetweenState>,
+    last_handled_time: Option<Instant>,
+    previous_event: Option<EventStreamEventSnapshot>,
 }
 
 /// Internal struct representing the state of an event stream and it's handler
@@ -188,10 +223,11 @@ pub(crate) struct EventStream<State: Clone + Send + Sync + 'static> {
     wake_key: RuntimeWakeKey,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct DebouncedEvent {
     pub(crate) event: SceneGraphEvent,
     pub(crate) context: EventStreamContext,
+    pub(crate) checkpoint: EventStreamAdmissionCheckpoint,
 }
 
 #[derive(Clone)]
@@ -261,6 +297,7 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
         &mut self,
         event: &SceneGraphEvent,
         context: EventStreamContext,
+        checkpoint: EventStreamAdmissionCheckpoint,
         now: Instant,
     ) -> Option<DebouncedCommitUpdate<DebouncedEvent>> {
         self.debounce.as_mut().map(|debounce| {
@@ -268,11 +305,29 @@ impl<State: Clone + Send + Sync + 'static> EventStream<State> {
                 DebouncedEvent {
                     event: event.clone(),
                     context,
+                    checkpoint,
                 },
                 now,
                 &self.wake_key,
             )
         })
+    }
+
+    pub(crate) fn admission_checkpoint(&self) -> EventStreamAdmissionCheckpoint {
+        EventStreamAdmissionCheckpoint {
+            between_state: self.between_state.clone(),
+            last_handled_time: self.last_handled_time,
+            previous_event: self.previous_event.clone(),
+        }
+    }
+
+    pub(crate) fn restore_admission_checkpoint(
+        &mut self,
+        checkpoint: EventStreamAdmissionCheckpoint,
+    ) {
+        self.between_state = checkpoint.between_state;
+        self.last_handled_time = checkpoint.last_handled_time;
+        self.previous_event = checkpoint.previous_event;
     }
 
     pub(crate) fn handle_runtime_wakeup(
@@ -505,6 +560,7 @@ mod tests {
                 key: first_key.clone(),
             }],
             consume: false,
+            admission: Some(EventAdmission::Rejected),
         };
         let second = UpdateStatus {
             rerender: false,
@@ -514,6 +570,7 @@ mod tests {
                 key: second_key.clone(),
             }],
             consume: true,
+            admission: Some(EventAdmission::Committed),
         };
 
         let merged = first.merge(&second);

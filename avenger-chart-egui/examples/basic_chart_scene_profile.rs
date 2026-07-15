@@ -133,10 +133,50 @@ async fn build_app(
     point_count: usize,
 ) -> Result<AvengerApp<ChartAppState>, Box<dyn std::error::Error>> {
     let ctx = Arc::new(SessionContext::new());
-    let width = Param::new("width", ScalarValue::Float64(Some(760.0)));
-    let height = Param::new("height", ScalarValue::Float64(Some(520.0)));
-    let point_size = Param::new("point_size", ScalarValue::Float64(Some(120.0)));
-    let show_points = Param::new("show_points", ScalarValue::Boolean(Some(true)));
+    let width = {
+        let __avenger_param_name = "width";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(760.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let height = {
+        let __avenger_param_name = "height";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(520.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let point_size = {
+        let __avenger_param_name = "point_size";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Float64(Some(120.0))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
+    let show_points = {
+        let __avenger_param_name = "show_points";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Boolean(Some(true))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let size = when(show_points.expr(), point_size.expr())
         .otherwise(lit(0.0))
         .expect("build point-size conditional");

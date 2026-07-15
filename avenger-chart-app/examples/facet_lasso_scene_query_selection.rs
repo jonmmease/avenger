@@ -56,7 +56,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     let free_selected = free_pick.predicate();
     let shared_pick = Selection::new("shared_pick").empty_selects_nothing();
     let shared_selected = shared_pick.predicate();
-    let cursor = Param::cursor("lasso_cursor", CursorStyle::Default);
 
     let free_leaf = Plot::<Cartesian>::new()
         .mark(selection_points(free_selected, "#2563eb"))
@@ -69,7 +68,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .label("Free sharing"),
         )
         .event_binding(lasso_drag_binding(
-            &cursor,
             FREE_LASSO_STORE,
             "free_pick",
             CoordinationScope::Free,
@@ -87,7 +85,6 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
                 .label("Shared sharing"),
         )
         .event_binding(lasso_drag_binding(
-            &cursor,
             SHARED_LASSO_STORE,
             "shared_pick",
             CoordinationScope::Shared,
@@ -106,11 +103,9 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             SHARED_LASSO_STORE,
             CoordinationScope::Shared,
         ))
-        .param(cursor.clone())
-        .cursor_param(cursor.name.clone())
         .mark(Subplot::new(free_facets).name("free"))
         .mark(Subplot::new(shared_facets).name("shared"))
-        .event_binding(cursor_binding(&cursor));
+        .event_binding(cursor_binding());
 
     let compiled = plot.compile(&ctx).await.expect("compile plot");
     chart_avenger_app(
@@ -150,7 +145,7 @@ fn selectable_start_scope() -> Expr {
     ev::start_facet_value(0).is_not_null()
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let over_selectable = ev::event_coord("x")
         .is_not_null()
         .and(ev::event_coord("y").is_not_null())
@@ -159,12 +154,11 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
         .otherwise(ev::cursor(CursorStyle::Default))
         .expect("valid cursor expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 
 fn lasso_drag_binding(
-    cursor: &Param,
     store_name: &str,
     selection_id: &str,
     sharing: CoordinationScope,
@@ -178,7 +172,7 @@ fn lasso_drag_binding(
         .filter(ev::start_coord("x").is_not_null())
         .filter(ev::start_coord("y").is_not_null())
         .filter(ev::event_path_svg().is_not_null())
-        .set_param(cursor, ev::cursor(CursorStyle::Grabbing))
+        .set_cursor(ev::cursor(CursorStyle::Grabbing))
         .set_store_at_start_scope_replacing_scopes(store_name, lasso_overlay_update("active"))
         .set_selection_at_start_scope(
             selection_id,

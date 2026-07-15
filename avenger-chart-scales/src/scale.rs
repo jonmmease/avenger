@@ -763,8 +763,28 @@ mod tests {
     #[tokio::test]
     async fn raw_domain_can_be_built_from_params() {
         let ctx = SessionContext::new();
-        let raw_min = Param::new("raw_min", ScalarValue::Float64(Some(0.0)));
-        let raw_max = Param::new("raw_max", ScalarValue::Float64(Some(0.0)));
+        let raw_min = {
+            let __avenger_param_name = "raw_min";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(0.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let raw_max = {
+            let __avenger_param_name = "raw_max";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(0.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let mut params = IndexMap::new();
         params.insert("raw_min".to_string(), ScalarValue::Float64(Some(3.0)));
         params.insert("raw_max".to_string(), ScalarValue::Float64(Some(7.0)));

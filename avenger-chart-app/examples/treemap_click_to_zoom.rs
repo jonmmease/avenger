@@ -51,8 +51,17 @@ fn main() {
 
 async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
-    let cursor = Param::cursor("treemap_zoom_cursor", CursorStyle::Default);
-    let root = Param::new("treemap_root", ScalarValue::Utf8(None));
+    let root = {
+        let __avenger_param_name = "treemap_root";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Utf8(None)).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let plot = Chart::with_coord(
         Treemap::new()
@@ -64,9 +73,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .title("Click a treemap group to zoom")
     .canvas_size(SIZE[0], SIZE[1])
     .data(ctx.read_batch(treemap_batch()).expect("read data"))
-    .param(cursor.clone())
     .param(root.clone())
-    .cursor_param(cursor.name.clone())
     .configure_guide(
         TreemapGuide::new()
             .headers(true)
@@ -80,7 +87,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
             .stroke("#ffffff")
             .stroke_width(1.0),
     )
-    .event_binding(cursor_binding(&cursor))
+    .event_binding(cursor_binding())
     .event_binding(zoom_binding(&root))
     .event_binding(reset_zoom_binding(&root));
 
@@ -99,7 +106,7 @@ async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartApp
     .expect("build chart app")
 }
 
-fn cursor_binding(cursor: &Param) -> ChartEventBinding {
+fn cursor_binding() -> ChartEventBinding {
     let cursor_expr = when(
         treemap_event::hierarchy_can_zoom().eq(lit(true)),
         ev::cursor(CursorStyle::Grab),
@@ -107,7 +114,7 @@ fn cursor_binding(cursor: &Param) -> ChartEventBinding {
     .otherwise(ev::cursor(CursorStyle::Default))
     .expect("valid cursor expression");
     ChartEventBinding::on(ChartEventType::CursorMoved)
-        .set_param(cursor, cursor_expr)
+        .set_cursor(cursor_expr)
         .preview()
 }
 

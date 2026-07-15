@@ -1,0 +1,194 @@
+{
+  "version": { "major": 1, "minor": 0 },
+  "profile_label": "bootstrap-vertical-slice",
+  "entries": [
+    {
+      "key": { "namespace": "coordinate", "kind": "cartesian" },
+      "docs": "A two-dimensional Cartesian coordinate system.",
+      "properties": {
+        "unit_aspect": {
+          "shape": { "shape": "number" },
+          "required": false,
+          "docs": "Optional positive ratio between x and y data units."
+        }
+      },
+      "channels": {}, "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "mark", "kind": "symbol", "coordinate": "cartesian" },
+      "docs": "A point symbol positioned in Cartesian coordinates.",
+      "properties": {},
+      "channels": {
+        "angle": { "name": "angle", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `angle` encoding expression." },
+        "fill": { "name": "fill", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `fill` encoding expression." },
+        "fill_pattern": { "name": "fill_pattern", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `fill_pattern` encoding expression." },
+        "opacity": { "name": "opacity", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `opacity` encoding expression." },
+        "shape": { "name": "shape", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `shape` encoding expression." },
+        "size": { "name": "size", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `size` encoding expression." },
+        "stroke": { "name": "stroke", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `stroke` encoding expression." },
+        "stroke_width": { "name": "stroke_width", "required": false, "shape": { "shape": "sql_expression" }, "docs": "The symbol `stroke_width` encoding expression." },
+        "x": { "name": "x", "required": true, "shape": { "shape": "sql_expression" }, "docs": "The symbol `x` encoding expression." },
+        "y": { "name": "y", "required": true, "shape": { "shape": "sql_expression" }, "docs": "The symbol `y` encoding expression." }
+      },
+      "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "transform", "kind": "aggregate" },
+      "docs": "Group rows and compute named aggregate measures.",
+      "properties": {
+        "group_by": {
+          "shape": { "shape": "array", "detail": { "shape": "sql_expression" } },
+          "required": false,
+          "docs": "Grouping expressions."
+        },
+        "measures": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "object",
+              "detail": {
+                "expr": { "shape": { "shape": "sql_expression" }, "required": false, "docs": "Input expression; omitted for count." },
+                "name": { "shape": { "shape": "string" }, "required": true, "docs": "Output column name." },
+                "op": {
+                  "shape": {
+                    "shape": "atom",
+                    "detail": {
+                      "values": [
+                        { "value": "sum", "docs": "The `sum` aggregation operation." },
+                        { "value": "count", "docs": "The `count` aggregation operation." },
+                        { "value": "mean", "docs": "The `mean` aggregation operation." },
+                        { "value": "min", "docs": "The `min` aggregation operation." },
+                        { "value": "max", "docs": "The `max` aggregation operation." },
+                        { "value": "median", "docs": "The `median` aggregation operation." }
+                      ]
+                    }
+                  },
+                  "required": true,
+                  "docs": "Aggregation operation."
+                }
+              }
+            }
+          },
+          "required": true,
+          "docs": "Named aggregate measures."
+        }
+      },
+      "channels": {}, "parts": {}, "exports": {},
+      "outputs": {
+        "fields": {
+          "name": "fields",
+          "shape": { "shape": "object", "detail": {} },
+          "docs": "Named output fields declared by group keys and measures."
+        }
+      },
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "transform", "kind": "filter" },
+      "docs": "Retain rows for which a predicate is true.",
+      "properties": {
+        "predicate": { "shape": { "shape": "sql_expression" }, "required": true, "docs": "Boolean row predicate." }
+      },
+      "channels": {}, "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "transform", "kind": "sql" },
+      "docs": "Run one DataFusion SQL query against the reserved `input` relation.",
+      "properties": {
+        "query": { "shape": { "shape": "sql_query" }, "required": true, "docs": "The SQL query." }
+      },
+      "channels": {}, "parts": {}, "exports": {},
+      "outputs": {
+        "fields": { "name": "fields", "shape": { "shape": "object", "detail": {} }, "docs": "Fields projected by the SQL query." }
+      },
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "tool", "kind": "pan_scroll_zoom" },
+      "docs": "Pointer-drag panning and wheel zoom for Cartesian domains.",
+      "properties": {}, "channels": {}, "parts": {},
+      "exports": {
+        "x_domain": { "alias": "x_domain", "value_kind": "param<fixed_size_list<float64, 2>>", "docs": "The tool-owned current x domain." },
+        "y_domain": { "alias": "y_domain", "value_kind": "param<fixed_size_list<float64, 2>>", "docs": "The tool-owned current y domain." }
+      },
+      "outputs": {}, "compatible_coordinates": ["cartesian"], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "widget", "kind": "radio_button_list" },
+      "runtime_kind": "radio-button-list",
+      "docs": "A list that selects exactly one scalar value.",
+      "properties": {
+        "default": { "shape": { "shape": "any" }, "required": false, "docs": "Initial selected scalar value." },
+        "id": { "shape": { "shape": "string" }, "required": true, "docs": "Widget source id." },
+        "items": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "object",
+              "detail": {
+                "label": { "shape": { "shape": "string" }, "required": true, "docs": "The displayed item label." },
+                "value": { "shape": { "shape": "any" }, "required": true, "docs": "The selected scalar value." }
+              }
+            }
+          },
+          "required": true,
+          "docs": "Static list items."
+        },
+        "position": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                { "value": "top", "docs": "Place the widget on the top chart edge." },
+                { "value": "right", "docs": "Place the widget on the right chart edge." },
+                { "value": "bottom", "docs": "Place the widget on the bottom chart edge." },
+                { "value": "left", "docs": "Place the widget on the left chart edge." }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Chart chrome placement edge."
+        },
+        "value_param": { "shape": { "shape": "scalar_binding" }, "required": false, "docs": "Optional existing typed parameter bound to the value state slot." }
+      },
+      "channels": {},
+      "parts": {
+        "center": { "alias": "center", "runtime_kind": "radio-button-list", "runtime_alias": "center", "targetable": true, "docs": "The selected radio center." },
+        "control": { "alias": "control", "runtime_kind": "radio-button-list", "runtime_alias": "control", "targetable": true, "docs": "The outer radio control." },
+        "focus_ring": { "alias": "focus_ring", "runtime_kind": "radio-button-list", "runtime_alias": "focus-ring", "targetable": false, "docs": "The keyboard focus indicator." },
+        "label": { "alias": "label", "runtime_kind": "radio-button-list", "runtime_alias": "label", "targetable": true, "docs": "The row label." }
+      },
+      "exports": {
+        "value": { "alias": "value", "value_kind": "param<item_scalar>", "docs": "The currently selected item value." }
+      },
+      "outputs": {}, "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "scale", "kind": "linear" },
+      "docs": "A continuous linear scale.",
+      "properties": {}, "channels": {}, "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "axis", "kind": "cartesian" },
+      "docs": "A Cartesian axis configuration.",
+      "properties": {}, "channels": {}, "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "legend", "kind": "standard" },
+      "docs": "A standard chart legend configuration.",
+      "properties": {}, "channels": {}, "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    },
+    {
+      "key": { "namespace": "layout", "kind": "chart" },
+      "docs": "The default chart frame layout.",
+      "properties": {}, "channels": {}, "parts": {}, "exports": {}, "outputs": {},
+      "compatible_coordinates": [], "stateless": false, "child_rules": []
+    }
+  ]
+}

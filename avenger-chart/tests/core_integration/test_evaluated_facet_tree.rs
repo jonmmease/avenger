@@ -333,7 +333,17 @@ async fn test_facet_wrap_columns_and_order_by_aggregate() {
 async fn test_facet_wrap_columns_accepts_param() {
     let ctx = SessionContext::new();
     let df = create_test_data(&ctx).await;
-    let columns = Param::new("wrap_columns", ScalarValue::Int64(Some(2)));
+    let columns = {
+        let __avenger_param_name = "wrap_columns";
+        let __avenger_param_default: datafusion::common::ScalarValue =
+            (ScalarValue::Int64(Some(2))).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let plot = Chart::<FacetWrap>::new()
         .data(df)

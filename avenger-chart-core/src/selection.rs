@@ -15,9 +15,24 @@ use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
 
 use crate::{
-    AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr, SelectionSceneQuery,
-    SerializableExpr,
+    AvengerChartError, CoordinationScope, DefaultLogicalExprNodeExt, IntoExpr, SelectionRef,
+    SelectionSceneQuery, SerializableExpr, StateMigrationKey, WidgetItemIdentityCodec,
 };
+
+/// Canonical type-preserving identity for a scene-query tuple.
+///
+/// Length framing keeps field names and encoded Arrow scalars unambiguous and
+/// makes the result suitable for semantic selection clause IDs.
+pub fn encode_selection_tuple_id<'a>(
+    fields: impl IntoIterator<Item = (&'a str, &'a ScalarValue)>,
+) -> Result<String, AvengerChartError> {
+    let mut encoded = String::from("sti1_");
+    for (name, value) in fields {
+        let value = WidgetItemIdentityCodec::encode(value)?;
+        encoded.push_str(&format!("{}:{name}{}:{value}", name.len(), value.len()));
+    }
+    Ok(encoded)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmptySelectionBehavior {
@@ -839,7 +854,9 @@ impl Selection {
             validate_selection_id(&facet.id)?;
         }
         Ok(CompiledSelectionSpec {
+            runtime_id: SelectionRef::unresolved_authoring(),
             id: self.id.clone(),
+            migration_key: None,
             empty: self.empty,
             combine: self.combine,
             facet_context: self.facet_context.clone(),
@@ -853,7 +870,13 @@ fn default_clause_facet_scope() -> CoordinationScope {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CompiledSelectionSpec {
+    /// Opaque runtime identity assigned at the root compilation boundary.
+    pub runtime_id: SelectionRef,
+    /// Author-facing selection name retained for diagnostics and host binding.
     pub id: String,
+    /// Optional hot-reload migration metadata, never used for runtime lookup.
+    #[serde(default)]
+    pub migration_key: Option<StateMigrationKey>,
     pub empty: EmptySelectionBehavior,
     #[serde(default)]
     pub combine: SelectionCombine,
@@ -906,6 +929,33 @@ pub fn selection_id_from_equality_membership_value_placeholder(
     placeholder_id: &str,
 ) -> Option<&str> {
     placeholder_id.strip_prefix(SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX)
+}
+
+/// Decode the selection target from any selection placeholder spelling.
+#[doc(hidden)]
+pub fn selection_target_from_placeholder(placeholder_id: &str) -> Option<&str> {
+    selection_id_from_predicate_placeholder(placeholder_id)
+        .or_else(|| selection_id_from_equality_membership_field_placeholder(placeholder_id))
+        .or_else(|| selection_id_from_equality_membership_value_placeholder(placeholder_id))
+}
+
+/// Preserve a selection placeholder's operation while replacing its authoring
+/// target with the opaque runtime identity.
+#[doc(hidden)]
+pub fn resolved_selection_placeholder_id(
+    placeholder_id: &str,
+    selection: &SelectionRef,
+) -> Option<String> {
+    let prefix = if selection_id_from_predicate_placeholder(placeholder_id).is_some() {
+        "$__selection_predicate_"
+    } else if selection_id_from_equality_membership_field_placeholder(placeholder_id).is_some() {
+        SELECTION_EQUALITY_MEMBERSHIP_FIELD_PREFIX
+    } else if selection_id_from_equality_membership_value_placeholder(placeholder_id).is_some() {
+        SELECTION_EQUALITY_MEMBERSHIP_VALUE_PREFIX
+    } else {
+        return None;
+    };
+    Some(format!("{prefix}{}", selection.as_opaque_str()))
 }
 
 /// Stable, type-preserving identity for a serialized selection field

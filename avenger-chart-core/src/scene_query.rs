@@ -124,8 +124,8 @@ pub struct SceneGeometryTarget {
     subplot_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolved_source_group: Option<Vec<usize>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    resolved_mark_paths: Option<Vec<Vec<usize>>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    resolved_mark_ids: Vec<crate::MarkId>,
 }
 
 impl SceneGeometryTarget {
@@ -143,8 +143,8 @@ impl SceneGeometryTarget {
     }
 
     #[doc(hidden)]
-    pub fn resolved_mark_paths(&self) -> Option<&[Vec<usize>]> {
-        self.resolved_mark_paths.as_deref()
+    pub fn resolved_mark_ids(&self) -> &[crate::MarkId] {
+        &self.resolved_mark_ids
     }
 
     #[doc(hidden)]
@@ -154,8 +154,8 @@ impl SceneGeometryTarget {
     }
 
     #[doc(hidden)]
-    pub fn with_resolved_mark_paths(mut self, paths: Vec<Vec<usize>>) -> Self {
-        self.resolved_mark_paths = Some(paths);
+    pub fn with_resolved_mark_ids(mut self, ids: Vec<crate::MarkId>) -> Self {
+        self.resolved_mark_ids = ids;
         self
     }
 

@@ -110,7 +110,16 @@ async fn radio_list_round_trips_and_rejects_absent_static_param_values() {
 #[tokio::test]
 async fn radio_list_requires_dataframe_default_and_revalidates_item_revisions() {
     let ctx = Arc::new(SessionContext::new());
-    let include_south = Param::new("include_south", true);
+    let include_south = {
+        let __avenger_param_name = "include_south";
+        let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
     let data = ctx
         .sql("SELECT * FROM (VALUES (1, 'North'), (2, 'South')) AS t(code, name)")
         .await

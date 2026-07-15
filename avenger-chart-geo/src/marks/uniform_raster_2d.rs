@@ -868,7 +868,7 @@ mod tests {
     fn compiled_state() -> CompiledMarkState {
         CompiledMarkState {
             id: None,
-            public_target_path: None,
+            identity: Default::default(),
             data: CompiledDataContext::default(),
             view: None,
             data_mode: MarkDataMode::Inherit,
@@ -880,7 +880,6 @@ mod tests {
             zindex: None,
             geometry_space: None,
             axis_configs: HashMap::new(),
-            widget_theme: None,
         }
     }
 

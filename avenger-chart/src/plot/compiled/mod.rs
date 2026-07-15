@@ -27,7 +27,7 @@ mod validation;
 
 use std::{
     any::Any,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     sync::{Arc, Mutex},
 };
 
@@ -45,11 +45,12 @@ use serde_with::{FromInto, serde_as};
 
 use avenger_chart_core::{
     AvengerChartError, AxisSpec, ChannelValue, CompiledDataContext, CompiledGuide, CompiledMark,
-    CompiledParamSpec, CompiledSelectionSpec, CompiledStoreSpec, CompiledSubplotChildPlot,
-    CompiledSubplotPayload, CompiledViewScope, CoordMeasurement, CoordinateDomainResolvedState,
-    CoordinateSystemTransform, EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec,
-    FacetDataScope, FormattingContext, Legend, LogicalPlanNodeExt, MarkDataMode,
-    ScaleInferenceHint, ScaleRangeBinding, SerializableDataFrame, SerializableScalarMap, Theme,
+    CompiledParamSpec, CompiledSelectionSpec, CompiledStateRegistry, CompiledStoreSpec,
+    CompiledSubplotChildPlot, CompiledSubplotPayload, CompiledToolBehavior, CompiledViewScope,
+    CoordMeasurement, CoordinateDomainResolvedState, CoordinateSystemTransform,
+    EvaluationContext as CoreEvaluationContext, EventDatumFieldSpec, FacetDataScope,
+    FormattingContext, Legend, LogicalPlanNodeExt, MarkDataMode, ParamRef, ScaleInferenceHint,
+    ScaleRangeBinding, SelectionRef, SerializableDataFrame, SerializableScalarMap, StoreRef, Theme,
     TimeContext, ToolMetadata, channel::strip_trailing_numbers,
 };
 use avenger_chart_scales::{ConfiguredScaleWithSpec, PlotScaleSpec as ScaleSpec, ScaleBuilder};
@@ -135,9 +136,10 @@ pub use self::native_runtime::{
 #[cfg(test)]
 pub(crate) use self::session::TextMeasurementCache;
 pub use self::session::{
-    EvaluationRequest, PlotSession, PlotSessionOptions, ScopedParamAssignment,
-    ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,
-    StoreStateUpdate,
+    EvaluationRequest, PlotSession, PlotSessionOptions, ResolvedScopedParamAssignment,
+    ResolvedScopedStoreAssignment, ResolvedSelectionAssignment, ResolvedStateTransaction,
+    ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment,
+    SelectionStateUpdate, StoreStateUpdate,
 };
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,
@@ -216,6 +218,11 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) mark_group_index_by_mark: Vec<Option<usize>>,
 
+    /// Renderer/eventstream lookup derived from opaque mark identity. Numeric
+    /// paths are an internal scene transport detail, never an authoring target.
+    #[serde(default)]
+    pub(crate) mark_runtime_paths: BTreeMap<avenger_chart_core::MarkId, Vec<Vec<usize>>>,
+
     /// Axis specifications
     pub(crate) axis_specs: HashMap<String, AxisSpec>,
 
@@ -271,16 +278,15 @@ pub struct CompiledPlot {
     #[serde_as(as = "FromInto<SerializableScalarMap>")]
     pub(crate) default_params: IndexMap<String, ScalarValue>,
 
-    /// Param specs (name, default, sharing scope) keyed by name in declaration order.
-    ///
-    /// This is the source of truth for parameter sharing. `default_params` is
-    /// derived from it and retained for the existing flat-map accessors.
+    /// Parameter specs keyed canonically by opaque identity, with a separate
+    /// source-name index for authoring and host boundaries.
     #[serde(default)]
-    pub(crate) param_specs: IndexMap<String, CompiledParamSpec>,
+    pub(crate) param_specs: CompiledStateRegistry<ParamRef, CompiledParamSpec>,
 
-    /// Store specs keyed by name in declaration order.
+    /// Store specs keyed canonically by opaque identity, with a separate
+    /// source-name index for authoring and host boundaries.
     #[serde(default)]
-    pub(crate) store_specs: IndexMap<String, CompiledStoreSpec>,
+    pub(crate) store_specs: CompiledStateRegistry<StoreRef, CompiledStoreSpec>,
 
     /// Plot-level event bindings for chart apps.
     #[serde(default)]
@@ -298,17 +304,18 @@ pub struct CompiledPlot {
     #[serde(default)]
     pub(crate) event_coord_fields: Vec<EventDatumFieldSpec>,
 
-    /// Static selection specs registered by the author.
+    /// Selection specs keyed canonically by opaque identity, with a separate
+    /// source-name index for authoring and host boundaries.
     #[serde(default)]
-    pub(crate) selection_specs: IndexMap<String, CompiledSelectionSpec>,
-
-    /// Param names whose values drive app cursor state rather than visual output.
-    #[serde(default)]
-    pub(crate) cursor_params: Vec<String>,
+    pub(crate) selection_specs: CompiledStateRegistry<SelectionRef, CompiledSelectionSpec>,
 
     /// Metadata for tools that expanded into this compiled plot.
     #[serde(default)]
     pub(crate) tool_metadata: Vec<ToolMetadata>,
+
+    /// Canonical resolved tool identities and exports retained after expansion.
+    #[serde(default)]
+    pub(crate) tool_behaviors: Vec<CompiledToolBehavior>,
 
     /// Positionless compiled widgets paired with their host placement.
     #[serde(default)]
@@ -335,6 +342,7 @@ impl Clone for CompiledPlot {
             marks: self.marks.clone(),
             mark_groups: self.mark_groups.clone(),
             mark_group_index_by_mark: self.mark_group_index_by_mark.clone(),
+            mark_runtime_paths: self.mark_runtime_paths.clone(),
             axis_specs: self.axis_specs.clone(),
             legends: self.legends.clone(),
             legend_colorbar_overlays: self.legend_colorbar_overlays.clone(),
@@ -356,8 +364,8 @@ impl Clone for CompiledPlot {
             event_datum_fields: self.event_datum_fields.clone(),
             event_coord_fields: self.event_coord_fields.clone(),
             selection_specs: self.selection_specs.clone(),
-            cursor_params: self.cursor_params.clone(),
             tool_metadata: self.tool_metadata.clone(),
+            tool_behaviors: self.tool_behaviors.clone(),
             widgets: self.widgets.clone(),
             baked_tables: self.baked_tables.clone(),
             bake_report: self.bake_report.clone(),
@@ -366,6 +374,31 @@ impl Clone for CompiledPlot {
 }
 
 impl CompiledPlot {
+    pub fn mark_runtime_path_index(
+        &self,
+    ) -> &BTreeMap<avenger_chart_core::MarkId, Vec<Vec<usize>>> {
+        &self.mark_runtime_paths
+    }
+
+    pub fn runtime_paths_for_mark_ids(
+        &self,
+        ids: &[avenger_chart_core::MarkId],
+    ) -> Result<Vec<Vec<usize>>, AvengerChartError> {
+        let mut paths = Vec::new();
+        for id in ids {
+            let resolved = self.mark_runtime_paths.get(id).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "compiled mark identity '{}' has no runtime scene path",
+                    id
+                ))
+            })?;
+            paths.extend(resolved.iter().cloned());
+        }
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+
     pub fn widgets(&self) -> &[avenger_chart_core::CompiledWidgetAttachment] {
         &self.widgets
     }
@@ -645,13 +678,24 @@ impl CompiledPlot {
         &self.default_params
     }
 
-    /// Get the param specs (name, default, sharing) in declaration order.
-    pub fn param_specs(&self) -> &IndexMap<String, CompiledParamSpec> {
+    /// Parameter registry. Specs are keyed by opaque ID; `get(name)` is the
+    /// explicit author/host name-resolution adapter.
+    pub fn param_specs(&self) -> &CompiledStateRegistry<ParamRef, CompiledParamSpec> {
         &self.param_specs
     }
 
-    pub fn store_specs(&self) -> &IndexMap<String, CompiledStoreSpec> {
+    pub fn param_specs_by_id(&self) -> &IndexMap<ParamRef, CompiledParamSpec> {
+        self.param_specs.by_id()
+    }
+
+    /// Store registry. Specs are keyed by opaque ID; `get(name)` is the
+    /// explicit author/host name-resolution adapter.
+    pub fn store_specs(&self) -> &CompiledStateRegistry<StoreRef, CompiledStoreSpec> {
         &self.store_specs
+    }
+
+    pub fn store_specs_by_id(&self) -> &IndexMap<StoreRef, CompiledStoreSpec> {
+        self.store_specs.by_id()
     }
 
     /// Report from the bake that produced this plot, if any.
@@ -723,7 +767,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         out: &mut IndexMap<String, DataType>,
         inherited_plot_data: Option<&LogicalPlanNode>,
-        inherited_store_specs: Option<&IndexMap<String, CompiledStoreSpec>>,
+        inherited_store_specs: Option<&CompiledStateRegistry<StoreRef, CompiledStoreSpec>>,
     ) -> Result<(), AvengerChartError> {
         let plot_data = self.data.as_ref().or(inherited_plot_data);
         let store_specs = if self.store_specs.is_empty() {
@@ -791,7 +835,7 @@ impl CompiledPlot {
     fn schema_inference_evaluation_context(
         &self,
         ctx: &SessionContext,
-        store_specs: Option<&IndexMap<String, CompiledStoreSpec>>,
+        store_specs: Option<&CompiledStateRegistry<StoreRef, CompiledStoreSpec>>,
     ) -> EvaluationContext {
         let mut eval_ctx = EvaluationContext::new(
             self.get_theme(),
@@ -801,10 +845,18 @@ impl CompiledPlot {
         )
         .with_time_context(self.time_context.clone())
         .with_formatting_context(self.formatting_context.clone());
-        let store_specs = store_specs.unwrap_or(&self.store_specs);
-        if !store_specs.is_empty() {
+        let store_specs_by_id = store_specs
+            .map(|specs| {
+                specs
+                    .values()
+                    .cloned()
+                    .map(|spec| (spec.runtime_id.clone(), spec))
+                    .collect()
+            })
+            .unwrap_or_else(|| self.store_specs_by_id().clone());
+        if !store_specs_by_id.is_empty() {
             eval_ctx = eval_ctx
-                .with_scoped_store_state(Arc::new(ScopedStoreState::new(store_specs.clone())));
+                .with_scoped_store_state(Arc::new(ScopedStoreState::new(store_specs_by_id)));
         }
         eval_ctx
     }
@@ -878,7 +930,7 @@ impl CompiledPlot {
         requested: &BTreeSet<String>,
         out: &mut IndexMap<String, DataType>,
         inherited_plot_data: Option<&LogicalPlanNode>,
-        inherited_store_specs: Option<&IndexMap<String, CompiledStoreSpec>>,
+        inherited_store_specs: Option<&CompiledStateRegistry<StoreRef, CompiledStoreSpec>>,
     ) -> Result<(), AvengerChartError> {
         let plot_data = self.data.as_ref().or(inherited_plot_data);
         let store_specs = if self.store_specs.is_empty() {
@@ -1009,7 +1061,7 @@ impl CompiledPlot {
         ctx: &SessionContext,
         requested: &BTreeSet<String>,
         out: &mut IndexMap<String, DataType>,
-        store_specs: &IndexMap<String, CompiledStoreSpec>,
+        store_specs: &CompiledStateRegistry<StoreRef, CompiledStoreSpec>,
         eval_ctx: &crate::render::EvaluationContext,
     ) -> Result<(), AvengerChartError> {
         let item_df = widget
@@ -1047,16 +1099,20 @@ impl CompiledPlot {
         Ok(())
     }
 
-    pub fn selection_specs(&self) -> &IndexMap<String, CompiledSelectionSpec> {
+    pub fn selection_specs(&self) -> &CompiledStateRegistry<SelectionRef, CompiledSelectionSpec> {
         &self.selection_specs
     }
 
-    pub fn cursor_params(&self) -> &[String] {
-        &self.cursor_params
+    pub fn selection_specs_by_id(&self) -> &IndexMap<SelectionRef, CompiledSelectionSpec> {
+        self.selection_specs.by_id()
     }
 
     pub fn tool_metadata(&self) -> &[ToolMetadata] {
         &self.tool_metadata
+    }
+
+    pub fn tool_behaviors(&self) -> &[CompiledToolBehavior] {
+        &self.tool_behaviors
     }
 
     /// Get compiled mark renderers

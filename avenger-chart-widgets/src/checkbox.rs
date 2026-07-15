@@ -10,9 +10,9 @@ use avenger_chart::{
     },
     prelude::{
         AvengerChartError, ChartWidget, CoordinationScope, CursorStyle, Param, PixelFrame, Rect,
-        Rule, Text, ToolExpansion, ToolParamSharing, WidgetAxisMeasureSpec, WidgetExpansion,
-        WidgetExpansionContext, WidgetMeasureExpr, WidgetMeasureSpec, WidgetPresentationBindings,
-        WidgetStyleProperty, WidgetTextMeasureAxis,
+        Rule, Text, ToolBehaviorExpansion, ToolParamSharing, WidgetAxisMeasureSpec,
+        WidgetExpansion, WidgetExpansionContext, WidgetMeasureExpr, WidgetMeasureSpec,
+        WidgetPresentationBindings, WidgetStyleProperty, WidgetTextMeasureAxis,
     },
 };
 use datafusion::{
@@ -40,7 +40,16 @@ impl Checkbox {
     pub fn new(id: impl Into<String>, label: impl Into<String>, checked: bool) -> Self {
         let id = id.into();
         Self {
-            checked: Param::new(format!("{id}__checked"), checked),
+            checked: {
+                let __avenger_param_name = format!("{id}__checked");
+                let __avenger_param_default: datafusion::common::ScalarValue = (checked).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            },
             id,
             label: label.into(),
         }
@@ -126,11 +135,9 @@ impl ChartWidget for Checkbox {
             .y2(box_y + size.clone() + focus_gap)
             .fill("transparent");
 
-        let cursor = Param::cursor(format!("{}__cursor", self.id), CursorStyle::Default);
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
-        let expansion = ToolExpansion::new()
-            .param(self.checked.clone(), shared.clone())
-            .cursor_param(cursor.clone(), shared)
+        let behavior = ToolBehaviorExpansion::new(ctx.behavior_instance_id.clone())
+            .param(self.checked.clone(), shared)
             .mark(box_mark)
             .mark(check_mark)
             .mark(label_mark)
@@ -144,15 +151,16 @@ impl ChartWidget for Checkbox {
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseEnter)
-                    .set_param(&cursor, event::cursor(CursorStyle::Pointer)),
+                    .set_cursor(event::cursor(CursorStyle::Pointer)),
             )
             .event_binding(
                 ChartEventBinding::on(ChartEventType::MarkMouseLeave)
-                    .set_param(&cursor, event::cursor(CursorStyle::Default)),
+                    .set_cursor(event::cursor(CursorStyle::Default)),
             );
 
         Ok(WidgetExpansion {
-            expansion,
+            instance_id: ctx.instance_id,
+            behavior,
             items: None,
             measure: WidgetMeasureSpec {
                 width: WidgetAxisMeasureSpec::Content {

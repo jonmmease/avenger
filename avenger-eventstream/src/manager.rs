@@ -13,7 +13,7 @@ use crate::{
         SceneKeyReleaseEvent, SceneMouseDownEvent, SceneMouseEnterEvent, SceneMouseLeaveEvent,
         SceneMouseUpEvent, SceneMouseWheelEvent,
     },
-    stream::{EventStream, EventStreamConfig, EventStreamContext, UpdateStatus},
+    stream::{EventAdmission, EventStream, EventStreamConfig, EventStreamContext, UpdateStatus},
     window::{ElementState, Key, MouseButton, NamedKey, WindowEvent, WindowKeyboardInput},
 };
 
@@ -318,21 +318,27 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 };
                 update_status.commands.extend(debounced.commands);
                 if let Some(ready) = debounced.commit {
-                    update_status = update_status.merge(
-                        &stream
-                            .handler
-                            .handle_with_context(
-                                &ready.event,
-                                &ready.context,
-                                &mut self.state,
-                                rtree,
-                            )
-                            .await,
-                    );
+                    let handled = stream
+                        .handler
+                        .handle_with_context(&ready.event, &ready.context, &mut self.state, rtree)
+                        .await;
+                    if handled.admission == Some(EventAdmission::Rejected)
+                        || handled.admission == Some(EventAdmission::Failed)
+                    {
+                        stream.restore_admission_checkpoint(ready.checkpoint);
+                    } else {
+                        stream.mark_accepted(
+                            &ready.event,
+                            ready.context.mark_instance.as_ref(),
+                            instant,
+                        );
+                    }
+                    update_status = update_status.merge(&handled);
                 }
                 continue;
             }
 
+            let checkpoint = stream.admission_checkpoint();
             let Some(context) =
                 stream.matches_and_update(event, mark_instance.as_ref(), rtree, instant)
             else {
@@ -340,7 +346,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
             };
 
             let ready_event = if let Some(debounced) =
-                stream.debounce_submission(event, context.clone(), instant)
+                stream.debounce_submission(event, context.clone(), checkpoint.clone(), instant)
             {
                 update_status.commands.extend(debounced.commands);
                 debounced.commit
@@ -348,6 +354,7 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                 Some(crate::stream::DebouncedEvent {
                     event: event.clone(),
                     context,
+                    checkpoint: checkpoint.clone(),
                 })
             };
 
@@ -356,18 +363,28 @@ impl<State: Clone + Send + Sync + 'static> EventStreamManager<State> {
                     .handler
                     .handle_with_context(&ready.event, &ready.context, &mut self.state, rtree)
                     .await;
-                let consume = handled.consume;
+                let committed = !matches!(
+                    handled.admission,
+                    Some(EventAdmission::Rejected | EventAdmission::Failed)
+                );
+                if !committed {
+                    stream.restore_admission_checkpoint(checkpoint);
+                }
+                let consume = committed && handled.consume;
                 update_status = update_status.merge(&handled);
-                consume
+                (consume, committed)
             } else {
-                false
+                (false, false)
             };
 
-            stream.mark_accepted(event, mark_instance.as_ref(), instant);
+            let (dynamically_consumed, committed) = dynamically_consumed;
+            if committed {
+                stream.mark_accepted(event, mark_instance.as_ref(), instant);
+            }
 
             // Debounced streams consume the originating event at match time,
             // even when their handler runs later on the wake-up.
-            if stream.config.consume || dynamically_consumed {
+            if committed && (stream.config.consume || dynamically_consumed) {
                 break;
             }
         }
@@ -556,7 +573,7 @@ mod tests {
     use super::*;
     use crate::{
         runtime::{RuntimeHostCommand, RuntimeWakeEvent},
-        stream::{DebounceConfig, EventStreamConfig, EventStreamFilter},
+        stream::{DebounceConfig, EventAdmission, EventStreamConfig, EventStreamFilter},
         window::{CanvasResizeEvent, WindowCursorMoved, WindowEvent, WindowMouseInput},
     };
 
@@ -589,6 +606,8 @@ mod tests {
 
     struct ContextRecordingHandler;
 
+    struct RejectingContextHandler;
+
     #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
     #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
     impl EventStreamHandler<TestState> for ContextRecordingHandler {
@@ -615,6 +634,64 @@ mod tests {
         ) -> UpdateStatus {
             state.contexts.lock().unwrap().push(context.clone());
             self.handle(event, state, rtree).await
+        }
+    }
+
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    impl EventStreamHandler<TestState> for RejectingContextHandler {
+        async fn handle(
+            &self,
+            _event: &SceneGraphEvent,
+            _state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            unreachable!("context path is used")
+        }
+
+        async fn handle_with_context(
+            &self,
+            _event: &SceneGraphEvent,
+            context: &EventStreamContext,
+            state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.contexts.lock().unwrap().push(context.clone());
+            UpdateStatus {
+                consume: true,
+                admission: Some(EventAdmission::Rejected),
+                ..Default::default()
+            }
+        }
+    }
+
+    struct FailingContextHandler;
+
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    impl EventStreamHandler<TestState> for FailingContextHandler {
+        async fn handle(
+            &self,
+            _event: &SceneGraphEvent,
+            _state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            unreachable!("context path is used")
+        }
+
+        async fn handle_with_context(
+            &self,
+            _event: &SceneGraphEvent,
+            context: &EventStreamContext,
+            state: &mut TestState,
+            _rtree: &SceneGraphRTree,
+        ) -> UpdateStatus {
+            state.contexts.lock().unwrap().push(context.clone());
+            UpdateStatus {
+                consume: true,
+                admission: Some(EventAdmission::Failed),
+                ..Default::default()
+            }
         }
     }
 
@@ -682,6 +759,72 @@ mod tests {
             .await;
         assert!(status.consume);
         assert_eq!(labels.lock().unwrap().as_slice(), &["first"]);
+    }
+
+    #[tokio::test]
+    async fn rejected_handler_does_not_advance_previous_or_consume() {
+        let state = TestState::default();
+        let contexts = state.contexts.clone();
+        let labels = state.labels.clone();
+        let mut manager = EventStreamManager::new(state);
+        let config = EventStreamConfig {
+            types: vec![SceneGraphEventType::CanvasResize],
+            consume: true,
+            ..Default::default()
+        };
+        manager.register_handler(config.clone(), Arc::new(RejectingContextHandler));
+        manager.register_handler(config, Arc::new(HandlerId("following")));
+
+        let start = Instant::now();
+        for (offset, size) in [[1.0, 1.0], [2.0, 2.0]].into_iter().enumerate() {
+            manager
+                .dispatch_event(
+                    &WindowEvent::CanvasResize(CanvasResizeEvent { size }),
+                    &empty_rtree(),
+                    start + Duration::from_millis(offset as u64),
+                )
+                .await;
+        }
+
+        let contexts = contexts.lock().unwrap();
+        assert_eq!(contexts.len(), 2);
+        assert!(contexts
+            .iter()
+            .all(|context| context.previous_event.is_none()));
+        assert_eq!(labels.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn failed_handler_does_not_advance_previous_or_consume() {
+        let state = TestState::default();
+        let contexts = state.contexts.clone();
+        let labels = state.labels.clone();
+        let mut manager = EventStreamManager::new(state);
+        let config = EventStreamConfig {
+            types: vec![SceneGraphEventType::CanvasResize],
+            consume: true,
+            ..Default::default()
+        };
+        manager.register_handler(config.clone(), Arc::new(FailingContextHandler));
+        manager.register_handler(config, Arc::new(HandlerId("following")));
+
+        let start = Instant::now();
+        for (offset, size) in [[1.0, 1.0], [2.0, 2.0]].into_iter().enumerate() {
+            manager
+                .dispatch_event(
+                    &WindowEvent::CanvasResize(CanvasResizeEvent { size }),
+                    &empty_rtree(),
+                    start + Duration::from_millis(offset as u64),
+                )
+                .await;
+        }
+
+        let contexts = contexts.lock().unwrap();
+        assert_eq!(contexts.len(), 2);
+        assert!(contexts
+            .iter()
+            .all(|context| context.previous_event.is_none()));
+        assert_eq!(labels.lock().unwrap().len(), 2);
     }
 
     fn empty_rtree() -> SceneGraphRTree {

@@ -143,7 +143,16 @@ async fn test_base_font_size_with_param() {
 
     // Override base font size to 14px using a parameter
     // NOTE: Must use string "14px" not float 14.0, so it gets parsed as Length
-    let base_font_param = Param::new("--base-font-size", "14px");
+    let base_font_param = {
+        let __avenger_param_name = "--base-font-size";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("14px").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let plot = Chart::<Cartesian>::new()
         .data(df)
@@ -179,7 +188,16 @@ async fn test_base_font_size_with_param() {
 
     // Now test with a larger font size (18px) to show params can be changed
     // NOTE: Must use string "18px" not float 18.0, so it gets parsed as Length
-    let larger_font_param = Param::new("--base-font-size", "18px");
+    let larger_font_param = {
+        let __avenger_param_name = "--base-font-size";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("18px").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     // Recreate the same plot with the larger param
     let categories = StringArray::from(vec!["Red", "Green", "Blue", "Red", "Green", "Blue"]);
@@ -277,7 +295,16 @@ async fn test_mark_default_with_param() {
         .unwrap();
 
     // Override the symbol fill color via parameter
-    let fill_param = Param::new("--symbol-fill", "orange");
+    let fill_param = {
+        let __avenger_param_name = "--symbol-fill";
+        let __avenger_param_default: datafusion::common::ScalarValue = ("orange").into();
+        Param::typed(
+            __avenger_param_name,
+            __avenger_param_default.data_type(),
+            __avenger_param_default,
+        )
+        .expect("a parameter default must match its selected physical type")
+    };
 
     let plot = Chart::<Cartesian>::new()
         .data(df)

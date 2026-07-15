@@ -13,12 +13,12 @@ use avenger_chart_core::{
     EvaluationInvalidationRequest, EvaluationInvalidationSink, EvaluationInvalidationSubscription,
     FacetWrapColumnMode, LegendChannel, LegendPosition, LogicalPlanNodeExt,
     MaterializationExecutionContext, MaterializationExecutor, MaterializationExecutorRegistry,
-    MaterializationKind, MaterializationRequest, Maybe, RadiusExpression,
+    MaterializationKind, MaterializationRequest, Maybe, ParamRef, RadiusExpression,
     ResolvedSelectionClauseScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
     ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause,
     SelectionEqualityDimensionValue, SelectionFacetContextValue, SelectionPredicateSpec,
-    SerializableExpr, StoreData, StoreRowValue, WidgetItemIdentityCodec, WidgetItemValidation,
-    selection_field_expr_fingerprint,
+    SelectionRef, SerializableExpr, StoreData, StoreRef, StoreRowValue, WidgetItemIdentityCodec,
+    WidgetItemValidation, selection_field_expr_fingerprint,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
@@ -358,7 +358,7 @@ impl TextMeasurementCacheKey {
 /// logical owner path resolved for the parameter's `CoordinationScope` level.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ScopedParamKey {
-    name: String,
+    id: ParamRef,
     owner_path: Vec<ScalarValue>,
 }
 
@@ -366,6 +366,17 @@ pub(crate) struct ScopedParamKey {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScopedParamAssignment {
     pub name: String,
+    pub owner_path: Vec<ScalarValue>,
+    pub value: ScalarValue,
+    pub replace_scoped_values: bool,
+}
+
+/// Runtime-ready scoped parameter write. The source name is diagnostic only;
+/// lookup and equality use the resolved opaque ID.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedScopedParamAssignment {
+    pub runtime_id: ParamRef,
+    pub source_name: String,
     pub owner_path: Vec<ScalarValue>,
     pub value: ScalarValue,
     pub replace_scoped_values: bool,
@@ -416,22 +427,34 @@ fn owner_path_for_sharing(
 /// `CompiledParamSpec` default when no scoped value exists.
 #[derive(Clone, Debug)]
 pub(crate) struct ScopedParamStore {
-    specs: IndexMap<String, CompiledParamSpec>,
+    specs: IndexMap<ParamRef, CompiledParamSpec>,
+    ids_by_name: IndexMap<String, ParamRef>,
     values: IndexMap<ScopedParamKey, ScalarValue>,
-    revisions: IndexMap<String, u64>,
+    revisions: IndexMap<ParamRef, u64>,
 }
 
 impl ScopedParamStore {
-    fn new(specs: IndexMap<String, CompiledParamSpec>) -> Self {
+    fn new(specs: IndexMap<ParamRef, CompiledParamSpec>) -> Self {
+        let ids_by_name = specs
+            .iter()
+            .map(|(id, spec)| (spec.name.clone(), id.clone()))
+            .collect();
         Self {
             specs,
+            ids_by_name,
             values: IndexMap::new(),
             revisions: IndexMap::new(),
         }
     }
 
-    fn bump_revision(&mut self, name: &str) {
-        *self.revisions.entry(name.to_string()).or_insert(0) += 1;
+    fn bump_revision(&mut self, id: &ParamRef) {
+        *self.revisions.entry(id.clone()).or_insert(0) += 1;
+    }
+
+    fn id_for_name(&self, name: &str) -> Result<ParamRef, AvengerChartError> {
+        self.ids_by_name.get(name).cloned().ok_or_else(|| {
+            AvengerChartError::InvalidArgument(format!("Unknown plot parameter '{name}'"))
+        })
     }
 
     /// Build a flat effective param map for a scope's sharing-owner paths.
@@ -440,10 +463,10 @@ impl ScopedParamStore {
         sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
     ) -> IndexMap<String, ScalarValue> {
         let mut result = IndexMap::with_capacity(self.specs.len());
-        for (name, spec) in &self.specs {
+        for (id, spec) in &self.specs {
             let owner_path = owner_path_for_sharing(spec.sharing, sharing_owner_paths);
             let key = ScopedParamKey {
-                name: name.clone(),
+                id: id.clone(),
                 owner_path,
             };
             let value = self
@@ -451,14 +474,7 @@ impl ScopedParamStore {
                 .get(&key)
                 .cloned()
                 .unwrap_or_else(|| spec.default.clone());
-            result.insert(name.clone(), value);
-        }
-        // Preserve root values for names without registered specs: flat
-        // `set_params` keeps extra keys.
-        for (key, value) in &self.values {
-            if key.owner_path.is_empty() && !self.specs.contains_key(&key.name) {
-                result.insert(key.name.clone(), value.clone());
-            }
+            result.insert(spec.name.clone(), value);
         }
         result
     }
@@ -498,95 +514,183 @@ impl ScopedParamStore {
     }
 
     /// Replace root values with `params`, clearing prior root values first.
-    fn set_root_params(&mut self, params: IndexMap<String, ScalarValue>) {
+    fn set_root_params(
+        &mut self,
+        params: IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        self.validate_param_values(&params)?;
         let previous_root = self
             .values
             .iter()
             .filter(|(key, _)| key.owner_path.is_empty())
-            .map(|(key, value)| (key.name.clone(), value.clone()))
+            .map(|(key, value)| (key.id.clone(), value.clone()))
             .collect::<IndexMap<_, _>>();
-        let next_names = params.keys().cloned().collect::<HashSet<_>>();
+        let params = params
+            .into_iter()
+            .map(|(name, value)| Ok((self.id_for_name(&name)?, value)))
+            .collect::<Result<IndexMap<_, _>, AvengerChartError>>()?;
+        let next_ids = params.keys().cloned().collect::<HashSet<_>>();
         self.values.retain(|key, _| !key.owner_path.is_empty());
-        for (name, value) in params {
-            let changed = previous_root.get(&name) != Some(&value);
+        for (id, value) in params {
+            let changed = previous_root.get(&id) != Some(&value);
             self.values.insert(
                 ScopedParamKey {
-                    name: name.clone(),
+                    id: id.clone(),
                     owner_path: Vec::new(),
                 },
                 value,
             );
             if changed {
-                self.bump_revision(&name);
+                self.bump_revision(&id);
             }
         }
-        for removed in previous_root
-            .keys()
-            .filter(|name| !next_names.contains(*name))
-        {
+        for removed in previous_root.keys().filter(|id| !next_ids.contains(*id)) {
             self.bump_revision(removed);
         }
+        Ok(())
     }
 
     fn revisions_after_root_params(
         &self,
         params: &IndexMap<String, ScalarValue>,
-    ) -> IndexMap<String, u64> {
+    ) -> IndexMap<ParamRef, u64> {
         let mut revisions = self.revisions.clone();
         let previous_root = self
             .values
             .iter()
             .filter(|(key, _)| key.owner_path.is_empty())
-            .map(|(key, value)| (key.name.as_str(), value))
+            .map(|(key, value)| (key.id.clone(), value))
             .collect::<HashMap<_, _>>();
         for (name, value) in params {
-            if previous_root.get(name.as_str()).copied() != Some(value) {
-                *revisions.entry(name.clone()).or_insert(0) += 1;
+            let Ok(id) = self.id_for_name(name) else {
+                continue;
+            };
+            if previous_root.get(&id).copied() != Some(value) {
+                *revisions.entry(id).or_insert(0) += 1;
             }
         }
-        for name in previous_root.keys() {
-            if !params.contains_key(*name) {
-                *revisions.entry((*name).to_string()).or_insert(0) += 1;
+        for id in previous_root.keys() {
+            let name = &self.specs[id].name;
+            if !params.contains_key(name) {
+                *revisions.entry(id.clone()).or_insert(0) += 1;
             }
         }
         revisions
     }
 
+    fn revisions_for_host(&self, revisions: &IndexMap<ParamRef, u64>) -> IndexMap<String, u64> {
+        revisions
+            .iter()
+            .map(|(id, revision)| (self.specs[id].name.clone(), *revision))
+            .collect()
+    }
+
     /// Patch root values from `patch`, leaving unrelated root values intact.
-    fn apply_root_patch(&mut self, patch: IndexMap<String, ScalarValue>) {
+    fn apply_root_patch(
+        &mut self,
+        patch: IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        self.validate_param_values(&patch)?;
         for (name, value) in patch {
+            let id = self.id_for_name(&name)?;
             let key = ScopedParamKey {
-                name: name.clone(),
+                id: id.clone(),
                 owner_path: Vec::new(),
             };
             let changed = self.values.get(&key) != Some(&value);
             self.values.insert(key, value);
             if changed {
-                self.bump_revision(&name);
+                self.bump_revision(&id);
             }
         }
+        Ok(())
     }
 
     /// Apply scoped assignments. Empty owner paths target root values.
-    fn apply_scoped_patch(&mut self, patch: impl IntoIterator<Item = ScopedParamAssignment>) {
+    fn apply_scoped_patch(
+        &mut self,
+        patch: impl IntoIterator<Item = ScopedParamAssignment>,
+    ) -> Result<(), AvengerChartError> {
+        let patch = patch
+            .into_iter()
+            .map(|assignment| {
+                let runtime_id = self.id_for_name(&assignment.name)?;
+                Ok(ResolvedScopedParamAssignment {
+                    runtime_id,
+                    source_name: assignment.name,
+                    owner_path: assignment.owner_path,
+                    value: assignment.value,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        self.apply_resolved_scoped_patch(patch)
+    }
+
+    fn apply_resolved_scoped_patch(
+        &mut self,
+        patch: impl IntoIterator<Item = ResolvedScopedParamAssignment>,
+    ) -> Result<(), AvengerChartError> {
+        let patch = patch.into_iter().collect::<Vec<_>>();
+        for assignment in &patch {
+            let spec = self.specs.get(&assignment.runtime_id).ok_or_else(|| {
+                AvengerChartError::InvalidArgument(format!(
+                    "Unknown plot parameter '{}'",
+                    assignment.source_name
+                ))
+            })?;
+            avenger_chart_core::validate_param_value(&spec.data_type, &assignment.value).map_err(
+                |error| {
+                    AvengerChartError::InvalidArgument(format!(
+                        "Invalid value for param '{}': {error}",
+                        assignment.source_name
+                    ))
+                },
+            )?;
+        }
         for assignment in patch {
+            let id = assignment.runtime_id;
             if assignment.replace_scoped_values {
                 let before = self.values.len();
-                self.values.retain(|key, _| key.name != assignment.name);
+                self.values.retain(|key, _| key.id != id);
                 if self.values.len() != before {
-                    self.bump_revision(&assignment.name);
+                    self.bump_revision(&id);
                 }
             }
             let key = ScopedParamKey {
-                name: assignment.name.clone(),
+                id: id.clone(),
                 owner_path: assignment.owner_path,
             };
             let changed = self.values.get(&key) != Some(&assignment.value);
             self.values.insert(key, assignment.value);
             if changed {
-                self.bump_revision(&assignment.name);
+                self.bump_revision(&id);
             }
         }
+        Ok(())
+    }
+
+    fn validate_param_values(
+        &self,
+        values: &IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        for (name, value) in values {
+            self.validate_param_value(name, value)?;
+        }
+        Ok(())
+    }
+
+    fn validate_param_value(
+        &self,
+        name: &str,
+        value: &ScalarValue,
+    ) -> Result<(), AvengerChartError> {
+        let id = self.id_for_name(name)?;
+        let spec = &self.specs[&id];
+        avenger_chart_core::validate_param_value(&spec.data_type, value).map_err(|error| {
+            AvengerChartError::InvalidArgument(format!("Invalid value for param '{name}': {error}"))
+        })?;
+        Ok(())
     }
 
     fn snapshot(&self) -> ScopedParamStoreSnapshot {
@@ -603,7 +707,8 @@ impl ScopedParamStore {
         sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
     ) -> IndexMap<String, ScalarValue> {
         let mut result = IndexMap::with_capacity(self.specs.len());
-        for (name, spec) in &self.specs {
+        for (id, spec) in &self.specs {
+            let name = &spec.name;
             let owner_path = owner_path_for_sharing(spec.sharing, sharing_owner_paths);
             let value = if owner_path.is_empty() {
                 snapshot
@@ -613,7 +718,7 @@ impl ScopedParamStore {
                     .unwrap_or_else(|| spec.default.clone())
             } else {
                 let key = ScopedParamKey {
-                    name: name.clone(),
+                    id: id.clone(),
                     owner_path,
                 };
                 snapshot
@@ -642,17 +747,19 @@ impl ScopedParamStore {
     ) -> Vec<(String, Vec<String>, String)> {
         let mut fingerprint: Vec<(String, Vec<String>, String)> = Vec::new();
         for (key, value) in &self.values {
-            if names.contains(&key.name) {
+            let spec = &self.specs[&key.id];
+            if names.contains(&spec.name) {
                 let owner_path = key
                     .owner_path
                     .iter()
                     .map(|v| format!("{v:?}"))
                     .collect::<Vec<_>>();
-                fingerprint.push((key.name.clone(), owner_path, format!("{value:?}")));
+                fingerprint.push((spec.name.clone(), owner_path, format!("{value:?}")));
             }
         }
         for name in names {
-            if let Some(spec) = self.specs.get(name) {
+            if let Some(id) = self.ids_by_name.get(name) {
+                let spec = &self.specs[id];
                 fingerprint.push((
                     name.clone(),
                     vec!["<default>".to_string()],
@@ -668,12 +775,22 @@ impl ScopedParamStore {
 /// Session-owned semantic selection clause state.
 #[derive(Clone, Debug)]
 pub(crate) struct ScopedSelectionStore {
-    specs: IndexMap<String, CompiledSelectionSpec>,
-    states: IndexMap<String, MutableSelectionState>,
+    specs: IndexMap<SelectionRef, CompiledSelectionSpec>,
+    ids_by_name: IndexMap<String, SelectionRef>,
+    ids_by_opaque: IndexMap<String, SelectionRef>,
+    states: IndexMap<SelectionRef, MutableSelectionState>,
 }
 
 impl ScopedSelectionStore {
-    pub(crate) fn new(specs: IndexMap<String, CompiledSelectionSpec>) -> Self {
+    pub(crate) fn new(specs: IndexMap<SelectionRef, CompiledSelectionSpec>) -> Self {
+        let ids_by_name = specs
+            .iter()
+            .map(|(id, spec)| (spec.id.clone(), id.clone()))
+            .collect();
+        let ids_by_opaque = specs
+            .keys()
+            .map(|id| (id.as_opaque_str().to_string(), id.clone()))
+            .collect();
         let states = specs
             .keys()
             .map(|id| {
@@ -686,16 +803,33 @@ impl ScopedSelectionStore {
                 )
             })
             .collect();
-        Self { specs, states }
+        Self {
+            specs,
+            ids_by_name,
+            ids_by_opaque,
+            states,
+        }
     }
 
-    pub(crate) fn specs(&self) -> &IndexMap<String, CompiledSelectionSpec> {
+    fn id_for_target(&self, target: &str) -> Option<&SelectionRef> {
+        self.ids_by_name
+            .get(target)
+            .or_else(|| self.ids_by_opaque.get(target))
+    }
+
+    pub(crate) fn specs(&self) -> &IndexMap<SelectionRef, CompiledSelectionSpec> {
         &self.specs
     }
 
+    pub(crate) fn spec_for_source_name(&self, source_name: &str) -> Option<&CompiledSelectionSpec> {
+        self.id_for_target(source_name)
+            .and_then(|id| self.specs.get(id))
+    }
+
     pub(crate) fn clauses_for_selection(&self, selection_id: &str) -> Option<Vec<SelectionClause>> {
+        let runtime_id = self.id_for_target(selection_id)?;
         self.states
-            .get(selection_id)
+            .get(runtime_id)
             .map(|state| state.clauses.values().cloned().collect())
     }
 
@@ -703,7 +837,7 @@ impl ScopedSelectionStore {
         let mut fingerprint = self
             .states
             .iter()
-            .map(|(id, state)| (id.clone(), state.revision))
+            .map(|(id, state)| (id.as_opaque_str().to_string(), state.revision))
             .collect::<Vec<_>>();
         fingerprint.sort();
         fingerprint
@@ -713,18 +847,49 @@ impl ScopedSelectionStore {
         &mut self,
         patch: impl IntoIterator<Item = SelectionAssignment>,
     ) -> Result<bool, AvengerChartError> {
+        let patch = patch
+            .into_iter()
+            .map(|assignment| {
+                let runtime_id = self
+                    .ids_by_name
+                    .get(&assignment.selection_id)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Unknown plot selection '{}'",
+                            assignment.selection_id
+                        ))
+                    })?;
+                Ok(ResolvedSelectionAssignment {
+                    runtime_id,
+                    source_name: assignment.selection_id,
+                    update: assignment.update,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        self.apply_resolved_selection_patch(patch)
+    }
+
+    pub(crate) fn apply_resolved_selection_patch(
+        &mut self,
+        patch: impl IntoIterator<Item = ResolvedSelectionAssignment>,
+    ) -> Result<bool, AvengerChartError> {
         let mut any_changed = false;
         for assignment in patch {
-            if !self.specs.contains_key(&assignment.selection_id) {
-                continue;
+            if !self.specs.contains_key(&assignment.runtime_id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Unknown plot selection '{}'",
+                    assignment.source_name
+                )));
             }
-            let state = self
-                .states
-                .entry(assignment.selection_id)
-                .or_insert_with(|| MutableSelectionState {
-                    clauses: IndexMap::new(),
-                    revision: 0,
-                });
+            validate_selection_update_payload(&assignment.source_name, &assignment.update)?;
+            let state =
+                self.states
+                    .entry(assignment.runtime_id)
+                    .or_insert_with(|| MutableSelectionState {
+                        clauses: IndexMap::new(),
+                        revision: 0,
+                    });
             let changed = apply_selection_update(state, assignment.update);
             if changed {
                 state.revision += 1;
@@ -732,6 +897,49 @@ impl ScopedSelectionStore {
             }
         }
         Ok(any_changed)
+    }
+}
+
+fn validate_selection_update_payload(
+    selection_name: &str,
+    update: &SelectionStateUpdate,
+) -> Result<(), AvengerChartError> {
+    fn validate_ids<'a>(
+        selection_name: &str,
+        ids: impl IntoIterator<Item = &'a str>,
+    ) -> Result<(), AvengerChartError> {
+        let mut seen = HashSet::new();
+        for id in ids {
+            if id.is_empty() {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Selection '{selection_name}' clause IDs must be non-empty UTF-8 strings"
+                )));
+            }
+            if !seen.insert(id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Selection '{selection_name}' update contains duplicate clause ID '{id}'"
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    match update {
+        SelectionStateUpdate::ReplaceAllClauses { clauses }
+        | SelectionStateUpdate::ReplaceClausesInScope { clauses, .. }
+        | SelectionStateUpdate::UpsertClauses { clauses }
+        | SelectionStateUpdate::ToggleClauses { clauses } => validate_ids(
+            selection_name,
+            clauses.iter().map(|clause| clause.id.as_str()),
+        ),
+        SelectionStateUpdate::ToggleEqualityValue { item_id, .. } => {
+            validate_ids(selection_name, std::iter::once(item_id.as_str()))
+        }
+        SelectionStateUpdate::DeleteClauses { ids }
+        | SelectionStateUpdate::DeleteClausesInScope { ids, .. } => {
+            validate_ids(selection_name, ids.iter().map(String::as_str))
+        }
+        SelectionStateUpdate::Clear | SelectionStateUpdate::ClearInScope { .. } => Ok(()),
     }
 }
 
@@ -779,6 +987,13 @@ pub enum SelectionStateUpdate {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SelectionAssignment {
     pub selection_id: String,
+    pub update: SelectionStateUpdate,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedSelectionAssignment {
+    pub runtime_id: SelectionRef,
+    pub source_name: String,
     pub update: SelectionStateUpdate,
 }
 
@@ -985,7 +1200,7 @@ fn selection_clause_state_key(clause: &SelectionClause) -> String {
 /// Identifies one scoped copy of a mutable store at a specific facet owner path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ScopedStoreKey {
-    store_name: String,
+    store_id: StoreRef,
     owner_path: Vec<ScalarValue>,
 }
 
@@ -1021,6 +1236,15 @@ pub struct ScopedStoreAssignment {
     pub update: StoreStateUpdate,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResolvedScopedStoreAssignment {
+    pub runtime_id: StoreRef,
+    pub source_name: String,
+    pub owner_path: Vec<ScalarValue>,
+    pub replace_scoped_values: bool,
+    pub update: StoreStateUpdate,
+}
+
 #[derive(Clone, Debug)]
 struct MutableStoreTable {
     rows: Vec<StoreRowValue>,
@@ -1029,28 +1253,38 @@ struct MutableStoreTable {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct StoreMaterializationKey {
-    store_name: String,
+    store_id: StoreRef,
     instances: Vec<(Vec<ScalarValue>, u64)>,
 }
 
 /// Session-owned table state for sharing-scoped stores.
 #[derive(Clone, Debug)]
 pub(crate) struct ScopedStoreState {
-    specs: IndexMap<String, CompiledStoreSpec>,
+    specs: IndexMap<StoreRef, CompiledStoreSpec>,
+    ids_by_name: IndexMap<String, StoreRef>,
+    ids_by_opaque: IndexMap<String, StoreRef>,
     instances: IndexMap<ScopedStoreKey, MutableStoreTable>,
     materialized_cache: Arc<Mutex<HashMap<StoreMaterializationKey, RecordBatch>>>,
 }
 
 impl ScopedStoreState {
-    pub(crate) fn new(specs: IndexMap<String, CompiledStoreSpec>) -> Self {
+    pub(crate) fn new(specs: IndexMap<StoreRef, CompiledStoreSpec>) -> Self {
+        let ids_by_name = specs
+            .iter()
+            .map(|(id, spec)| (spec.name.clone(), id.clone()))
+            .collect();
+        let ids_by_opaque = specs
+            .keys()
+            .map(|id| (id.as_opaque_str().to_string(), id.clone()))
+            .collect();
         let mut instances = IndexMap::new();
-        for (store_name, spec) in &specs {
+        for (store_id, spec) in &specs {
             let rows = spec
                 .initial_rows()
                 .expect("compiled store initial rows should already be validated");
             instances.insert(
                 ScopedStoreKey {
-                    store_name: store_name.clone(),
+                    store_id: store_id.clone(),
                     owner_path: Vec::new(),
                 },
                 MutableStoreTable { rows, revision: 0 },
@@ -1058,25 +1292,55 @@ impl ScopedStoreState {
         }
         Self {
             specs,
+            ids_by_name,
+            ids_by_opaque,
             instances,
             materialized_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    fn transaction_clone(&self) -> Self {
+        let mut cloned = self.clone();
+        // Working generations must never read or invalidate committed
+        // materialization results. The private cache is always discarded;
+        // successful transactions replay their validated patch against the
+        // committed store state so normal revision invalidation remains intact.
+        cloned.materialized_cache = Arc::new(Mutex::new(HashMap::new()));
+        cloned
+    }
+
+    fn id_for_target(&self, target: &str) -> Option<&StoreRef> {
+        self.ids_by_name
+            .get(target)
+            .or_else(|| self.ids_by_opaque.get(target))
+    }
+
     fn owner_path_for_store(
+        &self,
+        store_id: &StoreRef,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> Option<Vec<ScalarValue>> {
+        let spec = self.specs.get(store_id)?;
+        Some(owner_path_for_sharing(spec.sharing, sharing_owner_paths))
+    }
+
+    fn owner_path_for_store_name(
         &self,
         store_name: &str,
         sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
     ) -> Option<Vec<ScalarValue>> {
-        let spec = self.specs.get(store_name)?;
-        Some(owner_path_for_sharing(spec.sharing, sharing_owner_paths))
+        let store_id = self.ids_by_name.get(store_name)?;
+        self.owner_path_for_store(store_id, sharing_owner_paths)
     }
 
     fn rows_for_store(&self, store_name: &str) -> Vec<(&[ScalarValue], &[StoreRowValue], u64)> {
+        let Some(store_id) = self.id_for_target(store_name) else {
+            return Vec::new();
+        };
         self.instances
             .iter()
             .filter_map(|(key, table)| {
-                (key.store_name == store_name).then_some((
+                (&key.store_id == store_id).then_some((
                     key.owner_path.as_slice(),
                     table.rows.as_slice(),
                     table.revision,
@@ -1091,7 +1355,7 @@ impl ScopedStoreState {
             .iter()
             .map(|(key, table)| {
                 (
-                    key.store_name.clone(),
+                    key.store_id.as_opaque_str().to_string(),
                     key.owner_path
                         .iter()
                         .map(|value| format!("{value:?}"))
@@ -1109,19 +1373,20 @@ impl ScopedStoreState {
         data: &StoreData,
         sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
     ) -> Result<RecordBatch, AvengerChartError> {
-        let spec = self.specs.get(&data.store_name).ok_or_else(|| {
+        let store_id = self.id_for_target(&data.store_name).ok_or_else(|| {
             AvengerChartError::InvalidArgument(format!(
                 "StoreData references unknown store '{}'",
                 data.store_name
             ))
         })?;
+        let spec = &self.specs[store_id];
         let owner_path = self
-            .owner_path_for_store(&data.store_name, sharing_owner_paths)
+            .owner_path_for_store(store_id, sharing_owner_paths)
             .unwrap_or_default();
         let rows = self
             .instances
             .get(&ScopedStoreKey {
-                store_name: data.store_name.clone(),
+                store_id: store_id.clone(),
                 owner_path: owner_path.clone(),
             })
             .map(|table| (table.rows.clone(), table.revision))
@@ -1129,7 +1394,7 @@ impl ScopedStoreState {
         let instances = [(owner_path, rows.0, rows.1)];
 
         let cache_key = StoreMaterializationKey {
-            store_name: data.store_name.clone(),
+            store_id: store_id.clone(),
             instances: instances
                 .iter()
                 .map(|(owner_path, _rows, revision)| (owner_path.clone(), *revision))
@@ -1200,15 +1465,49 @@ impl ScopedStoreState {
         &mut self,
         patch: impl IntoIterator<Item = ScopedStoreAssignment>,
     ) -> Result<bool, AvengerChartError> {
+        let patch = patch
+            .into_iter()
+            .map(|assignment| {
+                let runtime_id = self
+                    .ids_by_name
+                    .get(&assignment.store_name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        AvengerChartError::InvalidArgument(format!(
+                            "Unknown plot store '{}'",
+                            assignment.store_name
+                        ))
+                    })?;
+                Ok(ResolvedScopedStoreAssignment {
+                    runtime_id,
+                    source_name: assignment.store_name,
+                    owner_path: assignment.owner_path,
+                    replace_scoped_values: assignment.replace_scoped_values,
+                    update: assignment.update,
+                })
+            })
+            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        self.apply_resolved_scoped_patch(patch)
+    }
+
+    pub(crate) fn apply_resolved_scoped_patch(
+        &mut self,
+        patch: impl IntoIterator<Item = ResolvedScopedStoreAssignment>,
+    ) -> Result<bool, AvengerChartError> {
+        let original_instances = self.instances.clone();
         let mut any_changed = false;
         for assignment in patch {
-            let Some(spec) = self.specs.get(&assignment.store_name).cloned() else {
-                continue;
-            };
+            let store_id = assignment.runtime_id;
+            if !self.specs.contains_key(&store_id) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Unknown plot store '{}'",
+                    assignment.source_name
+                )));
+            }
+            let spec = self.specs[&store_id].clone();
             if assignment.replace_scoped_values {
                 let before = self.instances.len();
-                self.instances
-                    .retain(|key, _| key.store_name != assignment.store_name);
+                self.instances.retain(|key, _| key.store_id != store_id);
                 if self.instances.len() != before {
                     any_changed = true;
                     self.materialized_cache
@@ -1218,7 +1517,7 @@ impl ScopedStoreState {
                 }
             }
             let key = ScopedStoreKey {
-                store_name: assignment.store_name,
+                store_id,
                 owner_path: assignment.owner_path,
             };
             let table = self
@@ -1230,9 +1529,30 @@ impl ScopedStoreState {
                 });
             let changed = apply_store_update(&spec, table, assignment.update)?;
             if changed {
-                table.revision += 1;
                 any_changed = true;
             }
+        }
+        for (key, table) in &mut self.instances {
+            match original_instances.get(key) {
+                Some(original) if original.rows == table.rows => {
+                    table.revision = original.revision;
+                }
+                Some(original) => {
+                    table.revision = original.revision.saturating_add(1);
+                    any_changed = true;
+                }
+                None if !table.rows.is_empty() => {
+                    table.revision = 1;
+                    any_changed = true;
+                }
+                None => {}
+            }
+        }
+        if any_changed {
+            self.materialized_cache
+                .lock()
+                .expect("store materialization cache lock poisoned")
+                .clear();
         }
         Ok(any_changed)
     }
@@ -1300,6 +1620,7 @@ fn apply_store_update(
         StoreStateUpdate::UpsertRows { rows } => {
             ensure_keyed_store(spec, "upsert_rows")?;
             let rows = normalize_store_rows(spec, rows)?;
+            validate_unique_payload_keys(spec, "upsert_rows", &rows)?;
             let mut changed = false;
             for row in rows {
                 let key = spec.primary_key_values(&row)?;
@@ -1358,6 +1679,7 @@ fn apply_store_update(
         StoreStateUpdate::ToggleRows { rows } => {
             ensure_keyed_store(spec, "toggle_rows")?;
             let rows = normalize_store_rows(spec, rows)?;
+            validate_unique_payload_keys(spec, "toggle_rows", &rows)?;
             let mut changed = false;
             for row in rows {
                 let key = spec.primary_key_values(&row)?;
@@ -1440,6 +1762,14 @@ fn normalize_store_key(
             )));
         }
     }
+    if key.len() != spec.primary_key.len()
+        || key.keys().any(|field| !spec.primary_key.contains(field))
+    {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Store '{}' key must contain exactly the primary-key fields {:?}",
+            spec.name, spec.primary_key
+        )));
+    }
     for (field_name, value) in &key {
         let field = spec.field(field_name).expect("store field validated");
         validate_store_value_type(spec, field_name, &field.data_type, value)?;
@@ -1452,11 +1782,42 @@ fn normalize_store_patch(
     patch: StoreRowValue,
 ) -> Result<StoreRowValue, AvengerChartError> {
     validate_store_fields_exist(spec, patch.keys())?;
+    if patch.is_empty() {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Store '{}' update patch must contain at least one non-key field",
+            spec.name
+        )));
+    }
+    if let Some(field) = patch.keys().find(|field| spec.primary_key.contains(field)) {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Store '{}' update patch must not modify primary-key field '{}'",
+            spec.name, field
+        )));
+    }
     for (field_name, value) in &patch {
         let field = spec.field(field_name).expect("store field validated");
         validate_store_value_type(spec, field_name, &field.data_type, value)?;
     }
     Ok(patch)
+}
+
+fn validate_unique_payload_keys(
+    spec: &CompiledStoreSpec,
+    operation: &str,
+    rows: &[StoreRowValue],
+) -> Result<(), AvengerChartError> {
+    let mut keys = Vec::with_capacity(rows.len());
+    for row in rows {
+        let key = spec.primary_key_values(row)?;
+        if keys.contains(&key) {
+            return Err(AvengerChartError::InvalidArgument(format!(
+                "Store '{}' operation '{operation}' contains a duplicate payload key {:?}",
+                spec.name, key
+            )));
+        }
+        keys.push(key);
+    }
+    Ok(())
 }
 
 fn validate_store_fields_exist<'a>(
@@ -1764,6 +2125,130 @@ struct EvaluationRequestSummary {
     params: IndexMap<String, ScalarValue>,
 }
 
+/// Private working state for one ordered chart-event transaction.
+///
+/// This type is public only so the app runtime can drive the transaction
+/// across crate boundaries. Author-facing code should use event bindings.
+#[doc(hidden)]
+pub struct ResolvedStateTransaction {
+    base_params: ScopedParamStore,
+    base_selections: ScopedSelectionStore,
+    base_stores: ScopedStoreState,
+    params: ScopedParamStore,
+    selections: ScopedSelectionStore,
+    stores: ScopedStoreState,
+    param_patch: Vec<ResolvedScopedParamAssignment>,
+    selection_patch: Vec<ResolvedSelectionAssignment>,
+    store_patch: Vec<ResolvedScopedStoreAssignment>,
+    param_changed: bool,
+    selection_changed: bool,
+    store_changed: bool,
+}
+
+impl ResolvedStateTransaction {
+    #[doc(hidden)]
+    pub fn store_ref_for_target(&self, target: &str) -> Option<StoreRef> {
+        self.stores.id_for_target(target).cloned()
+    }
+
+    #[doc(hidden)]
+    pub fn effective_params_for_owner_paths(
+        &self,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> IndexMap<String, ScalarValue> {
+        self.params
+            .effective_params_for_owner_paths(sharing_owner_paths)
+    }
+
+    #[doc(hidden)]
+    pub fn apply_param(
+        &mut self,
+        assignment: ResolvedScopedParamAssignment,
+    ) -> Result<(), AvengerChartError> {
+        let mut patch = self.param_patch.clone();
+        patch.push(assignment);
+        let mut params = self.base_params.clone();
+        params.apply_resolved_scoped_patch(patch.clone())?;
+        self.param_changed = params.values != self.base_params.values;
+        self.param_patch = patch;
+        self.params = params;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn apply_store(
+        &mut self,
+        assignment: ResolvedScopedStoreAssignment,
+    ) -> Result<(), AvengerChartError> {
+        let mut patch = self.store_patch.clone();
+        patch.push(assignment);
+        let mut stores = self.base_stores.clone();
+        let changed = stores.apply_resolved_scoped_patch(patch.clone())?;
+        self.store_changed = changed;
+        self.store_patch = patch;
+        self.stores = stores;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn apply_selection(
+        &mut self,
+        assignment: ResolvedSelectionAssignment,
+    ) -> Result<(), AvengerChartError> {
+        let mut patch = self.selection_patch.clone();
+        patch.push(assignment);
+        let mut selections = self.base_selections.clone();
+        let changed = selections.apply_resolved_selection_patch(patch.clone())?;
+        self.selection_changed = changed;
+        self.selection_patch = patch;
+        self.selections = selections;
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn materialize_store(
+        &self,
+        store: &StoreRef,
+        sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
+    ) -> Result<RecordBatch, AvengerChartError> {
+        self.stores
+            .materialize_store_data(&StoreData::new(store.as_opaque_str()), sharing_owner_paths)
+    }
+
+    #[doc(hidden)]
+    pub fn selection_spec_and_clauses(
+        &self,
+        selection: &SelectionRef,
+    ) -> Option<(CompiledSelectionSpec, Vec<SelectionClause>)> {
+        let spec = self.selections.specs.get(selection)?.clone();
+        let clauses = self
+            .selections
+            .states
+            .get(selection)
+            .map(|state| state.clauses.values().cloned().collect())
+            .unwrap_or_default();
+        Some((spec, clauses))
+    }
+
+    #[doc(hidden)]
+    pub fn expand_selection_predicates(
+        &self,
+        expr: Expr,
+        ctx: &SessionContext,
+        available_columns: Option<&HashSet<String>>,
+    ) -> Result<Expr, AvengerChartError> {
+        super::mark_data_runtime::expand_selection_predicates_with_lookup(
+            expr,
+            ctx,
+            available_columns,
+            |target| {
+                let id = self.selections.id_for_target(target)?;
+                self.selection_spec_and_clauses(id)
+            },
+        )
+    }
+}
+
 /// Stateful runtime instance for evaluating one compiled plot repeatedly.
 pub struct PlotSession {
     program: Arc<CompiledPlot>,
@@ -1792,13 +2277,15 @@ pub struct PlotSession {
 
 impl PlotSession {
     pub(crate) fn new(program: Arc<CompiledPlot>, ctx: Arc<SessionContext>) -> Self {
-        let mut scoped_params = ScopedParamStore::new(program.param_specs().clone());
+        let mut scoped_params = ScopedParamStore::new(program.param_specs_by_id().clone());
         // Seed root values from compiled defaults so existing root params and any
         // undeclared default keys are present at the root owner path.
-        scoped_params.set_root_params(program.get_default_params().clone());
+        scoped_params
+            .set_root_params(program.get_default_params().clone())
+            .expect("compiled parameter defaults must match their declared Arrow types");
         let root_cache = scoped_params.root_effective_params();
-        let scoped_selections = ScopedSelectionStore::new(program.selection_specs().clone());
-        let scoped_stores = ScopedStoreState::new(program.store_specs().clone());
+        let scoped_selections = ScopedSelectionStore::new(program.selection_specs_by_id().clone());
+        let scoped_stores = ScopedStoreState::new(program.store_specs_by_id().clone());
         let (
             facet_scale_builder_precompute_cache,
             guide_overflow_cache,
@@ -1844,30 +2331,111 @@ impl PlotSession {
         self.root_cache = self.scoped_params.root_effective_params();
     }
 
-    /// Commit a fully merged root param map after a successful evaluation.
-    fn commit_root_params(&mut self, params: IndexMap<String, ScalarValue>) {
-        self.scoped_params.set_root_params(params);
+    #[doc(hidden)]
+    pub fn begin_resolved_state_transaction(&self) -> ResolvedStateTransaction {
+        let base_stores = self.scoped_stores.transaction_clone();
+        ResolvedStateTransaction {
+            base_params: self.scoped_params.clone(),
+            base_selections: self.scoped_selections.clone(),
+            base_stores: base_stores.clone(),
+            params: self.scoped_params.clone(),
+            selections: self.scoped_selections.clone(),
+            stores: base_stores,
+            param_patch: Vec::new(),
+            selection_patch: Vec::new(),
+            store_patch: Vec::new(),
+            param_changed: false,
+            selection_changed: false,
+            store_changed: false,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn commit_resolved_state_transaction(
+        &mut self,
+        transaction: ResolvedStateTransaction,
+    ) -> (bool, bool, bool) {
+        let changed = (
+            transaction.param_changed,
+            transaction.store_changed,
+            transaction.selection_changed,
+        );
+        if transaction.param_changed {
+            self.scoped_params = transaction.params;
+        }
+        if transaction.store_changed {
+            self.scoped_stores = transaction.stores;
+        }
+        if transaction.selection_changed {
+            self.scoped_selections = transaction.selections;
+        }
         self.refresh_root_cache();
+        changed
+    }
+
+    /// Commit a fully merged root param map after a successful evaluation.
+    fn commit_root_params(
+        &mut self,
+        params: IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        self.scoped_params.set_root_params(params)?;
+        self.refresh_root_cache();
+        Ok(())
     }
 
     pub fn params(&self) -> &IndexMap<String, ScalarValue> {
         &self.root_cache
     }
 
+    /// Resolve a host/author-facing parameter name at the session boundary.
+    #[doc(hidden)]
+    pub fn resolve_param_name(&self, source_name: &str) -> Option<ParamRef> {
+        self.program
+            .param_specs()
+            .resolve_source_name(source_name)
+            .cloned()
+    }
+
+    /// Resolve a host/author-facing store name at the session boundary.
+    #[doc(hidden)]
+    pub fn resolve_store_name(&self, source_name: &str) -> Option<StoreRef> {
+        self.program
+            .store_specs()
+            .resolve_source_name(source_name)
+            .cloned()
+    }
+
+    /// Resolve a host/author-facing selection name at the session boundary.
+    #[doc(hidden)]
+    pub fn resolve_selection_name(&self, source_name: &str) -> Option<SelectionRef> {
+        self.program
+            .selection_specs()
+            .resolve_source_name(source_name)
+            .cloned()
+    }
+
     pub fn base_font_size(&self) -> f32 {
         self.program.get_theme().get_base_font_size(self.params())
     }
 
-    pub fn set_params(&mut self, params: IndexMap<String, ScalarValue>) {
+    pub fn set_params(
+        &mut self,
+        params: IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
         let mut merged = self.program.get_default_params().clone();
         merged.extend(params);
-        self.scoped_params.set_root_params(merged);
+        self.scoped_params.set_root_params(merged)?;
         self.refresh_root_cache();
+        Ok(())
     }
 
-    pub fn apply_param_patch(&mut self, patch: IndexMap<String, ScalarValue>) {
-        self.scoped_params.apply_root_patch(patch);
+    pub fn apply_param_patch(
+        &mut self,
+        patch: IndexMap<String, ScalarValue>,
+    ) -> Result<(), AvengerChartError> {
+        self.scoped_params.apply_root_patch(patch)?;
         self.refresh_root_cache();
+        Ok(())
     }
 
     /// Build the flat effective param map for a scope's sharing-owner paths.
@@ -1883,14 +2451,37 @@ impl PlotSession {
     }
 
     /// Apply scoped parameter assignments produced by an event binding.
-    pub fn apply_scoped_param_patch(&mut self, patch: Vec<ScopedParamAssignment>) {
+    pub fn apply_scoped_param_patch(
+        &mut self,
+        patch: Vec<ScopedParamAssignment>,
+    ) -> Result<(), AvengerChartError> {
         let touches_root = patch
             .iter()
             .any(|assignment| assignment.owner_path.is_empty());
-        self.scoped_params.apply_scoped_patch(patch);
+        let mut params = self.scoped_params.clone();
+        params.apply_scoped_patch(patch)?;
+        self.scoped_params = params;
         if touches_root {
             self.refresh_root_cache();
         }
+        Ok(())
+    }
+
+    #[doc(hidden)]
+    pub fn apply_resolved_scoped_param_patch(
+        &mut self,
+        patch: Vec<ResolvedScopedParamAssignment>,
+    ) -> Result<(), AvengerChartError> {
+        let touches_root = patch
+            .iter()
+            .any(|assignment| assignment.owner_path.is_empty());
+        let mut params = self.scoped_params.clone();
+        params.apply_resolved_scoped_patch(patch)?;
+        self.scoped_params = params;
+        if touches_root {
+            self.refresh_root_cache();
+        }
+        Ok(())
     }
 
     /// Apply scoped mutable-store assignments produced by an event binding.
@@ -1898,7 +2489,10 @@ impl PlotSession {
         &mut self,
         patch: Vec<ScopedStoreAssignment>,
     ) -> Result<bool, AvengerChartError> {
-        self.scoped_stores.apply_scoped_patch(patch)
+        let mut stores = self.scoped_stores.clone();
+        let changed = stores.apply_scoped_patch(patch)?;
+        self.scoped_stores = stores;
+        Ok(changed)
     }
 
     /// Apply semantic selection-clause assignments produced by an event binding.
@@ -1906,7 +2500,36 @@ impl PlotSession {
         &mut self,
         patch: Vec<SelectionAssignment>,
     ) -> Result<bool, AvengerChartError> {
-        self.scoped_selections.apply_selection_patch(patch)
+        let mut selections = self.scoped_selections.clone();
+        let changed = selections.apply_selection_patch(patch)?;
+        self.scoped_selections = selections;
+        Ok(changed)
+    }
+
+    /// Atomically commit runtime-resolved state effects without consulting
+    /// author-facing name indexes.
+    #[doc(hidden)]
+    pub fn apply_resolved_state_transaction(
+        &mut self,
+        param_patch: Vec<ResolvedScopedParamAssignment>,
+        store_patch: Vec<ResolvedScopedStoreAssignment>,
+        selection_patch: Vec<ResolvedSelectionAssignment>,
+    ) -> Result<(bool, bool, bool), AvengerChartError> {
+        let mut params = self.scoped_params.clone();
+        let mut stores = self.scoped_stores.clone();
+        let mut selections = self.scoped_selections.clone();
+        let previous_param_values = params.values.clone();
+
+        params.apply_resolved_scoped_patch(param_patch)?;
+        let param_changed = params.values != previous_param_values;
+        let store_changed = stores.apply_resolved_scoped_patch(store_patch)?;
+        let selection_changed = selections.apply_resolved_selection_patch(selection_patch)?;
+
+        self.scoped_params = params;
+        self.scoped_stores = stores;
+        self.scoped_selections = selections;
+        self.refresh_root_cache();
+        Ok((param_changed, store_changed, selection_changed))
     }
 
     /// Atomically apply root parameters plus mutable-store and selection effects.
@@ -1924,7 +2547,7 @@ impl PlotSession {
         let mut stores = self.scoped_stores.clone();
         let mut selections = self.scoped_selections.clone();
 
-        params.apply_root_patch(param_patch);
+        params.apply_root_patch(param_patch)?;
         let root = params.root_effective_params();
         let param_changed = root != self.root_cache;
         let store_changed = stores.apply_scoped_patch(store_patch)?;
@@ -1963,7 +2586,7 @@ impl PlotSession {
         sharing_owner_paths: &HashMap<u8, Vec<ScalarValue>>,
     ) -> Option<Vec<ScalarValue>> {
         self.scoped_stores
-            .owner_path_for_store(store_name, sharing_owner_paths)
+            .owner_path_for_store_name(store_name, sharing_owner_paths)
     }
 
     /// Snapshot the entire scoped parameter store for gesture freezing.
@@ -2330,8 +2953,9 @@ impl PlotSession {
             .set_now(request.now.unwrap_or_else(Instant::now));
         let mode = request.mode;
         let next_params = self.params_for_request(&request);
+        let next_param_revisions = self.scoped_params.revisions_after_root_params(&next_params);
         self.native_widget_runtime
-            .set_param_revisions(self.scoped_params.revisions_after_root_params(&next_params));
+            .set_param_revisions(self.scoped_params.revisions_for_host(&next_param_revisions));
         let options = options_for_evaluation_mode(mode, request.options);
         let use_measurement_profile_caches = mode != EvaluationMode::ForceRemeasure;
         let scoped_store = self.scoped_param_store_handle();
@@ -2373,7 +2997,7 @@ impl PlotSession {
                 if let Some((evaluated, mut metrics, layout_profile)) = attempt.reused {
                     metrics.mode = mode;
                     metrics.record_preview_attempt_duration(preview_attempt_duration);
-                    self.commit_root_params(next_params.clone());
+                    self.commit_root_params(next_params.clone())?;
                     self.last_request = Some(EvaluationRequestSummary {
                         mode,
                         params: next_params,
@@ -2425,7 +3049,7 @@ impl PlotSession {
                 metrics.record_preview_structure_reflow_miss();
             }
             metrics.record_preview_profile_fallback_reasons(preview_fallback_reasons);
-            self.commit_root_params(next_params.clone());
+            self.commit_root_params(next_params.clone())?;
             self.last_request = Some(EvaluationRequestSummary {
                 mode,
                 params: next_params,
@@ -2457,7 +3081,7 @@ impl PlotSession {
             )
             .await?;
         metrics.mode = mode;
-        self.commit_root_params(next_params.clone());
+        self.commit_root_params(next_params.clone())?;
         self.last_request = Some(EvaluationRequestSummary {
             mode,
             params: next_params,
@@ -2494,10 +3118,10 @@ impl CompiledPlot {
         self: Arc<Self>,
         ctx: Arc<SessionContext>,
         params: IndexMap<String, ScalarValue>,
-    ) -> PlotSession {
+    ) -> Result<PlotSession, AvengerChartError> {
         let mut session = PlotSession::new(self, ctx);
-        session.set_params(params);
-        session
+        session.set_params(params)?;
+        Ok(session)
     }
 
     pub(crate) fn top_level_scale_domain_cache_key(
@@ -3411,34 +4035,81 @@ mod tests {
 
     use super::*;
 
+    fn resolved_param_specs(
+        specs: impl IntoIterator<Item = CompiledParamSpec>,
+    ) -> IndexMap<ParamRef, CompiledParamSpec> {
+        let mut allocator = avenger_chart_core::CompiledIdentityAllocator::new("session-test");
+        specs
+            .into_iter()
+            .map(|mut spec| {
+                spec.runtime_id = allocator.allocate_param();
+                (spec.runtime_id.clone(), spec)
+            })
+            .collect()
+    }
+
     #[test]
     fn root_param_revisions_only_advance_for_actual_changes() {
-        let mut store = ScopedParamStore::new(IndexMap::new());
+        let specs = ["stable", "changed", "removed"].into_iter().map(|name| {
+            CompiledParamSpec::shared(
+                &Param::typed(name, DataType::Int64, ScalarValue::Int64(Some(0))).unwrap(),
+            )
+        });
+        let mut store = ScopedParamStore::new(resolved_param_specs(specs));
         let initial = IndexMap::from([
             ("stable".to_string(), ScalarValue::Int64(Some(1))),
             ("changed".to_string(), ScalarValue::Int64(Some(2))),
             ("removed".to_string(), ScalarValue::Int64(Some(3))),
         ]);
-        store.set_root_params(initial.clone());
+        store.set_root_params(initial.clone()).unwrap();
         let initial_revisions = store.revisions.clone();
 
-        store.set_root_params(initial);
+        store.set_root_params(initial).unwrap();
         assert_eq!(store.revisions, initial_revisions);
 
         let next = IndexMap::from([
             ("stable".to_string(), ScalarValue::Int64(Some(1))),
             ("changed".to_string(), ScalarValue::Int64(Some(20))),
-            ("added".to_string(), ScalarValue::Int64(Some(4))),
         ]);
         let projected = store.revisions_after_root_params(&next);
-        assert_eq!(projected["stable"], initial_revisions["stable"]);
-        assert_eq!(projected["changed"], initial_revisions["changed"] + 1);
-        assert_eq!(projected["removed"], initial_revisions["removed"] + 1);
-        assert_eq!(projected["added"], 1);
+        let stable = store.id_for_name("stable").unwrap();
+        let changed = store.id_for_name("changed").unwrap();
+        let removed = store.id_for_name("removed").unwrap();
+        assert_eq!(projected[&stable], initial_revisions[&stable]);
+        assert_eq!(projected[&changed], initial_revisions[&changed] + 1);
+        assert_eq!(projected[&removed], initial_revisions[&removed] + 1);
         assert_eq!(store.revisions, initial_revisions);
 
-        store.set_root_params(next);
+        store.set_root_params(next).unwrap();
         assert_eq!(store.revisions, projected);
+    }
+
+    #[test]
+    fn store_materialization_cache_key_uses_resolved_identity_and_revision() {
+        let mut allocator = avenger_chart_core::CompiledIdentityAllocator::new("cache-key-test");
+        let first = StoreMaterializationKey {
+            store_id: allocator.allocate_store(),
+            instances: vec![(Vec::new(), 3)],
+        };
+        let second = StoreMaterializationKey {
+            store_id: allocator.allocate_store(),
+            instances: vec![(Vec::new(), 3)],
+        };
+        let next_revision = StoreMaterializationKey {
+            store_id: first.store_id.clone(),
+            instances: vec![(Vec::new(), 4)],
+        };
+        let renamed_display_alias = StoreMaterializationKey {
+            store_id: first.store_id.clone(),
+            instances: vec![(Vec::new(), 3)],
+        };
+
+        assert_ne!(first, second);
+        assert_ne!(first, next_revision);
+        assert_eq!(
+            first, renamed_display_alias,
+            "display aliases are absent from the cache identity"
+        );
     }
 
     fn collect_symbol_positions(scene: &SceneGraph) -> Vec<(f32, f32)> {
@@ -3669,7 +4340,7 @@ mod tests {
                 .fill_with(col("cat"), |c| c.scale_with::<Ordinal>(|s| s)),
         );
         let compiled = Arc::new(plot.compile(&ctx).await?);
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx);
         let (evaluated, _) = session
             .evaluate_with_metrics(EvaluationRequest::new().exact())
             .await?;
@@ -3825,7 +4496,17 @@ mod tests {
     async fn compile_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(360.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(360.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
@@ -3841,8 +4522,28 @@ mod tests {
     async fn compile_symbol_size_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(360.0)));
-        let symbol_size = Param::new("symbol_size", ScalarValue::Float64(Some(20.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(360.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let symbol_size = {
+            let __avenger_param_name = "symbol_size";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(20.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
@@ -3930,7 +4631,17 @@ mod tests {
     async fn compile_scale_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
+        let scale_factor = {
+            let __avenger_param_name = "scale_factor";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(1.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
@@ -3950,8 +4661,28 @@ mod tests {
     async fn compile_pan_zoom_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let x_min = Param::new("x_min", ScalarValue::Float64(Some(0.0)));
-        let x_max = Param::new("x_max", ScalarValue::Float64(Some(10.0)));
+        let x_min = {
+            let __avenger_param_name = "x_min";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(0.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let x_max = {
+            let __avenger_param_name = "x_max";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(10.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let domain_min = x_min.clone();
         let domain_max = x_max.clone();
         let df = ctx
@@ -4369,7 +5100,17 @@ mod tests {
     async fn compile_unit_aspect_width_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(420.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
@@ -4396,7 +5137,17 @@ mod tests {
     async fn compile_unit_aspect_facet_width_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(520.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -4915,7 +5666,17 @@ mod tests {
     async fn compile_facet_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(520.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -4947,7 +5708,17 @@ mod tests {
     async fn compile_facet_child_scale_param_precompute_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
+        let scale_factor = {
+            let __avenger_param_name = "scale_factor";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(1.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -4979,7 +5750,17 @@ mod tests {
     async fn compile_responsive_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(420.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5012,8 +5793,28 @@ mod tests {
     async fn compile_responsive_wrap_width_and_child_scale_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
-        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(420.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let scale_factor = {
+            let __avenger_param_name = "scale_factor";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(1.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let child_scale_factor = scale_factor.clone();
         let df = ctx
             .sql(
@@ -5050,8 +5851,28 @@ mod tests {
     ) -> Result<CompiledPlot, AvengerChartError> {
         use datafusion::functions_aggregate::min_max::max;
 
-        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
-        let order_factor = Param::new("order_factor", ScalarValue::Float64(Some(1.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(420.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
+        let order_factor = {
+            let __avenger_param_name = "order_factor";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(1.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let order_expr = order_factor.clone();
         let df = ctx
             .sql(
@@ -5091,7 +5912,17 @@ mod tests {
     async fn compile_row_nested_responsive_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(520.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5129,7 +5960,17 @@ mod tests {
     async fn compile_column_nested_responsive_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(520.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5167,7 +6008,17 @@ mod tests {
     async fn compile_responsive_wrap_concat_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(520.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5202,7 +6053,17 @@ mod tests {
     async fn compile_responsive_repeat_wrap_inside_facet_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(560.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(560.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5248,7 +6109,17 @@ mod tests {
     async fn compile_positioned_child_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
+        let width = {
+            let __avenger_param_name = "width";
+            let __avenger_param_default: datafusion::common::ScalarValue =
+                (ScalarValue::Float64(Some(520.0))).into();
+            Param::typed(
+                __avenger_param_name,
+                __avenger_param_default.data_type(),
+                __avenger_param_default,
+            )
+            .expect("a parameter default must match its selected physical type")
+        };
         let parent_df = ctx
             .sql("SELECT * FROM (VALUES (0.3, 0.5), (0.7, 0.5)) AS t(parent_x, parent_y)")
             .await?;
@@ -5419,7 +6290,13 @@ mod tests {
     #[tokio::test]
     async fn plot_session_instances_keep_independent_params() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
-        let compiled = Arc::new(compile_session_test_plot(&ctx).await?);
+        let zoom = Param::typed("zoom", DataType::Float64, 0.0)?;
+        let compiled = Arc::new(
+            crate::plot::Chart::<Cartesian>::new()
+                .param(zoom)
+                .compile(ctx.as_ref())
+                .await?,
+        );
         let mut left = compiled.clone().instantiate(ctx.clone());
         let mut right = compiled.instantiate(ctx);
 
@@ -5428,8 +6305,8 @@ mod tests {
         let mut right_patch = IndexMap::new();
         right_patch.insert("zoom".to_string(), ScalarValue::Float64(Some(2.0)));
 
-        left.apply_param_patch(left_patch);
-        right.apply_param_patch(right_patch);
+        left.apply_param_patch(left_patch)?;
+        right.apply_param_patch(right_patch)?;
 
         assert_eq!(
             left.params().get("zoom"),
@@ -5440,6 +6317,27 @@ mod tests {
             Some(&ScalarValue::Float64(Some(2.0)))
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn plot_session_rejects_param_values_with_the_wrong_physical_type()
+    -> Result<(), AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(compile_width_param_scale_cache_plot(&ctx).await?);
+        let mut session = compiled.instantiate(ctx);
+        let before = session.params()["width"].clone();
+
+        let error = session
+            .apply_param_patch(IndexMap::from([(
+                "width".to_string(),
+                ScalarValue::Int64(Some(640)),
+            )]))
+            .unwrap_err();
+
+        assert!(error.to_string().contains("Float64"));
+        assert!(error.to_string().contains("Int64"));
+        assert_eq!(session.params()["width"], before);
         Ok(())
     }
 
@@ -9030,7 +9928,17 @@ mod tests {
     async fn add_param_compiles_to_shared_sharing() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<Cartesian>::new()
-            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
+            .param({
+                let __avenger_param_name = "width";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(Some(640.0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .compile(&ctx)
             .await?;
         let spec = compiled
@@ -9069,9 +9977,29 @@ mod tests {
     async fn duplicate_param_names_error_on_compile() {
         let ctx = SessionContext::new();
         let result = crate::plot::Chart::<Cartesian>::new()
-            .param(Param::new("width", ScalarValue::Float64(Some(1.0))))
+            .param({
+                let __avenger_param_name = "width";
+                let __avenger_param_default: datafusion::common::ScalarValue =
+                    (ScalarValue::Float64(Some(1.0))).into();
+                Param::typed(
+                    __avenger_param_name,
+                    __avenger_param_default.data_type(),
+                    __avenger_param_default,
+                )
+                .expect("a parameter default must match its selected physical type")
+            })
             .param_with_sharing(
-                Param::new("width", ScalarValue::Float64(Some(2.0))),
+                {
+                    let __avenger_param_name = "width";
+                    let __avenger_param_default: datafusion::common::ScalarValue =
+                        (ScalarValue::Float64(Some(2.0))).into();
+                    Param::typed(
+                        __avenger_param_name,
+                        __avenger_param_default.data_type(),
+                        __avenger_param_default,
+                    )
+                    .expect("a parameter default must match its selected physical type")
+                },
                 CoordinationScope::Level(1),
             )
             .compile(&ctx)
@@ -9846,7 +10774,7 @@ mod tests {
                 .compile(&ctx)
                 .await?,
         );
-        let mut session = compiled.instantiate(ctx);
+        let mut session = compiled.clone().instantiate(ctx);
 
         // Root scope (empty owner paths) resolves the Level(1) param to its default.
         let root = session.effective_params_for_owner_paths(&HashMap::new());
@@ -9867,7 +10795,16 @@ mod tests {
             owner_path: owner_path.clone(),
             value: domain_value.clone(),
             replace_scoped_values: false,
-        }]);
+        }])?;
+        let resolved_id = compiled
+            .param_specs()
+            .resolve_source_name("x_domain")
+            .expect("compiled source-name boundary resolves")
+            .clone();
+        assert!(session.scoped_params.values.contains_key(&ScopedParamKey {
+            id: resolved_id,
+            owner_path: owner_path.clone(),
+        }));
 
         // Root remains the default; the scoped owner path sees the written value.
         let root_after = session.effective_params_for_owner_paths(&HashMap::new());
@@ -10185,6 +11122,106 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn store_transaction_bumps_each_owner_revision_once() -> Result<(), AvengerChartError> {
+        let mut session = brush_store_session().await?;
+        let owner = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        session.apply_scoped_store_patch(vec![
+            ScopedStoreAssignment {
+                store_name: "brush_boxes".to_string(),
+                owner_path: owner.clone(),
+                replace_scoped_values: false,
+                update: StoreStateUpdate::InsertRows {
+                    rows: vec![brush_row("a", 1.0, Some(2.0))],
+                },
+            },
+            ScopedStoreAssignment {
+                store_name: "brush_boxes".to_string(),
+                owner_path: owner.clone(),
+                replace_scoped_values: false,
+                update: StoreStateUpdate::UpsertRows {
+                    rows: vec![brush_row("a", 3.0, Some(4.0))],
+                },
+            },
+        ])?;
+
+        let revisions = session.scoped_stores.revision_fingerprint();
+        let revision = revisions
+            .iter()
+            .find(|(_, path, _)| path == &vec![format!("{:?}", owner[0])])
+            .map(|(_, _, revision)| *revision)
+            .expect("scoped store revision");
+        assert_eq!(revision, 1, "two writes in one transaction bump once");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn invalid_keyed_store_payload_rolls_back_the_whole_patch()
+    -> Result<(), AvengerChartError> {
+        let mut session = brush_store_session().await?;
+        let owner = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        let duplicate = brush_row("duplicate", 2.0, Some(3.0));
+        let before = session.store_rows_for_diagnostics("brush_boxes");
+        let err = session
+            .apply_scoped_store_patch(vec![
+                ScopedStoreAssignment {
+                    store_name: "brush_boxes".to_string(),
+                    owner_path: owner.clone(),
+                    replace_scoped_values: false,
+                    update: StoreStateUpdate::InsertRows {
+                        rows: vec![brush_row("prefix", 1.0, Some(2.0))],
+                    },
+                },
+                ScopedStoreAssignment {
+                    store_name: "brush_boxes".to_string(),
+                    owner_path: owner,
+                    replace_scoped_values: false,
+                    update: StoreStateUpdate::UpsertRows {
+                        rows: vec![duplicate.clone(), duplicate],
+                    },
+                },
+            ])
+            .expect_err("duplicate payload keys must fail");
+        assert!(err.to_string().contains("duplicate payload key"));
+        assert_eq!(session.store_rows_for_diagnostics("brush_boxes"), before);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn keyed_store_requires_exact_keys_and_non_key_patch_fields()
+    -> Result<(), AvengerChartError> {
+        let mut session = brush_store_session().await?;
+        let owner = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        let mut extra_key = StoreRowValue::new();
+        extra_key.insert("id".to_string(), ScalarValue::Utf8(Some("a".to_string())));
+        extra_key.insert("x_min".to_string(), ScalarValue::Float64(Some(1.0)));
+        let err = session
+            .apply_scoped_store_patch(vec![ScopedStoreAssignment {
+                store_name: "brush_boxes".to_string(),
+                owner_path: owner.clone(),
+                replace_scoped_values: false,
+                update: StoreStateUpdate::DeleteByKey { key: extra_key },
+            }])
+            .expect_err("extra key fields must fail");
+        assert!(err.to_string().contains("exactly the primary-key fields"));
+
+        let mut key = StoreRowValue::new();
+        key.insert("id".to_string(), ScalarValue::Utf8(Some("a".to_string())));
+        let err = session
+            .apply_scoped_store_patch(vec![ScopedStoreAssignment {
+                store_name: "brush_boxes".to_string(),
+                owner_path: owner,
+                replace_scoped_values: false,
+                update: StoreStateUpdate::UpdateByKey {
+                    key,
+                    fields: StoreRowValue::new(),
+                },
+            }])
+            .expect_err("empty update patch must fail");
+        assert!(err.to_string().contains("at least one non-key field"));
+        Ok(())
+    }
+
     /// Read the numeric x domain from each leaf-cell scope, keyed by the cell's
     /// facet value (the first path component).
     fn cell_x_domains(evaluated: &EvaluatedPlot) -> HashMap<String, (f32, f32)> {
@@ -10298,7 +11335,7 @@ mod tests {
             owner_path: vec![ScalarValue::Utf8(Some("A".to_string()))],
             value: list_domain(2.0, 8.0),
             replace_scoped_values: false,
-        }]);
+        }])?;
 
         // Preview reuse exercises the per-cell override pass.
         let (preview, metrics) = session
@@ -10379,19 +11416,20 @@ mod tests {
 
         // Glue: a Level(1) param written at the row owner is shared by every cell
         // in that row, but not by cells in the sibling row.
-        let mut specs = IndexMap::new();
-        specs.insert(
-            "x_domain".to_string(),
-            CompiledParamSpec::new(&Param::raw_domain("x_domain"), CoordinationScope::Level(1)),
-        );
+        let specs = resolved_param_specs([CompiledParamSpec::new(
+            &Param::raw_domain("x_domain"),
+            CoordinationScope::Level(1),
+        )]);
         let mut store = ScopedParamStore::new(specs);
         let panned = list_domain(2.0, 8.0);
-        store.apply_scoped_patch(vec![ScopedParamAssignment {
-            name: "x_domain".to_string(),
-            owner_path: level1_owner.clone(),
-            value: panned.clone(),
-            replace_scoped_values: false,
-        }]);
+        store
+            .apply_scoped_patch(vec![ScopedParamAssignment {
+                name: "x_domain".to_string(),
+                owner_path: level1_owner.clone(),
+                value: panned.clone(),
+                replace_scoped_values: false,
+            }])
+            .unwrap();
         assert_eq!(
             store
                 .effective_params_for_cell(&tree, &north_west)
@@ -10416,12 +11454,14 @@ mod tests {
 
         let south_owner = tree.sharing_owner_path(&south_west, 1);
         let south_panned = list_domain(4.0, 9.0);
-        store.apply_scoped_patch(vec![ScopedParamAssignment {
-            name: "x_domain".to_string(),
-            owner_path: south_owner,
-            value: south_panned.clone(),
-            replace_scoped_values: true,
-        }]);
+        store
+            .apply_scoped_patch(vec![ScopedParamAssignment {
+                name: "x_domain".to_string(),
+                owner_path: south_owner,
+                value: south_panned.clone(),
+                replace_scoped_values: true,
+            }])
+            .unwrap();
         assert_ne!(
             store
                 .effective_params_for_cell(&tree, &north_west)
@@ -10498,7 +11538,7 @@ mod tests {
                 true,
             )),
             replace_scoped_values: false,
-        }]);
+        }])?;
 
         // Assert via both the exact (fresh-measure) and preview (reuse)
         // paths that every Top-row cell moved and every Bottom-row cell did not.
@@ -10617,7 +11657,7 @@ mod tests {
             owner_path: free_owner,
             value: list_domain(2.0, 8.0),
             replace_scoped_values: false,
-        }]);
+        }])?;
 
         let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
         for scope in &exact.interaction.scopes {
@@ -10722,7 +11762,7 @@ mod tests {
                 value: list_domain(1.0, 5.0),
                 replace_scoped_values: false,
             },
-        ]);
+        ])?;
 
         let exact = session.evaluate(EvaluationRequest::new().exact()).await?;
         for scope in &exact.interaction.scopes {
