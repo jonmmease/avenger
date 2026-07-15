@@ -281,3 +281,233 @@ required-features = ["winit-wgpu"]
 [[example]]
 name = "widget_text_input_filter"
 required-features = ["winit-wgpu"]
+
+# macOS development bundles used by Computer Use. Keep this inventory in sync
+# with the example targets under `examples/`.
+[package.metadata.bundle.example.box_plot_compound_interaction]
+name = "Avenger Box Plot Compound Interaction"
+identifier = "org.avenger.chart.example.box-plot-compound-interaction"
+
+[package.metadata.bundle.example.button_clear_selection]
+name = "Avenger Button Clear Selection"
+identifier = "org.avenger.chart.example.button-clear-selection"
+
+[package.metadata.bundle.example.canvas_width_height_scatter]
+name = "Avenger Canvas Width Height Scatter"
+identifier = "org.avenger.chart.example.canvas-width-height-scatter"
+
+[package.metadata.bundle.example.canvas_width_scatter]
+name = "Avenger Canvas Width Scatter"
+identifier = "org.avenger.chart.example.canvas-width-scatter"
+
+[package.metadata.bundle.example.cartesian_box_zoom]
+name = "Avenger Cartesian Box Zoom"
+identifier = "org.avenger.chart.example.cartesian-box-zoom"
+
+[package.metadata.bundle.example.cartesian_circle_scene_query_selection]
+name = "Avenger Cartesian Circle Scene Query Selection"
+identifier = "org.avenger.chart.example.cartesian-circle-scene-query-selection"
+
+[package.metadata.bundle.example.cartesian_colorbar_interval_selection]
+name = "Avenger Cartesian Colorbar Interval Selection"
+identifier = "org.avenger.chart.example.cartesian-colorbar-interval-selection"
+
+[package.metadata.bundle.example.cartesian_concat_facet_manual_box_selection]
+name = "Avenger Cartesian Concat Facet Manual Box Selection"
+identifier = "org.avenger.chart.example.cartesian-concat-facet-manual-box-selection"
+
+[package.metadata.bundle.example.cartesian_equality_selection]
+name = "Avenger Cartesian Equality Selection"
+identifier = "org.avenger.chart.example.cartesian-equality-selection"
+
+[package.metadata.bundle.example.cartesian_facet_instanced_pan]
+name = "Avenger Cartesian Facet Instanced Pan"
+identifier = "org.avenger.chart.example.cartesian-facet-instanced-pan"
+
+[package.metadata.bundle.example.cartesian_facet_pan]
+name = "Avenger Cartesian Facet Pan"
+identifier = "org.avenger.chart.example.cartesian-facet-pan"
+
+[package.metadata.bundle.example.cartesian_facet_pan_free]
+name = "Avenger Cartesian Facet Pan Free"
+identifier = "org.avenger.chart.example.cartesian-facet-pan-free"
+
+[package.metadata.bundle.example.cartesian_facet_wrap_pan]
+name = "Avenger Cartesian Facet Wrap Pan"
+identifier = "org.avenger.chart.example.cartesian-facet-wrap-pan"
+
+[package.metadata.bundle.example.cartesian_facet_wrap_pan_free]
+name = "Avenger Cartesian Facet Wrap Pan Free"
+identifier = "org.avenger.chart.example.cartesian-facet-wrap-pan-free"
+
+[package.metadata.bundle.example.cartesian_facet_wrap_pan_shared_x]
+name = "Avenger Cartesian Facet Wrap Pan Shared X"
+identifier = "org.avenger.chart.example.cartesian-facet-wrap-pan-shared-x"
+
+[package.metadata.bundle.example.cartesian_image_mark]
+name = "Avenger Cartesian Image Mark"
+identifier = "org.avenger.chart.example.cartesian-image-mark"
+
+[package.metadata.bundle.example.cartesian_instanced_pan_10k]
+name = "Avenger Cartesian Instanced Pan 10K"
+identifier = "org.avenger.chart.example.cartesian-instanced-pan-10k"
+
+[package.metadata.bundle.example.cartesian_instanced_pan_stress]
+name = "Avenger Cartesian Instanced Pan Stress"
+identifier = "org.avenger.chart.example.cartesian-instanced-pan-stress"
+
+[package.metadata.bundle.example.cartesian_lasso_scene_query_selection]
+name = "Avenger Cartesian Lasso Scene Query Selection"
+identifier = "org.avenger.chart.example.cartesian-lasso-scene-query-selection"
+
+[package.metadata.bundle.example.cartesian_legend_opacity_selection]
+name = "Avenger Cartesian Legend Opacity Selection"
+identifier = "org.avenger.chart.example.cartesian-legend-opacity-selection"
+
+[package.metadata.bundle.example.cartesian_manual_box_selection]
+name = "Avenger Cartesian Manual Box Selection"
+identifier = "org.avenger.chart.example.cartesian-manual-box-selection"
+
+[package.metadata.bundle.example.cartesian_nested_facet_pan]
+name = "Avenger Cartesian Nested Facet Pan"
+identifier = "org.avenger.chart.example.cartesian-nested-facet-pan"
+
+[package.metadata.bundle.example.cartesian_pan]
+name = "Avenger Cartesian Pan"
+identifier = "org.avenger.chart.example.cartesian-pan"
+
+[package.metadata.bundle.example.cartesian_rect_scene_query_selection]
+name = "Avenger Cartesian Rect Scene Query Selection"
+identifier = "org.avenger.chart.example.cartesian-rect-scene-query-selection"
+
+[package.metadata.bundle.example.cartesian_row_facet_pan]
+name = "Avenger Cartesian Row Facet Pan"
+identifier = "org.avenger.chart.example.cartesian-row-facet-pan"
+
+[package.metadata.bundle.example.cartesian_store_sharing_selection]
+name = "Avenger Cartesian Store Sharing Selection"
+identifier = "org.avenger.chart.example.cartesian-store-sharing-selection"
+
+[package.metadata.bundle.example.climate_grid_equal_earth]
+name = "Avenger Climate Grid Equal Earth"
+identifier = "org.avenger.chart.example.climate-grid-equal-earth"
+
+[package.metadata.bundle.example.concat_lasso_scene_query_cross_highlight]
+name = "Avenger Concat Lasso Scene Query Cross Highlight"
+identifier = "org.avenger.chart.example.concat-lasso-scene-query-cross-highlight"
+
+[package.metadata.bundle.example.facet_lasso_scene_query_selection]
+name = "Avenger Facet Lasso Scene Query Selection"
+identifier = "org.avenger.chart.example.facet-lasso-scene-query-selection"
+
+[package.metadata.bundle.example.geo_albers_choropleth_pan_zoom]
+name = "Avenger Geo Albers Choropleth Pan Zoom"
+identifier = "org.avenger.chart.example.geo-albers-choropleth-pan-zoom"
+
+[package.metadata.bundle.example.geo_blend_zoom]
+name = "Avenger Geo Blend Zoom"
+identifier = "org.avenger.chart.example.geo-blend-zoom"
+
+[package.metadata.bundle.example.geo_equal_earth_world]
+name = "Avenger Geo Equal Earth World"
+identifier = "org.avenger.chart.example.geo-equal-earth-world"
+
+[package.metadata.bundle.example.geo_mercator_tiles]
+name = "Avenger Geo Mercator Tiles"
+identifier = "org.avenger.chart.example.geo-mercator-tiles"
+
+[package.metadata.bundle.example.geo_tiles_albers]
+name = "Avenger Geo Tiles Albers"
+identifier = "org.avenger.chart.example.geo-tiles-albers"
+
+[package.metadata.bundle.example.geo_tiles_equal_earth]
+name = "Avenger Geo Tiles Equal Earth"
+identifier = "org.avenger.chart.example.geo-tiles-equal-earth"
+
+[package.metadata.bundle.example.georegistered_overlay]
+name = "Avenger Georegistered Overlay"
+identifier = "org.avenger.chart.example.georegistered-overlay"
+
+[package.metadata.bundle.example.nested_grouped_bar_click_selection]
+name = "Avenger Nested Grouped Bar Click Selection"
+identifier = "org.avenger.chart.example.nested-grouped-bar-click-selection"
+
+[package.metadata.bundle.example.parallel_axis_brush_selection]
+name = "Avenger Parallel Axis Brush Selection"
+identifier = "org.avenger.chart.example.parallel-axis-brush-selection"
+
+[package.metadata.bundle.example.parallel_coordinates_header_drag_reorder]
+name = "Avenger Parallel Coordinates Header Drag Reorder"
+identifier = "org.avenger.chart.example.parallel-coordinates-header-drag-reorder"
+
+[package.metadata.bundle.example.repeat_splom_box_select]
+name = "Avenger Repeat SPLOM Box Select"
+identifier = "org.avenger.chart.example.repeat-splom-box-select"
+
+[package.metadata.bundle.example.repeat_splom_pan_zoom]
+name = "Avenger Repeat SPLOM Pan Zoom"
+identifier = "org.avenger.chart.example.repeat-splom-pan-zoom"
+
+[package.metadata.bundle.example.repeated_grouped_bar_cross_filter]
+name = "Avenger Repeated Grouped Bar Cross Filter"
+identifier = "org.avenger.chart.example.repeated-grouped-bar-cross-filter"
+
+[package.metadata.bundle.example.responsive_wrap_resize]
+name = "Avenger Responsive Wrap Resize"
+identifier = "org.avenger.chart.example.responsive-wrap-resize"
+
+[package.metadata.bundle.example.taxi_adaptive_points]
+name = "Avenger Taxi Adaptive Points"
+identifier = "org.avenger.chart.example.taxi-adaptive-points"
+
+[package.metadata.bundle.example.taxi_async_rasterize]
+name = "Avenger Taxi Async Rasterize"
+identifier = "org.avenger.chart.example.taxi-async-rasterize"
+
+[package.metadata.bundle.example.taxi_geo_albers]
+name = "Avenger Taxi Geo Albers"
+identifier = "org.avenger.chart.example.taxi-geo-albers"
+
+[package.metadata.bundle.example.taxi_geo_mercator]
+name = "Avenger Taxi Geo Mercator"
+identifier = "org.avenger.chart.example.taxi-geo-mercator"
+
+[package.metadata.bundle.example.taxi_geo_mercator_categories]
+name = "Avenger Taxi Geo Mercator Categories"
+identifier = "org.avenger.chart.example.taxi-geo-mercator-categories"
+
+[package.metadata.bundle.example.temporal_nested_cross_filter]
+name = "Avenger Temporal Nested Cross Filter"
+identifier = "org.avenger.chart.example.temporal-nested-cross-filter"
+
+[package.metadata.bundle.example.treemap_click_to_zoom]
+name = "Avenger Treemap Click to Zoom"
+identifier = "org.avenger.chart.example.treemap-click-to-zoom"
+
+[package.metadata.bundle.example.treemap_decorated_click_to_zoom]
+name = "Avenger Treemap Decorated Click to Zoom"
+identifier = "org.avenger.chart.example.treemap-decorated-click-to-zoom"
+
+[package.metadata.bundle.example.treemap_leaf_click_selection]
+name = "Avenger Treemap Leaf Click Selection"
+identifier = "org.avenger.chart.example.treemap-leaf-click-selection"
+
+[package.metadata.bundle.example.widget_cell_sidebar]
+name = "Avenger Widget Cell Sidebar"
+identifier = "org.avenger.chart.example.widget-cell-sidebar"
+
+[package.metadata.bundle.example.widget_region_cross_filter]
+name = "Avenger Widget Region Cross Filter"
+identifier = "org.avenger.chart.example.widget-region-cross-filter"
+
+[package.metadata.bundle.example.widget_slider_live_filter]
+name = "Avenger Widget Slider Live Filter"
+identifier = "org.avenger.chart.example.widget-slider-live-filter"
+
+[package.metadata.bundle.example.widget_text_input_filter]
+name = "Avenger Widget Text Input Filter"
+identifier = "org.avenger.chart.example.widget-text-input-filter"
+
+[package.metadata.bundle.example.widget_trend_toggle]
+name = "Avenger Widget Trend Toggle"
+identifier = "org.avenger.chart.example.widget-trend-toggle"
