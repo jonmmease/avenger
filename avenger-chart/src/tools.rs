@@ -766,9 +766,7 @@ impl ToolCompileState {
     ) -> Result<(), AvengerChartError> {
         match self.params.get_mut(&param.name) {
             Some(existing) => {
-                if existing.param.default != param.default
-                    || existing.requested != *sharing
-                {
+                if existing.param.default != param.default || existing.requested != *sharing {
                     return Err(AvengerChartError::InvalidArgument(format!(
                         "Generated tool parameter '{}' was declared more than once with \
                          incompatible defaults or sharing",

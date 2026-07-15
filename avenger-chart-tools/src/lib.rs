@@ -2366,7 +2366,7 @@ mod tests {
         )
         .expect("expand");
 
-        assert_eq!(params(&expansion).len(), 2);
+        assert_eq!(params(&expansion).len(), 1);
         assert_eq!(selections(&expansion).len(), 1);
         assert_eq!(expansion.event_bindings.len(), 5);
         assert_eq!(expansion.metadata.len(), 1);
@@ -2374,7 +2374,13 @@ mod tests {
         assert!(expansion.marks.is_empty());
         assert!(expansion.scale_edits.is_empty());
         assert_eq!(params(&expansion)[0].name, "__tool_picked__enabled");
-        assert_eq!(params(&expansion)[1].name, "__tool_picked__cursor");
+        assert!(expansion.event_bindings.iter().any(|binding| {
+            binding
+                .action
+                .steps
+                .iter()
+                .any(|step| matches!(step, avenger_chart_core::ChartActionStep::SetCursor(_)))
+        }));
         assert_eq!(selections(&expansion)[0].id, "picked");
         assert_eq!(expansion.metadata[0].id, "picked");
         assert_eq!(
