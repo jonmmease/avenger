@@ -11,10 +11,9 @@ use datafusion::{arrow::datatypes::DataType, prelude::lit};
 use datafusion_proto::protobuf::LogicalExprNode;
 use std::sync::Arc;
 
-/// Compile-only versions of the remaining target owners. These intentionally
-/// live in the contract fixture until their owning runtime phases land; the
-/// fixture makes type boundaries reviewable without creating a second public
-/// execution model.
+/// Compile-only summaries of the landed ownership boundaries. These remain in
+/// the contract fixture so later frontend work can review the cross-crate shape
+/// without introducing a second execution model.
 #[allow(dead_code)]
 mod target_shape {
     use super::*;
@@ -131,8 +130,8 @@ fn explicit_param_type_and_migration_metadata_are_independent_contracts() {
     let migration_key = ids.migration_key("component[0]/param:value");
     assert_ne!(runtime_id.as_opaque_str(), migration_key.as_opaque_str());
 
-    // These identities establish the remaining type-level boundaries even
-    // before their runtime owners migrate in later phases.
+    // These identities pin the distinct type-level boundaries used by the
+    // corresponding landed runtime owners.
     let mark = ids.allocate_mark();
     let view = ids.allocate_view();
     assert_ne!(mark.as_opaque_str(), view.as_opaque_str());
