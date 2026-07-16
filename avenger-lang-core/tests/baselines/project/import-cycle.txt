@@ -1,0 +1,6 @@
+error[AVENGER-PROJECT-013]: import cycle detected
+ --> memory:b.mark.avenger:1:12
+   1 | avenger 1; import 'a.mark.avenger'; define mark b { mark symbol {} }
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^ memory:a.mark.avenger -> memory:b.mark.avenger -> memory:a.mark.avenger
+  = via memory:a.mark.avenger: imports memory:b.mark.avenger
+  = via memory:b.mark.avenger: imports memory:a.mark.avenger

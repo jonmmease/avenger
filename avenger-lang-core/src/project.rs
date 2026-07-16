@@ -129,6 +129,13 @@ pub struct ProjectFile {
     pub parsed: ParsedFile,
 }
 
+/// One top-level declaration in the deterministic merge of ambient data files.
+#[derive(Clone, Debug)]
+pub struct AmbientDataDeclaration {
+    pub source: SourceId,
+    pub declaration: Decl,
+}
+
 #[derive(Clone, Debug)]
 pub struct ParsedProject {
     pub sources: SourceMap,
@@ -136,6 +143,7 @@ pub struct ParsedProject {
     pub imports: Vec<ImportEdge>,
     pub chart_roots: Vec<ProjectFileId>,
     pub ambient_data: Vec<ProjectFileId>,
+    pub ambient_catalog: Vec<AmbientDataDeclaration>,
     pub fingerprint: String,
 }
 
@@ -285,7 +293,6 @@ impl<'a> ProjectLoader<'a> {
             .clone()
             .into_iter()
             .zip(state.loaded[&source_id].parsed.import_spans.clone());
-        let mut bindings = BTreeSet::new();
         for (import, import_site) in imports {
             let target =
                 resolve_import_origin(&loaded.origin, &import.source, &request.project_root)
@@ -297,27 +304,12 @@ impl<'a> ProjectLoader<'a> {
                             message,
                         )
                     })?;
+            let explicit_alias = import.alias.is_some();
             let binding = import
                 .alias
                 .as_ref()
                 .map(ToString::to_string)
                 .or_else(|| inferred_import_name(&target));
-            let Some(binding) = binding else {
-                return Err(project_diagnostic(
-                    "AVENGER-PROJECT-010",
-                    "import requires an alias",
-                    import_site,
-                    "the imported file name is not a valid Avenger name; add `as <name>`",
-                ));
-            };
-            if !bindings.insert(binding.clone()) {
-                return Err(project_diagnostic(
-                    "AVENGER-PROJECT-011",
-                    "duplicate import binding",
-                    import_site,
-                    format!("`{binding}` is already bound by another import in this file"),
-                ));
-            }
             let mut trace = pending.trace.clone();
             trace.push((import_site, import.source.clone()));
             state.enqueue(
@@ -327,6 +319,7 @@ impl<'a> ProjectLoader<'a> {
                     importer: source_id,
                     site: import_site,
                     binding,
+                    explicit_alias,
                 }),
                 Some((import.sha256, trace)),
             );
@@ -339,7 +332,8 @@ impl<'a> ProjectLoader<'a> {
 struct ImportContext {
     importer: SourceId,
     site: SourceSpan,
-    binding: String,
+    binding: Option<String>,
+    explicit_alias: bool,
 }
 
 #[derive(Clone)]
@@ -462,6 +456,7 @@ impl<'a> LoadState<'a> {
 
     fn finish_edges_and_validate(&mut self) -> ProjectResult<()> {
         let mut edges = Vec::new();
+        let mut bindings: BTreeMap<SourceId, BTreeSet<String>> = BTreeMap::new();
         for pending in &self.pending_edges {
             let Some(import) = &pending.import else {
                 continue;
@@ -474,11 +469,48 @@ impl<'a> LoadState<'a> {
                 self.loaded[&imported].kind,
                 import.site,
             )?;
+            let imported_file = &self.loaded[&imported];
+            let binding = if imported_file.kind == ProjectFileKind::Data {
+                let root_binding = imported_data_binding(imported_file, import.site)?;
+                if import.explicit_alias {
+                    import.binding.clone().ok_or_else(|| {
+                        project_diagnostic(
+                            "AVENGER-PROJECT-010",
+                            "import requires an alias",
+                            import.site,
+                            "expected an explicit alias",
+                        )
+                    })?
+                } else {
+                    root_binding
+                }
+            } else {
+                import.binding.clone().ok_or_else(|| {
+                    project_diagnostic(
+                        "AVENGER-PROJECT-010",
+                        "import requires an alias",
+                        import.site,
+                        "the imported file name is not a valid Avenger name; add `as <name>`",
+                    )
+                })?
+            };
+            if !bindings
+                .entry(import.importer)
+                .or_default()
+                .insert(binding.clone())
+            {
+                return Err(project_diagnostic(
+                    "AVENGER-PROJECT-011",
+                    "duplicate import binding",
+                    import.site,
+                    format!("`{binding}` is already bound by another import in this file"),
+                ));
+            }
             edges.push(ImportEdge {
                 importer: import.importer,
                 imported,
                 site: import.site,
-                binding: import.binding.clone(),
+                binding,
                 sha256: pending.sha256.clone(),
             });
         }
@@ -491,6 +523,12 @@ impl<'a> LoadState<'a> {
         detect_cycles(&edges, &self.loaded)?;
         validate_root_roles(&self.request.roots, &self.origin_to_source, &self.loaded)?;
         validate_ambient_catalogs(&self.request.roots, &self.origin_to_source, &self.loaded)?;
+        validate_imported_data_collisions(
+            &edges,
+            &self.request.roots,
+            &self.origin_to_source,
+            &self.loaded,
+        )?;
         self.finalized_edges = edges;
         Ok(())
     }
@@ -513,6 +551,7 @@ impl<'a> LoadState<'a> {
             &self.origin_to_source,
             &self.source_to_file,
         );
+        let ambient_catalog = merge_ambient_catalog(&ambient_data, &files);
         let fingerprint = project_fingerprint(
             &files,
             &edges,
@@ -525,6 +564,7 @@ impl<'a> LoadState<'a> {
             imports: edges,
             chart_roots,
             ambient_data,
+            ambient_catalog,
             fingerprint,
         }
     }
@@ -538,6 +578,45 @@ impl<'a> LoadState<'a> {
             dependencies: self.dependencies(),
         }
     }
+}
+
+fn imported_data_binding(file: &ProjectFile, site: SourceSpan) -> ProjectResult<String> {
+    let Root::Data(declarations) = &file.parsed.ast.root else {
+        return Err(project_diagnostic(
+            "AVENGER-PROJECT-002",
+            "data file kind does not contain a data root",
+            site,
+            file.origin.display_name(),
+        ));
+    };
+    let [declaration] = declarations.as_slice() else {
+        return Err(project_diagnostic(
+            "AVENGER-PROJECT-020",
+            "imported data pack must contain exactly one root",
+            site,
+            "wrap the pack in one named schema or catalog",
+        ));
+    };
+    if !matches!(declaration.keyword.as_str(), "schema" | "catalog") {
+        return Err(project_diagnostic(
+            "AVENGER-PROJECT-020",
+            "imported data pack root must be a schema or catalog",
+            site,
+            "top-level table collections must be wrapped before import",
+        ));
+    }
+    declaration
+        .name
+        .as_ref()
+        .map(ToString::to_string)
+        .ok_or_else(|| {
+            project_diagnostic(
+                "AVENGER-PROJECT-020",
+                "imported data pack root must be named",
+                site,
+                "add `as <name>` to the schema or catalog declaration",
+            )
+        })
 }
 
 fn classify_and_validate(
@@ -657,7 +736,9 @@ fn detect_cycles(
     for source in files.keys().copied() {
         if let Some(cycle) = visit_cycle(source, &adjacency, &mut visiting, &mut visited) {
             let site = cycle
-                .last()
+                .iter()
+                .rev()
+                .nth(1)
                 .map(|(_, site)| *site)
                 .unwrap_or_else(|| SourceSpan::empty(source, 0));
             let names = cycle
@@ -667,10 +748,12 @@ fn detect_cycles(
                 .join(" -> ");
             let mut diagnostic =
                 project_diagnostic("AVENGER-PROJECT-013", "import cycle detected", site, names);
-            for (id, edge_site) in cycle {
+            for edge in cycle.windows(2) {
+                let (_, edge_site) = edge[0];
+                let (target, _) = edge[1];
                 diagnostic.trace.push(ExpansionOrImportFrame {
                     span: edge_site,
-                    message: format!("imports {}", files[&id].origin.display_name()),
+                    message: format!("imports {}", files[&target].origin.display_name()),
                 });
             }
             return Err(diagnostic);
@@ -757,6 +840,38 @@ fn validate_ambient_catalogs(
         };
         for declaration in declarations {
             collect_catalog_paths(declaration, &[], source, &mut paths)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_imported_data_collisions(
+    edges: &[ImportEdge],
+    roots: &[ProjectRoot],
+    origins: &BTreeMap<SourceOrigin, SourceId>,
+    files: &BTreeMap<SourceId, ProjectFile>,
+) -> ProjectResult<()> {
+    let ambient_names = roots
+        .iter()
+        .filter(|root| root.role == ProjectDependencyRole::DataConfiguration)
+        .filter_map(|root| origins.get(&root.origin))
+        .flat_map(|source| match &files[source].parsed.ast.root {
+            Root::Data(declarations) => declarations.as_slice(),
+            _ => &[],
+        })
+        .filter_map(|declaration| declaration.name.as_ref())
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
+    for edge in edges {
+        if files[&edge.imported].kind == ProjectFileKind::Data
+            && ambient_names.contains(&edge.binding)
+        {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-014",
+                "imported data pack collides with the ambient catalog",
+                edge.site,
+                format!("`{}` is already configured by ambient data", edge.binding),
+            ));
         }
     }
     Ok(())
@@ -1005,6 +1120,28 @@ fn root_ids(
     result.sort();
     result.dedup();
     result
+}
+
+fn merge_ambient_catalog(
+    ambient_data: &[ProjectFileId],
+    files: &BTreeMap<ProjectFileId, ProjectFile>,
+) -> Vec<AmbientDataDeclaration> {
+    let mut declarations = Vec::new();
+    for id in ambient_data {
+        let file = &files[id];
+        if let Root::Data(roots) = &file.parsed.ast.root {
+            declarations.extend(
+                roots
+                    .iter()
+                    .cloned()
+                    .map(|declaration| AmbientDataDeclaration {
+                        source: file.source,
+                        declaration,
+                    }),
+            );
+        }
+    }
+    declarations
 }
 
 fn loader_diagnostic(

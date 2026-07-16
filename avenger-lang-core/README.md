@@ -8,8 +8,10 @@ capture, lossless `$binding` normalization, and the normative SQL expression
 and query-island entry points. It also owns the strict v1 outer parser, stable
 semantic AST and external source map, frozen fourteen-tag JSON interchange
 schema, canonical semantic printer, and comment-preserving valid-source
-formatter. Later phases add project loading, authoring-schema validation,
-resolution, and expansion.
+formatter. Phase 3 adds the deterministic parsed project DAG, normalized file
+identities, relative/`std:`/pinned-URL import closure, file-kind rules,
+import-site traces, ambient-data merging, and source fingerprints. Later phases
+add authoring-schema validation, resolution, and expansion.
 
 Parse a reviewed fixture and display its canonical JSON and source forms with:
 

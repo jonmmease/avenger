@@ -1,0 +1,7 @@
+avenger 1;
+
+schema tables as samples {
+  table csv as rows {
+    path: 'rows.csv';
+  }
+}

@@ -156,7 +156,7 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> Result<ProjectAnalysis, CompileFailure> {
         Err(self
-            .compile_file_attempt(root)
+            .compile_project_attempt(root)
             .await
             .result
             .expect_err("phase-zero frontend is unavailable"))
@@ -184,14 +184,17 @@ impl Compiler {
         path: impl AsRef<Path>,
     ) -> CompileAttempt<ParsedProject> {
         let chart = canonicalize_if_exists(&self.resolve_path(path.as_ref()));
-        let ambient = discover_avenger_files(&self.options.project_root)
-            .map(|files| {
-                files
+        let ambient = if self.options.project_root.exists() {
+            match discover_avenger_files(&self.options.project_root) {
+                Ok(files) => files
                     .into_iter()
                     .filter(|path| is_data_path(path))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+                    .collect::<Vec<_>>(),
+                Err(error) => return discovery_failure(&self.options.project_root, error),
+            }
+        } else {
+            Vec::new()
+        };
         let mut roots = vec![ProjectRoot::chart(SourceOrigin::File(chart))];
         roots.extend(
             ambient
@@ -704,7 +707,9 @@ fn discover_resource(
     capabilities: &ImportCapabilities,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
-    let origin =
+    let origin = if path.split_once("://").is_some() {
+        SourceOrigin::Http(path.to_owned())
+    } else {
         resolve_import_origin(declaring_origin, path, project_root).map_err(|message| {
             CompileFailure {
                 diagnostics: vec![Diagnostic::error(
@@ -713,7 +718,8 @@ fn discover_resource(
                     SourceLabel::new(SourceSpan::empty(source, 0), message),
                 )],
             }
-        })?;
+        })?
+    };
     let role = match origin {
         SourceOrigin::Http(_) => DependencyRole::RemoteResource,
         _ => DependencyRole::LocalResource,
@@ -740,6 +746,11 @@ fn discover_resource(
             "local data resource is outside the project capability root",
             normalized_candidate.display().to_string(),
         ));
+    }
+    if path.contains(['*', '?', '[']) {
+        dependency.content_version = Some("glob".to_owned());
+        dependencies.insert(dependency);
+        return Ok(());
     }
     let canonical = std::fs::canonicalize(&normalized_candidate).map_err(|error| {
         resource_failure(

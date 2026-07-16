@@ -30,9 +30,9 @@ pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
 };
 pub use project::{
-    DefinitionKind, ImportEdge, ParsedProject, ProjectDependency, ProjectDependencyRole,
-    ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot,
+    AmbientDataDeclaration, DefinitionKind, ImportEdge, ParsedProject, ProjectDependency,
+    ProjectDependencyRole, ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt,
+    ProjectLoadFailure, ProjectLoadRequest, ProjectLoader, ProjectRoot,
 };
 pub use source::{
     ByteSpan, LineIndex, SourceError, SourceFile, SourceId, SourceLocation, SourceMap,

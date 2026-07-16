@@ -1,10 +1,13 @@
 use std::{
     fs,
+    io::{Read, Write},
+    net::TcpListener,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use avenger_lang_compiler::{Compiler, DefaultSourceLoader};
+use avenger_lang_compiler::{Compiler, DefaultSourceLoader, DependencyRole};
+use avenger_lang_core::{ImportCapabilities, SourceLoader, SourceOrigin};
 
 fn fixture_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -27,22 +30,15 @@ fn write(path: impl AsRef<Path>, text: &str) {
     fs::write(path, text).unwrap();
 }
 
+fn project_fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/projects")
+        .join(name)
+}
+
 #[tokio::test]
 async fn source_loader_discovers_project_and_relative_imports_deterministically() {
-    let root = fixture_dir("discovery");
-    write(
-        root.join("charts/chart.avenger"),
-        "avenger 1; import '../marks/badge.mark.avenger'; chart cartesian as chart {}",
-    );
-    write(
-        root.join("marks/badge.mark.avenger"),
-        "avenger 1; define mark badge { mark symbol {} }",
-    );
-    write(
-        root.join("catalog.data.avenger"),
-        "avenger 1; schema tables as samples { table csv as rows { path: 'rows.csv'; } }",
-    );
-    write(root.join("rows.csv"), "x,y\n1,2\n");
+    let root = project_fixture("relative-import");
 
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let first = compiler
@@ -58,17 +54,13 @@ async fn source_loader_discovers_project_and_relative_imports_deterministically(
     assert_eq!(first.files.len(), 3);
     assert_eq!(first.chart_roots.len(), 1);
     assert_eq!(first.ambient_data.len(), 1);
+    assert_eq!(first.ambient_catalog.len(), 1);
     assert_eq!(first.fingerprint, second.fingerprint);
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[tokio::test]
 async fn source_loader_loads_versioned_bundled_std_definition() {
-    let root = fixture_dir("stdlib");
-    write(
-        root.join("chart.avenger"),
-        "avenger 1; import 'std:marks/error_bar'; chart cartesian as chart {}",
-    );
+    let root = project_fixture("stdlib");
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let attempt = compiler.load_file_project_attempt("chart.avenger").await;
     let project = attempt.result.unwrap();
@@ -84,7 +76,6 @@ async fn source_loader_loads_versioned_bundled_std_definition() {
             .as_deref()
             .is_some_and(|version| version.starts_with("stdlib-1:sha256:"))
     }));
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[tokio::test]
@@ -291,6 +282,7 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
     write(root.join("nested/rows.csv"), "x\n1\n");
     let repaired = compiler.load_project_graph_attempt(&root).await;
     assert!(repaired.result.is_ok());
+    let repaired_fingerprint = repaired.result.as_ref().unwrap().fingerprint.clone();
     let resource = repaired
         .dependencies
         .iter()
@@ -308,6 +300,13 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
             .unwrap()
             .starts_with("sha256:")
     );
+    write(root.join("nested/rows.csv"), "x\n2\n");
+    let changed = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap();
+    assert_ne!(repaired_fingerprint, changed.fingerprint);
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -327,6 +326,32 @@ async fn source_loader_failed_root_parse_keeps_root_dependency() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[tokio::test]
+async fn source_loader_records_remote_and_glob_table_resources_without_providers() {
+    let root = fixture_dir("resource-origins");
+    fs::create_dir_all(root.join("data")).unwrap();
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    );
+    write(
+        root.join("catalog.data.avenger"),
+        "avenger 1; table parquet as remote { path: 's3://bucket/rows.parquet'; } table csv as local { path: 'data/*.csv'; }",
+    );
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let attempt = compiler.load_project_graph_attempt(&root).await;
+    assert!(attempt.result.is_ok());
+    assert!(attempt.dependencies.iter().any(|dependency| {
+        dependency.role == DependencyRole::RemoteResource
+            && dependency.requested_origin.display_name() == "s3://bucket/rows.parquet"
+    }));
+    assert!(attempt.dependencies.iter().any(|dependency| {
+        dependency.role == DependencyRole::LocalResource
+            && dependency.content_version.as_deref() == Some("glob")
+    }));
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn source_loader_limits_are_configurable_without_network_access() {
     let root = fixture_dir("limits");
@@ -338,5 +363,80 @@ fn source_loader_limits_are_configurable_without_network_access() {
         },
     );
     assert!(loader.is_ok());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn source_loader_enforces_http_redirect_limit_without_live_internet() {
+    let root = fixture_dir("redirect-limit");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let location = format!("http://{address}/again");
+    let server = std::thread::spawn(move || {
+        for _ in 0..3 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        }
+    });
+    let loader = DefaultSourceLoader::with_limits(
+        &root,
+        avenger_lang_compiler::SourceLoaderLimits {
+            max_source_bytes: 1024,
+            max_redirects: 2,
+        },
+    )
+    .unwrap();
+    let mut capabilities = ImportCapabilities::project(&root);
+    capabilities.allow_http = true;
+    let result = loader
+        .load(
+            &SourceOrigin::Http(format!("http://{address}/start")),
+            &capabilities,
+        )
+        .await;
+    assert!(result.unwrap_err().to_string().contains("redirect"));
+    server.join().unwrap();
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn source_loader_enforces_http_size_limit_without_live_internet() {
+    let root = fixture_dir("http-size-limit");
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = [0; 1024];
+        let _ = stream.read(&mut request).unwrap();
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Length: 2048\r\nConnection: close\r\n\r\n"
+        )
+        .unwrap();
+    });
+    let loader = DefaultSourceLoader::with_limits(
+        &root,
+        avenger_lang_compiler::SourceLoaderLimits {
+            max_source_bytes: 1024,
+            max_redirects: 2,
+        },
+    )
+    .unwrap();
+    let mut capabilities = ImportCapabilities::project(&root);
+    capabilities.allow_http = true;
+    let result = loader
+        .load(
+            &SourceOrigin::Http(format!("http://{address}/large")),
+            &capabilities,
+        )
+        .await;
+    assert!(result.unwrap_err().to_string().contains("byte limit"));
+    server.join().unwrap();
     fs::remove_dir_all(root).unwrap();
 }

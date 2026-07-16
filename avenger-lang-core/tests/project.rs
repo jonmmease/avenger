@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectDependencyRole,
     ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceLoader, SourceLoaderError, SourceOrigin,
+    render_diagnostics,
 };
 use sha2::{Digest, Sha256};
 
@@ -76,6 +77,44 @@ async fn project_fingerprint_is_independent_of_root_discovery_order() {
         first.files.keys().collect::<Vec<_>>(),
         second.files.keys().collect::<Vec<_>>()
     );
+
+    let b_original = ProjectLoader::new(&loader)
+        .load(request(vec![ProjectRoot::chart(SourceOrigin::Memory(
+            "b.avenger".into(),
+        ))]))
+        .await
+        .result
+        .unwrap();
+    loader.insert(source(
+        SourceOrigin::Memory("b.avenger".into()),
+        "avenger 1; chart cartesian as b { mark symbol {} }",
+    ));
+    let changed = ProjectLoader::new(&loader)
+        .load(request(vec![ProjectRoot::chart(SourceOrigin::Memory(
+            "b.avenger".into(),
+        ))]))
+        .await
+        .result
+        .unwrap();
+    assert_ne!(b_original.fingerprint, changed.fingerprint);
+
+    let mut registry_changed = request(vec![ProjectRoot::chart(SourceOrigin::Memory(
+        "a.avenger".into(),
+    ))]);
+    registry_changed.registry_version = "registry-2".into();
+    let registry_changed = ProjectLoader::new(&loader)
+        .load(registry_changed)
+        .await
+        .result
+        .unwrap();
+    let a_original = ProjectLoader::new(&loader)
+        .load(request(vec![ProjectRoot::chart(SourceOrigin::Memory(
+            "a.avenger".into(),
+        ))]))
+        .await
+        .result
+        .unwrap();
+    assert_ne!(a_original.fingerprint, registry_changed.fingerprint);
 }
 
 #[tokio::test]
@@ -107,6 +146,10 @@ async fn project_reports_cycles_with_import_trace() {
             .trace
             .iter()
             .all(|frame| !frame.span.range.is_empty())
+    );
+    assert_eq!(
+        render_diagnostics(&failure.diagnostics, &failure.sources),
+        include_str!("baselines/project/import-cycle.txt")
     );
 }
 
@@ -146,6 +189,54 @@ async fn project_enforces_import_matrix_and_duplicate_bindings() {
         .result
         .unwrap_err();
     assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-011");
+}
+
+#[tokio::test]
+async fn project_data_pack_binds_single_root_and_rejects_collisions() {
+    let chart = SourceOrigin::Memory("chart.avenger".into());
+    let pack = SourceOrigin::Memory("pack.data.avenger".into());
+    let loader = InMemorySourceLoader::default()
+        .with_source(source(
+            chart.clone(),
+            "avenger 1; import 'pack.data.avenger'; chart cartesian as chart {}",
+        ))
+        .with_source(source(
+            pack.clone(),
+            "avenger 1; schema tables as vega { table csv as rows { path: 'rows.csv'; } }",
+        ));
+    let project = ProjectLoader::new(&loader)
+        .load(request(vec![ProjectRoot::chart(chart.clone())]))
+        .await
+        .result
+        .unwrap();
+    assert_eq!(project.imports[0].binding, "vega");
+
+    loader.insert(source(
+        pack.clone(),
+        "avenger 1; schema tables as vega {} schema tables as other {}",
+    ));
+    let failure = ProjectLoader::new(&loader)
+        .load(request(vec![ProjectRoot::chart(chart.clone())]))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-020");
+
+    loader.insert(source(pack.clone(), "avenger 1; schema tables as vega {}"));
+    let ambient = SourceOrigin::Memory("ambient.data.avenger".into());
+    loader.insert(source(
+        ambient.clone(),
+        "avenger 1; schema tables as vega {}",
+    ));
+    let failure = ProjectLoader::new(&loader)
+        .load(request(vec![
+            ProjectRoot::chart(chart),
+            ProjectRoot::data(ambient),
+        ]))
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-014");
 }
 
 #[tokio::test]
@@ -234,6 +325,11 @@ async fn project_failed_attempt_keeps_prefix_and_repairs_through_the_same_api() 
     assert_eq!(attempt.dependencies.len(), 2);
     assert_eq!(attempt.dependencies[1].requested_origin, missing.clone());
     assert!(attempt.dependencies[1].content_version.is_none());
+    let failure = attempt.result.unwrap_err();
+    assert_eq!(
+        render_diagnostics(&failure.diagnostics, &failure.sources),
+        include_str!("baselines/project/missing-import.txt")
+    );
 
     loader.insert(source(
         missing,

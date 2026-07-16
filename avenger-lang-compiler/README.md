@@ -6,7 +6,21 @@ environment seams, stable dataset/stage schema and lineage indexes, and
 compiled chart/project artifacts. It depends inward on `avenger-lang-core`;
 the public `avenger-lang` facade depends on both.
 
-## Phase 0 landed API map
+## Phase 3 landed API map
+
+- `Compiler::load_file_project_attempt()` loads one chart plus ambient data and
+  its import closure; `load_project_graph_attempt()` deterministically
+  discovers all project charts and ambient data files. Both retain dependency
+  candidates, versions, and watch anchors on failure.
+- `DefaultSourceLoader` enforces the project-root boundary, canonicalizes
+  filesystem and redirect origins, rejects symlink escapes, serves versioned
+  bundled `std:` definitions, and bounds capability-gated HTTP reads.
+- `compile_file_attempt()` and `compile_project_attempt()` use the same Phase 3
+  graph, then intentionally stop at the Phase 4 semantic-validation boundary.
+- Project fingerprints include verified language-source content, the AST
+  schema/native-registry versions, and discovered local resource versions.
+
+The earlier bootstrap API remains in place:
 
 - The prerequisite's final names are `NativeRegistry`,
   `NativeRegistryBuilder`, `NativeRegistryProfileId`, `ResolvedPlot`, and

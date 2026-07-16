@@ -9,16 +9,20 @@ use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryBuilder, Registr
 
 pub use avenger_lang_compiler::{
     ArtifactCacheKey, COMPILER_PHASE, CatalogFactory, CatalogFactoryRegistry, CompileAttempt,
-    CompileFailure, CompiledChartArtifact, CompiledChartInterface, CompiledProject, Compiler,
-    CompilerBuildError, CompilerBuilder, CompilerOptions, DatasetLineageIndex, DatasetSchemaIndex,
-    DependencyFingerprint, DiscoveredDependencySet, LanguageHost, ProjectAnalysis, ProjectChartId,
-    ProjectDatasetId, ProjectFingerprint,
+    CompileFailure, CompiledChartArtifact, CompiledChartInterface, CompiledDependency,
+    CompiledProject, Compiler, CompilerBuildError, CompilerBuilder, CompilerOptions,
+    DatasetLineageIndex, DatasetSchemaIndex, DefaultSourceLoader, DependencyFingerprint,
+    DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis, ProjectChartId,
+    ProjectDatasetId, ProjectFingerprint, SourceLoaderLimits,
 };
 pub use avenger_lang_core::{
-    ByteSpan, ContentVersion, DataCapabilities, Diagnostic, DiagnosticCode, DiagnosticSeverity,
-    EmptyEnvironmentProvider, EnvironmentProvider, ImportCapabilities, InMemorySourceLoader,
-    LANGUAGE_MAJOR, LineIndex, LoadedSource, MapEnvironmentProvider, SourceFile, SourceId,
-    SourceLabel, SourceLoader, SourceMap, SourceOrigin, SourceSpan,
+    AmbientDataDeclaration, ByteSpan, ContentVersion, DataCapabilities, DefinitionKind, Diagnostic,
+    DiagnosticCode, DiagnosticSeverity, EmptyEnvironmentProvider, EnvironmentProvider,
+    ImportCapabilities, ImportEdge, InMemorySourceLoader, LANGUAGE_MAJOR, LineIndex, LoadedSource,
+    MapEnvironmentProvider, ParsedProject, ProjectDependency, ProjectDependencyRole, ProjectFile,
+    ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure, ProjectLoadRequest,
+    ProjectLoader, ProjectRoot, SourceFile, SourceId, SourceLabel, SourceLoader, SourceMap,
+    SourceOrigin, SourceSpan,
 };
 
 /// Build the current canonical stock language registry.
