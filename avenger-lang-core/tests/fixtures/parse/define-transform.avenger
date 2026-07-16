@@ -1,0 +1,17 @@
+avenger 1;
+
+define transform centered {
+  slot expr as field;
+  output centered: "centered";
+
+  transform pipeline as pipeline {
+    transform aggregate {
+      value: mean($field);
+    }
+    transform formula {
+      expression: $field - "value";
+      as: 'centered';
+    }
+    output centered: "centered";
+  }
+}

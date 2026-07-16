@@ -123,6 +123,7 @@ impl Root {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Decl {
     #[serde(rename = "decl")]
     pub keyword: Name,
@@ -432,11 +433,23 @@ impl AstNodeId {
 #[derive(Clone, Debug, Default)]
 pub struct AstSourceMap {
     spans: BTreeMap<AstNodeId, SourceSpan>,
+    roles: BTreeMap<AstNodeId, AstNodeRole>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AstNodeRole {
+    Declaration(Name),
+    PropertyValue(Name),
 }
 
 impl AstSourceMap {
     pub fn insert(&mut self, id: AstNodeId, span: SourceSpan) {
         self.spans.insert(id, span);
+    }
+
+    pub fn insert_with_role(&mut self, id: AstNodeId, span: SourceSpan, role: AstNodeRole) {
+        self.spans.insert(id, span);
+        self.roles.insert(id, role);
     }
 
     pub fn get(&self, id: AstNodeId) -> Option<SourceSpan> {
@@ -445,6 +458,10 @@ impl AstSourceMap {
 
     pub fn iter(&self) -> impl Iterator<Item = (AstNodeId, SourceSpan)> + '_ {
         self.spans.iter().map(|(id, span)| (*id, *span))
+    }
+
+    pub fn role(&self, id: AstNodeId) -> Option<&AstNodeRole> {
+        self.roles.get(&id)
     }
 
     pub fn len(&self) -> usize {

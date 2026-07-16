@@ -210,7 +210,12 @@ fn normalized_comment(anchor: &CommentAnchor) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::{SourceFile, SourceId, SourceOrigin, print::print_file, syntax::parse_file};
+    use crate::{
+        SourceFile, SourceId, SourceOrigin,
+        print::print_file,
+        sql::{CommentKind, TokenClass, tokenize},
+        syntax::parse_file,
+    };
 
     use super::format_source;
 
@@ -242,6 +247,10 @@ chart cartesian {
             formatted,
             format_source(&source(2, formatted.clone())).unwrap()
         );
+        assert_eq!(
+            strip_ordinary_comments(&formatted),
+            print_file(&parse_file(&original).unwrap().ast)
+        );
     }
 
     #[test]
@@ -263,5 +272,47 @@ chart cartesian {
         let formatted = format_source(&input).unwrap();
         assert!(formatted.contains("-- rows"));
         parse_file(&source(2, formatted)).unwrap();
+    }
+
+    fn strip_ordinary_comments(source_text: &str) -> String {
+        let source = source(99, source_text);
+        let tokens = tokenize(&source).unwrap();
+        let mut ranges = Vec::new();
+        for token in tokens.tokens() {
+            if !matches!(token.class(), TokenClass::Comment(_))
+                || tokens.raw(token).starts_with("-- |")
+            {
+                continue;
+            }
+            let mut start = token.span().range.start;
+            let mut end = token.span().range.end;
+            let line_start = source_text[..start]
+                .rfind('\n')
+                .map_or(0, |index| index + 1);
+            let own_line = source_text[line_start..start].trim().is_empty();
+            if own_line {
+                start = line_start;
+                if source_text.as_bytes().get(end) == Some(&b'\n') {
+                    end += 1;
+                }
+            } else if source_text[..start].ends_with(' ') {
+                start -= 1;
+            }
+            if !own_line
+                && matches!(token.class(), TokenClass::Comment(CommentKind::Line))
+                && source_text[..end].ends_with('\n')
+            {
+                end -= 1;
+                if source_text[..end].ends_with('\r') {
+                    end -= 1;
+                }
+            }
+            ranges.push(start..end);
+        }
+        let mut stripped = source_text.to_owned();
+        for range in ranges.into_iter().rev() {
+            stripped.replace_range(range, "");
+        }
+        stripped
     }
 }

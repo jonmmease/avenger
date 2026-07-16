@@ -322,7 +322,11 @@ impl Printer {
     }
 
     fn body(&mut self, props: &PropertyMap, children: &[Decl], skip: &[&str]) {
-        self.line(" {");
+        if self.output.ends_with(' ') {
+            self.line("{");
+        } else {
+            self.line(" {");
+        }
         self.indent += 1;
         for (key, value) in props.iter() {
             if skip.contains(&key.as_str()) {
@@ -330,7 +334,7 @@ impl Printer {
             }
             self.text(key.as_str());
             self.text(": ");
-            self.property_value(value);
+            self.property_value(key.as_str(), value);
         }
         for child in children {
             self.decl(child);
@@ -339,7 +343,63 @@ impl Printer {
         self.line("}");
     }
 
-    fn property_value(&mut self, value: &Value) {
+    fn property_value(&mut self, property: &str, value: &Value) {
+        if property == "target"
+            && let Value::Array(values) = value
+            && values.iter().all(|value| {
+                matches!(
+                    value,
+                    Value::Ref {
+                        kind: RefKind::Mark,
+                        ..
+                    }
+                )
+            })
+        {
+            self.text("marks [");
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    self.text(", ");
+                }
+                if let Value::Ref { path, .. } = value {
+                    self.path(path);
+                }
+            }
+            self.line("];");
+            return;
+        }
+        if property == "scope" {
+            if let Some(path) = call_path(value, "subplot") {
+                self.text("subplot ");
+                self.path_refs(&path);
+                self.line(";");
+                return;
+            }
+            if let Value::Array(values) = value
+                && values
+                    .iter()
+                    .all(|value| call_path(value, "subplot").is_some())
+            {
+                self.text("subplots [");
+                for (index, value) in values.iter().enumerate() {
+                    if index > 0 {
+                        self.text(", ");
+                    }
+                    self.path_refs(&call_path(value, "subplot").expect("checked call path"));
+                }
+                self.line("];");
+                return;
+            }
+        }
+        if property == "surface"
+            && let Some(path) = call_path(value, "legend")
+            && path.len() == 1
+        {
+            self.text("legend ");
+            self.text(path[0].as_str());
+            self.line(";");
+            return;
+        }
         match value {
             Value::Block { head, body } => {
                 if let Some(head) = head {
@@ -535,6 +595,25 @@ fn name_or<'a>(name: &'a Option<Name>, fallback: &'a str) -> &'a str {
     name.as_ref().map_or(fallback, Name::as_str)
 }
 
+fn call_path<'a>(value: &'a Value, function: &str) -> Option<Vec<&'a Name>> {
+    let Value::Call {
+        function: actual,
+        args,
+    } = value
+    else {
+        return None;
+    };
+    if actual.as_str() != function {
+        return None;
+    }
+    args.iter()
+        .map(|value| match value {
+            Value::Atom(name) => Some(name),
+            _ => None,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{SourceFile, SourceId, SourceOrigin, syntax::parse_file};
@@ -578,5 +657,12 @@ mod tests {
         );
         assert!(printed.find("a: 1;").unwrap() < printed.find("z: 2;").unwrap());
         assert!(printed.find("first").unwrap() < printed.find("second").unwrap());
+    }
+
+    #[test]
+    fn print_round_trips_dedicated_event_value_shapes() {
+        round_trip(
+            "avenger 1; chart cartesian { on pointermove { target: marks [layers.a, b,]; scope: subplots [cells.left, cells.right]; surface: legend color; } }",
+        );
     }
 }

@@ -1,0 +1,3 @@
+AVENGER-PARSE-018
+expected `=` in cursor action
+57..59

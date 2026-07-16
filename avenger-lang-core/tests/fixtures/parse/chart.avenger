@@ -1,0 +1,38 @@
+avenger 1;
+import './catalog.data.avenger' as data;
+
+chart cartesian as values {
+  string_value: 'Avenger';
+  exact_integer: 9007199254740993;
+  decimal_value: 12345678901234567890.12345678901234567890;
+  negative_zero: -0;
+  exponent_value: 1.25E+003;
+  boolean_value: true;
+  null_value: null;
+  column_value: "Horsepower";
+  atom_value: median;
+  expression_value: (1 + 2) * 3;
+  binding_value: $width@start;
+  data: $rows;
+  ref_value: mark points;
+  visual_value: value 42;
+  dimension_value: dim pixels.x_dim;
+  pattern_value: pattern { angle: 45; }
+  environment_value: env 'AVENGER_TOKEN';
+  none_value: none;
+  array_value: [1, 'two', value 3, none];
+  block_value: { enabled: true; }
+  configured_value: "amount" { scale: linear { nice: true; } }
+  call_value: span(0, 100);
+
+  param as width {
+    type: float64;
+    default: 640;
+  }
+  store as rows {
+    schema: struct(field('x', float64));
+  }
+  mark symbol as points {
+    x: "Horsepower";
+  }
+}

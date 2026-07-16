@@ -1,0 +1,18 @@
+avenger 1;
+
+define tool brush {
+  slot enum as mode { values: [x, y, xy]; default: xy; }
+  export behavior.brush as selection;
+
+  tool behavior as behavior {
+    selection as brush { type: interval; }
+    on pointermove as drag {
+      target: marks [points, overlays.handles,];
+      scope: subplots [cells.left, cells.right];
+      surface: legend color;
+      set selection brush = update { mode: $mode; }
+      set cursor = 'crosshair';
+    }
+    scale_edit { target: plot; }
+  }
+}

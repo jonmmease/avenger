@@ -1,0 +1,3 @@
+AVENGER-PARSE-020
+slot and channel interfaces must precede definition body items
+72..73

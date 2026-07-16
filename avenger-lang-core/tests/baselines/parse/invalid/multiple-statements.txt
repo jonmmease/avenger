@@ -1,0 +1,3 @@
+AVENGER-PARSE-018
+expected `;` after block-slot splice
+87..88

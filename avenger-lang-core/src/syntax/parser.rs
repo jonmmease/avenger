@@ -10,8 +10,8 @@ use sqlparser::{
 use crate::{
     Diagnostic, SourceFile, SourceLabel, SourceSpan,
     ast::{
-        AstError, AstNodeId, AstSourceMap, BindingKind, BindingTime, Body, Decl, File, Import,
-        Name, NumericLiteral, PropertyMap, RefKind, Root, SqlExpression, SqlQuery, Value,
+        AstError, AstNodeId, AstNodeRole, AstSourceMap, BindingKind, BindingTime, Body, Decl, File,
+        Import, Name, NumericLiteral, PropertyMap, RefKind, Root, SqlExpression, SqlQuery, Value,
         Visibility,
     },
     sql::{
@@ -24,6 +24,7 @@ use crate::{
 pub struct ConcreteFile {
     source: SourceFile,
     tokens: TokenStream,
+    nodes: Vec<ConcreteNode>,
 }
 
 impl ConcreteFile {
@@ -34,6 +35,32 @@ impl ConcreteFile {
     pub fn tokens(&self) -> &TokenStream {
         &self.tokens
     }
+
+    pub fn nodes(&self) -> &[ConcreteNode] {
+        &self.nodes
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SyntaxNodeId(u32);
+
+impl SyntaxNodeId {
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConcreteNodeKind {
+    Semantic,
+    Token,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ConcreteNode {
+    pub id: SyntaxNodeId,
+    pub span: SourceSpan,
+    pub kind: ConcreteNodeKind,
 }
 
 #[derive(Clone, Debug)]
@@ -80,12 +107,15 @@ pub fn parse_file(source: &SourceFile) -> Result<ParsedFile, ParseError> {
     })?;
     let mut parser = Parser::new(tokens.clone());
     let ast = parser.file()?;
+    let source_map = parser.source_map;
+    let nodes = concrete_nodes(&tokens, &source_map);
     Ok(ParsedFile {
         ast,
-        source_map: parser.source_map,
+        source_map,
         concrete: ConcreteFile {
             source: source.clone(),
             tokens,
+            nodes,
         },
     })
 }
@@ -193,6 +223,19 @@ impl Parser {
         }
         let binder = self.name()?;
         let body = self.body()?;
+        let mut saw_body_item = false;
+        for child in &body.children {
+            if matches!(child.keyword.as_str(), "slot" | "channel") {
+                if saw_body_item {
+                    return Err(self.error(
+                        "AVENGER-PARSE-020",
+                        "slot and channel interfaces must precede definition body items",
+                    ));
+                }
+            } else if !matches!(child.keyword.as_str(), "output" | "export") {
+                saw_body_item = true;
+            }
+        }
         self.finish(
             start,
             from_body(n("define"), Some(kind), Some(binder), body),
@@ -227,7 +270,7 @@ impl Parser {
                 self.expect(Token::Colon, "`:` after property name")?;
                 let start = self.start();
                 let value = self.property_value(key.as_str())?;
-                self.record(start, self.end());
+                self.record(start, self.end(), AstNodeRole::PropertyValue(key.clone()));
                 body.props
                     .insert(key, value)
                     .map_err(|error| self.ast_error(error))?;
@@ -238,6 +281,48 @@ impl Parser {
     }
 
     fn property_value(&mut self, property: &str) -> Result<Value, ParseError> {
+        if property == "target" && self.word_is("marks") {
+            self.expect_word("marks")?;
+            let paths = self.qual_list()?;
+            self.expect(Token::SemiColon, "`;` after event targets")?;
+            return Ok(Value::Array(
+                paths
+                    .into_iter()
+                    .map(|path| Value::Ref {
+                        kind: RefKind::Mark,
+                        path,
+                    })
+                    .collect(),
+            ));
+        }
+        if property == "scope" {
+            if self.word_is("subplots") {
+                self.expect_word("subplots")?;
+                let paths = self.qual_list()?;
+                self.expect(Token::SemiColon, "`;` after event scopes")?;
+                return Ok(Value::Array(
+                    paths
+                        .into_iter()
+                        .map(|path| path_call("subplot", path))
+                        .collect(),
+                ));
+            }
+            if self.word_is("subplot") {
+                self.expect_word("subplot")?;
+                let value = path_call("subplot", self.qual()?);
+                self.expect(Token::SemiColon, "`;` after event scope")?;
+                return Ok(value);
+            }
+        }
+        if property == "surface" && self.word_is("legend") {
+            self.expect_word("legend")?;
+            let value = Value::Call {
+                function: n("legend"),
+                args: vec![Value::Atom(self.name()?)],
+            };
+            self.expect(Token::SemiColon, "`;` after event surface")?;
+            return Ok(value);
+        }
         if self.is(&Token::LBrace) {
             return Ok(Value::Block {
                 head: None,
@@ -272,6 +357,7 @@ impl Parser {
                     body: self.body()?,
                 })
             } else {
+                self.expect(Token::SemiColon, "`;` after dimension handle")?;
                 Ok(value)
             };
         }
@@ -319,6 +405,14 @@ impl Parser {
                 head: Some(Box::new(head)),
                 body: self.body()?,
             });
+        }
+        if self.word().is_some()
+            && !matches!(self.word(), Some("true" | "false" | "null"))
+            && self.nth_is(1, &Token::SemiColon)
+        {
+            let value = Value::Atom(self.name()?);
+            self.expect(Token::SemiColon, "`;` after atom")?;
+            return Ok(value);
         }
         let kind = if property == "data" {
             BindingKind::Store
@@ -574,6 +668,21 @@ impl Parser {
     fn slot(&mut self) -> Result<Decl, ParseError> {
         let keyword = self.name()?;
         let kind = self.name()?;
+        if !matches!(
+            kind.as_str(),
+            "expr"
+                | "expr_list"
+                | "literal"
+                | "number"
+                | "string"
+                | "boolean"
+                | "enum"
+                | "function"
+                | "ref"
+                | "block"
+        ) {
+            return Err(self.error("AVENGER-PARSE-021", "unknown definition slot shape"));
+        }
         self.expect_word("as")?;
         let binder = self.name()?;
         let body = if self.consume(Token::SemiColon) {
@@ -763,18 +872,39 @@ impl Parser {
         Ok(path)
     }
 
+    fn qual_list(&mut self) -> Result<Vec<Vec<Name>>, ParseError> {
+        self.expect(Token::LBracket, "`[` to start a qualified-name list")?;
+        let mut paths = Vec::new();
+        loop {
+            paths.push(self.qual()?);
+            if self.consume(Token::Comma) {
+                if self.consume(Token::RBracket) {
+                    return Ok(paths);
+                }
+            } else {
+                self.expect(Token::RBracket, "`]` after qualified-name list")?;
+                return Ok(paths);
+            }
+        }
+    }
+
     fn finish(&mut self, start: usize, decl: Decl) -> Result<Decl, ParseError> {
-        self.record(start, self.end());
+        self.record(
+            start,
+            self.end(),
+            AstNodeRole::Declaration(decl.keyword.clone()),
+        );
         Ok(decl)
     }
 
-    fn record(&mut self, start: usize, end: usize) -> AstNodeId {
+    fn record(&mut self, start: usize, end: usize, role: AstNodeRole) -> AstNodeId {
         let id = AstNodeId::new(self.next_node_id);
         self.next_node_id += 1;
-        self.source_map.insert(
+        self.source_map.insert_with_role(
             id,
             SourceSpan::new(self.stream.source(), start, end)
                 .expect("parser token spans are ordered"),
+            role,
         );
         id
     }
@@ -1069,6 +1199,19 @@ fn literal_value(expression: &Expr) -> Result<Option<Value>, AstError> {
                 args: values,
             }))
         }
+        Expr::Struct { values, fields } if fields.is_empty() => {
+            let mut args = Vec::with_capacity(values.len());
+            for expression in values {
+                let Some(value) = literal_value(expression)? else {
+                    return Ok(None);
+                };
+                args.push(value);
+            }
+            Ok(Some(Value::Call {
+                function: n("struct"),
+                args,
+            }))
+        }
         _ => Ok(None),
     }
 }
@@ -1107,6 +1250,13 @@ fn path_value(path: Vec<Name>) -> Value {
     Value::Array(path.into_iter().map(Value::Atom).collect())
 }
 
+fn path_call(function: &str, path: Vec<Name>) -> Value {
+    Value::Call {
+        function: n(function),
+        args: path.into_iter().map(Value::Atom).collect(),
+    }
+}
+
 fn is_trivia(class: TokenClass) -> bool {
     matches!(class, TokenClass::Whitespace(_) | TokenClass::Comment(_))
 }
@@ -1117,6 +1267,35 @@ fn same_token(left: &Token, right: &Token) -> bool {
 
 fn n(value: &str) -> Name {
     Name::new(value).expect("static parser names are valid")
+}
+
+fn concrete_nodes(stream: &TokenStream, source_map: &AstSourceMap) -> Vec<ConcreteNode> {
+    let mut spans = source_map
+        .iter()
+        .map(|(_, span)| (span, ConcreteNodeKind::Semantic))
+        .chain(
+            stream
+                .tokens()
+                .iter()
+                .map(|token| (token.span(), ConcreteNodeKind::Token)),
+        )
+        .collect::<Vec<_>>();
+    spans.sort_by_key(|(span, kind)| {
+        (
+            span.range.start,
+            std::cmp::Reverse(span.range.end),
+            matches!(kind, ConcreteNodeKind::Token),
+        )
+    });
+    spans
+        .into_iter()
+        .enumerate()
+        .map(|(index, (span, kind))| ConcreteNode {
+            id: SyntaxNodeId(u32::try_from(index).expect("syntax node count fits u32")),
+            span,
+            kind,
+        })
+        .collect()
 }
 
 #[cfg(test)]

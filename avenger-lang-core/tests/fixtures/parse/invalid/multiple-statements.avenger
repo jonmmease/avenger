@@ -1,0 +1,6 @@
+avenger 1;
+chart cartesian {
+  table sql as bad {
+    sql: SELECT * FROM first; SELECT * FROM second;
+  }
+}

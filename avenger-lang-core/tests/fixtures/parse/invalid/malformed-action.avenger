@@ -1,0 +1,6 @@
+avenger 1;
+chart cartesian {
+  on click {
+    set cursor at start = 'pointer';
+  }
+}

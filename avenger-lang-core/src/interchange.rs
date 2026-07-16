@@ -371,10 +371,13 @@ impl<'de> Deserialize<'de> for Value {
                     .next_key::<String>()?
                     .ok_or_else(|| de::Error::custom("tagged value object must not be empty"))?;
                 let value = match tag.as_str() {
-                    "num" => Value::Num(
-                        NumericLiteral::new(&map.next_value::<String>()?)
-                            .map_err(de::Error::custom)?,
-                    ),
+                    "num" => {
+                        let value = map.next_value::<String>()?;
+                        if !is_interchange_number(&value) {
+                            return Err(de::Error::custom("invalid tagged numeric spelling"));
+                        }
+                        Value::Num(NumericLiteral::new(&value).map_err(de::Error::custom)?)
+                    }
                     "col" => {
                         let value = map.next_value::<String>()?;
                         require_nonempty("col", &value).map_err(de::Error::custom)?;
@@ -648,6 +651,31 @@ fn require_nonempty(tag: &str, value: &str) -> Result<(), AstError> {
     } else {
         Ok(())
     }
+}
+
+fn is_interchange_number(value: &str) -> bool {
+    let value = value.strip_prefix('-').unwrap_or(value);
+    let exponent = value.find(['e', 'E']);
+    let (mantissa, exponent) = exponent.map_or((value, None), |index| {
+        (&value[..index], Some(&value[index + 1..]))
+    });
+    let (integer, fraction) = mantissa
+        .split_once('.')
+        .map_or((mantissa, None), |(integer, fraction)| {
+            (integer, Some(fraction))
+        });
+    let valid_integer = integer == "0"
+        || integer
+            .strip_prefix(|character: char| ('1'..='9').contains(&character))
+            .is_some_and(|rest| rest.chars().all(|character| character.is_ascii_digit()));
+    let valid_fraction = fraction.is_none_or(|fraction| {
+        !fraction.is_empty() && fraction.chars().all(|character| character.is_ascii_digit())
+    });
+    let valid_exponent = exponent.is_none_or(|exponent| {
+        let digits = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        !digits.is_empty() && digits.chars().all(|character| character.is_ascii_digit())
+    });
+    valid_integer && valid_fraction && valid_exponent
 }
 
 impl BindingTime {

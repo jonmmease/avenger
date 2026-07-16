@@ -1,0 +1,29 @@
+avenger 1;
+catalog memory as local {
+  schema tables as vega {
+    table inline as movies {
+      values: [ {
+        rating: 8.5;
+        title: 'A';
+      }
+      , {
+        rating: 7.25;
+        title: 'B';
+      }
+      ];
+    }
+    table sql as popular {
+      sql: FROM vega.movies AS m SELECT m.* WHERE m.rating >= $minimum;
+      param as minimum {
+        default: 8;
+        type: float64;
+      }
+    }
+  }
+}
+
+catalog iceberg as warehouse {
+  uri: 'https://example.invalid/catalog';
+  schema namespace as analytics {
+  }
+}
