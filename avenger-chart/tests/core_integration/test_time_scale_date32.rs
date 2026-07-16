@@ -111,16 +111,7 @@ async fn test_time_scale_with_date32_and_expression() -> Result<(), Box<dyn std:
     let df = ctx.read_batch(batch)?;
 
     // Create a parameter and expression (like parameters.md example)
-    let threshold = {
-        let __avenger_param_name = "price_threshold";
-        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::from(150.0);
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let threshold = Param::new("price_threshold", ScalarValue::from(150.0));
     let status = when(col("price").gt(threshold.expr()), lit("above")).otherwise(lit("within"))?;
 
     // Try to create a plot with Time scale and expression encoding
@@ -162,17 +153,7 @@ async fn test_time_scale_with_stocks_parquet() -> Result<(), Box<dyn std::error:
     let aapl = df.filter(col("symbol").eq(lit("AAPL")))?;
 
     // Create parameter and expression
-    let threshold = {
-        let __avenger_param_name = "price_threshold";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::from(150.0)).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let threshold = Param::new("price_threshold", ScalarValue::from(150.0));
     let status = when(col("price").gt(threshold.expr()), lit("above")).otherwise(lit("within"))?;
 
     // Create plot with Time scale

@@ -516,17 +516,7 @@ async fn cartesian_unit_aspect_canvas_refinement_final_scales_satisfy_realized_p
 #[tokio::test]
 async fn cartesian_unit_aspect_canvas_refinement_does_not_ratchet_domains() {
     let ctx = SessionContext::new();
-    let width = {
-        let __avenger_param_name = "canvas_width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(560.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width = Param::new("canvas_width", ScalarValue::Float64(Some(560.0)));
     let df = xy_data(&ctx).await;
     let plot = Chart::with_coord(Cartesian::new().unit_aspect(1.0))
         .param(width.clone())

@@ -8343,17 +8343,7 @@ mod tests {
 
     async fn bound_state(binding: ChartEventBinding) -> ChartAppState {
         let ctx = SessionContext::new();
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(640.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
         let compiled = Chart::<Cartesian>::new()
             .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -8369,17 +8359,7 @@ mod tests {
     async fn handler_for_binding(binding: ChartEventBinding) -> ChartEventBindingHandler {
         let ctx = SessionContext::new();
         let compiled = Chart::<Cartesian>::new()
-            .param({
-                let __avenger_param_name = "width";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(Some(640.0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -10081,50 +10061,10 @@ mod tests {
         };
         let compiled = Chart::<PixelFrame>::new()
             .canvas_size(320.0, 180.0)
-            .param({
-                let __avenger_param_name = "frame_x";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(None);
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
-            .param({
-                let __avenger_param_name = "frame_y";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(None);
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
-            .param({
-                let __avenger_param_name = "frame_width";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(None);
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
-            .param({
-                let __avenger_param_name = "frame_height";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(None);
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("frame_x", ScalarValue::Float64(None)))
+            .param(Param::new("frame_y", ScalarValue::Float64(None)))
+            .param(Param::new("frame_width", ScalarValue::Float64(None)))
+            .param(Param::new("frame_height", ScalarValue::Float64(None)))
             .host_widget(Checkbox::new("regions", "Regions", false))
             .event_binding(frame_assignments(
                 ChartEventBinding::on(ChartEventType::CursorMoved)
@@ -11634,16 +11574,7 @@ mod tests {
     #[tokio::test]
     async fn decorated_treemap_header_click_zooms_and_double_click_resets() {
         let ctx = SessionContext::new();
-        let root = {
-            let __avenger_param_name = "decorated_treemap_root";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let root = Param::new("decorated_treemap_root", ScalarValue::Utf8(None));
         let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "region", "team", "product"])
@@ -12086,38 +12017,9 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_overlay_child_rect_click_exposes_axis_and_interval_row_data() {
         let ctx = SessionContext::new();
-        let clicked_axis = {
-            let __avenger_param_name = "clicked_axis";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let clicked_min = {
-            let __avenger_param_name = "clicked_min";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let clicked_max = {
-            let __avenger_param_name = "clicked_max";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let clicked_axis = Param::new("clicked_axis", ScalarValue::Utf8(None));
+        let clicked_min = Param::new("clicked_min", ScalarValue::Float64(None));
+        let clicked_max = Param::new("clicked_max", ScalarValue::Float64(None));
         let parent_data = ctx
             .sql("SELECT 50.0 AS speed, 30.0 AS cost")
             .await
@@ -12682,38 +12584,9 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_header_mousedown_patches_drag_dimension_param() {
         let ctx = SessionContext::new();
-        let drag_dimension = {
-            let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_start_x = {
-            let __avenger_param_name = "drag_start_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_display_x = {
-            let __avenger_param_name = "drag_display_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
+        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
+        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
         let binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
@@ -12795,38 +12668,9 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_header_drag_move_updates_transient_display_x_param() {
         let ctx = SessionContext::new();
-        let drag_dimension = {
-            let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_start_x = {
-            let __avenger_param_name = "drag_start_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_display_x = {
-            let __avenger_param_name = "drag_display_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
+        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
+        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
         let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
@@ -12974,57 +12818,21 @@ mod tests {
     #[tokio::test]
     async fn parallel_axis_header_drag_release_commits_order_and_clears_preview_params() {
         let ctx = SessionContext::new();
-        let order_param = {
-            let __avenger_param_name = "axis_order";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::List(ScalarValue::new_list(
-                    &[
-                        ScalarValue::Utf8(Some("speed".to_string())),
-                        ScalarValue::Utf8(Some("efficiency".to_string())),
-                        ScalarValue::Utf8(Some("cost".to_string())),
-                    ],
-                    &DataType::Utf8,
-                    true,
-                ));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_dimension = {
-            let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_start_x = {
-            let __avenger_param_name = "drag_start_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let drag_display_x = {
-            let __avenger_param_name = "drag_display_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let order_param = Param::new(
+            "axis_order",
+            ScalarValue::List(ScalarValue::new_list(
+                &[
+                    ScalarValue::Utf8(Some("speed".to_string())),
+                    ScalarValue::Utf8(Some("efficiency".to_string())),
+                    ScalarValue::Utf8(Some("cost".to_string())),
+                ],
+                &DataType::Utf8,
+                true,
+            )),
+        );
+        let drag_dimension = Param::new("drag_dimension", ScalarValue::Utf8(None));
+        let drag_start_x = Param::new("drag_start_x", ScalarValue::Float64(None));
+        let drag_display_x = Param::new("drag_display_x", ScalarValue::Float64(None));
         let start_binding = ChartEventBinding::on(ChartEventType::MouseDown)
             .filter(event::button().eq(lit("left")))
             .filter(
@@ -16091,10 +15899,8 @@ mod tests {
     #[tokio::test]
     async fn ordered_param_actions_observe_preceding_writes() {
         let ctx = SessionContext::new();
-        let first = Param::typed("first", DataType::Int64, ScalarValue::Int64(Some(1)))
-            .expect("typed first param");
-        let second = Param::typed("second", DataType::Int64, ScalarValue::Int64(Some(0)))
-            .expect("typed second param");
+        let first = Param::new("first", ScalarValue::Int64(Some(1)));
+        let second = Param::new("second", ScalarValue::Int64(Some(0)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_param(&first, lit(2_i64))
             .set_param(&second, first.expr() + lit(1_i64));
@@ -16145,8 +15951,7 @@ mod tests {
     #[tokio::test]
     async fn store_payload_observes_preceding_param_write() {
         let ctx = SessionContext::new();
-        let value = Param::typed("value", DataType::Int64, ScalarValue::Int64(Some(1)))
-            .expect("typed param");
+        let value = Param::new("value", ScalarValue::Int64(Some(1)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_param(&value, lit(2_i64))
             .set_store(
@@ -16221,8 +16026,7 @@ mod tests {
             outer_ref_columns: Vec::new(),
             spans: datafusion::common::Spans::new(),
         });
-        let count = Param::typed("count", DataType::Int64, ScalarValue::Int64(Some(0)))
-            .expect("typed count param");
+        let count = Param::new("count", ScalarValue::Int64(Some(0)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_store(
                 "rows",
@@ -16292,11 +16096,8 @@ mod tests {
             outer_ref_columns: Vec::new(),
             spans: datafusion::common::Spans::new(),
         });
-        let first_count = Param::typed("first_count", DataType::Int64, ScalarValue::Int64(Some(0)))
-            .expect("typed first count");
-        let second_count =
-            Param::typed("second_count", DataType::Int64, ScalarValue::Int64(Some(0)))
-                .expect("typed second count");
+        let first_count = Param::new("first_count", ScalarValue::Int64(Some(0)));
+        let second_count = Param::new("second_count", ScalarValue::Int64(Some(0)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_store(
                 "rows",
@@ -16363,12 +16164,7 @@ mod tests {
     async fn param_action_observes_preceding_selection_write() {
         let ctx = SessionContext::new();
         let picked = Selection::new("picked").empty_selects_nothing();
-        let selected = Param::typed(
-            "selected",
-            DataType::Boolean,
-            ScalarValue::Boolean(Some(false)),
-        )
-        .expect("typed selected param");
+        let selected = Param::new("selected", ScalarValue::Boolean(Some(false)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_selection(
                 "picked",
@@ -16428,8 +16224,7 @@ mod tests {
     #[tokio::test]
     async fn later_action_failure_rolls_back_state_and_cursor() {
         let ctx = SessionContext::new();
-        let value = Param::typed("value", DataType::Int64, ScalarValue::Int64(Some(1)))
-            .expect("typed param");
+        let value = Param::new("value", ScalarValue::Int64(Some(1)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_param(&value, lit(2_i64))
             .set_cursor(lit("not-a-cursor"));
@@ -16503,8 +16298,7 @@ mod tests {
 
     #[tokio::test]
     async fn staged_cursor_is_not_published_when_a_later_state_action_fails() {
-        let value = Param::typed("value", DataType::Int64, ScalarValue::Int64(Some(1)))
-            .expect("typed param");
+        let value = Param::new("value", ScalarValue::Int64(Some(1)));
         let binding = ChartEventBinding::on(ChartEventType::CursorMoved)
             .set_cursor(lit("crosshair"))
             .set_param_required(&value, lit(ScalarValue::Int64(None)));
@@ -16556,12 +16350,10 @@ mod tests {
 
     #[tokio::test]
     async fn ordinary_utf8_param_assignment_never_changes_cursor() {
-        let label = Param::typed(
+        let label = Param::new(
             "cursor_label",
-            DataType::Utf8,
             ScalarValue::Utf8(Some("default".to_string())),
-        )
-        .expect("typed string param");
+        );
         let binding =
             ChartEventBinding::on(ChartEventType::CursorMoved).set_param(&label, lit("crosshair"));
         let ctx = SessionContext::new();
@@ -16613,8 +16405,7 @@ mod tests {
     #[tokio::test]
     async fn low_level_stream_filter_reads_routed_committed_params() {
         let ctx = SessionContext::new();
-        let width = Param::typed("width", DataType::Float64, ScalarValue::Float64(Some(10.0)))
-            .expect("typed width");
+        let width = Param::new("width", ScalarValue::Float64(Some(10.0)));
         let compiled = Chart::<Cartesian>::new()
             .param_with_sharing(width, CoordinationScope::Free)
             .compile(&ctx)
@@ -16665,8 +16456,7 @@ mod tests {
     #[test]
     fn low_level_stream_filters_reject_temporal_params_and_store_state() {
         let ctx = SessionContext::new();
-        let width = Param::typed("width", DataType::Float64, ScalarValue::Float64(Some(10.0)))
-            .expect("typed width");
+        let width = Param::new("width", ScalarValue::Float64(Some(10.0)));
         let params = shared_param_specs(&[width]);
         let temporal = ChartEventStream::on(ChartEventType::MouseDown)
             .filter(event::start_param("width").gt(lit(0.0)));
@@ -16749,17 +16539,7 @@ mod tests {
             .preview();
         let ctx = SessionContext::new();
         let compiled = Chart::<Cartesian>::new()
-            .param({
-                let __avenger_param_name = "width";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(Some(640.0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .event_binding(binding)
             .compile(&ctx)
             .await
@@ -16844,39 +16624,9 @@ mod tests {
     #[test]
     fn param_change_graph_reports_complete_cycle_paths() {
         let params = [
-            {
-                let __avenger_param_name = "a";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Int64(Some(0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
-            {
-                let __avenger_param_name = "b";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Int64(Some(0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
-            {
-                let __avenger_param_name = "c";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Int64(Some(0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
+            Param::new("a", ScalarValue::Int64(Some(0))),
+            Param::new("b", ScalarValue::Int64(Some(0))),
+            Param::new("c", ScalarValue::Int64(Some(0))),
         ];
         let specs = shared_param_specs(&params);
         let ctx = SessionContext::new();
@@ -16921,39 +16671,9 @@ mod tests {
     #[test]
     fn param_change_graph_rejects_duplicate_reactive_writers() {
         let params = [
-            {
-                let __avenger_param_name = "a";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Int64(Some(0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
-            {
-                let __avenger_param_name = "b";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Int64(Some(0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
-            {
-                let __avenger_param_name = "sink";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Int64(Some(0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
+            Param::new("a", ScalarValue::Int64(Some(0))),
+            Param::new("b", ScalarValue::Int64(Some(0))),
+            Param::new("sink", ScalarValue::Int64(Some(0))),
         ];
         let specs = shared_param_specs(&params);
         let bindings = [
@@ -16981,39 +16701,9 @@ mod tests {
 
     #[tokio::test]
     async fn param_change_graph_is_equivalent_after_bincode() {
-        let a = {
-            let __avenger_param_name = "a";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let b = {
-            let __avenger_param_name = "b";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let c = {
-            let __avenger_param_name = "c";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let a = Param::new("a", ScalarValue::Int64(Some(0)));
+        let b = Param::new("b", ScalarValue::Int64(Some(0)));
+        let c = Param::new("c", ScalarValue::Int64(Some(0)));
         let ctx = SessionContext::new();
         let compiled = Chart::<Cartesian>::new()
             .param(a.clone())
@@ -17055,70 +16745,12 @@ mod tests {
 
     #[test]
     fn param_change_programs_are_typed_and_filters_gate_actions() {
-        let number = {
-            let __avenger_param_name = "number";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let number_copy = {
-            let __avenger_param_name = "number_copy";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let text = {
-            let __avenger_param_name = "text";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let text_copy = {
-            let __avenger_param_name = "text_copy";
-            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let flag = {
-            let __avenger_param_name = "flag";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(false));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let flag_copy = {
-            let __avenger_param_name = "flag_copy";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(false));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let number = Param::new("number", ScalarValue::Int64(Some(0)));
+        let number_copy = Param::new("number_copy", ScalarValue::Float64(Some(0.0)));
+        let text = Param::new("text", ScalarValue::Utf8(None));
+        let text_copy = Param::new("text_copy", ScalarValue::Utf8(None));
+        let flag = Param::new("flag", ScalarValue::Boolean(Some(false)));
+        let flag_copy = Param::new("flag_copy", ScalarValue::Boolean(Some(false)));
         let params = [
             number.clone(),
             number_copy.clone(),

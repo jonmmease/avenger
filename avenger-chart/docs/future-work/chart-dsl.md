@@ -2434,11 +2434,15 @@ bindings, table-function arguments, and action assignments follow the exact
 under the expected type, while nonliteral expressions require exact physical
 type equality or an authored SQL `CAST`.
 
-Rust `Param` and `CompiledParamSpec` therefore carry this `DataType`
-explicitly. Placeholder fields, default validation, host bindings, and runtime
-assignment validation read the declaration's type rather than
-`default.data_type()`; compatibility constructors that infer from a Rust
-default are not part of the DSL lowering contract.
+The DSL semantic model and `CompiledParamSpec` carry this `DataType`
+explicitly. The DSL type supplies destination context while checking literals,
+`NULL`, and default expressions; placeholder fields, host bindings, and runtime
+assignment validation use that declared type. The ordinary Rust `Param` API is
+different because its default is already a precisely typed Arrow
+`ScalarValue`: `Param::new(name, default)` derives the compiled type from
+`default.data_type()` rather than requiring the Rust author to repeat it. DSL
+lowering must construct or evaluate the default against the separately declared
+type and reject a mismatch before producing the compiled param specification.
 
 Params have no behavioral `kind:`. Consumers impose role-specific type
 constraints at the use site. `raw_domain: $x_domain` requires

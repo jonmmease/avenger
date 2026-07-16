@@ -953,7 +953,6 @@ mod tests {
         external_mark::HexBin,
     };
     use avenger_chart_schema::ChannelSchema;
-    use datafusion::arrow::datatypes::DataType;
     use datafusion::logical_expr::{col, lit};
 
     use super::*;
@@ -1358,7 +1357,7 @@ mod tests {
         let mut supplied_declaration = radio_widget();
         supplied_declaration.properties.insert(
             "value_param".to_string(),
-            ResolvedValue::Param(Param::typed("external_value", DataType::Utf8, "north").unwrap()),
+            ResolvedValue::Param(Param::new("external_value", "north")),
         );
         let mut supplied = ResolvedPlot::new("cartesian");
         supplied.widgets.push(supplied_declaration);

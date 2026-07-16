@@ -4643,16 +4643,7 @@ mod tests {
     async fn repeat_grid_pan_scroll_zoom_expands_across_cells() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<RepeatGrid>::new()
-            .param({
-                let __avenger_param_name = "explicit_root";
-                let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("explicit_root", true))
             .configure_coord(|c| {
                 c.rows(repeat_vars(&["a", "b"]))
                     .columns(repeat_vars(&["a", "b"]))
@@ -4735,16 +4726,7 @@ mod tests {
     -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<Cartesian>::new()
-            .param({
-                let __avenger_param_name = "explicit_root";
-                let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("explicit_root", true))
             .mark(Symbol::new().x(lit(1.0)).y(lit(2.0)).size(64.0))
             .tool(PanScrollZoom::cartesian())
             .compile(&ctx)
@@ -5901,26 +5883,8 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_compiles_and_round_trips_with_typed_value() {
         let ctx = SessionContext::new();
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let mirror = {
-            let __avenger_param_name = "mirror";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", 1_i64);
+        let mirror = Param::new("mirror", 0_i64);
         let binding = ChartParamChangeBinding::on(&source)
             .filter(param_change::previous_value().not_eq(param_change::value()))
             .set_param(&mirror, param_change::value())
@@ -5957,26 +5921,8 @@ mod tests {
     #[tokio::test]
     async fn child_param_change_binding_merges_once_across_structural_copies() {
         let ctx = SessionContext::new();
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let mirror = {
-            let __avenger_param_name = "mirror";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", 1_i64);
+        let mirror = Param::new("mirror", 0_i64);
         let binding = ChartParamChangeBinding::on(&source)
             .set_param(&mirror, param_change::value())
             .exact();
@@ -6006,26 +5952,8 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_rejects_unknown_and_non_shared_params() {
         let ctx = SessionContext::new();
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let mirror = {
-            let __avenger_param_name = "mirror";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", 1_i64);
+        let mirror = Param::new("mirror", 0_i64);
 
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(mirror.clone())
@@ -6081,36 +6009,9 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_rejects_duplicate_writers_and_unknown_state_targets() {
         let ctx = SessionContext::new();
-        let source_a = {
-            let __avenger_param_name = "source_a";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let source_b = {
-            let __avenger_param_name = "source_b";
-            let __avenger_param_default: datafusion::common::ScalarValue = (2_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let mirror = {
-            let __avenger_param_name = "mirror";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source_a = Param::new("source_a", 1_i64);
+        let source_b = Param::new("source_b", 2_i64);
+        let mirror = Param::new("mirror", 0_i64);
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(source_a.clone())
             .param(source_b.clone())
@@ -6159,16 +6060,7 @@ mod tests {
     #[tokio::test]
     async fn param_change_binding_rejects_incompatible_and_event_only_expressions() {
         let ctx = SessionContext::new();
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue = (true).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", true);
         let domain = Param::raw_domain("domain");
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(source.clone())
@@ -6182,16 +6074,7 @@ mod tests {
             .expect("incompatible result type should fail");
         assert!(error.to_string().contains("failed expression validation"));
 
-        let target = {
-            let __avenger_param_name = "target";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0.0_f64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let target = Param::new("target", 0.0_f64);
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(source.clone())
             .param(target.clone())
@@ -6205,16 +6088,7 @@ mod tests {
             .expect("event-only column should fail");
         assert!(error.to_string().contains("failed expression validation"));
 
-        let number_source = {
-            let __avenger_param_name = "number_source";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let number_source = Param::new("number_source", 1_i64);
         let error = crate::plot::Chart::<Cartesian>::new()
             .param(number_source.clone())
             .param_change_binding(

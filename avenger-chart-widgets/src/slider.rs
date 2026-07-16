@@ -43,16 +43,7 @@ impl Slider {
     pub fn new(id: impl Into<String>, min: f64, max: f64) -> Self {
         let id = id.into();
         Self {
-            value: {
-                let __avenger_param_name = format!("{id}__value");
-                let __avenger_param_default: datafusion::common::ScalarValue = (min).into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
+            value: Param::new(format!("{id}__value"), min),
             id,
             min,
             max,
@@ -150,17 +141,7 @@ impl Slider {
                 self.id, self.format
             ))
         })?;
-        let value = {
-            let __avenger_param_name = self.value.name.clone();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let value = Param::new(self.value.name.clone(), ScalarValue::Float64(Some(default)));
         let value_markup = value_markup(&value, &self.format);
         avenger_chart_core::scalar_params_for_label_source(
             &value_markup,

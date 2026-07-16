@@ -11,17 +11,7 @@ async fn test_param_fill_color() {
     let df = datasets::simple_categories();
 
     // Create a parameter for fill color with blue as default
-    let fill_color_param = {
-        let __avenger_param_name = "fill_color";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Utf8(Some("#4682b4".to_string()))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let fill_color_param = Param::new("fill_color", ScalarValue::Utf8(Some("#4682b4".to_string())));
 
     let plot = Chart::<Cartesian>::new()
         .data(df)

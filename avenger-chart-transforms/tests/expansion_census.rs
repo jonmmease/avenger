@@ -251,17 +251,7 @@ async fn native_only_stages_do_not_expand() {
 #[tokio::test]
 async fn placeholder_filter_roundtrips() {
     let ctx = SessionContext::new();
-    let min = {
-        let __avenger_param_name = "min";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(1.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let min = Param::new("min", ScalarValue::Float64(Some(1.0)));
     let stage = stage(Filter::new(col("value").gt(min.expr())));
     avenger_chart_transforms::expand::test_support::assert_stage_roundtrip_with_params(
         &stage,

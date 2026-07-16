@@ -35,50 +35,13 @@ fn main() {
 
 async fn build_app() -> avenger_app::app::AvengerApp<avenger_chart_app::ChartAppState> {
     let ctx = Arc::new(SessionContext::new());
-    let order = {
-        let __avenger_param_name = ORDER_PARAM;
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (parallel_common::string_list_scalar(&dimension_ids())).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let drag_dimension = {
-        let __avenger_param_name = DRAG_DIMENSION_PARAM;
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Utf8(None)).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let drag_start_x = {
-        let __avenger_param_name = DRAG_START_X_PARAM;
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(None)).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let drag_display_x = {
-        let __avenger_param_name = DRAG_DISPLAY_X_PARAM;
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(None)).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let order = Param::new(
+        ORDER_PARAM,
+        parallel_common::string_list_scalar(&dimension_ids()),
+    );
+    let drag_dimension = Param::new(DRAG_DIMENSION_PARAM, ScalarValue::Utf8(None));
+    let drag_start_x = Param::new(DRAG_START_X_PARAM, ScalarValue::Float64(None));
+    let drag_display_x = Param::new(DRAG_DISPLAY_X_PARAM, ScalarValue::Float64(None));
     let coord = parallel_common::demo_parallel()
         .order_param(order.name.clone())
         .active_axis_display_params(drag_dimension.name.clone(), drag_display_x.name.clone());

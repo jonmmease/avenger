@@ -1281,17 +1281,7 @@ mod tests {
     async fn calculate_can_replace_existing_column_and_use_params() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let offset = {
-            let __avenger_param_name = "offset";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(5.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let offset = Param::new("offset", ScalarValue::Float64(Some(5.0)));
         let (compiled_transform, _) =
             compile_transform(Calculate::new().expr("value", col("value") + offset.expr()));
         let mut params = IndexMap::new();
@@ -1340,17 +1330,7 @@ mod tests {
     async fn filter_predicate_can_use_params() {
         let ctx = SessionContext::new();
         let dataframe = bin_dataframe(&ctx);
-        let threshold = {
-            let __avenger_param_name = "threshold";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(3.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let threshold = Param::new("threshold", ScalarValue::Float64(Some(3.0)));
         let (compiled_transform, _) =
             compile_transform(Filter::new(col("value").gt(threshold.expr())));
         let mut params = IndexMap::new();
@@ -1411,17 +1391,7 @@ mod tests {
     async fn select_expression_can_use_params() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let offset = {
-            let __avenger_param_name = "select_offset";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(2.5));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let offset = Param::new("select_offset", ScalarValue::Float64(Some(2.5)));
         let (compiled_transform, _) = compile_transform(
             Select::new().expr((col("value") + offset.expr()).alias("shifted_value")),
         );
@@ -1496,17 +1466,7 @@ mod tests {
     async fn fold_computed_values_params_names_and_index_work() {
         let ctx = SessionContext::new();
         let dataframe = fold_dataframe(&ctx);
-        let bonus = {
-            let __avenger_param_name = "fold_bonus";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(10.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let bonus = Param::new("fold_bonus", ScalarValue::Float64(Some(10.0)));
         let (compiled_transform, output) = compile_transform(
             Fold::new()
                 .field("medal_score", col("gold") * lit(3.0) + col("silver"))
@@ -1828,22 +1788,11 @@ mod tests {
     async fn joinaggregate_params_inside_measure_expressions_work() {
         let ctx = SessionContext::new();
         let dataframe = sample_dataframe(&ctx);
-        let (compiled_transform, _) = compile_transform(
-            JoinAggregate::new().group_by([col("category")]).sum(
+        let (compiled_transform, _) =
+            compile_transform(JoinAggregate::new().group_by([col("category")]).sum(
                 "category_total",
-                col("value") * {
-                    let __avenger_param_name = "factor";
-                    let __avenger_param_default: datafusion::common::ScalarValue = (1.0).into();
-                    Param::typed(
-                        __avenger_param_name,
-                        __avenger_param_default.data_type(),
-                        __avenger_param_default,
-                    )
-                    .expect("a parameter default must match its selected physical type")
-                }
-                .expr(),
-            ),
-        );
+                col("value") * Param::new("factor", 1.0).expr(),
+            ));
         let params = IndexMap::from([("factor".to_string(), ScalarValue::Float64(Some(2.0)))]);
         let batches =
             transformed_batches_with_params(&ctx, dataframe, vec![compiled_transform], &params)
@@ -2063,16 +2012,7 @@ mod tests {
     async fn window_order_by_accepts_params() {
         let ctx = SessionContext::new();
         let dataframe = window_dataframe(&ctx);
-        let direction = {
-            let __avenger_param_name = "direction";
-            let __avenger_param_default: datafusion::common::ScalarValue = (-1_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let direction = Param::new("direction", -1_i64);
         let (compiled_transform, _) = compile_transform(
             Window::new()
                 .partition_by([col("series")])
@@ -2312,16 +2252,7 @@ mod tests {
     async fn impute_value_fill_accepts_params() {
         let ctx = SessionContext::new();
         let dataframe = impute_dataframe(&ctx);
-        let fill = {
-            let __avenger_param_name = "fill";
-            let __avenger_param_default: datafusion::common::ScalarValue = (7.0).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let fill = Param::new("fill", 7.0);
         let (compiled_transform, _) = compile_transform(
             Impute::new(col("value"))
                 .key(col("month"))
@@ -2470,17 +2401,7 @@ mod tests {
         const DAY_MS: i64 = 86_400_000;
         let ctx = SessionContext::new();
         let dataframe = time_dataframe(&ctx, vec![Some(14 * DAY_MS), Some(58 * DAY_MS)]);
-        let maxbins = {
-            let __avenger_param_name = "time_maxbins";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(2));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let maxbins = Param::new("time_maxbins", ScalarValue::Int64(Some(2)));
         let (compiled_transform, _) =
             compile_transform(TimeUnit::new(col("timestamp")).maxbins(maxbins.expr()));
         let mut params = IndexMap::new();
@@ -3805,17 +3726,7 @@ mod tests {
             ],
             vec![50.0, 40.0, 30.0, 20.0, 10.0],
         );
-        let top_n = {
-            let __avenger_param_name = "lump_top_n";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(3));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let top_n = Param::new("lump_top_n", ScalarValue::Int64(Some(3)));
         let params = IndexMap::from([(top_n.name.clone(), top_n.default.clone())]);
         let (compiled_transform, _) = compile_transform(
             Lump::top_n(col("category"), top_n.expr())
@@ -4611,28 +4522,8 @@ mod tests {
     async fn kde_params_work_for_config_expressions() {
         let ctx = SessionContext::new();
         let dataframe = bin_dataframe_from_values(&ctx, vec![Some(0.0), Some(1.0), Some(2.0)]);
-        let steps = {
-            let __avenger_param_name = "kde_steps";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(3));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let bandwidth = {
-            let __avenger_param_name = "kde_bandwidth";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.5));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let steps = Param::new("kde_steps", ScalarValue::Int64(Some(3)));
+        let bandwidth = Param::new("kde_bandwidth", ScalarValue::Float64(Some(0.5)));
         let params = IndexMap::from([
             (steps.name.clone(), steps.default.clone()),
             (bandwidth.name.clone(), bandwidth.default.clone()),
@@ -4973,87 +4864,17 @@ mod tests {
             Rasterize2D::new(col("x"), col("y"))
                 .x(|x| {
                     x.extent(
-                        {
-                            let __avenger_param_name = "x0";
-                            let __avenger_param_default: datafusion::common::ScalarValue =
-                                ScalarValue::Float64(Some(-1.0));
-                            Param::typed(
-                                __avenger_param_name,
-                                __avenger_param_default.data_type(),
-                                __avenger_param_default,
-                            )
-                            .expect("a parameter default must match its selected physical type")
-                        }
-                        .expr(),
-                        {
-                            let __avenger_param_name = "x1";
-                            let __avenger_param_default: datafusion::common::ScalarValue =
-                                ScalarValue::Float64(Some(1.0));
-                            Param::typed(
-                                __avenger_param_name,
-                                __avenger_param_default.data_type(),
-                                __avenger_param_default,
-                            )
-                            .expect("a parameter default must match its selected physical type")
-                        }
-                        .expr(),
+                        Param::new("x0", ScalarValue::Float64(Some(-1.0))).expr(),
+                        Param::new("x1", ScalarValue::Float64(Some(1.0))).expr(),
                     )
-                    .bins(
-                        {
-                            let __avenger_param_name = "xbins";
-                            let __avenger_param_default: datafusion::common::ScalarValue =
-                                ScalarValue::UInt32(Some(1));
-                            Param::typed(
-                                __avenger_param_name,
-                                __avenger_param_default.data_type(),
-                                __avenger_param_default,
-                            )
-                            .expect("a parameter default must match its selected physical type")
-                        }
-                        .expr(),
-                    )
+                    .bins(Param::new("xbins", ScalarValue::UInt32(Some(1))).expr())
                 })
                 .y(|y| {
                     y.extent(
-                        {
-                            let __avenger_param_name = "y0";
-                            let __avenger_param_default: datafusion::common::ScalarValue =
-                                ScalarValue::Float64(Some(-1.0));
-                            Param::typed(
-                                __avenger_param_name,
-                                __avenger_param_default.data_type(),
-                                __avenger_param_default,
-                            )
-                            .expect("a parameter default must match its selected physical type")
-                        }
-                        .expr(),
-                        {
-                            let __avenger_param_name = "y1";
-                            let __avenger_param_default: datafusion::common::ScalarValue =
-                                ScalarValue::Float64(Some(1.0));
-                            Param::typed(
-                                __avenger_param_name,
-                                __avenger_param_default.data_type(),
-                                __avenger_param_default,
-                            )
-                            .expect("a parameter default must match its selected physical type")
-                        }
-                        .expr(),
+                        Param::new("y0", ScalarValue::Float64(Some(-1.0))).expr(),
+                        Param::new("y1", ScalarValue::Float64(Some(1.0))).expr(),
                     )
-                    .bins(
-                        {
-                            let __avenger_param_name = "ybins";
-                            let __avenger_param_default: datafusion::common::ScalarValue =
-                                ScalarValue::UInt32(Some(1));
-                            Param::typed(
-                                __avenger_param_name,
-                                __avenger_param_default.data_type(),
-                                __avenger_param_default,
-                            )
-                            .expect("a parameter default must match its selected physical type")
-                        }
-                        .expr(),
-                    )
+                    .bins(Param::new("ybins", ScalarValue::UInt32(Some(1))).expr())
                 })
                 .agg("count"),
             params,
@@ -6062,17 +5883,7 @@ mod tests {
     #[tokio::test]
     async fn scalar_aggregate_eager_binds_params() {
         let ctx = SessionContext::new();
-        let threshold = {
-            let __avenger_param_name = "threshold";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let threshold = Param::new("threshold", ScalarValue::Float64(Some(0.0)));
         let (filter_stage, _) =
             compile_transform(Filter::new(col("value").lt_eq(threshold.expr())));
         let (scalar_stage, _) = compile_transform(ScalarAggregate::new().count("n"));

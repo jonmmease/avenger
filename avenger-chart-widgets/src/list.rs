@@ -342,17 +342,7 @@ impl RadioButtonList {
     pub fn value(&self) -> Expr {
         self.value_param
             .clone()
-            .unwrap_or_else(|| {
-                let __avenger_param_name = self.param_name();
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    self.placeholder_default();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .unwrap_or_else(|| Param::new(self.param_name(), self.placeholder_default()))
             .expr()
     }
 
@@ -392,16 +382,7 @@ impl RadioButtonList {
                 self.id
             )));
         }
-        Ok({
-            let __avenger_param_name = self.param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue = default;
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
+        Ok(Param::new(self.param_name(), default))
     }
 }
 

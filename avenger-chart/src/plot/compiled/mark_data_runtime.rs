@@ -4107,17 +4107,7 @@ mod tests {
         let session = Arc::new(SessionContext::new());
         let df = nested_category_dataframe(&session);
         let plot_node = plot_data_node(&df)?;
-        let band_end = {
-            let __avenger_param_name = "band_end";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(1.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let band_end = Param::new("band_end", ScalarValue::Float64(Some(1.0)));
         let mark = Rect::new()
             .x_with(nested(["group", "member"]), |x| x.band(0.0))
             .x2_with(col(":x"), |x| x.band(band_end.expr()))

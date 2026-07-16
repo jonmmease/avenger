@@ -23,26 +23,17 @@ use crate::{
 pub struct Param {
     /// The name of the parameter
     pub name: String,
-    /// The authoritative physical Arrow type of the parameter.
-    pub data_type: DataType,
     /// The default value of the parameter
     pub default: ScalarValue,
 }
 
 impl Param {
-    /// Create a parameter with an explicit physical Arrow type.
-    pub fn typed<S: Into<String>>(
-        name: S,
-        data_type: DataType,
-        default: impl Into<ScalarValue>,
-    ) -> Result<Self, AvengerChartError> {
-        let default = default.into();
-        validate_param_value(&data_type, &default)?;
-        Ok(Self {
+    /// Create a parameter from a precisely typed Arrow scalar value.
+    pub fn new<S: Into<String>>(name: S, default: impl Into<ScalarValue>) -> Self {
+        Self {
             name: name.into(),
-            data_type,
-            default,
-        })
+            default: default.into(),
+        }
     }
 
     /// Create a raw-domain parameter for interaction-driven scale domains.
@@ -51,20 +42,14 @@ impl Param {
     /// reading `raw_domain(param.expr())` falls back to its inferred or explicit
     /// domain until an interaction writes a concrete two-element domain list.
     pub fn raw_domain<S: Into<String>>(name: S) -> Self {
-        let data_type = DataType::List(Arc::new(Field::new("item", DataType::Float64, true)));
-        Self::typed(
-            name,
-            data_type,
-            ScalarValue::new_null_list(DataType::Float64, true, 1),
-        )
-        .expect("raw-domain null must match its declared List(Float64) type")
+        Self::new(name, ScalarValue::new_null_list(DataType::Float64, true, 1))
     }
 
     /// Get a DataFusion expression for this parameter as a placeholder
     pub fn expr(&self) -> Expr {
         Expr::Placeholder(Placeholder::new_with_field(
             format!("${}", self.name),
-            Some(Arc::new(Field::new("", self.data_type.clone(), true))),
+            Some(Arc::new(Field::new("", self.default.data_type(), true))),
         ))
     }
 }
@@ -125,7 +110,7 @@ impl CompiledParamSpec {
             runtime_id: ParamRef::unresolved_authoring(),
             name: param.name.clone(),
             migration_key: None,
-            data_type: param.data_type.clone(),
+            data_type: param.default.data_type(),
             default: param.default.clone(),
             sharing,
             domain_coordination: None,
@@ -141,6 +126,12 @@ impl CompiledParamSpec {
     pub fn with_domain_coordination(mut self, coordination: DomainCoordination) -> Self {
         self.domain_coordination = Some(coordination);
         self
+    }
+}
+
+impl From<(String, ScalarValue)> for Param {
+    fn from((name, default): (String, ScalarValue)) -> Self {
+        Self::new(name, default)
     }
 }
 
@@ -229,21 +220,17 @@ mod tests {
 
     #[test]
     fn add_param_default_spec_is_shared() {
-        let param = Param::typed(
-            "width",
-            DataType::Float64,
-            ScalarValue::Float64(Some(640.0)),
-        )
-        .unwrap();
+        let param = Param::new("width", ScalarValue::Float64(Some(640.0)));
         let spec = CompiledParamSpec::shared(&param);
         assert_eq!(spec.sharing, CoordinationScope::Shared);
+        assert_eq!(spec.data_type, DataType::Float64);
         assert_eq!(spec.default, ScalarValue::Float64(Some(640.0)));
     }
 
     #[test]
-    fn typed_param_rejects_numeric_width_mismatch() {
-        let error =
-            Param::typed("count", DataType::Int32, ScalarValue::Int64(Some(1))).unwrap_err();
+    fn exact_value_validation_rejects_numeric_width_mismatch() {
+        let error = validate_param_value(&DataType::Int32, &ScalarValue::Int64(Some(1)))
+            .expect_err("int64 must not satisfy an int32 destination");
         assert!(error.to_string().contains("Int64"));
         assert!(error.to_string().contains("Int32"));
     }
@@ -270,13 +257,14 @@ mod tests {
 
         for (name, data_type) in [("record", struct_type), ("lookup", map_type)] {
             let default = ScalarValue::try_from(&data_type).expect("typed recursive null");
-            let param = Param::typed(name, data_type.clone(), default).unwrap();
-            assert_eq!(param.data_type, data_type);
+            let param = Param::new(name, default);
+            assert_eq!(param.default.data_type(), data_type);
+            assert_eq!(CompiledParamSpec::shared(&param).data_type, data_type);
         }
     }
 
     #[test]
-    fn typed_param_rejects_struct_field_order_and_timestamp_timezone_mismatch() {
+    fn exact_value_validation_rejects_struct_order_and_timestamp_timezone_mismatch() {
         let declared = DataType::Struct(Fields::from(vec![
             Field::new("left", DataType::Int32, true),
             Field::new("right", DataType::Utf8, true),
@@ -286,10 +274,10 @@ mod tests {
             Field::new("left", DataType::Int32, true),
         ]));
         let reordered_null = ScalarValue::try_from(&reordered).unwrap();
-        assert!(Param::typed("record", declared, reordered_null).is_err());
+        assert!(validate_param_value(&declared, &reordered_null).is_err());
 
         let declared = DataType::Timestamp(TimeUnit::Millisecond, Some("UTC".into()));
         let actual = ScalarValue::TimestampMillisecond(None, Some("America/New_York".into()));
-        assert!(Param::typed("when", declared, actual).is_err());
+        assert!(validate_param_value(&declared, &actual).is_err());
     }
 }

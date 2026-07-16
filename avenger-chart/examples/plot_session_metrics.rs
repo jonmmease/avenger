@@ -34,17 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn run_resize_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn std::error::Error>> {
-    let width = {
-        let __avenger_param_name = "width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(420.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES
@@ -102,17 +92,7 @@ async fn run_resize_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn std
 async fn run_responsive_wrap_scenario(
     ctx: Arc<SessionContext>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let width = {
-        let __avenger_param_name = "width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(420.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES
@@ -154,28 +134,8 @@ async fn run_responsive_wrap_scenario(
 }
 
 async fn run_pan_zoom_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn std::error::Error>> {
-    let x_min = {
-        let __avenger_param_name = "x_min";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(0.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let x_max = {
-        let __avenger_param_name = "x_max";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(10.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let x_min = Param::new("x_min", ScalarValue::Float64(Some(0.0)));
+    let x_max = Param::new("x_max", ScalarValue::Float64(Some(10.0)));
     let domain_min = x_min.clone();
     let domain_max = x_max.clone();
     let df = ctx

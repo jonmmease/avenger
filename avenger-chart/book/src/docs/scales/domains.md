@@ -51,8 +51,8 @@ use datafusion::common::ScalarValue;
 })
 
 // Using parameters for interactive plots
-let min_param = Param::typed("domain_min", DataType::Float64, 0.0)?;
-let max_param = Param::typed("domain_max", DataType::Float64, 100.0)?;
+let min_param = Param::new("domain_min", 0.0);
+let max_param = Param::new("domain_max", 100.0);
 
 .x_with(col("value"), |c| {
     c.scale(|s| s.domain((min_param.expr(), max_param.expr())))

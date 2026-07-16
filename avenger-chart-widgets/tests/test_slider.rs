@@ -282,27 +282,11 @@ async fn slider_rejects_invalid_domains_steps_params_and_formats() {
         Slider::new("step", 0.0, 1.0).step(0.0),
         Slider::new("default", 0.0, 1.0).default(f64::NAN),
         Slider::new("format", 0.0, 1.0).format("not-a-format"),
-        Slider::new("param", 0.0, 1.0).value_param({
-            let __avenger_param_name = "bad";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_i64).into();
-            avenger_chart::prelude::Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        }),
+        Slider::new("param", 0.0, 1.0)
+            .value_param(avenger_chart::prelude::Param::new("bad", 0_i64)),
         Slider::new("1leading_digit", 0.0, 1.0),
-        Slider::new("param_name", 0.0, 1.0).value_param({
-            let __avenger_param_name = "1bad";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0.0).into();
-            avenger_chart::prelude::Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        }),
+        Slider::new("param_name", 0.0, 1.0)
+            .value_param(avenger_chart::prelude::Param::new("1bad", 0.0)),
     ] {
         assert!(
             Chart::<Cartesian>::new()

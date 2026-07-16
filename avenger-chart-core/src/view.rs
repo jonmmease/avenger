@@ -3,7 +3,6 @@
 use std::time::Duration;
 
 use datafusion::{
-    arrow::datatypes::DataType,
     common::tree_node::{TreeNode, TreeNodeRecursion},
     logical_expr::Expr,
     scalar::ScalarValue,
@@ -477,23 +476,11 @@ impl ViewAxisRef {
     }
 
     pub fn pixels(&self) -> Expr {
-        Param::typed(
-            self.param_name("pixels"),
-            DataType::UInt32,
-            ScalarValue::UInt32(Some(1)),
-        )
-        .expect("view pixel helper declares a matching UInt32 default")
-        .expr()
+        Param::new(self.param_name("pixels"), ScalarValue::UInt32(Some(1))).expr()
     }
 
     fn float_param(&self, field: &str) -> Expr {
-        Param::typed(
-            self.param_name(field),
-            DataType::Float64,
-            ScalarValue::Float64(Some(0.0)),
-        )
-        .expect("view numeric helper declares a matching Float64 default")
-        .expr()
+        Param::new(self.param_name(field), ScalarValue::Float64(Some(0.0))).expr()
     }
 
     pub fn param_name(&self, field: &str) -> String {

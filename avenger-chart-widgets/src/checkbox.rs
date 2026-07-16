@@ -40,16 +40,7 @@ impl Checkbox {
     pub fn new(id: impl Into<String>, label: impl Into<String>, checked: bool) -> Self {
         let id = id.into();
         Self {
-            checked: {
-                let __avenger_param_name = format!("{id}__checked");
-                let __avenger_param_default: datafusion::common::ScalarValue = (checked).into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
+            checked: Param::new(format!("{id}__checked"), checked),
             id,
             label: label.into(),
         }

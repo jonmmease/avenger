@@ -287,16 +287,10 @@ impl NativeWidget for ContractNativeWidget {
     }
 
     fn state(&self) -> NativeWidgetStateSpec {
-        NativeWidgetStateSpec::try_new(vec![CompiledParamSpec::shared(&{
-            let __avenger_param_name = "native-contract-value";
-            let __avenger_param_default: datafusion::common::ScalarValue = ("ready").into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })])
+        NativeWidgetStateSpec::try_new(vec![CompiledParamSpec::shared(&Param::new(
+            "native-contract-value",
+            "ready",
+        ))])
         .unwrap()
     }
 }
@@ -1125,16 +1119,7 @@ async fn dataframe_widget_item_validation_rejects_invalid_keys_after_bincode() {
 #[tokio::test]
 async fn dataframe_widget_item_validation_rechecks_param_driven_revisions() {
     let ctx = Arc::new(datafusion::prelude::SessionContext::new());
-    let collapse = {
-        let __avenger_param_name = "collapse_widget_order";
-        let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let collapse = Param::new("collapse_widget_order", false);
     let data = ctx
         .sql("SELECT * FROM (VALUES (1), (2)) AS t(value)")
         .await
@@ -1494,56 +1479,11 @@ async fn widget_style_environment_recomputes_while_item_plan_stays_cached() {
         .sql("SELECT 0 AS item_order")
         .await
         .expect("environment widget item data");
-    let width = {
-        let __avenger_param_name = "environment_width";
-        let __avenger_param_default: datafusion::common::ScalarValue = (80.0_f32).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let height = {
-        let __avenger_param_name = "environment_height";
-        let __avenger_param_default: datafusion::common::ScalarValue = (100.0_f32).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let base_font = {
-        let __avenger_param_name = "--base-font-size";
-        let __avenger_param_default: datafusion::common::ScalarValue = ("12px").into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let color_scheme = {
-        let __avenger_param_name = "color-scheme";
-        let __avenger_param_default: datafusion::common::ScalarValue = ("light").into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let unrelated = {
-        let __avenger_param_name = "--unrelated-widget-token";
-        let __avenger_param_default: datafusion::common::ScalarValue = ("initial").into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width = Param::new("environment_width", 80.0_f32);
+    let height = Param::new("environment_height", 100.0_f32);
+    let base_font = Param::new("--base-font-size", "12px");
+    let color_scheme = Param::new("color-scheme", "light");
+    let unrelated = Param::new("--unrelated-widget-token", "initial");
     let mut theme = Theme::light();
     theme
         .append_css(
@@ -1726,26 +1666,8 @@ async fn host_and_widget_visual_scales_keep_independent_domains_after_bincode() 
 #[tokio::test]
 async fn widget_visual_scale_domains_follow_param_driven_item_revisions() {
     let ctx = Arc::new(datafusion::prelude::SessionContext::new());
-    let group = {
-        let __avenger_param_name = "widget_group";
-        let __avenger_param_default: datafusion::common::ScalarValue = ("low").into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let paint = {
-        let __avenger_param_name = "--widget-test-fill";
-        let __avenger_param_default: datafusion::common::ScalarValue = ("#0072b2").into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let group = Param::new("widget_group", "low");
+    let paint = Param::new("--widget-test-fill", "#0072b2");
     let all_items = ctx
         .sql(
             "SELECT * FROM (VALUES \

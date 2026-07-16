@@ -1216,28 +1216,8 @@ async fn box_plot_part_styling() {
 #[tokio::test]
 async fn box_plot_scalar_param_style() {
     let ctx = SessionContext::new();
-    let box_fill = {
-        let __avenger_param_name = "box_fill";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Utf8(Some("#e0f2fe".to_string()))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let median_width = {
-        let __avenger_param_name = "median_width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float32(Some(3.5))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let box_fill = Param::new("box_fill", ScalarValue::Utf8(Some("#e0f2fe".to_string())));
+    let median_width = Param::new("median_width", ScalarValue::Float32(Some(3.5)));
     let plot = Chart::<Cartesian>::new()
         .title("Param-styled box plot")
         .canvas_size(720.0, 420.0)

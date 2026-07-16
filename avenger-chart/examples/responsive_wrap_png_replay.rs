@@ -104,17 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn build_plot(
     ctx: &SessionContext,
 ) -> Result<avenger_chart::plot::CompiledPlot, Box<dyn std::error::Error>> {
-    let width = {
-        let __avenger_param_name = "width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(700.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width = Param::new("width", ScalarValue::Float64(Some(700.0)));
     let df = ctx
         .sql(
             "SELECT * FROM (VALUES

@@ -80,16 +80,7 @@ impl TextInput {
     pub fn new(id: impl Into<String>) -> Self {
         let id = id.into();
         Self {
-            value: {
-                let __avenger_param_name = format!("{id}__value");
-                let __avenger_param_default: datafusion::common::ScalarValue = ("").into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
+            value: Param::new(format!("{id}__value"), ""),
             id,
             placeholder: String::new(),
             commit: TextCommit::OnChange,
@@ -142,33 +133,13 @@ impl TextInput {
     /// Opt into publishing the committed-text cursor as a grapheme index.
     pub fn cursor_position(&self) -> Expr {
         self.cursor_live.store(true, Ordering::Relaxed);
-        {
-            let __avenger_param_name = self.cursor_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        }
-        .expr()
+        Param::new(self.cursor_param_name(), 0_u64).expr()
     }
 
     /// Opt into publishing the selected committed text.
     pub fn selected_text(&self) -> Expr {
         self.selected_text_live.store(true, Ordering::Relaxed);
-        {
-            let __avenger_param_name = self.selected_text_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue = ("").into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        }
-        .expr()
+        Param::new(self.selected_text_param_name(), "").expr()
     }
 
     fn cursor_param_name(&self) -> String {
@@ -218,28 +189,16 @@ impl NativeWidget for TextInput {
     fn state(&self) -> NativeWidgetStateSpec {
         let mut params = vec![CompiledParamSpec::shared(&self.value)];
         if self.cursor_live.load(Ordering::Relaxed) {
-            params.push(CompiledParamSpec::shared(&{
-                let __avenger_param_name = self.cursor_param_name();
-                let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            }));
+            params.push(CompiledParamSpec::shared(&Param::new(
+                self.cursor_param_name(),
+                0_u64,
+            )));
         }
         if self.selected_text_live.load(Ordering::Relaxed) {
-            params.push(CompiledParamSpec::shared(&{
-                let __avenger_param_name = self.selected_text_param_name();
-                let __avenger_param_default: datafusion::common::ScalarValue = ("").into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            }));
+            params.push(CompiledParamSpec::shared(&Param::new(
+                self.selected_text_param_name(),
+                "",
+            )));
         }
         NativeWidgetStateSpec::try_new(params).expect("TextInput state names are distinct")
     }

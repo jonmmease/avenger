@@ -723,28 +723,8 @@ async fn parallel_displaced_axis_preview() {
     let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
-        .param({
-            let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
-        .param({
-            let __avenger_param_name = "drag_display_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
+        .param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(
             numeric_parallel_line()
@@ -800,28 +780,8 @@ async fn parallel_axis_overlay_displaced_axis() {
     let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
-        .param({
-            let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
-        .param({
-            let __avenger_param_name = "drag_display_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
+        .param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(stability_overlay)
         .mark(
@@ -951,28 +911,8 @@ async fn parallel_reorder_drag_preview_state() {
     let plot = Chart::with_coord(coord)
         .canvas_size(640.0, 360.0)
         .plot_size(500.0, 210.0)
-        .param({
-            let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
-        .param({
-            let __avenger_param_name = "drag_display_x";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
+        .param(Param::new("drag_dimension", ScalarValue::Utf8(None)))
+        .param(Param::new("drag_display_x", ScalarValue::Float64(None)))
         .data(numeric_parallel_data(&ctx))
         .mark(
             numeric_parallel_line()

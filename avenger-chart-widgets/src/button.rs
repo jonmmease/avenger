@@ -50,16 +50,7 @@ impl Button {
     pub fn new(id: impl Into<String>) -> Self {
         let id = id.into();
         Self {
-            activations: {
-                let __avenger_param_name = format!("{id}__activations");
-                let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            },
+            activations: Param::new(format!("{id}__activations"), 0_u64),
             id,
             label: String::new(),
             variant: ButtonVariant::Neutral,
@@ -155,26 +146,8 @@ impl ChartWidget for Button {
             .y2(height + focus_gap)
             .fill("transparent");
 
-        let hover = {
-            let __avenger_param_name = format!("{}__hover", self.id);
-            let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let pressed = {
-            let __avenger_param_name = format!("{}__pressed", self.id);
-            let __avenger_param_default: datafusion::common::ScalarValue = (false).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let hover = Param::new(format!("{}__hover", self.id), false);
+        let pressed = Param::new(format!("{}__pressed", self.id), false);
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let next_activation = when(
             self.activations()

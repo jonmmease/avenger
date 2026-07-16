@@ -159,28 +159,8 @@ async fn test_media_query_legend_position_height() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create width and height parameters
-    let width_param = {
-        let __avenger_param_name = "width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float32(Some(600.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let height_param = {
-        let __avenger_param_name = "height";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float32(Some(400.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width_param = Param::new("width", ScalarValue::Float32(Some(600.0)));
+    let height_param = Param::new("height", ScalarValue::Float32(Some(400.0)));
 
     // Create title that indicates the current layout
     let title_expr = when(
@@ -390,28 +370,8 @@ async fn test_media_query_legend_position_combined() {
     let df = ctx.read_batch(batch).unwrap();
 
     // Create width and height parameters
-    let width_param = {
-        let __avenger_param_name = "width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float32(Some(700.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let height_param = {
-        let __avenger_param_name = "height";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float32(Some(500.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width_param = Param::new("width", ScalarValue::Float32(Some(700.0)));
+    let height_param = Param::new("height", ScalarValue::Float32(Some(500.0)));
 
     // Create title that indicates the current layout
     let title_expr = when(

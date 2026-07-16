@@ -1511,16 +1511,7 @@ mod tests {
 
     #[test]
     fn native_state_names_are_unique() {
-        let param = {
-            let __avenger_param_name = "value";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            crate::Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let param = crate::Param::new("value", 1_i64);
         let spec = CompiledParamSpec::shared(&param);
         assert!(NativeWidgetStateSpec::try_new(vec![spec.clone(), spec]).is_err());
     }
@@ -1532,16 +1523,7 @@ mod tests {
             params: Vec<CompiledParamSpec>,
         }
 
-        let spec = CompiledParamSpec::shared(&{
-            let __avenger_param_name = "value";
-            let __avenger_param_default: datafusion::common::ScalarValue = (1_i64).into();
-            crate::Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        });
+        let spec = CompiledParamSpec::shared(&crate::Param::new("value", 1_i64));
         let bytes = bincode::serialize(&UncheckedState {
             params: vec![spec.clone(), spec],
         })

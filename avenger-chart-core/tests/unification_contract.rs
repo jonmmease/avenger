@@ -121,9 +121,9 @@ fn same_named_component_state_does_not_require_generated_name_prefixes() {
 }
 
 #[test]
-fn explicit_param_type_and_migration_metadata_are_independent_contracts() {
-    let param = Param::typed("value", DataType::Int32, 1_i32).unwrap();
-    assert_eq!(param.data_type, DataType::Int32);
+fn scalar_param_type_and_migration_metadata_are_independent_contracts() {
+    let param = Param::new("value", 1_i32);
+    assert_eq!(param.default.data_type(), DataType::Int32);
 
     let mut ids = CompiledIdentityAllocator::new("contract-chart");
     let runtime_id = ids.allocate_param();

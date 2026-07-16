@@ -895,8 +895,8 @@ let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")))
-    .param(Param::typed("--primary-color", DataType::Utf8, "#0072B2")?)
-    .param(Param::typed("--base-font-size", DataType::Utf8, "12px")?);
+    .param(Param::new("--primary-color", "#0072B2"))
+    .param(Param::new("--base-font-size", "12px"));
 
 // Step 2: Compile the plot
 let compiled = plot.compile(&ctx).await?;
@@ -949,7 +949,7 @@ let plot = Chart::<Cartesian>::new()
     .theme(theme)
     .data(df)
     .mark(Symbol::new().x(col("x")).y(col("y")))
-    .param(Param::typed("color-scheme", DataType::Utf8, "dark")?);  // Switch to dark mode
+    .param(Param::new("color-scheme", "dark"));  // Switch to dark mode
 # Ok(())
 # }
 ```
@@ -1970,8 +1970,8 @@ let css = r#"
 let theme = Theme::from_css(css)?;
 
 // Define width and height parameters with default values
-let width = Param::typed("width", DataType::Float64, 600.0)?;
-let height = Param::typed("height", DataType::Float64, 300.0)?;
+let width = Param::new("width", 600.0);
+let height = Param::new("height", 300.0);
 
 let plot = Chart::<Cartesian>::new()
     .theme(theme)

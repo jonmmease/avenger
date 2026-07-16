@@ -10,7 +10,6 @@ use avenger_chart_core::{
 };
 use avenger_chart_geo::{Geo, GeoCoordMeasurement, GraticuleStyle, SphereStyle};
 use avenger_scales::scales::linear::LinearScale;
-use datafusion::arrow::datatypes::DataType;
 use datafusion::common::ScalarValue;
 use datafusion::prelude::SessionContext;
 use indexmap::IndexMap;
@@ -24,8 +23,7 @@ fn assert_close(actual: f64, expected: f64, epsilon: f64) {
 }
 
 fn nullable_float_param(name: String) -> Param {
-    Param::typed(name, DataType::Float64, ScalarValue::Float64(None))
-        .expect("nullable Float64 default must match its declared type")
+    Param::new(name, ScalarValue::Float64(None))
 }
 
 fn scene_mark_names(marks: &[avenger_scenegraph::marks::mark::SceneMark]) -> Vec<String> {

@@ -1487,7 +1487,7 @@ mod tests {
             &self,
             ctx: ToolExpansionContext<'_>,
         ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
-            let param = Param::typed(format!("{}__enabled", self.id), DataType::Boolean, true)?;
+            let param = Param::new(format!("{}__enabled", self.id), true);
             let mut behavior = ToolBehaviorExpansion::new(ctx.instance_id.clone())
                 .component("identity-tool", self.id.clone())
                 .param(param, ToolParamSharing::Explicit(CoordinationScope::Shared));

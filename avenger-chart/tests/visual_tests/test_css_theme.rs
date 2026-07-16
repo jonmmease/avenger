@@ -585,28 +585,14 @@ async fn test_runtime_color_params() {
                 .fill(col("category")),
         )
         .theme(theme)
-        .param({
-            let __avenger_param_name = "--bg-color";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(Some("#3E2723".to_string()))).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        })
-        .param({
-            let __avenger_param_name = "--text-color";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(Some("#00D9FF".to_string()))).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        });
+        .param(Param::new(
+            "--bg-color",
+            ScalarValue::Utf8(Some("#3E2723".to_string())),
+        ))
+        .param(Param::new(
+            "--text-color",
+            ScalarValue::Utf8(Some("#00D9FF".to_string())),
+        ));
 
     let compiled = plot.compile(&ctx).await.expect("Failed to compile plot");
     assert_visual_match(

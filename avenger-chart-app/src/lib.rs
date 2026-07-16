@@ -2427,28 +2427,8 @@ mod tests {
 
     async fn resize_test_state() -> ChartAppState {
         let ctx = SessionContext::new();
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(640.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let height = {
-            let __avenger_param_name = "height";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(480.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let height = Param::new("height", ScalarValue::Float64(Some(480.0)));
         let compiled = Chart::<Cartesian>::new()
             .params([width.clone(), height.clone()])
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -2992,17 +2972,7 @@ mod tests {
     #[tokio::test]
     async fn param_bool_reads_bool_param() {
         let ctx = SessionContext::new();
-        let enabled = {
-            let __avenger_param_name = "enabled";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(true));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new("enabled", ScalarValue::Boolean(Some(true)));
         let compiled = Chart::<Cartesian>::new()
             .param(enabled)
             .compile(&ctx)
@@ -3112,17 +3082,7 @@ mod tests {
     #[tokio::test]
     async fn resize_handler_ignores_unbound_canvas_axes() {
         let ctx = SessionContext::new();
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(640.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
         let compiled = Chart::<Cartesian>::new()
             .param(width.clone())
             .canvas_constraint(CanvasConstraint::width(width.expr()))
@@ -3337,39 +3297,9 @@ mod tests {
 
     #[tokio::test]
     async fn param_transaction_cascades_in_typed_waves() {
-        let a = {
-            let __avenger_param_name = "a";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let b = {
-            let __avenger_param_name = "b";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(10));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let c = {
-            let __avenger_param_name = "c";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(100));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let a = Param::new("a", ScalarValue::Int64(Some(0)));
+        let b = Param::new("b", ScalarValue::Int64(Some(10)));
+        let c = Param::new("c", ScalarValue::Int64(Some(100)));
         let chart = Chart::<Cartesian>::new()
             .param(a.clone())
             .param(b.clone())
@@ -3419,12 +3349,9 @@ mod tests {
 
     #[tokio::test]
     async fn param_reaction_actions_observe_preceding_writes() {
-        let source = Param::typed("source", DataType::Int64, ScalarValue::Int64(Some(0)))
-            .expect("typed source");
-        let first = Param::typed("first", DataType::Int64, ScalarValue::Int64(Some(0)))
-            .expect("typed first");
-        let second = Param::typed("second", DataType::Int64, ScalarValue::Int64(Some(0)))
-            .expect("typed second");
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let first = Param::new("first", ScalarValue::Int64(Some(0)));
+        let second = Param::new("second", ScalarValue::Int64(Some(0)));
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(first.clone())
@@ -3448,28 +3375,8 @@ mod tests {
 
     #[tokio::test]
     async fn public_set_param_reports_complete_reaction_batch() {
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let sink = {
-            let __avenger_param_name = "sink";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(0)));
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3504,28 +3411,8 @@ mod tests {
 
     #[tokio::test]
     async fn param_transaction_rolls_back_on_reaction_error() {
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let sink = {
-            let __avenger_param_name = "sink";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(9));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3569,17 +3456,7 @@ mod tests {
 
     #[tokio::test]
     async fn button_action_failure_rolls_back_activation_and_never_latches() {
-        let sink = {
-            let __avenger_param_name = "sink";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(9));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let sink = Param::new("sink", ScalarValue::Int64(Some(9)));
         let button = avenger_chart_widgets::Button::new("clear")
             .label("Clear")
             .action(ChartAction::new().set_param_required(&sink, lit(ScalarValue::Int64(None))));
@@ -3603,36 +3480,9 @@ mod tests {
 
     #[tokio::test]
     async fn one_reaction_atomically_resets_copies_and_clears_all_state_kinds() {
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let scalar = {
-            let __avenger_param_name = "scalar";
-            let __avenger_param_default: datafusion::common::ScalarValue = (7_i64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let audit = {
-            let __avenger_param_name = "audit";
-            let __avenger_param_default: datafusion::common::ScalarValue = (0_u64).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", 0_u64);
+        let scalar = Param::new("scalar", 7_i64);
+        let audit = Param::new("audit", 0_u64);
         let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int64, false)]));
         let initial_store =
             RecordBatch::try_new(schema, vec![Arc::new(Int64Array::from(vec![1_i64]))])
@@ -3736,28 +3586,8 @@ mod tests {
 
     #[tokio::test]
     async fn busy_runtime_preserves_fifo_reaction_transactions() {
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let sink = {
-            let __avenger_param_name = "sink";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(0)));
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3806,28 +3636,8 @@ mod tests {
 
     #[tokio::test]
     async fn param_transaction_filters_and_equal_writes_are_noops() {
-        let source = {
-            let __avenger_param_name = "source";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let sink = {
-            let __avenger_param_name = "sink";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(7));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let source = Param::new("source", ScalarValue::Int64(Some(0)));
+        let sink = Param::new("sink", ScalarValue::Int64(Some(7)));
         let chart = Chart::<Cartesian>::new()
             .param(source.clone())
             .param(sink.clone())
@@ -3877,28 +3687,8 @@ mod tests {
 
     #[tokio::test]
     async fn simultaneous_reaction_sink_collision_rolls_back_batch() {
-        let a = {
-            let __avenger_param_name = "a";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let b = {
-            let __avenger_param_name = "b";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Int64(Some(0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let a = Param::new("a", ScalarValue::Int64(Some(0)));
+        let b = Param::new("b", ScalarValue::Int64(Some(0)));
         let chart = Chart::<Cartesian>::new()
             .param(a.clone())
             .param(b.clone())

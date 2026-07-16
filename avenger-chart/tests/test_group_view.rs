@@ -145,17 +145,7 @@ fn collect_symbol_sizes(scene: &SceneGraph) -> Vec<f32> {
 #[tokio::test]
 async fn group_view_shared_chain_feeds_both_children() {
     let ctx = SessionContext::new();
-    let cutoff = {
-        let __avenger_param_name = "cutoff";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(10.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let cutoff = Param::new("cutoff", ScalarValue::Float64(Some(10.0)));
     let df = xy_dataframe(&ctx, 5).await;
     let plot = Chart::<Cartesian>::new().param(cutoff.clone()).mark(
         MarkGroup::<Cartesian>::new().data(df).view(

@@ -129,17 +129,10 @@ impl GeoPanZoom {
     }
 
     fn overlay_param(&self, suffix: &str) -> Param {
-        {
-            let __avenger_param_name = generated_tool_name(&self.id, suffix);
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        }
+        Param::new(
+            generated_tool_name(&self.id, suffix),
+            ScalarValue::Float64(Some(0.0)),
+        )
     }
 
     fn center_x_param_name(&self) -> String {
@@ -200,17 +193,10 @@ impl ChartTool<Geo> for GeoPanZoom {
             )));
         }
 
-        let enabled = {
-            let __avenger_param_name = self.enabled_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(self.enabled_by_default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
         let center_x = viewport_param(self.center_x_param_name());
         let center_y = viewport_param(self.center_y_param_name());
         let units_per_pixel = viewport_param(self.units_per_pixel_param_name());
@@ -275,17 +261,7 @@ impl ChartTool<Geo> for GeoPanZoom {
         }
 
         if self.box_zoom {
-            let active = {
-                let __avenger_param_name = self.active_param_name();
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Boolean(Some(false));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            };
+            let active = Param::new(self.active_param_name(), ScalarValue::Boolean(Some(false)));
             let box_x0 = self.overlay_param("box_x0");
             let box_y0 = self.overlay_param("box_y0");
             let box_x1 = self.overlay_param("box_x1");
@@ -384,16 +360,7 @@ struct ViewportParams {
 }
 
 fn viewport_param(name: impl Into<String>) -> Param {
-    {
-        let __avenger_param_name = name;
-        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Float64(None);
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    }
+    Param::new(name, ScalarValue::Float64(None))
 }
 
 fn drag_pan_binding(

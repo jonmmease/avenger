@@ -1192,17 +1192,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let ctx = SessionContext::new();
         let dataframe = register_sales(&ctx).await;
-        let min = {
-            let __avenger_param_name = "min";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let min = Param::new("min", ScalarValue::Float64(Some(0.0)));
         let data_context = data_context(
             dataframe,
             vec![

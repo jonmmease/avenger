@@ -202,17 +202,7 @@ fn responsive_facet_wrap_plot(df: DataFrame, canvas_width: f32) -> Chart<FacetWr
 }
 
 fn responsive_facet_wrap_session_plot(df: DataFrame) -> Chart<FacetWrap> {
-    let width = {
-        let __avenger_param_name = "width";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(520.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
     Chart::<FacetWrap>::new()
         .param(width.clone())
         .data(df)

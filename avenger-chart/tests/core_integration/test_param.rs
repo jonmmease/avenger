@@ -9,17 +9,7 @@ use datafusion::scalar::ScalarValue;
 #[tokio::test]
 async fn test_param_creation() {
     // Create a parameter with a name and default value
-    let param = {
-        let __avenger_param_name = "threshold";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(50.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let param = Param::new("threshold", ScalarValue::Float64(Some(50.0)));
 
     // Verify the parameter has the correct name and default
     assert_eq!(param.name, "threshold");
@@ -50,27 +40,8 @@ async fn test_plot_with_params() {
         .unwrap();
 
     // Create parameters
-    let param1 = {
-        let __avenger_param_name = "scale_factor";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            ScalarValue::Float64(Some(2.0));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
-    let param2 = {
-        let __avenger_param_name = "offset";
-        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Int32(Some(5));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let param1 = Param::new("scale_factor", ScalarValue::Float64(Some(2.0)));
+    let param2 = Param::new("offset", ScalarValue::Int32(Some(5)));
 
     // Create plot with parameters
     let plot = Chart::<Cartesian>::new()
@@ -100,30 +71,16 @@ async fn test_plot_with_params() {
 }
 
 #[tokio::test]
-async fn test_param_typed_constructor() {
-    let param = Param::typed(
-        "my_param",
-        DataType::Boolean,
-        ScalarValue::Boolean(Some(true)),
-    )
-    .unwrap();
+async fn test_param_constructor_preserves_scalar_type() {
+    let param = Param::new("my_param", ScalarValue::Boolean(Some(true)));
     assert_eq!(param.name, "my_param");
-    assert_eq!(param.data_type, DataType::Boolean);
+    assert_eq!(param.default.data_type(), DataType::Boolean);
     assert_eq!(param.default, ScalarValue::Boolean(Some(true)));
 }
 
 #[tokio::test]
 async fn test_param_into_expr() {
-    let param = {
-        let __avenger_param_name = "test";
-        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Int64(Some(42));
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let param = Param::new("test", ScalarValue::Int64(Some(42)));
 
     // Test Into<Expr> for owned Param
     let expr1: Expr = param.clone().into();
@@ -147,39 +104,9 @@ async fn test_add_params_multiple() {
     let ctx = SessionContext::new();
 
     let params = vec![
-        {
-            let __avenger_param_name = "p1";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float32(Some(1.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        },
-        {
-            let __avenger_param_name = "p2";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float32(Some(2.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        },
-        {
-            let __avenger_param_name = "p3";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float32(Some(3.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        },
+        Param::new("p1", ScalarValue::Float32(Some(1.0))),
+        Param::new("p2", ScalarValue::Float32(Some(2.0))),
+        Param::new("p3", ScalarValue::Float32(Some(3.0))),
     ];
 
     let plot = Chart::<Cartesian>::new().params(params);

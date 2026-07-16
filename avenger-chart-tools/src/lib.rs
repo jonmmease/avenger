@@ -174,17 +174,10 @@ impl ChartTool<Cartesian> for PanScrollZoom {
         &self,
         ctx: ToolExpansionContext<'_>,
     ) -> Result<ToolBehaviorExpansion<Cartesian>, AvengerChartError> {
-        let enabled = {
-            let __avenger_param_name = self.enabled_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(self.enabled_by_default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param_as(
                 "enabled",
@@ -483,17 +476,10 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
         &self,
         ctx: ToolExpansionContext<'_>,
     ) -> Result<ToolBehaviorExpansion<C>, AvengerChartError> {
-        let enabled = {
-            let __avenger_param_name = self.enabled_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(self.enabled_by_default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
         let clause = self.clause()?;
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
@@ -791,17 +777,10 @@ impl<C: CoordinateSystemCore> ChartTool<C> for LassoSelection {
         &self,
         ctx: ToolExpansionContext<'_>,
     ) -> Result<ToolBehaviorExpansion<C>, AvengerChartError> {
-        let enabled = {
-            let __avenger_param_name = self.enabled_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(self.enabled_by_default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(
                 enabled.clone(),
@@ -1219,17 +1198,10 @@ impl ChartTool<Cartesian> for BoxSelection {
             &self.y_channel,
         )?;
 
-        let enabled = {
-            let __avenger_param_name = self.enabled_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(self.enabled_by_default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
         let store = self.store();
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
             .param(
@@ -1457,17 +1429,10 @@ impl BoxZoom {
     }
 
     fn overlay_param(&self, suffix: &str) -> Param {
-        {
-            let __avenger_param_name = generated_tool_name(&self.id, suffix);
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        }
+        Param::new(
+            generated_tool_name(&self.id, suffix),
+            ScalarValue::Float64(Some(0.0)),
+        )
     }
 }
 
@@ -1500,28 +1465,11 @@ impl ChartTool<Cartesian> for BoxZoom {
             &self.y_channel,
         )?;
 
-        let enabled = {
-            let __avenger_param_name = self.enabled_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(self.enabled_by_default));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let active = {
-            let __avenger_param_name = self.active_param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Boolean(Some(false));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let enabled = Param::new(
+            self.enabled_param_name(),
+            ScalarValue::Boolean(Some(self.enabled_by_default)),
+        );
+        let active = Param::new(self.active_param_name(), ScalarValue::Boolean(Some(false)));
         let box_x0 = self.overlay_param("x0");
         let box_y0 = self.overlay_param("y0");
         let box_x1 = self.overlay_param("x1");

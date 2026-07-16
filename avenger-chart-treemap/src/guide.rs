@@ -941,17 +941,7 @@ mod tests {
     async fn guide_header_and_breadcrumb_datums_support_zoom_param_binding() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let root = {
-            let __avenger_param_name = "treemap_root";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
         let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])
@@ -1027,17 +1017,7 @@ mod tests {
     async fn guide_breadcrumb_datums_carry_zoom_out_path_ids() {
         let ctx = SessionContext::new();
         let df = ctx.read_batch(guide_source_batch()).unwrap();
-        let root = {
-            let __avenger_param_name = "treemap_root";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let root = Param::new("treemap_root", ScalarValue::Utf8(None));
         let compiled = Chart::with_coord(
             Treemap::new()
                 .path_columns(["division", "team"])

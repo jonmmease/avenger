@@ -37,17 +37,7 @@ pub const MIN_SWEEP_MAX: f64 = 100_000.0;
 /// session that has never seen the data: move the cursor across the chart
 /// to sweep the threshold.
 pub fn daily_totals_chart(data: DataFrame) -> Chart<Cartesian> {
-    let min = {
-        let __avenger_param_name = "min";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(0.0))).into();
-        Param::typed(
-            __avenger_param_name,
-            __avenger_param_default.data_type(),
-            __avenger_param_default,
-        )
-        .expect("a parameter default must match its selected physical type")
-    };
+    let min = Param::new("min", ScalarValue::Float64(Some(0.0)));
     Chart::<Cartesian>::new()
         .canvas_size(860.0, 520.0)
         .title("Baked daily totals — move the cursor to sweep the $min threshold")

@@ -4086,11 +4086,9 @@ mod tests {
 
     #[test]
     fn root_param_revisions_only_advance_for_actual_changes() {
-        let specs = ["stable", "changed", "removed"].into_iter().map(|name| {
-            CompiledParamSpec::shared(
-                &Param::typed(name, DataType::Int64, ScalarValue::Int64(Some(0))).unwrap(),
-            )
-        });
+        let specs = ["stable", "changed", "removed"]
+            .into_iter()
+            .map(|name| CompiledParamSpec::shared(&Param::new(name, ScalarValue::Int64(Some(0)))));
         let mut store = ScopedParamStore::new(resolved_param_specs(specs));
         let initial = IndexMap::from([
             ("stable".to_string(), ScalarValue::Int64(Some(1))),
@@ -4647,17 +4645,7 @@ mod tests {
     async fn compile_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(360.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(360.0)));
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
@@ -4673,28 +4661,8 @@ mod tests {
     async fn compile_symbol_size_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(360.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let symbol_size = {
-            let __avenger_param_name = "symbol_size";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(20.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(360.0)));
+        let symbol_size = Param::new("symbol_size", ScalarValue::Float64(Some(20.0)));
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
@@ -4782,17 +4750,7 @@ mod tests {
     async fn compile_scale_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let scale_factor = {
-            let __avenger_param_name = "scale_factor";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(1.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (2.0, 3.0), (3.0, 5.0)) AS t(x, y)")
             .await?;
@@ -4812,28 +4770,8 @@ mod tests {
     async fn compile_pan_zoom_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let x_min = {
-            let __avenger_param_name = "x_min";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(0.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let x_max = {
-            let __avenger_param_name = "x_max";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(10.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let x_min = Param::new("x_min", ScalarValue::Float64(Some(0.0)));
+        let x_max = Param::new("x_max", ScalarValue::Float64(Some(10.0)));
         let domain_min = x_min.clone();
         let domain_max = x_max.clone();
         let df = ctx
@@ -5251,17 +5189,7 @@ mod tests {
     async fn compile_unit_aspect_width_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(420.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
         let df = ctx
             .sql("SELECT * FROM (VALUES (1.0, 2.0), (3.0, 3.0), (8.0, 5.0)) AS t(x, y)")
             .await?;
@@ -5288,17 +5216,7 @@ mod tests {
     async fn compile_unit_aspect_facet_width_param_preview_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(520.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5817,17 +5735,7 @@ mod tests {
     async fn compile_facet_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(520.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5859,17 +5767,7 @@ mod tests {
     async fn compile_facet_child_scale_param_precompute_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let scale_factor = {
-            let __avenger_param_name = "scale_factor";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(1.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5901,17 +5799,7 @@ mod tests {
     async fn compile_responsive_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(420.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -5944,28 +5832,8 @@ mod tests {
     async fn compile_responsive_wrap_width_and_child_scale_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(420.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let scale_factor = {
-            let __avenger_param_name = "scale_factor";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(1.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let scale_factor = Param::new("scale_factor", ScalarValue::Float64(Some(1.0)));
         let child_scale_factor = scale_factor.clone();
         let df = ctx
             .sql(
@@ -6002,28 +5870,8 @@ mod tests {
     ) -> Result<CompiledPlot, AvengerChartError> {
         use datafusion::functions_aggregate::min_max::max;
 
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(420.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
-        let order_factor = {
-            let __avenger_param_name = "order_factor";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(1.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(420.0)));
+        let order_factor = Param::new("order_factor", ScalarValue::Float64(Some(1.0)));
         let order_expr = order_factor.clone();
         let df = ctx
             .sql(
@@ -6063,17 +5911,7 @@ mod tests {
     async fn compile_row_nested_responsive_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(520.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -6111,17 +5949,7 @@ mod tests {
     async fn compile_column_nested_responsive_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(520.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -6159,17 +5987,7 @@ mod tests {
     async fn compile_responsive_wrap_concat_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(520.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -6204,17 +6022,7 @@ mod tests {
     async fn compile_responsive_repeat_wrap_inside_facet_wrap_width_param_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(560.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(560.0)));
         let df = ctx
             .sql(
                 "SELECT * FROM (VALUES
@@ -6260,17 +6068,7 @@ mod tests {
     async fn compile_positioned_child_width_param_scale_cache_plot(
         ctx: &SessionContext,
     ) -> Result<CompiledPlot, AvengerChartError> {
-        let width = {
-            let __avenger_param_name = "width";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                ScalarValue::Float64(Some(520.0));
-            Param::typed(
-                __avenger_param_name,
-                __avenger_param_default.data_type(),
-                __avenger_param_default,
-            )
-            .expect("a parameter default must match its selected physical type")
-        };
+        let width = Param::new("width", ScalarValue::Float64(Some(520.0)));
         let parent_df = ctx
             .sql("SELECT * FROM (VALUES (0.3, 0.5), (0.7, 0.5)) AS t(parent_x, parent_y)")
             .await?;
@@ -6441,7 +6239,7 @@ mod tests {
     #[tokio::test]
     async fn plot_session_instances_keep_independent_params() -> Result<(), AvengerChartError> {
         let ctx = Arc::new(SessionContext::new());
-        let zoom = Param::typed("zoom", DataType::Float64, 0.0)?;
+        let zoom = Param::new("zoom", 0.0);
         let compiled = Arc::new(
             crate::plot::Chart::<Cartesian>::new()
                 .param(zoom)
@@ -10079,17 +9877,7 @@ mod tests {
     async fn add_param_compiles_to_shared_sharing() -> Result<(), AvengerChartError> {
         let ctx = SessionContext::new();
         let compiled = crate::plot::Chart::<Cartesian>::new()
-            .param({
-                let __avenger_param_name = "width";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(Some(640.0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("width", ScalarValue::Float64(Some(640.0))))
             .compile(&ctx)
             .await?;
         let spec = compiled
@@ -10128,29 +9916,9 @@ mod tests {
     async fn duplicate_param_names_error_on_compile() {
         let ctx = SessionContext::new();
         let result = crate::plot::Chart::<Cartesian>::new()
-            .param({
-                let __avenger_param_name = "width";
-                let __avenger_param_default: datafusion::common::ScalarValue =
-                    ScalarValue::Float64(Some(1.0));
-                Param::typed(
-                    __avenger_param_name,
-                    __avenger_param_default.data_type(),
-                    __avenger_param_default,
-                )
-                .expect("a parameter default must match its selected physical type")
-            })
+            .param(Param::new("width", ScalarValue::Float64(Some(1.0))))
             .param_with_sharing(
-                {
-                    let __avenger_param_name = "width";
-                    let __avenger_param_default: datafusion::common::ScalarValue =
-                        ScalarValue::Float64(Some(2.0));
-                    Param::typed(
-                        __avenger_param_name,
-                        __avenger_param_default.data_type(),
-                        __avenger_param_default,
-                    )
-                    .expect("a parameter default must match its selected physical type")
-                },
+                Param::new("width", ScalarValue::Float64(Some(2.0))),
                 CoordinationScope::Level(1),
             )
             .compile(&ctx)
