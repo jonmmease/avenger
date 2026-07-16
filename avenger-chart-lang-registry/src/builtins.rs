@@ -39,12 +39,19 @@ pub fn bootstrap_registry() -> Result<NativeRegistry, RegistryError> {
 pub fn register_bootstrap_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
-    builder.register_coordinate_pack(cartesian_pack())?;
+    builder.register_coordinate_pack(cartesian_base_pack())?;
+    builder.register_mark::<Cartesian>("cartesian", "symbol", symbol_schema(), lower_symbol)?;
+    builder.register_tool::<Cartesian>(
+        "cartesian",
+        "pan_scroll_zoom",
+        pan_scroll_zoom_schema(),
+        lower_pan_scroll_zoom,
+    )?;
     register_bootstrap_noncoordinate_builtins(builder)
 }
 
 /// Register the coordinate-independent bootstrap families. Downstream hosts
-/// can pair this with an augmented [`cartesian_pack`] before finalization.
+/// can use this when assembling a custom coordinate-pack set manually.
 pub fn register_bootstrap_noncoordinate_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
@@ -54,6 +61,16 @@ pub fn register_bootstrap_noncoordinate_builtins(
 }
 
 pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
+    cartesian_base_pack()
+        .mark("symbol", symbol_schema(), lower_symbol)
+        .tool(
+            "pan_scroll_zoom",
+            pan_scroll_zoom_schema(),
+            lower_pan_scroll_zoom,
+        )
+}
+
+fn cartesian_base_pack() -> CoordinatePack<Cartesian> {
     let coordinate = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Coordinate, "cartesian"),
         "A two-dimensional Cartesian coordinate system.",
@@ -66,7 +83,16 @@ pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
         ),
     );
 
-    let mark = symbol_schema();
+    CoordinatePack::new("cartesian", coordinate, |declaration| {
+        let mut coordinate = Cartesian::new();
+        if let Some(ResolvedValue::Number(ratio)) = declaration.properties.get("unit_aspect") {
+            coordinate = coordinate.unit_aspect(*ratio);
+        }
+        Ok(coordinate)
+    })
+}
+
+fn pan_scroll_zoom_schema() -> KindSchema {
     let mut tool = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Tool, "pan_scroll_zoom"),
         "Pointer-drag panning and wheel zoom for Cartesian domains.",
@@ -82,35 +108,34 @@ pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
         docs: "The tool-owned current y domain.".to_string(),
     });
     tool.compatible_coordinates.insert("cartesian".to_string());
+    tool
+}
 
-    CoordinatePack::new("cartesian", coordinate, |declaration| {
-        let mut coordinate = Cartesian::new();
-        if let Some(ResolvedValue::Number(ratio)) = declaration.properties.get("unit_aspect") {
-            coordinate = coordinate.unit_aspect(*ratio);
-        }
-        Ok(coordinate)
-    })
-    .mark("symbol", mark, |declaration| {
-        let mut mark = Symbol::<Cartesian>::new();
-        for (name, value) in &declaration.properties {
-            let ResolvedValue::Expr(expr) = value else {
-                return Err(RegistryError::InvalidPropertyType {
-                    property: name.clone(),
-                    expected: "SQL expression".to_string(),
-                });
-            };
-            mark = match name.as_str() {
-                "x" => mark.x(expr.clone()),
-                "y" => mark.y(expr.clone()),
-                "fill_pattern" => mark.fill_pattern(expr.clone()),
-                channel => mark.with_channel_value(channel, expr.clone().into()),
-            };
-        }
-        Ok(mark.into_plot_marks())
-    })
-    .tool("pan_scroll_zoom", tool, |_declaration| {
-        Ok(Arc::new(PanScrollZoom::cartesian()))
-    })
+fn lower_symbol(
+    declaration: &crate::ResolvedDeclaration,
+) -> Result<Vec<avenger_chart::prelude::PlotMark<Cartesian>>, RegistryError> {
+    let mut mark = Symbol::<Cartesian>::new();
+    for (name, value) in &declaration.properties {
+        let ResolvedValue::Expr(expr) = value else {
+            return Err(RegistryError::InvalidPropertyType {
+                property: name.clone(),
+                expected: "SQL expression".to_string(),
+            });
+        };
+        mark = match name.as_str() {
+            "x" => mark.x(expr.clone()),
+            "y" => mark.y(expr.clone()),
+            "fill_pattern" => mark.fill_pattern(expr.clone()),
+            channel => mark.with_channel_value(channel, expr.clone().into()),
+        };
+    }
+    Ok(mark.into_plot_marks())
+}
+
+fn lower_pan_scroll_zoom(
+    _declaration: &crate::ResolvedDeclaration,
+) -> Result<Arc<dyn avenger_chart::prelude::ChartTool<Cartesian>>, RegistryError> {
+    Ok(Arc::new(PanScrollZoom::cartesian()))
 }
 
 pub fn symbol_schema() -> KindSchema {

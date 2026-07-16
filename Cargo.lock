@@ -799,6 +799,7 @@ dependencies = [
  "avenger-chart",
  "avenger-chart-cartesian",
  "avenger-chart-core",
+ "avenger-chart-external-test",
  "avenger-chart-marks",
  "avenger-chart-scales",
  "avenger-chart-schema",

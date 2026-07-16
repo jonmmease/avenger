@@ -23,5 +23,6 @@ sha2 = "0.10"
 thiserror = { workspace = true }
 
 [dev-dependencies]
+avenger-chart-external-test = { path = "../avenger-chart-external-test" }
 bincode = "1.3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

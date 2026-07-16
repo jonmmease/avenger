@@ -7392,6 +7392,12 @@ extensions use the same schema-plus-lowerer entry types. Registry construction
 rejects duplicate keys, missing coordinate prerequisites, and
 schema/lowerer mismatches before project analysis begins.
 
+For an existing typed coordinate pack, the builder's
+`register_mark::<C>` and `register_tool::<C>` seams add compatible lowerers
+after the coordinate has been registered. A host can therefore register the
+stock built-ins first and then call independent extension registration
+functions without replacing or reconstructing the built-in coordinate pack.
+
 Coordinate-specific registration remains typed inside `CoordinatePack<C>`:
 compatible marks and tools lower while `C` is known, and only a complete root
 chart or child-plot operation crosses the object-safe erasure boundary. This

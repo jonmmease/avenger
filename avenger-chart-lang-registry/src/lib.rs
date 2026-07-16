@@ -270,6 +270,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
 
 #[async_trait]
 trait ErasedCoordinatePack: Send + Sync {
+    fn as_any_mut(&mut self) -> &mut dyn Any;
     fn schemas(&self) -> Vec<KindSchema>;
     fn validate_registration(&self) -> Result<(), RegistryError>;
     fn lower_child(
@@ -348,6 +349,10 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
 
 #[async_trait]
 impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
     fn schemas(&self) -> Vec<KindSchema> {
         std::iter::once(self.schema.clone())
             .chain(self.marks.values().map(|entry| entry.schema.clone()))
@@ -424,7 +429,7 @@ struct ObjectEntry {
 pub struct NativeRegistryBuilder {
     language_major: u32,
     profile_label: String,
-    coordinates: BTreeMap<String, Arc<dyn ErasedCoordinatePack>>,
+    coordinates: BTreeMap<String, Box<dyn ErasedCoordinatePack>>,
     transforms: BTreeMap<String, TransformEntry>,
     widgets: BTreeMap<String, WidgetEntry>,
     objects: BTreeMap<NativeKindKey, ObjectEntry>,
@@ -447,13 +452,85 @@ impl NativeRegistryBuilder {
         pack: CoordinatePack<C>,
     ) -> Result<(), RegistryError> {
         let kind = pack.kind.clone();
-        if self
-            .coordinates
-            .insert(kind.clone(), Arc::new(pack))
-            .is_some()
-        {
+        if self.coordinates.contains_key(&kind) {
             return Err(RegistryError::DuplicateCoordinate(kind));
         }
+        self.coordinates.insert(kind, Box::new(pack));
+        Ok(())
+    }
+
+    /// Add a mark lowerer to an already registered typed coordinate pack.
+    ///
+    /// This is the downstream extension path when a host registers built-ins
+    /// first and then invokes independent extension registration functions.
+    pub fn register_mark<C: CoordinateSystem>(
+        &mut self,
+        coordinate_kind: &str,
+        kind: impl Into<String>,
+        schema: KindSchema,
+        lowerer: impl Fn(&ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<(), RegistryError> {
+        let pack = self
+            .coordinates
+            .get_mut(coordinate_kind)
+            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+        let pack = pack
+            .as_any_mut()
+            .downcast_mut::<CoordinatePack<C>>()
+            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                coordinate: coordinate_kind.to_string(),
+                expected: std::any::type_name::<C>().to_string(),
+            })?;
+        let kind = kind.into();
+        if pack.marks.contains_key(&kind) {
+            return Err(RegistryError::DuplicateSchema(schema.key));
+        }
+        pack.marks.insert(
+            kind,
+            TypedMarkEntry {
+                schema,
+                lowerer: Arc::new(lowerer),
+            },
+        );
+        Ok(())
+    }
+
+    /// Add a tool lowerer to an already registered typed coordinate pack.
+    pub fn register_tool<C: CoordinateSystem>(
+        &mut self,
+        coordinate_kind: &str,
+        kind: impl Into<String>,
+        schema: KindSchema,
+        lowerer: impl Fn(&ResolvedDeclaration) -> Result<Arc<dyn ChartTool<C>>, RegistryError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<(), RegistryError> {
+        let pack = self
+            .coordinates
+            .get_mut(coordinate_kind)
+            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+        let pack = pack
+            .as_any_mut()
+            .downcast_mut::<CoordinatePack<C>>()
+            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                coordinate: coordinate_kind.to_string(),
+                expected: std::any::type_name::<C>().to_string(),
+            })?;
+        let kind = kind.into();
+        if pack.tools.contains_key(&kind) {
+            return Err(RegistryError::DuplicateSchema(schema.key));
+        }
+        pack.tools.insert(
+            kind,
+            TypedToolEntry {
+                schema,
+                lowerer: Arc::new(lowerer),
+            },
+        );
         Ok(())
     }
 
@@ -466,16 +543,14 @@ impl NativeRegistryBuilder {
         if schema.key.namespace != NativeKindNamespace::Transform {
             return Err(RegistryError::SchemaLowererMismatch(schema.key));
         }
-        if self
-            .transforms
-            .insert(kind.clone(), TransformEntry { schema, lowerer })
-            .is_some()
-        {
+        if self.transforms.contains_key(&kind) {
             return Err(RegistryError::DuplicateKind {
                 namespace: NativeKindNamespace::Transform,
                 kind,
             });
         }
+        self.transforms
+            .insert(kind, TransformEntry { schema, lowerer });
         Ok(())
     }
 
@@ -488,16 +563,13 @@ impl NativeRegistryBuilder {
         if schema.key.namespace != NativeKindNamespace::Widget {
             return Err(RegistryError::SchemaLowererMismatch(schema.key));
         }
-        if self
-            .widgets
-            .insert(kind.clone(), WidgetEntry { schema, lowerer })
-            .is_some()
-        {
+        if self.widgets.contains_key(&kind) {
             return Err(RegistryError::DuplicateKind {
                 namespace: NativeKindNamespace::Widget,
                 kind,
             });
         }
+        self.widgets.insert(kind, WidgetEntry { schema, lowerer });
         Ok(())
     }
 
@@ -516,16 +588,13 @@ impl NativeRegistryBuilder {
         ) {
             return Err(RegistryError::SchemaLowererMismatch(key));
         }
-        if self
-            .objects
-            .insert(key.clone(), ObjectEntry { schema, lowerer })
-            .is_some()
-        {
+        if self.objects.contains_key(&key) {
             return Err(RegistryError::DuplicateKind {
                 namespace: key.namespace,
                 kind: key.kind,
             });
         }
+        self.objects.insert(key, ObjectEntry { schema, lowerer });
         Ok(())
     }
 
@@ -567,7 +636,11 @@ impl NativeRegistryBuilder {
         Ok(NativeRegistry {
             snapshot,
             profile_id,
-            coordinates: self.coordinates,
+            coordinates: self
+                .coordinates
+                .into_iter()
+                .map(|(kind, pack)| (kind, Arc::from(pack)))
+                .collect(),
             transforms: self.transforms,
             widgets: self.widgets,
             objects: self.objects,
@@ -812,6 +885,11 @@ pub enum RegistryError {
     SchemaLowererMismatch(NativeKindKey),
     #[error("unknown coordinate '{0}'")]
     UnknownCoordinate(String),
+    #[error("coordinate pack '{coordinate}' does not use expected Rust type '{expected}'")]
+    CoordinatePackTypeMismatch {
+        coordinate: String,
+        expected: String,
+    },
     #[error("unknown mark '{mark}' for coordinate '{coordinate}'")]
     UnknownMarkPair { coordinate: String, mark: String },
     #[error("unknown tool '{tool}' for coordinate '{coordinate}'")]
@@ -866,9 +944,14 @@ mod tests {
 
     use avenger_chart::prelude::{
         Cartesian, CompiledWidget, CoordinationScope, FacetColumn, FacetColumnSubplotChannels,
-        IntoPlotMark, Subplot, Symbol, ToolExportTarget,
+        IntoPlotMark, PanScrollZoom, Subplot, Symbol, ToolExportTarget,
     };
     use avenger_chart_core::ParamRef;
+    use avenger_chart_external_test::{
+        external_compound_mark::ExternalMeanPoint,
+        external_coord_system::{Cube, Isometric},
+        external_mark::HexBin,
+    };
     use avenger_chart_schema::ChannelSchema;
     use datafusion::arrow::datatypes::DataType;
     use datafusion::logical_expr::{col, lit};
@@ -920,17 +1003,18 @@ mod tests {
         assert_eq!(left.profile_id(), right.profile_id());
 
         let mut builder = NativeRegistryBuilder::new(1, builtins::BOOTSTRAP_PROFILE_LABEL);
+        builtins::register_bootstrap_builtins(&mut builder).unwrap();
         builder
-            .register_coordinate_pack(builtins::cartesian_pack().mark(
+            .register_mark::<Cartesian>(
+                "cartesian",
                 "external_symbol",
                 KindSchema::new(
                     NativeKindKey::mark("cartesian", "external_symbol"),
                     "External symbol fixture.",
                 ),
                 |_| Ok(Symbol::<Cartesian>::new().x(0.0).y(0.0).into_plot_marks()),
-            ))
+            )
             .unwrap();
-        builtins::register_bootstrap_noncoordinate_builtins(&mut builder).unwrap();
         let extended = builder.build().unwrap();
         assert_ne!(left.profile_id(), extended.profile_id());
     }
@@ -1039,6 +1123,30 @@ mod tests {
             builder.register_coordinate_pack(pack()),
             Err(RegistryError::DuplicateCoordinate(_))
         ));
+        assert!(matches!(
+            builder.register_mark::<FacetColumn>(
+                "cartesian",
+                "wrong_rust_type",
+                KindSchema::new(
+                    NativeKindKey::mark("cartesian", "wrong_rust_type"),
+                    "Wrong typed-pack fixture.",
+                ),
+                |_| Ok(Vec::new()),
+            ),
+            Err(RegistryError::CoordinatePackTypeMismatch { .. })
+        ));
+        assert!(matches!(
+            builder.register_mark::<Cartesian>(
+                "missing",
+                "dot",
+                KindSchema::new(
+                    NativeKindKey::mark("missing", "dot"),
+                    "Missing coordinate fixture.",
+                ),
+                |_| Ok(Vec::new()),
+            ),
+            Err(RegistryError::UnknownCoordinate(kind)) if kind == "missing"
+        ));
 
         let duplicate_mark = pack()
             .mark(
@@ -1056,6 +1164,64 @@ mod tests {
         assert!(matches!(
             builder.build(),
             Err(RegistryError::DuplicateSchema(_))
+        ));
+
+        let tool_schema = || {
+            let mut schema = KindSchema::new(
+                NativeKindKey::new(NativeKindNamespace::Tool, "same_tool"),
+                "Duplicate tool fixture.",
+            );
+            schema
+                .compatible_coordinates
+                .insert("cartesian".to_string());
+            schema
+        };
+        let duplicate_tool = pack()
+            .tool("same_tool", tool_schema(), |_| {
+                Ok(Arc::new(PanScrollZoom::cartesian()))
+            })
+            .tool("same_tool", tool_schema(), |_| {
+                Ok(Arc::new(PanScrollZoom::cartesian()))
+            });
+        let mut builder = NativeRegistry::builder();
+        builder.register_coordinate_pack(duplicate_tool).unwrap();
+        assert!(matches!(
+            builder.build(),
+            Err(RegistryError::DuplicateSchema(_))
+        ));
+
+        let transform_schema = KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Transform, "same_transform"),
+            "Duplicate transform fixture.",
+        );
+        let transform_lowerer: NativeTransformLowerer = Arc::new(|_, _| unreachable!());
+        let mut builder = NativeRegistry::builder();
+        builder
+            .register_transform(transform_schema.clone(), transform_lowerer.clone())
+            .unwrap();
+        assert!(matches!(
+            builder.register_transform(transform_schema, transform_lowerer),
+            Err(RegistryError::DuplicateKind {
+                namespace: NativeKindNamespace::Transform,
+                ..
+            })
+        ));
+
+        let widget_schema = KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Widget, "same_widget"),
+            "Duplicate widget fixture.",
+        );
+        let widget_lowerer: NativeWidgetLowerer = Arc::new(|_| unreachable!());
+        let mut builder = NativeRegistry::builder();
+        builder
+            .register_widget(widget_schema.clone(), widget_lowerer.clone())
+            .unwrap();
+        assert!(matches!(
+            builder.register_widget(widget_schema, widget_lowerer),
+            Err(RegistryError::DuplicateKind {
+                namespace: NativeKindNamespace::Widget,
+                ..
+            })
         ));
 
         let mismatch = CoordinatePack::new(
@@ -1203,43 +1369,48 @@ mod tests {
 
     #[tokio::test]
     async fn downstream_extensions_cross_coordinate_and_typetag_boundaries() {
-        let external_mark_schema = KindSchema::new(
-            NativeKindKey::mark("cartesian", "external_dot"),
-            "A downstream Cartesian dot.",
-        );
-        let external_compound_schema = KindSchema::new(
-            NativeKindKey::mark("cartesian", "external_pair"),
-            "A downstream compound pair of dots.",
-        );
-        let augmented_cartesian = builtins::cartesian_pack()
-            .mark("external_dot", external_mark_schema, |_| {
-                Ok(Symbol::<Cartesian>::new().x(1.0).y(1.0).into_plot_marks())
-            })
-            .mark("external_pair", external_compound_schema, |_| {
-                Ok([
-                    Symbol::<Cartesian>::new().x(2.0).y(2.0),
-                    Symbol::<Cartesian>::new().x(3.0).y(3.0),
-                ]
-                .into_iter()
-                .flat_map(IntoPlotMark::into_plot_marks)
-                .collect())
-            });
+        fn register_extension(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+            builder.register_mark::<Cartesian>(
+                "cartesian",
+                "external_hexbin",
+                KindSchema::new(
+                    NativeKindKey::mark("cartesian", "external_hexbin"),
+                    "A Cartesian mark implemented by a downstream crate.",
+                ),
+                |_| Ok(HexBin::<Cartesian>::new().x(1.0).y(1.0).into_plot_marks()),
+            )?;
+            builder.register_mark::<Cartesian>(
+                "cartesian",
+                "external_mean_point",
+                KindSchema::new(
+                    NativeKindKey::mark("cartesian", "external_mean_point"),
+                    "A downstream aggregate-backed compound mark.",
+                ),
+                |_| Ok(ExternalMeanPoint::new(lit("all"), lit(2.0)).into_plot_marks()),
+            )
+        }
 
         let external_coordinate = CoordinatePack::new(
-            "external_cartesian",
+            "external_isometric",
             KindSchema::new(
-                NativeKindKey::new(NativeKindNamespace::Coordinate, "external_cartesian"),
-                "A downstream coordinate pack fixture.",
+                NativeKindKey::new(NativeKindNamespace::Coordinate, "external_isometric"),
+                "A downstream isometric coordinate pack fixture.",
             ),
-            |_| Ok(Cartesian::new()),
+            |_| Ok(Isometric::new()),
         )
         .mark(
-            "external_dot",
+            "external_cube",
             KindSchema::new(
-                NativeKindKey::mark("external_cartesian", "external_dot"),
-                "A dot compatible with the downstream coordinate.",
+                NativeKindKey::mark("external_isometric", "external_cube"),
+                "A cube implemented by a downstream crate.",
             ),
-            |_| Ok(Symbol::<Cartesian>::new().x(4.0).y(4.0).into_plot_marks()),
+            |_| {
+                Ok(Cube::<Isometric>::new()
+                    .iso_x(1.0)
+                    .iso_y(2.0)
+                    .iso_z(3.0)
+                    .into_plot_marks())
+            },
         );
 
         let external_container = CoordinatePack::new(
@@ -1251,50 +1422,73 @@ mod tests {
             |_| Ok(FacetColumn),
         )
         .child_plots(|plot, child, placement| {
-            let column = expr_property(placement, "column")?;
+            let column = match placement.get("column")? {
+                ResolvedValue::Expr(expr) => expr.clone(),
+                _ => {
+                    return Err(RegistryError::InvalidPropertyType {
+                        property: "column".to_string(),
+                        expected: "SQL expression".to_string(),
+                    });
+                }
+            };
             Ok(plot.mark(Subplot::<FacetColumn>::new(child).column(column)))
         });
 
         let mut builder = NativeRegistryBuilder::new(1, "downstream-fixture");
-        builder
-            .register_coordinate_pack(augmented_cartesian)
-            .unwrap();
+        builtins::register_bootstrap_builtins(&mut builder).unwrap();
+        register_extension(&mut builder).unwrap();
         builder
             .register_coordinate_pack(external_coordinate)
             .unwrap();
         builder
             .register_coordinate_pack(external_container)
             .unwrap();
-        builtins::register_bootstrap_noncoordinate_builtins(&mut builder).unwrap();
         let registry = builder.build().unwrap();
         let context = SessionContext::new();
 
         let mut augmented = ResolvedPlot::new("cartesian");
         augmented
             .marks
-            .push(ResolvedDeclaration::new("external_dot"));
+            .push(ResolvedDeclaration::new("external_hexbin"));
         augmented
             .marks
-            .push(ResolvedDeclaration::new("external_pair"));
+            .push(ResolvedDeclaration::new("external_mean_point"));
         let compiled = registry.compile_root(&augmented, &context).await.unwrap();
-        assert_eq!(compiled.marks().len(), 3);
+        assert_eq!(compiled.marks().len(), 2);
+        assert_eq!(compiled.marks()[0].mark_type(), "hexbin");
+        let decoded: CompiledPlot =
+            bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+        assert_eq!(decoded.marks()[0].mark_type(), "hexbin");
 
-        let mut external = ResolvedPlot::new("external_cartesian");
+        let mut external = ResolvedPlot::new("external_isometric");
         external
             .marks
-            .push(ResolvedDeclaration::new("external_dot"));
+            .push(ResolvedDeclaration::new("external_cube"));
         let compiled = registry.compile_root(&external, &context).await.unwrap();
         assert_eq!(compiled.marks().len(), 1);
+        assert_eq!(compiled.marks()[0].mark_type(), "cube");
+        let decoded: CompiledPlot =
+            bincode::deserialize(&bincode::serialize(&compiled).unwrap()).unwrap();
+        assert_eq!(decoded.marks()[0].mark_type(), "cube");
 
+        let mut built_in_child = ResolvedPlot::new("cartesian");
+        built_in_child
+            .marks
+            .push(ResolvedDeclaration::new("external_hexbin"));
         let mut parent = ResolvedPlot::new("external_facet_column");
+        parent.children.push(ResolvedChildPlot {
+            plot: Box::new(built_in_child),
+            placement: ResolvedDeclaration::new("child")
+                .property("column", ResolvedValue::Expr(lit("built_in"))),
+        });
         parent.children.push(ResolvedChildPlot {
             plot: Box::new(external),
             placement: ResolvedDeclaration::new("child")
-                .property("column", ResolvedValue::Expr(lit("all"))),
+                .property("column", ResolvedValue::Expr(lit("custom"))),
         });
         let compiled = registry.compile_root(&parent, &context).await.unwrap();
         let bytes = bincode::serialize(&compiled).unwrap();
         let decoded: CompiledPlot = bincode::deserialize(&bytes).unwrap();
-        assert_eq!(decoded.marks().len(), 1);
+        assert_eq!(decoded.marks().len(), 2);
     }
 }
