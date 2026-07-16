@@ -35,8 +35,8 @@ let right = Plot::<Cartesian>::new().mark(
 
 let plot = Chart::<HConcat>::new()
     .data(df)
-    .mark(Subplot::new(left).key("scatter").label("Scatter"))
-    .mark(Subplot::new(right).key("counts").label("Counts"));
+    .mark(Subplot::new(left).name("scatter").label("Scatter"))
+    .mark(Subplot::new(right).name("counts").label("Counts"));
 ```
 
 Use `VConcat` the same way when the plots should stack vertically.
@@ -69,10 +69,10 @@ before you reach for the repeat convenience API.
 let plot = Chart::<WrapConcat>::new()
     .data(df)
     .configure_coord(|c| c.columns(3))
-    .mark(Subplot::new(plot_a).key("a"))
-    .mark(Subplot::new(plot_b).key("b"))
-    .mark(Subplot::new(plot_c).key("c"))
-    .mark(Subplot::new(plot_d).key("d"));
+    .mark(Subplot::new(plot_a).name("a"))
+    .mark(Subplot::new(plot_b).name("b"))
+    .mark(Subplot::new(plot_c).name("c"))
+    .mark(Subplot::new(plot_d).name("d"));
 ```
 
 Use `responsive_columns(width)` when the chart has a canvas-constrained width

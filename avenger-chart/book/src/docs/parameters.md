@@ -34,8 +34,8 @@ let batch = RecordBatch::try_from_iter(vec![
 
 let df = ctx.read_batch(batch)?;
 
-// Create a parameter with a default value
-let threshold = Param::new("threshold", ScalarValue::from(40.0));
+// Declare the physical Arrow type and a matching default value.
+let threshold = Param::typed("threshold", DataType::Float64, ScalarValue::from(40.0))?;
 
 // Use parameter in expressions
 let status = when(col("value").gt(threshold.expr()), lit("high"))
@@ -91,14 +91,16 @@ This demonstrates the key benefit: **compile once, render multiple times** with 
 use datafusion::scalar::ScalarValue;
 
 # fn example() {
-let threshold = Param::new("threshold", ScalarValue::from(100.0));
-let category = Param::new("category", ScalarValue::from("A"));
+let threshold = Param::typed("threshold", DataType::Float64, ScalarValue::from(100.0))?;
+let category = Param::typed("category", DataType::Utf8, ScalarValue::from("A"))?;
 # }
 ```
 
 ### Parameter Types
 
-Parameters can be any DataFusion scalar type:
+Parameters always declare their physical Arrow type. The default is validated
+against that type exactly, including nested list/struct/map fields and typed
+nulls. Parameters can use any supported DataFusion scalar type:
 
 - **Numeric**: `Float64`, `Int64`, `UInt32`, etc.
 - **String**: `Utf8`
@@ -129,7 +131,7 @@ let ctx = SessionContext::new();
 # ])?;
 # let df = ctx.read_batch(batch)?;
 #
-let threshold = Param::new("threshold", ScalarValue::from(45.0));
+let threshold = Param::typed("threshold", DataType::Float64, 45.0)?;
 let status = when(col("y").gt(threshold.expr()), lit("above"))
     .otherwise(lit("below"))
     ?;
@@ -181,7 +183,7 @@ let ctx = SessionContext::new();
 # ])?;
 # let df = ctx.read_batch(batch)?;
 #
-let offset = Param::new("offset", ScalarValue::from(0.0));
+let offset = Param::typed("offset", DataType::Float64, 0.0)?;
 
 let plot = Chart::<Cartesian>::new()
     .data(df)
@@ -231,7 +233,7 @@ let ctx = SessionContext::new();
 # let df = ctx.read_batch(batch)?;
 #
 // Create parameter with default value
-let threshold = Param::new("threshold", ScalarValue::from(50.0));
+let threshold = Param::typed("threshold", DataType::Float64, 50.0)?;
 
 let filtered = df.filter(col("value").gt(threshold.expr()))?;
 
@@ -285,8 +287,8 @@ let ctx = SessionContext::new();
 # ])?;
 # let df = ctx.read_batch(batch)?;
 #
-let threshold = Param::new("threshold", ScalarValue::from(50.0));
-let highlight_category = Param::new("highlight", ScalarValue::from("A"));
+let threshold = Param::typed("threshold", DataType::Float64, 50.0)?;
+let highlight_category = Param::typed("highlight", DataType::Utf8, "A")?;
 
 // Use parameters in color expression
 let fill_color = when(
@@ -348,8 +350,8 @@ let ctx = SessionContext::new();
 # ])?;
 # let df = ctx.read_batch(batch)?;
 #
-let scale_factor = Param::new("scale", ScalarValue::from(1.0));
-let offset = Param::new("offset", ScalarValue::from(0.0));
+let scale_factor = Param::typed("scale", DataType::Float64, 1.0)?;
+let offset = Param::typed("offset", DataType::Float64, 0.0)?;
 
 let plot = Chart::<Cartesian>::new()
     .data(df)
@@ -396,7 +398,7 @@ Parameters always have default values used when no binding is provided:
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 # let ctx = datafusion::execution::context::SessionContext::new();
 # let df = ctx.read_csv("data.csv", datafusion::execution::options::CsvReadOptions::default()).await?;
-let threshold = Param::new("threshold", ScalarValue::from(50.0));
+let threshold = Param::typed("threshold", DataType::Float64, 50.0)?;
 
 // If not bound, uses default value of 50.0
 let filtered = df.filter(col("value").gt(threshold.expr()))?;
@@ -418,12 +420,12 @@ Use descriptive names:
 # use datafusion::scalar::ScalarValue;
 # fn example() {
 // Good
-let user_threshold = Param::new("user_threshold", ScalarValue::from(50.0));
-let selected_year = Param::new("selected_year", ScalarValue::from(2023_i32));
+let user_threshold = Param::typed("user_threshold", DataType::Float64, 50.0).unwrap();
+let selected_year = Param::typed("selected_year", DataType::Int32, 2023_i32).unwrap();
 
 // Less clear
-let p1 = Param::new("p1", ScalarValue::from(50.0));
-let x = Param::new("x", ScalarValue::from(2023_i32));
+let p1 = Param::typed("p1", DataType::Float64, 50.0).unwrap();
+let x = Param::typed("x", DataType::Int32, 2023_i32).unwrap();
 # }
 ```
 
@@ -448,7 +450,7 @@ let aapl = df
     .filter(col("symbol").eq(lit("AAPL")))
     ?;
 
-let threshold = Param::new("price_threshold", ScalarValue::from(150.0));
+let threshold = Param::typed("price_threshold", DataType::Float64, 150.0)?;
 let status = when(col("price").gt(threshold.expr()), lit("above"))
     .otherwise(lit("within"))
     ?;
@@ -509,8 +511,8 @@ let ctx = SessionContext::new();
 # ])?;
 # let df = ctx.read_batch(batch)?;
 #
-let height = Param::new("height", ScalarValue::from(250.0));
-let show_grid = Param::new("show_grid", ScalarValue::from(true));
+let height = Param::typed("height", DataType::Float64, 250.0)?;
+let show_grid = Param::typed("show_grid", DataType::Boolean, true)?;
 
 let plot = Chart::<Cartesian>::new()
     .param(height.clone())
@@ -562,7 +564,7 @@ let ctx = SessionContext::new();
 # ])?;
 # let df = ctx.read_batch(batch)?;
 #
-let accent = Param::new("--accent", ScalarValue::from("#2563eb"));
+let accent = Param::typed("--accent", DataType::Utf8, "#2563eb")?;
 
 let mut theme = Theme::light();
 theme.append_css(

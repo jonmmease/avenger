@@ -303,7 +303,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Parameter to control unit display
-let unit_param = Param::new("unit", ScalarValue::Utf8(Some("meters".to_string())));
+let unit_param = Param::typed("unit", DataType::Utf8, "meters")?;
 
 // CASE expression to convert meters to feet (1m = 3.28084ft)
 let x_expr = when(unit_param.expr().eq(lit("feet")), col("x_meters") * lit(3.28084))
@@ -383,7 +383,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Parameter to control grid visibility
-let show_grid_param = Param::new("show_grid", ScalarValue::Boolean(Some(true)));
+let show_grid_param = Param::typed("show_grid", DataType::Boolean, true)?;
 
 let plot = Chart::<Cartesian>::new()
     .canvas_size(400.0, 300.0)
@@ -436,7 +436,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Parameter to control axis position
-let axis_pos_param = Param::new("axis_pos", ScalarValue::Utf8(Some("bottom".to_string())));
+let axis_pos_param = Param::typed("axis_pos", DataType::Utf8, "bottom")?;
 
 // CASE expression for position
 let position_expr = when(axis_pos_param.expr().eq(lit("top")), lit("top"))
@@ -493,7 +493,7 @@ let batch = RecordBatch::try_from_iter(vec![
 let df = ctx.read_batch(batch)?;
 
 // Parameter to control axis visibility
-let show_axis_param = Param::new("show_x_axis", ScalarValue::Boolean(Some(true)));
+let show_axis_param = Param::typed("show_x_axis", DataType::Boolean, true)?;
 
 let plot = Chart::<Cartesian>::new()
     .canvas_size(400.0, 300.0)

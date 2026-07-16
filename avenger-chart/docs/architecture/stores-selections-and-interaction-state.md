@@ -49,7 +49,7 @@ selection marks. Drawable interaction geometry is ordinary mark data backed by
 ## Store Specs
 
 Authoring code declares stores with `Store` and registers them with
-`Chart::store(...)` or through `ToolExpansion`.
+`Chart::store(...)` or through a tool's `ToolBehaviorExpansion`.
 
 ```rust
 let brush_boxes = Store::empty("brush_boxes")
@@ -333,7 +333,7 @@ clears the selection clauses.
 ## Tools
 
 Tools are compile-time packages over the same primitives. A selection tool can
-expand through `ToolExpansion` into:
+expand through `ToolBehaviorExpansion` into resolved state declarations and:
 
 - a neutral `Selection` for predicate semantics,
 - event bindings that mutate the store and selection,

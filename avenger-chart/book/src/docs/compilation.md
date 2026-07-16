@@ -215,7 +215,7 @@ You **do not** need to recompile when:
 # impl Renderer { fn display(&self, _: &avenger_chart::plot::EvaluatedPlot) {} }
 # let renderer = Renderer;
 // Setup - compile once
-let color_param = Param::new("highlight_color", ScalarValue::Utf8(Some("#ff0000".into())));
+let color_param = Param::typed("highlight_color", DataType::Utf8, "#ff0000")?;
 
 let plot = Chart::<Cartesian>::new()
     .data(df)
@@ -251,7 +251,7 @@ loop {
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 # fn save_frame(_frame: i32, _evaluated: &avenger_chart::plot::EvaluatedPlot) {}
 // Compile once with time parameter
-let time_param = Param::new("current_time", ScalarValue::from(0.0));
+let time_param = Param::typed("current_time", DataType::Float64, 0.0)?;
 
 let plot = Chart::<Cartesian>::new()
     .data(df)
@@ -293,7 +293,7 @@ for frame in 0..100 {
 # async fn example(ctx: &SessionContext, df: DataFrame) -> Result<(), Box<dyn std::error::Error>> {
 # let renderer = WgpuRenderer::new();
 // Generate charts for multiple regions
-let region_param = Param::new("selected_region", ScalarValue::Utf8(Some("North".into())));
+let region_param = Param::typed("selected_region", DataType::Utf8, "North")?;
 
 let plot = Chart::<Cartesian>::new()
     .data(df)

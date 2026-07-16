@@ -38,7 +38,6 @@ pub struct Chart<C> {
     param_specs: Vec<CompiledParamSpec>,
     selections: Vec<Selection>,
     stores: Vec<Store>,
-    cursor_params: Vec<String>,
     plot: Plot<C>,
 }
 
@@ -86,7 +85,8 @@ chart layout's plot box; in cells they become `Subplot::size`),
 `theme`/`get_theme`, `time_context`/`formatting_context` (the DSL's
 chart-level `time:`/`format:`), and
 `add_param`/`add_params`/`add_param_with_sharing`/`add_selection`/
-`add_store`/`add_stores`/`cursor_param` (document state). **`compile`
+`add_store`/`add_stores` (document state). Cursor changes are ordered
+`ChartEventBinding::set_cursor` effects rather than document state. **`compile`
 goes internal, not away**: the public root entry is `Chart::compile`,
 but `Plot` keeps a `pub(crate)` compile because the embedding machinery
 (`SubplotChildPlotSpec::compile_boxed`, which every `Plot<C>` implements
@@ -189,7 +189,7 @@ let cell = Plot::<Cartesian>::new()
     .data(df).title("Detail").plot_size(310.0, 270.0).mark(m);
 let root = Plot::<HConcat>::new()
     .canvas_size(920.0, 460.0).add_selection(picked)
-    .mark(Subplot::new(cell).key("detail"));
+    .mark(Subplot::new(cell).name("detail"));
 let compiled = root.compile(&ctx).await?;
 
 // AFTER
@@ -306,7 +306,7 @@ Campaign 2's sweep (campaign 1's migration is item 3 above):
 - `Chart` is a hand-written facade with `new`, `with_coord`, `from_plot`,
   `configure_plot`, and `plot`; it owns the ten document-furnishing field
   families and exposes the sole state vocabulary
-  `param/params/param_with_sharing/selection/store/stores/cursor_param`.
+  `param/params/param_with_sharing/selection/store/stores`.
 - `Chart::theme_if_unset` fills only a genuinely absent optional theme.
   The optional value is threaded before compilation into all descendants;
   no light-theme fallback is baked into an unthemed artifact.

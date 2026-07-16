@@ -25,20 +25,26 @@ let plot = Plot::<Cartesian>::new()
 The public expansion contracts in `avenger-chart-core` are:
 
 - `ChartTool`
-- `ToolExpansion`
+- `ToolBehaviorExpansion`
 - `ToolExpansionContext`
-- `ToolParamExpansion`
+- `ResolvedStateDeclaration`
 - `ToolParamSharing`
 - `ToolScaleEdit`
+- `ToolExport`
+- `CompiledToolBehavior`
 - `ToolMetadata`
 
-Tool expansion can contribute params, stores, selections, event bindings, scale
-edits, ordinary marks, and metadata. Built-in interaction chrome should use
-those public primitives wherever possible.
+Tool expansion can contribute typed params, stores, selections, ordered event
+bindings, containing-plot scale edits, ordinary marks, exports, component/part
+provenance, and metadata. Built-in interaction chrome should use those public
+primitives wherever possible.
 
-Tool ids must be globally unique in a compiled plot. Ids are non-empty ASCII
-identifier-like strings and may not contain periods. Generated names use the
-reserved tool namespace:
+The author-facing tool id is a diagnostic name, not runtime identity. The
+compiler allocates an opaque deterministic `ToolInstanceId` before expansion;
+two instances of the same tool therefore own distinct typed state and mark
+identities. Generated source names remain useful for Rust diagnostics and host
+bindings, but runtime mutation and export lookup retain the resolved IDs.
+Built-ins currently use diagnostic names in the reserved tool namespace:
 
 ```text
 __tool_{id}__enabled

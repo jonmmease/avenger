@@ -2,21 +2,29 @@
 
 ## Status
 
-Active implementation, begun 2026-07-12 and synchronized 2026-07-14.
-The shared composed/native artifact contracts, PixelFrame host, CSS part
-machinery, mixed chrome solve, Checkbox, Button, CheckboxList,
-RadioButtonList, Slider, WidgetCell content tracks, and explicit-frame hosting
-and the native-widget/TextInput runtime are implemented. Parameter-change
-reactions, atomic state transactions, and Button actions are also implemented.
-Composed + native tiers are promoted; external-toolkit
-embedding is a recorded fallback; text input is a native widget over the
-in-repo Typst-based text stack. Phases W1-W6 are complete in the implementation
-plan at
-`scratch/2026-07-09/02-widgets/plan.md`.
-Rust-first implementation plan for the widget paradigm: interactive input
-controls built from the engine's own primitives — marks, params,
-selections, event bindings, and, where declarative composition runs out,
-arbitrary Rust emitting scene marks.
+Initial Rust implementation complete. Work began 2026-07-12, phases W1–W6
+completed on 2026-07-14, and this specification was audited against the landed
+code on 2026-07-15. The shared composed/native artifact contracts, PixelFrame
+host, CSS part machinery, mixed chrome solve, Checkbox, Button, CheckboxList,
+RadioButtonList, Slider, WidgetCell content tracks, explicit-frame hosting,
+native-widget/TextInput runtime, parameter-change reactions, atomic state
+transactions, and Button actions are implemented. Composed and native tiers
+are promoted; external-toolkit embedding remains a fallback; text input is a
+native widget over the in-repo Typst-based text stack. The completed execution
+record is `scratch/2026-07-09/02-widgets/plan.md`.
+
+The Avenger-language compiler is not part of this completed Rust milestone.
+Its normative source surface is in `chart-dsl.md`. The Rust–DSL unification
+prerequisite has landed: cursor changes are explicit ordered event effects,
+and composed widget behavior uses `ToolBehaviorExpansion<PixelFrame>` while
+preserving the widget-owned measurement, item, presentation, placement, and
+part contracts documented here. The bootstrap `WidgetSchema`/lowerer registry
+adapter is available; completing the built-in widget inventory belongs to the
+language/compiler plan.
+
+This is the Rust-first specification for interactive input controls built from
+the engine's own primitives — marks, params, selections, event bindings, and,
+where declarative composition runs out, arbitrary Rust emitting scene marks.
 
 Two tiers are promoted:
 
@@ -27,10 +35,10 @@ Two tiers are promoted:
   scene marks out. Text input is the flagship, built on the engine's own
   text stack while studying how other GUI toolkits implement editing.
 
-Companions: `chart-dsl.md` (the future `define widget` language surface
-lowers onto the composed tier the way compound marks and tools lower onto
-theirs; native widgets surface as registered kinds the way primitive marks
-do), `dashboard-layer.md` (the dashboard layer that
+Companions: `chart-dsl.md` (both composed and native built-ins surface as the
+same opaque, schema-registered `widget <kind> as <instance>` declarations;
+the DSL has no widget definitions or widget expansion),
+`dashboard-layer.md` (the dashboard layer that
 eventually hosts widgets at document scope), and `tools.md` (the tool
 system this design is a sibling of).
 
@@ -38,10 +46,10 @@ This document is deliberately independent of both the DSL and the dashboard
 layer: everything here is usable from the Rust API against charts and
 concats that exist today.
 
-Sequencing note (2026-07-09): the Rust authoring-wrapper refactor
+Sequencing receipt (2026-07-09): the Rust authoring-wrapper refactor
 (`rust-authoring-wrappers.md`; execution plan in
-scratch/2026-07-09/01-rust-chart-refactor/) lands **before** widget
-implementation. Examples in this document are written against the
+scratch/2026-07-09/01-rust-chart-refactor/) landed **before** widget
+implementation. Examples in this document use the
 post-refactor API (`Chart` roots, `Subplot::name`, `configure_coord`);
 the widget contracts themselves attach to `Plot` and are untouched by
 that refactor.
@@ -51,12 +59,12 @@ that refactor.
 **A widget is a tool with a face.** The engine already has the concept of a
 declarative unit that mints interaction state and reacts to events:
 
-- `ToolExpansion` (avenger-chart-core/src/tools.rs) carries `params`,
-  `stores`, `selections`, `event_bindings`, `scale_edits`, and `marks`.
-- Tools auto-mint their params in `expand()`
-  (`Param::raw_domain(generated_tool_name(&self.id, ...))`, plus an
-  unconditional `enabled` param), return them in the expansion, and the
-  compiler registers them automatically with a `ToolParamSharing` policy.
+- `ToolBehaviorExpansion` (avenger-chart-core/src/tools.rs) carries resolved
+  state declarations, ordered event bindings, scale edits, marks, exports,
+  instance ancestry, and component/part provenance.
+- Tools receive an opaque `ToolInstanceId` before `expand()`, mint typed state
+  identities from that instance, and return `ResolvedStateDeclaration` values
+  with an explicit `ToolParamSharing` policy where applicable.
 - Event bindings already write params (`ChartEventBinding::set_param`, with
   `set_param_at_start_scope` and friends powering drag gestures), update
   selections (`set_selection` + `SelectionUpdate`), and carry event helpers
@@ -72,9 +80,11 @@ A widget reuses all of it and differs in exactly two ways:
    size hints (label text metrics, item counts) that the host's slot or
    track sizing consumes.
 
-Everything else — state minting and registration, event routing, scenegraph
-rendering, rtree hit-testing, CSS theming, visual-regression baselines — is
-the existing machinery, unchanged.
+The implementation reuses state registration, event routing, scenegraph
+rendering, rtree hit-testing, CSS theming, and visual-regression machinery. It
+also adds the widget-specific serialized measurement/item contracts, frame
+ownership, mixed chrome placement, native lifecycle, and host-service seams
+described below.
 
 Two complementary laws bound the design:
 
@@ -83,19 +93,23 @@ Two complementary laws bound the design:
   one interactive item per row — the mark model applied to input controls.
   This keeps the composed tier on the engine's evaluation pipeline instead
   of growing a retained-widget-tree runtime.
-- **Document state crosses the widget boundary only as params** (and
-  declared data reads). Whatever a widget does inside — declarative
-  encoding or arbitrary Rust — hidden state that affects output breaks
-  hot-reload state survival, baselines, and future dashboard aliasing.
-  This is a contract, not a hope, and belongs in the trait docs.
+- **Serialized document state crosses the widget boundary only through declared
+  state handles and data reads.** The initial built-ins use params and, for
+  CheckboxList, a selection. Native widgets may additionally retain ephemeral
+  interaction/presentation state such as TextInput's editing buffer, caret,
+  focus, and IME preedit; that state is deliberately recreated rather than
+  migrated, snapshotted, or exposed as document state. Undeclared persistent
+  state that affects semantic output would break hot-reload state survival,
+  baselines, and future dashboard aliasing. This boundary is a contract and
+  belongs in the trait docs.
 
-## Current Foundation
+## Landed Foundation
 
-Everything the design builds on already exists:
+The completed implementation rests on these existing and newly landed pieces:
 
 | Piece | Where | Role here |
 | --- | --- | --- |
-| `ToolExpansion` + auto-registration | avenger-chart-core/src/tools.rs | the state/bindings/marks bundle widgets reuse |
+| `ToolBehaviorExpansion` + resolved-state registration | avenger-chart-core/src/tools.rs | the canonical state/bindings/marks/export bundle reused by tools and composed widgets |
 | `ChartEventBinding::set_param` / `set_selection` | avenger-chart-core/src/event_binding.rs | widget interactions |
 | start-anchored drag writes (`set_param_at_start_scope`, `ev::start_coord`) | box-select in avenger-chart-tools | the slider gesture |
 | `Selection` clause model + `predicate()` | core / used by cross-filter example | checkbox-list membership state |
@@ -107,25 +121,25 @@ Everything the design builds on already exists:
 | Legend/text measurement services + caches | `PlotSession` measurement phase | widget size hints |
 | `Sql` transform | avenger-chart-transforms | item ordering (`row_number()`) in data-encoded widgets |
 | `Subplot` marks in concat plots | concat system | the `WidgetCell` sibling |
-| `param kind: cursor` | param system | hover cursor feedback (I-beam over text input) |
-| `SceneKeyPressEvent { key, modifiers: ModifiersState }` | avenger-eventstream/src/scene.rs:156 | arrow / shift-select / Cmd-Ctrl chord detection for editing (verified 2026-07-10); clipboard and IME events do **not** exist yet — phase-5 work |
-| the custom Typst-based text stack: `avenger-text` (`TextEngine`, font resolver, measurement, rasterization, path/PDF output) over `avenger-typst-label`'s adapted Typst layout/eval/render modules, rustybuzz shaping | avenger-text / avenger-typst-label | shaping, line layout, and measurement for text input; **no editing surface exists yet** — the editing layer is new work over this stack |
+| explicit cursor event effects plus native dispatch cursor outcomes | event and native-widget runtimes | hover feedback without parameter-name conventions; composed cursor changes commit or roll back with the containing action transaction |
+| `SceneKeyPressEvent`, `ClipboardEvent`, and `ImeEvent` | avenger-eventstream | keyboard editing, platform-aware shortcuts, clipboard transfer, and IME preedit/commit routing |
+| the custom Typst-based text stack plus `ShapedLine`/`SingleLineEditor` | avenger-text / avenger-typst-label | shaping, line layout, measurement, cursor/selection geometry, grapheme motion, and the editing surface used by TextInput |
 | avenger-format-number | formatting | slider value labels |
 
 ## Core Contracts
 
 ### `PixelFrame` coordinate system
 
-A new coordinate system in avenger-chart-core (sibling of `zero_d.rs`):
+The landed coordinate system in avenger-chart-core (sibling of `zero_d.rs`):
 position channels (`x`, `y`, `x2`, `y2`) interpreted directly as pixels in
 the widget's frame, identity coordinate transform, `NoGuide`. Its type-level
 job is "positions are pixels; no data scales, no axes, no legends here."
 
 `ZeroDCoord` is the spiritual precedent ("non-spatial mark rendering",
 already used by legends) but has no position channels, which widget marks
-need. Plain `Cartesian` with identity scales works as an interim at the
-cost of dragging axis/scale machinery along and letting a widget author
-accidentally bind a data scale. Target state is the dedicated type.
+need. The dedicated `PixelFrame` type avoids the rejected interim of plain
+`Cartesian` with identity scales, which would drag axis/scale machinery along
+and let a widget author accidentally bind a positional data scale.
 (Cost note, corrected 2026-07-10: the coordinate *type* is
 `zero_d.rs`-sized, but marks are implemented per coordinate system —
 `Rect` exists only as `Mark<Cartesian>` — so `PixelFrame` also brings
@@ -154,28 +168,41 @@ direct and bincode evaluation must emit equivalent requests.
 
 Sizing is serializable and numeric. Each axis of `WidgetMeasureSpec` is
 `Fixed { px }`, `Content { expr, min_px, max_px }`, or
-`Fill { expr, min_px, max_px, stretch }`. `WidgetMeasureExpr` contains pixel
-constants, typed resolved-style lengths, measured part text width/height,
-item-count extents, `Add`, and `Max`. Evaluation returns finite,
-nonnegative `{ min_px, preferred_px, stretch }`; content tracks consume the
-preferred size and flexible hosts honor all three values. Runtime sizing
-closures and implicit 400×300 plot defaults are forbidden.
+`Fill { expr, min_px, max_px, stretch }`. The landed enum also has
+`StyledFill { preferred, min, max_px, stretch }` for axes such as Slider width
+whose minimum and preferred sizes both come from the resolved style snapshot;
+its one-pixel provisional frame is replaced before final rendering.
+`WidgetMeasureExpr` contains pixel constants, typed resolved-style lengths,
+measured part text width/height, item-count extents, `Add`, and `Max`.
+Evaluation returns finite, nonnegative
+`{ min_px, preferred_px, stretch }`; content tracks consume the preferred size
+and flexible hosts honor all three values. Runtime sizing closures and implicit
+400×300 plot defaults are forbidden.
 
 `WidgetItems` is also explicit and serializable:
 
-- `Static(Vec<WidgetItemRow>)` preserves declaration order with a
-  compiler-owned monotonic `__order`.
+- `Static(Vec<WidgetItemRow>)` requires identical ordered fields in every row
+  and preserves declaration order with a compiler-owned monotonic `__order`.
 - `DataFrame { data, order_key: Vec<Expr> }` requires a nonempty total key;
   every materialized revision rejects NULL/duplicate key tuples and a
-  preexisting reserved `__order`, then derives `__order` and `__idx` before
-  sizing or marks consume the relation.
+  preexisting reserved ordering/index column, then derives `__order` and
+  `__idx` before sizing or marks consume the relation.
+- `Configured` is the public canonicalization wrapper produced by
+  `project`, `derive_identity`, and `validate`; it records canonical value and
+  label expressions, type-preserving item-id derivation, and generic
+  validation without adding a widget-kind switch to the chart compiler.
 
-The generic compiler adds only `__order` and `__idx`; each data-encoded
-built-in's W2 expansion projects its source-specific fields into canonical
-`__value` and `__label` columns before constructing `WidgetItems`. Evaluation
-builds one shared `WidgetPreparedBaseData` per result/revision. Validation,
-measurement, part mark preparation, scale domains, and event datums all consume
-that same object; no part independently rematerializes the item query.
+Both base forms reject author columns named `__order` or `__idx` and the
+reserved `__avenger_widget_` runtime-input prefix. These names, along with the
+configured pipeline's `__value`, `__label`, and item-identity columns, are
+implementation-only: authored expressions, schema inspection, and completion
+continue to see the source relation's public columns. The generic compiler adds
+only `__order` and `__idx`; each data-encoded built-in's W2 expansion projects
+its source-specific fields into canonical `__value` and `__label` columns
+before constructing `WidgetItems`. Evaluation builds one shared
+`WidgetPreparedBaseData` per result/revision. Validation, measurement, part
+mark preparation, scale domains, and event datums all consume that same object;
+no part independently rematerializes the item query.
 
 ### State wiring: the three tiers (identical to tools)
 
@@ -188,11 +215,16 @@ that same object; no part independently rematerializes the item query.
    `checkbox.checked() -> Expr`, `radio.value() -> Expr`,
    `slider.value() -> Expr`, `text_input.value() -> Expr`,
    `checkbox_list.selected() -> Expr` (a membership predicate).
-3. **Sharing override.** `.param(&existing)` / `.selection(&existing)`
-   replaces the minted state with a caller-provided handle — linked
-   widgets, widget-drives-tool (`Checkbox::new("lock_zoom")
-   .param(&zoom.enabled_param())`), and the seam the dashboard layer's
-   param aliasing later plugs into.
+3. **Sharing override.** Widget-specific builders replace minted state with a
+   caller-provided handle: `Checkbox::checked_param(Param)`,
+   `Button::with_activation_param(Param)`, `CheckboxList::selection(&Selection)`,
+   `Slider::value_param(Param)`, and `TextInput::value_param(Param)`. These
+   support linked widgets, widget-drives-tool, and the seam the dashboard
+   layer's param aliasing later plugs into. The initial Rust
+   `RadioButtonList` always mints its selected-value param; the
+   `WidgetSchema` registry work must add the corresponding typed
+   `value_param` lowering seam before claiming uniform DSL existing-state
+   binding for that kind.
 
 Sharing scope: `ToolParamSharing::Explicit(CoordinationScope::Shared)` by
 default (a chart-chrome widget is chart-global state); the mirror-the-scale
@@ -218,9 +250,9 @@ sizing stays a single pre-solve pass — no measure/re-solve fixed point.
 
 ```rust
 pub struct WidgetExpansion {
-    /// Params, stores, selections, event bindings, marks — the tool
+    /// Resolved state, event bindings, marks, and exports — the behavior
     /// bundle, fixed to the widget frame's coordinate system.
-    pub expansion: ToolExpansion<PixelFrame>,
+    pub behavior: ToolBehaviorExpansion<PixelFrame>,
     /// Ordered/validated item provenance for data-encoded widgets.
     pub items: Option<WidgetItems>,
     /// Serializable intrinsic measurement program.
@@ -248,6 +280,11 @@ pub trait ChartWidget: Send + Sync {
 }
 ```
 
+The outer widget owns and preserves `items`, intrinsic measurement,
+presentation, placement, and public part behavior around the resolved
+`ToolBehaviorExpansion<PixelFrame>`. This internal Rust representation does
+not make a composed widget source-expandable in the DSL.
+
 **The compiled form is serializable.** `WidgetExpansion` lowers to
 `CompiledWidget::Composed(CompiledComposedWidget { id, kind, marks,
 relative_target_paths, measure, items, presentation })`. Widget-local scale
@@ -274,7 +311,7 @@ default/current-value requirements without a widget-kind switch in
 measurement or parts. Dynamic invalidation is an evaluation diagnostic and
 performs no implicit state repair.
 
-Deliberately **not generic over a coordinate system**. `ToolExpansion<C>`'s
+Deliberately **not generic over a coordinate system**. `ToolBehaviorExpansion<C>`'s
 generic is load-bearing for tools (a tool expands *into* a host plot and
 must match it); a widget never renders into a host space — the own-frame is
 its definitional difference — so its marks live in one fixed coordinate
@@ -285,14 +322,15 @@ subplot machinery rather than parameterizing the trait.
 
 `scale_edits` is dead weight in a pixel frame (nothing to scale-edit); it
 stays empty. If that reads too loosely in practice, `WidgetExpansion` grows
-its own field set sharing types with `ToolExpansion` — siblings, not
+its own field set sharing types with `ToolBehaviorExpansion` — siblings, not
 parent/child.
 
-The composed tier is fully declarative: expansions are stateless, the
-engine evaluates the marks (data-encoding, conditional channels,
-`datum()`), and the whole tier is expressible later as `define widget`
-definition files. **Prefer this tier whenever the logic fits** — it is the
-tier that serializes, expands, and vendors.
+The composed tier is fully declarative internally: expansions are stateless and
+the engine evaluates the marks (data-encoding, conditional channels,
+`datum()`). **Prefer this tier whenever the logic fits** because it reuses the
+ordinary chart engine, but that implementation shape is not a DSL authoring or
+source-expansion surface. Composed built-ins serialize through their registered
+kind and remain opaque in Avenger source, just like native widgets.
 
 ## The Native Tier: `NativeWidget`
 
@@ -355,11 +393,12 @@ Properties of the tier:
   the state the design classifies as ephemeral (cursor, selection,
   scroll-within-widget, gesture progress). Document state still crosses
   only as params.
-- **A Rust extension point, not a definition.** Like primitive marks,
-  native widgets are DSL *kinds* (schema-registered, instantiable) but
-  not definable in the language, and `avenger expand` treats them as
-  opaque primitives. This is the cost that keeps the composed tier
-  preferred where it suffices. **Serialization rides a kind registry**
+- **A Rust extension point, not a definition.** Like composed widgets and
+  primitive marks, native widgets are DSL *kinds* (schema-registered and
+  instantiable), but widget kinds are not definable in the language and
+  `avenger expand` treats every widget declaration as opaque. The composed tier
+  remains preferred where it suffices for Rust implementation reasons, not
+  because it has a different language contract. **Serialization rides a kind registry**
   (2026-07-10): the compiled artifact carries a kind-keyed spec; a
   registered factory constructs instances after artifact deserialization at
   evaluation/hosting time, and
@@ -371,8 +410,9 @@ Properties of the tier:
   widget comes from the registered instance (or a registered
   measurement evaluator), never from a serialized closure.
 
-The two-tier split mirrors the language's own law for marks: compounds
-live in the language, primitives live in Rust.
+The two-tier split is Rust-only. The language does not mirror it: composed and
+native built-ins are both opaque registered widget kinds, and neither tier is a
+DSL definition or expansion target.
 
 **External toolkits, in passing.** A `NativeWidget` whose `scene()`
 returns a single `Image` mark could wrap an external GUI component (an
@@ -459,8 +499,8 @@ data without recompilation. V1 rejects facet/repeat-local multi-instantiation.
 
 ## Built-In Widgets
 
-Six ship first: five composed, one native. All live in a new
-`avenger-chart-widgets` crate — no per-widget engine code.
+The initial implementation ships six widgets: five composed and one native.
+All live in `avenger-chart-widgets`; there is no per-widget engine code.
 
 ### `Checkbox` — composed, scalar boolean
 
@@ -483,8 +523,10 @@ chart.mark(trend_line().visible(trend_toggle.checked()))
   the same mechanism it controls — and a `Text` label.
 - **Bindings**: `Click` on any interactive widget part →
   `set_param(checked_param, not(checked_param.expr()))`;
-  `mark_mouse_enter`/`leave` set the
-  existing cursor-kind param for pointer feedback.
+  `mark_mouse_enter`/`leave` currently set a generated cursor-kind param for
+  pointer feedback. Rust–DSL unification replaces those writes with the
+  explicit cursor effect before DSL lowering; the cursor is never a widget
+  state export.
 - **Sizing**: `Content(choice-control-size + control-label-gap + measured
   label)` × `Content(resolved host height)`.
 
@@ -511,9 +553,10 @@ chart
   part. The
   whole interactive surface activates; decorative parts do not enter the hit
   registry.
-- **Actions**: W1 ships the counter. W6 adds `Button::action(ChartAction)` as
-  sugar for a parameter-change binding while retaining the independent
-  plot-level reaction API. The required example clears a selection.
+- **Actions**: W1 shipped the counter. W6 added
+  `Button::action(ChartAction)` as sugar for a parameter-change binding while
+  retaining the independent plot-level reaction API. The exit example clears
+  a selection.
 - **Sizing**: width is the greater of themed minimum width and measured label
   plus twice the themed inline padding; height is the resolved host height.
 
@@ -702,33 +745,31 @@ plot.mark(
   runtime presentation policy, exempt from semantics).
 - **Sizing**: `Fill` width (Fixed override) ×
   `Content(line height + padding)`.
-- **avenger-text editing-support extensions** (the new engine surface this
-  widget drives): single-line shaping with per-cluster metrics exposed,
+- **avenger-text editing-support extensions** (the landed engine surface this
+  widget drove): single-line shaping with per-cluster metrics exposed,
   x-offset → cursor position and cursor position → caret x mapping on a
   shaped line, selection rect geometry across runs (bidi-correct, since
   the Typst-derived layout and rustybuzz shaping are already
   bidi-capable), and grapheme-aware cursor arithmetic.
-- **Shared infrastructure it pulls in** (reused by everything after it):
-  the minimal focus service (click-to-focus; keyboard and IME route to
-  the focused widget until focus is lost), IME event surfacing through
+- **Shared infrastructure it added** (reused by everything after it): the
+  minimal focus service (click-to-focus; keyboard and IME route to the focused
+  widget until focus is lost), IME event surfacing through
   avenger-eventstream (winit `Ime::{Enabled, Preedit, Commit, Disabled}`)
   plus `set_ime_allowed` / `set_ime_cursor_area` window plumbing driven by
-  the widget's reported IME rect, the clipboard path (verified
-  2026-07-10: nothing clipboard-shaped exists anywhere in the stack) —
-  a clipboard service in `NativeWidgetCtx` **plus new semantic
-  `Cut`/`Copy`/`Paste(text)` events in avenger-eventstream**,
+  the widget's reported IME rect, a clipboard service in `NativeWidgetCtx`
+  plus semantic `ClipboardEvent::{Cut, Copy, Paste(text)}` events in
+  avenger-eventstream,
   synthesized natively from key chords (`SceneKeyPressEvent` already
   carries `key` + `ModifiersState`, scene.rs:156) + arboard, but
   sourced from DOM `cut`/`copy`/`paste` events on wasm, where the
   permission-gated async Clipboard API cannot be read synchronously on
-  a key-down — and the I-beam cursor via the existing
-  cursor-kind param.
+  a key-down — and the I-beam cursor through the native dispatch outcome.
 - **Deliberate v1 limits**: single line only (no wrapping; Enter commits),
   no password masking yet, no drag-and-drop text, LTR-biased keybinding
   table first (shaping and motion are bidi-correct from the stack; the
   binding table grows).
 
-## Prior Art To Study Before Building `TextInput`
+## TextInput Prior-Art Study
 
 > **Study complete (2026-07-10).** The answers to every question below,
 > the editing-layer architecture, and the exact avenger-text exposure
@@ -736,10 +777,10 @@ plot.mark(
 > widget plan's W5 phases. The list below is preserved as the study's
 > original charter.
 
-The plan is explicitly to study how existing toolkits implement single-line
-editing before writing ours. Because the editing layer will be built fresh
-over avenger-text, these are **reference designs, not substrates**. What
-each is for:
+The implementation study examined how existing toolkits implement single-line
+editing before the Avenger layer was written. Because the editing layer was
+built over avenger-text, these were **reference designs, not substrates**. What
+each contributed:
 
 - **parley `PlainEditor` (Linebender/masonry)** — the closest structural
   match to our situation: a deliberately clean editor-state layer over a
@@ -768,8 +809,8 @@ each is for:
   avenger-eventstream: `Ime::Preedit`/`Commit` sequencing,
   `set_ime_allowed`, `set_ime_cursor_area` timing.
 
-Questions the study should answer before implementation: exactly what
-editing-support API avenger-text must expose (per-cluster metrics,
+The study answered what editing-support API avenger-text must expose
+(per-cluster metrics,
 x↔cursor mapping, selection run rects — and whether any of it already
 falls out of the Typst-derived layout structures); grapheme-vs-byte cursor
 arithmetic and who owns it; undo batching policy; the per-platform
@@ -796,19 +837,31 @@ and cosmic-text expose cursor/selection state to hosts).
   inputs debounce their `OnChange` commits.
 - **Native-tier dirty loop**: `on_event`/`on_state_sync` return dirty;
   `scene()` runs only then. Idle cost is a retained scene fragment.
-- **Cursor feedback**: enter/leave write the existing cursor-kind param
-  (pointer for clickables, I-beam for text). Hover *styling*
+- **Cursor feedback**: composed widgets currently write a generated cursor-kind
+  param on enter/leave, while native widgets report cursor intent directly in
+  `NativeWidgetDispatchOutcome`. Rust–DSL unification converts composed widgets
+  to the same explicit transactional cursor-effect model before the DSL is
+  implemented; no cursor param is exposed in `WidgetSchema`. Hover *styling*
   (pressed/hover states) is deferred; when it arrives it should be runtime
   presentation policy, not document semantics.
 
 ## Parameter-Change Reactions And Actions
 
-W6 adds a second serializable trigger surface parallel to event bindings.
-`ChartAction` is the shared ordered payload: parameter assignments, store
+W6 added a second serializable trigger surface parallel to event bindings.
+`ChartAction` is the shared payload for parameter assignments, store
 assignments, selection assignments, and evaluation intent. Existing
 `ChartEventBinding` fluent methods remain source-compatible and delegate to
 that payload; serde accepts the old flattened representation and emits one
 canonical form. Arbitrary Rust callbacks do not enter compiled artifacts.
+
+The landed W6 representation still stores one ordered vector per mutation kind
+and `ChartAction::then` concatenates those vectors by kind. It therefore does
+not preserve authored order *across* param, store, and selection mutations.
+This is sufficient for the initial Button convenience and its validated
+single-writer reaction graph, but it is not the DSL action contract. The
+Rust–DSL prerequisite replaces these arrays with one ordered action vector and
+adds explicit cursor effects before any Button `action:` block or event body is
+lowered from Avenger source.
 
 `ChartParamChangeBinding::on(param)` names one registered shared source and
 owns filters plus a `ChartAction`. Its immutable typed row exposes
@@ -889,11 +942,14 @@ families are:
   `--widget-radius-large`, `--widget-radius-pill`, `--widget-edge-padding`,
   `--widget-control-label-gap`, `--widget-visual-label-gap`,
   `--widget-item-gap`;
-- colors: `--widget-surface`, `--widget-app-surface`, `--widget-text`,
-  `--widget-text-strong`, `--widget-border`, `--widget-control`,
-  `--widget-track`, `--widget-accent`, `--widget-accent-hover`,
-  `--widget-accent-down`, `--widget-negative`, disabled surface/border/text,
-  and `--widget-selection`;
+- colors: `--widget-surface`, `--widget-app-surface`,
+  `--widget-field-surface`, `--widget-text`, `--widget-text-strong`,
+  `--widget-text-muted`, `--widget-border`, `--widget-grid`,
+  `--widget-control`, `--widget-track`, `--widget-accent`,
+  `--widget-on-accent`, `--widget-accent-hover`, `--widget-accent-down`,
+  `--widget-negative`, `--widget-disabled-surface`,
+  `--widget-disabled-border`, `--widget-disabled-text`, and
+  `--widget-selection`;
 - component geometry: `--widget-button-min-width`,
   `--widget-button-inline-padding`, `--widget-button-line-height`,
   `--widget-button-radius`, `--widget-button-border-width`,
@@ -912,8 +968,9 @@ families are:
 `font-weight` (number or supported keyword), `stroke-width`,
 `focus-ring-width`, `corner-radius`, `width`, `height`, `min-width`,
 `min-height`, `padding-inline`, `padding-block`, `control-label-gap`,
-`visual-label-gap`, `item-gap`, `focus-gap`, and each component extent above (definite length),
-plus `cursor` (supported cursor keyword). Unknown CSS
+`visual-label-gap`, `item-gap`, `focus-gap`, `control-height`, `border-width`,
+and each component extent above (definite length), plus `cursor` (supported
+cursor keyword). Unknown CSS
 declarations may parse for forward compatibility, but a custom property has no
 effect until a widget rule maps it to this closed consumer schema. Intrinsic
 geometry accepts only finite nonnegative definite lengths (`px`, `rem`, or
@@ -979,16 +1036,17 @@ the inset check, and absence of a top stripe or superseded Spectrum constants.
 - `avenger-eventstream` / `avenger-winit-wgpu` / app hosts: focus,
   typed-text/IME/clipboard events, exact wake scheduling, host-command
   coordinate conversion, and thin application of native outcomes.
-- `avenger-chart-widgets` (new): `Checkbox`, `Button`, `CheckboxList`,
+- `avenger-chart-widgets`: `Checkbox`, `Button`, `CheckboxList`,
   `RadioButtonList`, `Slider`, `TextInput`. Prelude re-exports.
 
-When the DSL arrives, `define widget` lowers onto the composed tier, and
-native widgets surface as registered kinds exactly as primitive marks do.
-Whether Rust built-ins remain parallel natives or lower through stdlib
-definitions is the same open question chart-dsl.md already records for
-compound marks.
+When the DSL arrives, every built-in here surfaces through one registered
+`WidgetSchema` plus lowerer. The schema declares placement, properties, typed
+state exports, parts, measurement/presentation metadata, and any property that
+binds an existing compatible param or selection. The composed/native trait split
+remains below that registry boundary. There is no `define widget`, stdlib widget
+definition, or widget form emitted by `avenger expand`.
 
-## Implementation Phases
+## Implementation Receipt
 
 1. **Contracts + Checkbox + Button + chrome placement — complete (2026-07-13).** `PixelFrame` and
    its mark matrix; frozen composed/native serde schema; typed CSS,
@@ -1043,12 +1101,15 @@ compound marks.
    `70518d28a`, and `73b263c6e`; the runnable exit example is
    `avenger-chart-app/examples/button_clear_selection.rs`.
 
-The native authoring trait and frozen artifact schema land in phase 1; the
-factory, live-instance runtime, and TextInput land in phase 5. Phase 5's weight
-is the text-editing layer and cross-host services, not artifact design.
+The native authoring trait and frozen artifact schema landed in phase 1; the
+factory, live-instance runtime, and TextInput landed in phase 5. Phase 5's
+weight was the text-editing layer and cross-host services, not artifact design.
 
 ## Deliberately Out Of Scope
 
+- DSL-authored widget definitions, widget slots, and source expansion of widget
+  implementations. The DSL may instantiate and reference registered built-ins
+  only; custom widget kinds are Rust registry extensions.
 - External-toolkit embedding (an egui component rendered offscreen and
   composited as an `Image` mark via the tile-machinery resource path): a
   viable fallback recorded in
@@ -1071,11 +1132,11 @@ is the text-editing layer and cross-host services, not artifact design.
 
 ## Deferred Extension Questions
 
-The v1 choices above are settled: real `PixelFrame`; embedded
-`ToolExpansion<PixelFrame>`; disjoint explicit composed/native constructors;
+The v1 choices above are settled: real `PixelFrame`; embedded resolved
+`ToolBehaviorExpansion<PixelFrame>`; disjoint explicit composed/native constructors;
 `avenger-text::text_edit`; side-only chrome; host-owned native instances; and
 params as the only guaranteed serialized native state. These are extensions,
-not execution choices for the initial implementation:
+not unfinished initial-implementation choices:
 
 - slider release-only commit policy and generalized form transactions;
 - widget param access qualifiers for a future dashboard DSL;

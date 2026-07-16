@@ -308,12 +308,13 @@ named  = av.table("cars")                       # resolved against the context
 threshold = av.param("threshold", 10)                    # Param[int]
 region    = av.param("region", "all", sharing="shared")  # Param[str]
 x_dom     = av.raw_domain_param("x_domain")              # raw-domain param for tools/views
-cursor    = av.cursor_param("cursor", default="default")
 ```
 
 `av.param` types the handle from its default. Params are expressions: they
 compose with the builder (`col("mpg") >= threshold`) and lower to typed
 placeholders. `sharing=` takes `"shared"`, `"free"`, or `av.level(n)`.
+Cursor state is not a parameter convention; event bindings publish it through
+the explicit transactional `set_cursor(...)` effect.
 
 ### Stores And Selections
 
@@ -905,7 +906,8 @@ between-bindings.
       .set_param(threshold, av.event.datum("value"))
       .update_store(hover, av.store_ops.upsert(
           id=av.event.datum("id"), x=av.event.coord("x")))
-      .update_selection(picked, av.select_ops.toggle(av.event.datum("id"))))
+      .update_selection(picked, av.select_ops.toggle(av.event.datum("id")))
+      .set_cursor("pointer"))
 
 (chart.on("pointermove", target="plot",
           between=av.between(start=av.stream("pointerdown", target=box_mark),
