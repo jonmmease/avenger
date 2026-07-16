@@ -7,8 +7,10 @@
 //! browser analysis and future editor tooling.
 #![forbid(unsafe_code)]
 
+pub mod ast;
 mod capabilities;
 mod diagnostic;
+pub mod interchange;
 mod loader;
 mod source;
 pub mod sql;
