@@ -7,5 +7,26 @@
 //! browser analysis and future editor tooling.
 #![forbid(unsafe_code)]
 
+mod capabilities;
+mod diagnostic;
+mod loader;
+mod source;
+
+pub use capabilities::{
+    DataCapabilities, EmptyEnvironmentProvider, EnvironmentProvider, ImportCapabilities,
+    MapEnvironmentProvider,
+};
+pub use diagnostic::{
+    Diagnostic, DiagnosticCode, DiagnosticSeverity, ExpansionOrImportFrame, SourceLabel,
+    render_diagnostics, sort_diagnostics,
+};
+pub use loader::{
+    ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
+};
+pub use source::{
+    ByteSpan, LineIndex, SourceError, SourceFile, SourceId, SourceLocation, SourceMap,
+    SourceOrigin, SourceSpan,
+};
+
 /// The language major implemented by this frontend.
 pub const LANGUAGE_MAJOR: u32 = 1;

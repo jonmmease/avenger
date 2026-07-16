@@ -1,0 +1,13 @@
+error[AV0001]: duplicate state name
+ --> memory:a.avenger:2:8
+   2 | 	param width: int64 = 12;
+     |           ^^^^^ `width` is declared again
+ ::: memory:a.avenger:2:2
+   2 | 	param width: int64 = 12;
+     |     ^^^^^ first declaration starts here
+  = note: params and stores share one namespace
+
+error[AV0002]: later source error
+ --> memory:z.avenger:1:1
+   1 | chart other {}
+     | ^^^^^ later
