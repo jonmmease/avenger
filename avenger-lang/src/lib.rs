@@ -21,8 +21,8 @@ pub use avenger_lang_core::{
     ImportCapabilities, ImportEdge, InMemorySourceLoader, LANGUAGE_MAJOR, LineIndex, LoadedSource,
     MapEnvironmentProvider, ParsedProject, ProjectDependency, ProjectDependencyRole, ProjectFile,
     ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure, ProjectLoadRequest,
-    ProjectLoader, ProjectRoot, SourceFile, SourceId, SourceLabel, SourceLoader, SourceMap,
-    SourceOrigin, SourceSpan,
+    ProjectLoader, ProjectRoot, ResolveAttempt, ResolveFailure, ResolvedProject, SourceFile,
+    SourceId, SourceLabel, SourceLoader, SourceMap, SourceOrigin, SourceSpan,
 };
 
 /// Build the current canonical stock language registry.

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use avenger_chart_lang_registry::{NativeRegistry, RegistryError, ResolvedDeclaration};
 use avenger_chart_schema::{NativeKindKey, NativeSchemaSnapshot};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 /// One immutable host registry shared by validation, semantic schema
 /// generation, lowering, and compiler artifacts.
@@ -33,15 +33,10 @@ impl LanguageHost {
     }
 
     pub fn semantic_json_schema(&self) -> SemanticJsonSchema {
-        SemanticJsonSchema(json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": "https://avenger.dev/schema/semantic/v1.json",
-            "title": "Avenger semantic AST",
-            "type": "object",
-            "x-avenger-language-major": self.authoring_schema().version.major,
-            "x-avenger-native-profile": self.registry.profile_id().as_str(),
-            "x-avenger-native-schema": self.authoring_schema(),
-        }))
+        SemanticJsonSchema(avenger_lang_core::semantic_json_schema(
+            self.authoring_schema(),
+            self.registry.profile_id().as_str(),
+        ))
     }
 }
 

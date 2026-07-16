@@ -107,6 +107,62 @@ impl PhysicalType {
             Value::Bool(_) if matches!(self, Self::Boolean) => Ok(()),
             Value::Str(_) if matches!(self, Self::Utf8 | Self::LargeUtf8) => Ok(()),
             Value::Num(number) => validate_number(self, number.as_str()),
+            Value::Array(values) => match self {
+                Self::List(element) | Self::LargeList(element) => {
+                    for value in values {
+                        element.accepts_literal(value)?;
+                    }
+                    Ok(())
+                }
+                Self::FixedSizeList { element, length }
+                    if usize::try_from(*length).ok() == Some(values.len()) =>
+                {
+                    for value in values {
+                        element.accepts_literal(value)?;
+                    }
+                    Ok(())
+                }
+                _ => Err(PhysicalValueError::Shape {
+                    expected: self.to_string(),
+                    found: "array".to_owned(),
+                }),
+            },
+            Value::Block { head: None, body } => match self {
+                Self::Struct(fields) => {
+                    if !body.children.is_empty() {
+                        return Err(PhysicalValueError::Shape {
+                            expected: self.to_string(),
+                            found: "object with child declarations".to_owned(),
+                        });
+                    }
+                    for (name, _) in body.props.iter() {
+                        if !fields.iter().any(|field| field.name == name.as_str()) {
+                            return Err(PhysicalValueError::UnknownField(name.to_string()));
+                        }
+                    }
+                    for field in fields {
+                        match body.props.get(&field.name) {
+                            Some(value) => field.data_type.accepts_literal(value)?,
+                            None if field.nullable => {}
+                            None => {
+                                return Err(PhysicalValueError::MissingField(field.name.clone()));
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                Self::Map { key, value } => {
+                    for (name, item) in body.props.iter() {
+                        key.accepts_literal(&Value::Str(name.to_string()))?;
+                        value.accepts_literal(item)?;
+                    }
+                    Ok(())
+                }
+                _ => Err(PhysicalValueError::Shape {
+                    expected: self.to_string(),
+                    found: "object".to_owned(),
+                }),
+            },
             // General expressions are typed by DataFusion in Phase 6. This
             // method deliberately checks only destination-typed literals.
             Value::Expr(_) => Ok(()),
@@ -569,4 +625,8 @@ pub enum PhysicalValueError {
     Shape { expected: String, found: String },
     #[error("numeric literal `{value}` is not representable as {expected}")]
     Number { value: String, expected: String },
+    #[error("unknown struct field `{0}`")]
+    UnknownField(String),
+    #[error("missing struct field `{0}`")]
+    MissingField(String),
 }

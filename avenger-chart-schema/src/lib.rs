@@ -150,7 +150,32 @@ pub struct PartSchema {
 pub struct ExportSchema {
     pub alias: String,
     pub value_kind: String,
+    /// Optional declaration property that binds this export to existing state
+    /// instead of asking the compiler to allocate generated state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_property: Option<String>,
+    /// Optional declaration property that supplies the generated state's
+    /// initial value when no existing-state binding is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_property: Option<String>,
     pub docs: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BodyMode {
+    /// The declaration accepts properties only.
+    #[default]
+    Properties,
+    /// The declaration may also contain ordered children. Core placement and
+    /// `child_rules` determine which child roles are legal.
+    Mixed,
+}
+
+impl BodyMode {
+    fn is_properties(&self) -> bool {
+        *self == Self::Properties
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -178,6 +203,12 @@ pub struct KindSchema {
     pub outputs: BTreeMap<String, TransformOutputSchema>,
     #[serde(default)]
     pub compatible_coordinates: BTreeSet<String>,
+    /// Empty means the core language placement table applies without an
+    /// additional native-kind restriction.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub allowed_parents: BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "BodyMode::is_properties")]
+    pub body_mode: BodyMode,
     #[serde(default)]
     pub stateless: bool,
     #[serde(default)]
@@ -196,6 +227,8 @@ impl KindSchema {
             exports: BTreeMap::new(),
             outputs: BTreeMap::new(),
             compatible_coordinates: BTreeSet::new(),
+            allowed_parents: BTreeSet::new(),
+            body_mode: BodyMode::Properties,
             stateless: false,
             child_rules: Vec::new(),
         }
@@ -228,6 +261,16 @@ impl KindSchema {
 
     pub fn output(mut self, output: TransformOutputSchema) -> Self {
         self.outputs.insert(output.name.clone(), output);
+        self
+    }
+
+    pub fn allowed_parent(mut self, parent: impl Into<String>) -> Self {
+        self.allowed_parents.insert(parent.into());
+        self
+    }
+
+    pub fn body_mode(mut self, mode: BodyMode) -> Self {
+        self.body_mode = mode;
         self
     }
 

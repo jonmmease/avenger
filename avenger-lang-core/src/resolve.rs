@@ -8,15 +8,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use avenger_chart_schema::{
-    KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, PropertySchema,
+    BodyMode, KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, PropertySchema,
     ValueShape,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlparser::ast::{
+    Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Value as SqlValue, Visit,
+    Visitor,
+};
 
 use crate::{
-    Diagnostic, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceId, SourceLabel, SourceMap,
-    SourceSpan,
+    Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceId,
+    SourceLabel, SourceMap, SourceSpan,
     ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Root, Value, Visibility},
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
     sort_diagnostics,
@@ -72,10 +76,12 @@ pub struct ResolvedParam {
     pub data_type: PhysicalType,
     pub default: ResolvedValue,
     pub sharing: StateSharing,
-    pub migration_key: StateMigrationKey,
+    pub migration_key: Option<StateMigrationKey>,
+    pub definition_local_seed: Option<DefinitionLocalSeed>,
     pub lexical_scope: String,
     pub owner_ancestry: Vec<DeclarationId>,
     pub generated_by: Option<GeneratedStateOrigin>,
+    pub table_owner: Option<DeclarationId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,7 +93,8 @@ pub struct ResolvedStore {
     pub primary_key: Vec<String>,
     pub rows: Vec<BTreeMap<String, ResolvedValue>>,
     pub sharing: StateSharing,
-    pub migration_key: StateMigrationKey,
+    pub migration_key: Option<StateMigrationKey>,
+    pub definition_local_seed: Option<DefinitionLocalSeed>,
     pub lexical_scope: String,
     pub owner_ancestry: Vec<DeclarationId>,
     pub generated_by: Option<GeneratedStateOrigin>,
@@ -98,10 +105,29 @@ pub struct ResolvedSelection {
     pub id: SelectionId,
     pub declaration: DeclarationId,
     pub source_name: String,
-    pub migration_key: StateMigrationKey,
+    pub empty: ResolvedSelectionEmpty,
+    pub combine: ResolvedSelectionCombine,
+    pub migration_key: Option<StateMigrationKey>,
+    pub definition_local_seed: Option<DefinitionLocalSeed>,
     pub lexical_scope: String,
     pub owner_ancestry: Vec<DeclarationId>,
     pub generated_by: Option<GeneratedStateOrigin>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedSelectionEmpty {
+    All,
+    #[default]
+    None,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedSelectionCombine {
+    #[default]
+    Union,
+    Intersect,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,10 +142,38 @@ pub struct DefinitionSchema {
     pub local_seed: DefinitionLocalSeed,
     pub kind: DefinitionKind,
     pub source_name: String,
+    pub slot_order: Vec<String>,
     pub slots: BTreeMap<String, DefinitionSlot>,
     pub channels: BTreeMap<String, DefinitionChannel>,
     pub outputs: BTreeMap<String, Option<ResolvedValue>>,
-    pub exports: BTreeMap<String, Vec<String>>,
+    pub exports: BTreeMap<String, DefinitionExport>,
+    pub parts: BTreeMap<String, DefinitionPart>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DefinitionExport {
+    pub path: Vec<String>,
+    pub target_kind: DefinitionExportKind,
+    pub data_type: Option<PhysicalType>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DefinitionExportKind {
+    Param,
+    Store,
+    Selection,
+    Mark,
+    Group,
+    Tool,
+    Widget,
+    Unknown,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DefinitionPart {
+    pub alias: String,
+    pub declaration_path: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,7 +182,9 @@ pub struct DefinitionSlot {
     pub required: bool,
     pub default: Option<ResolvedValue>,
     pub enum_values: Vec<String>,
+    pub function_class: Option<String>,
     pub reference_kind: Option<String>,
+    pub exposes: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,13 +232,61 @@ pub struct ResolvedDeclaration {
     pub name: Option<String>,
     pub visibility: Visibility,
     pub coordinate: Option<String>,
+    pub component_kind: Option<String>,
     pub properties: BTreeMap<String, ResolvedValue>,
     pub children: Vec<ResolvedDeclaration>,
     pub runtime_target: Option<ResolvedTarget>,
+    pub migration_key: Option<StateMigrationKey>,
+    pub definition_local_seed: Option<DefinitionLocalSeed>,
     pub public_path: Option<String>,
     pub parts: BTreeMap<String, ResolvedPart>,
     pub exports: BTreeMap<String, ResolvedTarget>,
     pub transform_outputs: BTreeMap<String, ResolvedOutputHandle>,
+    pub event_binding: Option<ResolvedEventBinding>,
+    pub state_lvalue: Option<ResolvedStateLValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedEventBinding {
+    pub event_type: String,
+    pub targets: Vec<ResolvedTarget>,
+    pub scope: ResolvedEventScope,
+    pub surface: ResolvedEventSurface,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "scope", content = "targets", rename_all = "snake_case")]
+pub enum ResolvedEventScope {
+    Plot(DeclarationId),
+    Subplots {
+        plot: DeclarationId,
+        targets: Vec<ResolvedTarget>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "surface", content = "channel", rename_all = "snake_case")]
+pub enum ResolvedEventSurface {
+    Plot(DeclarationId),
+    All(DeclarationId),
+    Legend {
+        plot: DeclarationId,
+        channel: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedActionRoute {
+    Current,
+    Start,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedStateLValue {
+    pub target: ResolvedTarget,
+    pub route: ResolvedActionRoute,
+    pub replacing_scopes: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,11 +316,44 @@ pub enum ResolvedTarget {
     Tool(ToolId),
     Widget(WidgetId),
     Event(EventId),
+    DefinitionParam {
+        instance: DeclarationId,
+        definition: DeclarationId,
+        alias: String,
+    },
+    DefinitionStore {
+        instance: DeclarationId,
+        definition: DeclarationId,
+        alias: String,
+    },
+    DefinitionSelection {
+        instance: DeclarationId,
+        definition: DeclarationId,
+        alias: String,
+    },
+    DefinitionStructural {
+        instance: DeclarationId,
+        definition: DeclarationId,
+        alias: String,
+        kind: DefinitionExportKind,
+    },
+    DefinitionSlot {
+        definition: DeclarationId,
+        name: String,
+    },
+    DefinitionChannel {
+        definition: DeclarationId,
+        name: String,
+    },
     Part {
         declaration: DeclarationId,
         alias: String,
     },
     Output(ResolvedOutputHandle),
+    Reserved {
+        namespace: String,
+        path: Vec<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,6 +384,7 @@ pub enum ResolvedValue {
         function: String,
         args: Vec<ResolvedValue>,
     },
+    DefinitionArgument(ResolvedTarget),
     Invalid,
 }
 
@@ -255,6 +393,7 @@ pub struct ResolvedExpression {
     pub sql: String,
     pub bindings: Vec<ResolvedBinding>,
     pub helpers: Vec<ResolvedHelper>,
+    pub references: Vec<ResolvedSqlReference>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -262,6 +401,13 @@ pub struct ResolvedQuery {
     pub sql: String,
     pub bindings: Vec<ResolvedBinding>,
     pub helpers: Vec<ResolvedHelper>,
+    pub references: Vec<ResolvedSqlReference>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedSqlReference {
+    pub authored_path: Vec<String>,
+    pub target: ResolvedTarget,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +429,17 @@ pub struct ResolvedReference {
 pub struct ResolvedHelper {
     pub name: String,
     pub class: HelperClass,
+    pub arguments: Vec<ResolvedHelperArgument>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "argument", content = "detail", rename_all = "snake_case")]
+pub enum ResolvedHelperArgument {
+    Name(String),
+    String(String),
+    Number(String),
+    Target(ResolvedTarget),
+    Sql(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -319,17 +476,29 @@ struct ScopeId(usize);
 #[derive(Clone, Debug, Default)]
 struct Scope {
     parent: Option<ScopeId>,
+    owner: Option<DeclarationId>,
     label: String,
     values: BTreeMap<String, ValueSymbol>,
     selections: BTreeMap<String, SelectionId>,
     structural: BTreeMap<String, DeclarationId>,
+    transforms: BTreeSet<String>,
     events: BTreeMap<String, EventId>,
+    definition_arguments: BTreeMap<String, ResolvedTarget>,
+    event_binding: bool,
+    event_has_between: bool,
 }
 
 #[derive(Clone, Debug)]
 enum ValueSymbol {
     Param(ParamId, Option<PhysicalType>),
     Store(StoreId),
+}
+
+#[derive(Clone, Copy)]
+enum StorePayloadShape {
+    CompleteRow,
+    Key,
+    Patch,
 }
 
 #[derive(Clone, Debug)]
@@ -346,6 +515,7 @@ struct DeclInfo {
 struct InstanceInterface {
     child_scope: Option<ScopeId>,
     exports: BTreeMap<String, ResolvedTarget>,
+    published_exports: BTreeSet<String>,
     pending_exports: BTreeMap<String, Vec<String>>,
     parts: BTreeMap<String, ResolvedPart>,
 }
@@ -360,10 +530,12 @@ struct Resolver<'a> {
     imports: BTreeMap<ProjectFileId, BTreeMap<String, ProjectFileId>>,
     definitions: BTreeMap<ProjectFileId, DefinitionSchema>,
     params: BTreeMap<ParamId, ResolvedParam>,
+    param_types: BTreeMap<ParamId, PhysicalType>,
     stores: BTreeMap<StoreId, ResolvedStore>,
     selections: BTreeMap<SelectionId, ResolvedSelection>,
     param_dependencies: BTreeMap<ParamId, BTreeSet<ParamId>>,
     table_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
+    table_names: BTreeMap<String, DeclarationId>,
 }
 
 impl<'a> Resolver<'a> {
@@ -378,10 +550,12 @@ impl<'a> Resolver<'a> {
             imports: BTreeMap::new(),
             definitions: BTreeMap::new(),
             params: BTreeMap::new(),
+            param_types: BTreeMap::new(),
             stores: BTreeMap::new(),
             selections: BTreeMap::new(),
             param_dependencies: BTreeMap::new(),
             table_dependencies: BTreeMap::new(),
+            table_names: BTreeMap::new(),
         }
     }
 
@@ -390,6 +564,7 @@ impl<'a> Resolver<'a> {
         self.build_import_bindings();
         self.extract_definition_schemas();
         self.predeclare_project();
+        self.build_table_dependencies();
         self.finish_instance_interfaces();
 
         let mut files = BTreeMap::new();
@@ -404,8 +579,15 @@ impl<'a> Resolver<'a> {
                 .enumerate()
                 .map(|(index, declaration)| {
                     let path = vec![index];
-                    let resolved =
-                        self.resolve_declaration(file, declaration, &path, None, None, false);
+                    let resolved = self.resolve_declaration(
+                        file,
+                        declaration,
+                        &path,
+                        None,
+                        None,
+                        false,
+                        false,
+                    );
                     if matches!(file.kind, ProjectFileKind::Chart) {
                         charts.push(resolved.id.clone());
                     }
@@ -427,6 +609,26 @@ impl<'a> Resolver<'a> {
         let param_default_order = self.check_param_dag();
         let table_order = self.check_table_dag();
         let definition_import_order = self.definition_import_order();
+        let mut public_targets = BTreeMap::new();
+        for file in files.values() {
+            let mut file_targets = BTreeMap::new();
+            let mut origins = BTreeMap::new();
+            let mut collisions = Vec::new();
+            for root in &file.roots {
+                collect_public_targets(root, &mut file_targets, &mut origins, &mut collisions);
+            }
+            for (path, first, second) in collisions {
+                let mut diagnostic = Diagnostic::error(
+                    "AVENGER-RESOLVE-128",
+                    "public target path is declared more than once",
+                    SourceLabel::new(second, format!("`{path}` collides at this declaration")),
+                )
+                .with_secondary(SourceLabel::new(first, "the first target is declared here"));
+                diagnostic.trace = self.import_trace_for_source(second.source);
+                self.diagnostics.push(diagnostic);
+            }
+            public_targets.extend(file_targets);
+        }
         sort_diagnostics(&mut self.diagnostics, &self.project.sources);
         if !self.diagnostics.is_empty() {
             return ResolveAttempt {
@@ -437,12 +639,6 @@ impl<'a> Resolver<'a> {
             };
         }
 
-        let mut public_targets = BTreeMap::new();
-        for file in files.values() {
-            for root in &file.roots {
-                collect_public_targets(root, &mut public_targets);
-            }
-        }
         ResolveAttempt {
             result: Ok(ResolvedProject {
                 language_major: LANGUAGE_MAJOR,
@@ -528,11 +724,20 @@ impl<'a> Resolver<'a> {
             let Root::Define(declaration) = &file.parsed.ast.root else {
                 continue;
             };
-            let id = declaration_id(file_id, &[0], declaration.keyword.as_str());
+            let id = declaration_id(file, &[0]);
             let mut slots = BTreeMap::new();
+            let mut slot_order = Vec::new();
             let mut channels = BTreeMap::new();
             let mut outputs = BTreeMap::new();
             let mut exports = BTreeMap::new();
+            let mut parts = BTreeMap::new();
+            let mut interface_names = BTreeMap::<String, &'static str>::new();
+            let all_slot_names = declaration
+                .children
+                .iter()
+                .filter(|child| child.keyword.as_str() == "slot")
+                .filter_map(|child| child.name.as_ref().map(ToString::to_string))
+                .collect::<BTreeSet<_>>();
             for child in &declaration.children {
                 match child.keyword.as_str() {
                     "slot" => {
@@ -540,26 +745,84 @@ impl<'a> Resolver<'a> {
                             continue;
                         };
                         let shape = child.kind.as_ref().map_or("", Name::as_str).to_owned();
-                        let default = child.props.get("default").map(unresolved_value);
+                        if !matches!(
+                            shape.as_str(),
+                            "expr"
+                                | "expr_list"
+                                | "literal"
+                                | "number"
+                                | "string"
+                                | "boolean"
+                                | "enum"
+                                | "function"
+                                | "ref"
+                                | "block"
+                        ) {
+                            self.error(
+                                "AVENGER-RESOLVE-004",
+                                "unknown definition slot shape",
+                                root_span(file),
+                                format!("slot `{name}` uses unsupported shape `{shape}`"),
+                            );
+                        }
+                        self.check_definition_interface_name(
+                            &mut interface_names,
+                            name.as_str(),
+                            "slot",
+                            file,
+                        );
+                        let default = child
+                            .props
+                            .get("default")
+                            .map(|value| definition_value(value, &id, &all_slot_names));
                         let enum_values = value_names(child.props.get("values"));
                         let reference_kind = child
                             .props
                             .get("kind")
                             .and_then(value_atom)
                             .map(str::to_owned);
-                        slots.insert(
-                            name.to_string(),
-                            DefinitionSlot {
-                                shape,
-                                required: default.is_none(),
-                                default,
-                                enum_values,
-                                reference_kind,
-                            },
+                        let function_class = child
+                            .props
+                            .get("class")
+                            .and_then(value_atom)
+                            .map(str::to_owned);
+                        let exposes = value_names(child.props.get("exposes"));
+                        self.validate_slot_declaration(
+                            child,
+                            &shape,
+                            &enum_values,
+                            &slot_order,
+                            &all_slot_names,
+                            file,
                         );
+                        slot_order.push(name.to_string());
+                        let slot_schema = DefinitionSlot {
+                            shape,
+                            required: default.is_none(),
+                            default,
+                            enum_values,
+                            function_class,
+                            reference_kind,
+                            exposes,
+                        };
+                        if let Some(default) = slot_schema.default.as_ref() {
+                            self.validate_definition_value(
+                                default,
+                                &slot_schema,
+                                "default",
+                                root_span(file),
+                            );
+                        }
+                        slots.insert(name.to_string(), slot_schema);
                     }
                     "channel" => {
                         if let Some(name) = child.name.as_ref() {
+                            self.check_definition_interface_name(
+                                &mut interface_names,
+                                name.as_str(),
+                                "channel",
+                                file,
+                            );
                             channels.insert(
                                 name.to_string(),
                                 DefinitionChannel {
@@ -571,9 +834,18 @@ impl<'a> Resolver<'a> {
                     }
                     "output" => {
                         if let Some(name) = child.name.as_ref() {
+                            self.check_definition_interface_name(
+                                &mut interface_names,
+                                name.as_str(),
+                                "output",
+                                file,
+                            );
                             outputs.insert(
                                 name.to_string(),
-                                child.props.get("value").map(unresolved_value),
+                                child
+                                    .props
+                                    .get("value")
+                                    .map(|value| definition_value(value, &id, &all_slot_names)),
                             );
                         }
                     }
@@ -584,16 +856,79 @@ impl<'a> Resolver<'a> {
                                 .as_ref()
                                 .map(ToString::to_string)
                                 .or_else(|| path.last().cloned());
-                            if let Some(alias) = alias
-                                && exports.insert(alias.clone(), path).is_some()
-                            {
-                                self.error(
-                                    "AVENGER-RESOLVE-003",
-                                    "duplicate definition export",
-                                    root_span(file),
-                                    format!("export alias `{alias}` is declared more than once"),
+                            if let Some(alias) = alias {
+                                self.check_definition_interface_name(
+                                    &mut interface_names,
+                                    &alias,
+                                    "export",
+                                    file,
                                 );
+                                let target = find_definition_target(declaration, &path);
+                                if target.is_none() {
+                                    self.error(
+                                        "AVENGER-RESOLVE-005",
+                                        "definition export path does not exist",
+                                        root_span(file),
+                                        format!(
+                                            "export `{alias}` cannot resolve `{}`",
+                                            path.join(".")
+                                        ),
+                                    );
+                                }
+                                let target_kind = target
+                                    .map(definition_export_kind)
+                                    .unwrap_or(DefinitionExportKind::Unknown);
+                                let export = DefinitionExport {
+                                    path,
+                                    target_kind,
+                                    data_type: target.and_then(|target| {
+                                        (target.keyword.as_str() == "param")
+                                            .then(|| target.props.get("type"))
+                                            .flatten()
+                                            .and_then(|value| PhysicalType::parse(value).ok())
+                                    }),
+                                };
+                                if exports.insert(alias.clone(), export).is_some() {
+                                    self.error(
+                                        "AVENGER-RESOLVE-003",
+                                        "duplicate definition export",
+                                        root_span(file),
+                                        format!(
+                                            "export alias `{alias}` is declared more than once"
+                                        ),
+                                    );
+                                }
+                                if target_kind == DefinitionExportKind::Mark {
+                                    let path = exports
+                                        .get(&alias)
+                                        .map(|export| export.path.clone())
+                                        .unwrap_or_default();
+                                    parts.insert(
+                                        alias.clone(),
+                                        DefinitionPart {
+                                            alias,
+                                            declaration_path: path,
+                                        },
+                                    );
+                                }
                             }
+                        }
+                    }
+                    "part" => {
+                        if let Some(alias) = child.name.as_ref() {
+                            self.check_definition_interface_name(
+                                &mut interface_names,
+                                alias.as_str(),
+                                "part",
+                                file,
+                            );
+                            parts.insert(
+                                alias.to_string(),
+                                DefinitionPart {
+                                    alias: alias.to_string(),
+                                    declaration_path: vec![alias.to_string()],
+                                },
+                            );
                         }
                     }
                     _ => {}
@@ -610,15 +945,168 @@ impl<'a> Resolver<'a> {
                     ])),
                     kind,
                     source_name: declaration
-                        .kind
+                        .name
                         .as_ref()
                         .map_or_else(|| file_id.as_str().to_owned(), ToString::to_string),
+                    slot_order,
                     slots,
                     channels,
                     outputs,
                     exports,
+                    parts,
                 },
             );
+        }
+    }
+
+    fn check_definition_interface_name(
+        &mut self,
+        names: &mut BTreeMap<String, &'static str>,
+        name: &str,
+        role: &'static str,
+        file: &ProjectFile,
+    ) {
+        if let Some(previous) = names.insert(name.to_owned(), role) {
+            self.error(
+                "AVENGER-RESOLVE-006",
+                "duplicate definition interface name",
+                root_span(file),
+                format!("`{name}` is declared as both {previous} and {role}"),
+            );
+        }
+    }
+
+    fn validate_slot_declaration(
+        &mut self,
+        slot: &Decl,
+        shape: &str,
+        enum_values: &[String],
+        earlier_slots: &[String],
+        all_slots: &BTreeSet<String>,
+        file: &ProjectFile,
+    ) {
+        let span = root_span(file);
+        let name = slot.name.as_ref().map_or("<unnamed>", Name::as_str);
+        let allowed = match shape {
+            "enum" => &["default", "values"][..],
+            "function" => &["default", "class"][..],
+            "ref" => &["default", "kind"][..],
+            "block" => &["default", "exposes"][..],
+            _ => &["default"][..],
+        };
+        for (property, _) in slot.props.iter() {
+            if !allowed.contains(&property.as_str()) {
+                self.error(
+                    "AVENGER-RESOLVE-151",
+                    "property is invalid for this definition slot shape",
+                    span,
+                    format!("slot `{name}` of shape `{shape}` cannot declare `{property}:`"),
+                );
+            }
+        }
+        if shape == "enum" {
+            if enum_values.is_empty() {
+                self.error(
+                    "AVENGER-RESOLVE-007",
+                    "enum slot requires values",
+                    span,
+                    format!("slot `{name}` must declare a non-empty `values:` array"),
+                );
+            }
+            let unique = enum_values.iter().collect::<BTreeSet<_>>();
+            if unique.len() != enum_values.len() {
+                self.error(
+                    "AVENGER-RESOLVE-008",
+                    "enum slot values must be unique",
+                    span,
+                    format!("slot `{name}` repeats an enum value"),
+                );
+            }
+            if let Some(default) = slot.props.get("default")
+                && !value_atom(default).is_some_and(|default| {
+                    enum_values.iter().any(|candidate| candidate == default)
+                        || earlier_slots.iter().any(|slot| slot == default)
+                })
+            {
+                self.error(
+                    "AVENGER-RESOLVE-009",
+                    "enum slot default is not a declared value",
+                    span,
+                    format!("slot `{name}` must default to one of its `values:` atoms"),
+                );
+            }
+        }
+        if shape == "function"
+            && !slot
+                .props
+                .get("class")
+                .and_then(value_atom)
+                .is_some_and(|class| matches!(class, "scalar" | "aggregate" | "window" | "table"))
+        {
+            self.error(
+                "AVENGER-RESOLVE-017",
+                "function slot requires a valid class",
+                span,
+                format!("slot `{name}` requires scalar, aggregate, window, or table"),
+            );
+        }
+        if shape == "ref"
+            && !slot
+                .props
+                .get("kind")
+                .and_then(value_atom)
+                .is_some_and(|kind| {
+                    matches!(
+                        kind,
+                        "mark"
+                            | "group"
+                            | "param"
+                            | "selection"
+                            | "store"
+                            | "tool"
+                            | "widget"
+                            | "resource"
+                    )
+                })
+        {
+            self.error(
+                "AVENGER-RESOLVE-018",
+                "reference slot requires a valid target kind",
+                span,
+                format!("slot `{name}` has a missing or unsupported `kind:`"),
+            );
+        }
+        if shape == "block"
+            && let Some(exposes) = slot.props.get("exposes")
+        {
+            let names = value_names(Some(exposes));
+            let valid_shape = matches!(exposes, Value::Array(values)
+                if values.iter().all(|value| matches!(value, Value::Atom(_))));
+            if !valid_shape || names.iter().collect::<BTreeSet<_>>().len() != names.len() {
+                self.error(
+                    "AVENGER-RESOLVE-152",
+                    "block-slot exposes list is invalid",
+                    span,
+                    format!("slot `{name}` requires a duplicate-free array of internal names"),
+                );
+            }
+        }
+        let Some(default) = slot.props.get("default") else {
+            return;
+        };
+        let mut dependencies = BTreeSet::new();
+        collect_definition_slot_dependencies(default, all_slots, &mut dependencies);
+        for dependency in dependencies {
+            if !earlier_slots.contains(&dependency) {
+                self.error(
+                    "AVENGER-RESOLVE-019",
+                    "slot default references a later slot",
+                    span,
+                    format!(
+                        "slot `{name}` default cannot read `{dependency}` before it is declared"
+                    ),
+                );
+            }
         }
     }
 
@@ -631,6 +1119,103 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn build_table_dependencies(&mut self) {
+        let data_files = self
+            .project
+            .files
+            .values()
+            .filter(|file| matches!(file.kind, ProjectFileKind::Data))
+            .collect::<Vec<_>>();
+        for file in data_files {
+            for (index, declaration) in file.parsed.ast.root.declarations().iter().enumerate() {
+                self.collect_table_names(file, declaration, &[index], &[]);
+            }
+        }
+        let entries = self
+            .table_names
+            .iter()
+            .map(|(name, id)| (name.clone(), id.clone()))
+            .collect::<Vec<_>>();
+        for (name, id) in entries {
+            self.table_dependencies.entry(id.clone()).or_default();
+            let relations = {
+                let Some((_, declaration)) = self.declaration_source(&id) else {
+                    continue;
+                };
+                let Some(Value::Query(query)) = declaration.props.get("sql") else {
+                    continue;
+                };
+                relation_paths(query.ast())
+            };
+            let prefix = name
+                .rsplit_once('.')
+                .map_or("", |(prefix, _)| prefix)
+                .to_owned();
+            for relation in relations {
+                let relation = relation.join(".");
+                let qualified = if relation.contains('.') || prefix.is_empty() {
+                    relation.clone()
+                } else {
+                    format!("{prefix}.{relation}")
+                };
+                if let Some(dependency) = self
+                    .table_names
+                    .get(&qualified)
+                    .or_else(|| self.table_names.get(&relation))
+                    .cloned()
+                {
+                    self.table_dependencies
+                        .entry(id.clone())
+                        .or_default()
+                        .insert(dependency);
+                }
+            }
+        }
+    }
+
+    fn collect_table_names(
+        &mut self,
+        file: &ProjectFile,
+        declaration: &Decl,
+        path: &[usize],
+        prefix: &[String],
+    ) {
+        let mut nested_prefix = prefix.to_vec();
+        if matches!(declaration.keyword.as_str(), "catalog" | "schema")
+            && let Some(name) = declaration.name.as_ref()
+        {
+            nested_prefix.push(name.to_string());
+        }
+        if declaration.keyword.as_str() == "table"
+            && let Some(name) = declaration.name.as_ref()
+        {
+            let mut table_path = nested_prefix.clone();
+            table_path.push(name.to_string());
+            let qualified = table_path.join(".");
+            let id = declaration_id(file, path);
+            if self.table_names.insert(qualified.clone(), id).is_some() {
+                self.error(
+                    "AVENGER-RESOLVE-102",
+                    "duplicate catalog table path",
+                    declaration_span(file, path).unwrap_or_else(|| root_span(file)),
+                    format!("table `{qualified}` is declared more than once"),
+                );
+            }
+        }
+        for (index, child) in declaration.children.iter().enumerate() {
+            let mut child_path = path.to_vec();
+            child_path.push(index);
+            self.collect_table_names(file, child, &child_path, &nested_prefix);
+        }
+    }
+
+    fn declaration_source(&self, id: &DeclarationId) -> Option<(&ProjectFile, &Decl)> {
+        let ((file_id, path), _) = self.declarations.iter().find(|(_, info)| &info.id == id)?;
+        let file = self.project.files.get(file_id)?;
+        let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+        Some((file, declaration))
+    }
+
     fn predeclare_declaration(
         &mut self,
         file: &ProjectFile,
@@ -639,7 +1224,7 @@ impl<'a> Resolver<'a> {
         containing_scope: ScopeId,
         ancestry: Vec<DeclarationId>,
     ) {
-        let id = declaration_id(&file.id, &path, declaration.keyword.as_str());
+        let id = declaration_id(file, &path);
         let span = declaration_span(file, &path).unwrap_or_else(|| root_span(file));
         let runtime_target = runtime_target(declaration, &id);
         let owns_scope = owns_lexical_scope(declaration);
@@ -653,6 +1238,15 @@ impl<'a> Resolver<'a> {
                 format!("{}:{}", file.id.as_str(), path_text(&path)),
             )
         });
+        if let Some(scope) = child_scope {
+            self.scopes[scope.0].owner = Some(id.clone());
+        }
+        if let Some(scope) = child_scope
+            && declaration.keyword.as_str() == "on"
+        {
+            self.scopes[scope.0].event_binding = true;
+            self.scopes[scope.0].event_has_between = declaration.props.get("between").is_some();
+        }
 
         self.declarations.insert(
             (file.id.clone(), path.clone()),
@@ -666,10 +1260,15 @@ impl<'a> Resolver<'a> {
             },
         );
         if let Some(name) = declaration.name.as_ref() {
+            let binding_scope = if declaration.keyword.as_str() == "view" {
+                child_scope.unwrap_or(containing_scope)
+            } else {
+                containing_scope
+            };
             self.predeclare_name(
                 file,
                 declaration,
-                containing_scope,
+                binding_scope,
                 name.as_str(),
                 &id,
                 runtime_target.clone(),
@@ -737,9 +1336,13 @@ impl<'a> Resolver<'a> {
                 self.insert_value_symbol(
                     scope,
                     name,
-                    ValueSymbol::Param(param_id, data_type),
+                    ValueSymbol::Param(param_id.clone(), data_type.clone()),
                     span,
                 );
+                if let Some(data_type) = data_type {
+                    self.param_types.insert(param_id.clone(), data_type);
+                }
+                self.set_runtime_target(id, ResolvedTarget::Param(param_id));
             }
             "store" => {
                 let store_id = StoreId(semantic_hash(&[
@@ -748,7 +1351,8 @@ impl<'a> Resolver<'a> {
                     id.as_str(),
                     &ancestry_text(ancestry),
                 ]));
-                self.insert_value_symbol(scope, name, ValueSymbol::Store(store_id), span);
+                self.insert_value_symbol(scope, name, ValueSymbol::Store(store_id.clone()), span);
+                self.set_runtime_target(id, ResolvedTarget::Store(store_id));
             }
             "selection" => {
                 let selection_id = SelectionId(semantic_hash(&[
@@ -759,7 +1363,7 @@ impl<'a> Resolver<'a> {
                 ]));
                 if self.scopes[scope.0]
                     .selections
-                    .insert(name.to_owned(), selection_id)
+                    .insert(name.to_owned(), selection_id.clone())
                     .is_some()
                 {
                     self.error(
@@ -769,14 +1373,13 @@ impl<'a> Resolver<'a> {
                         format!("`{name}` is already declared in this scope"),
                     );
                 }
+                self.set_runtime_target(id, ResolvedTarget::Selection(selection_id));
             }
             "on" => {
-                let event_id = EventId(semantic_hash(&[
-                    "event-runtime",
-                    file.id.as_str(),
-                    id.as_str(),
-                    &ancestry_text(ancestry),
-                ]));
+                let event_id = match runtime_target {
+                    Some(ResolvedTarget::Event(event)) => event,
+                    _ => EventId(semantic_hash(&["event", id.as_str()])),
+                };
                 if self.scopes[scope.0]
                     .events
                     .insert(name.to_owned(), event_id)
@@ -789,6 +1392,39 @@ impl<'a> Resolver<'a> {
                         format!("event binder `{name}` is already declared in this scope"),
                     );
                 }
+            }
+            "transform" => {
+                if !self.scopes[scope.0].transforms.insert(name.to_owned()) {
+                    self.error(
+                        "AVENGER-RESOLVE-014",
+                        "duplicate transform alias",
+                        span,
+                        format!("transform alias `{name}` is declared more than once"),
+                    );
+                }
+            }
+            "slot" | "channel" => {
+                let Some(definition) = self
+                    .definitions
+                    .get(&file.id)
+                    .map(|schema| schema.declaration.clone())
+                else {
+                    return;
+                };
+                let target = if declaration.keyword.as_str() == "slot" {
+                    ResolvedTarget::DefinitionSlot {
+                        definition,
+                        name: name.to_owned(),
+                    }
+                } else {
+                    ResolvedTarget::DefinitionChannel {
+                        definition,
+                        name: name.to_owned(),
+                    }
+                };
+                self.scopes[scope.0]
+                    .definition_arguments
+                    .insert(name.to_owned(), target);
             }
             _ if is_structural(declaration) => {
                 if self.scopes[scope.0]
@@ -803,14 +1439,16 @@ impl<'a> Resolver<'a> {
                         format!("`{name}` is already declared in this scope"),
                     );
                 }
-                if let Some(target) = runtime_target {
-                    self.instances.entry(id.clone()).or_default();
-                    if let Some(interface) = self.instances.get_mut(id) {
-                        interface.exports.insert("self".to_owned(), target);
-                    }
-                }
+                let _ = runtime_target;
+                self.instances.entry(id.clone()).or_default();
             }
             _ => {}
+        }
+    }
+
+    fn set_runtime_target(&mut self, id: &DeclarationId, target: ResolvedTarget) {
+        if let Some(info) = self.declarations.values_mut().find(|info| &info.id == id) {
+            info.runtime_target = Some(target);
         }
     }
 
@@ -864,8 +1502,17 @@ impl<'a> Resolver<'a> {
             else {
                 continue;
             };
-            if let Some(schema) = self.native_schema(file, declaration, None) {
+            let coordinate = coordinate_at_path(file, &path);
+            if let Some(schema) = self.native_schema(file, declaration, coordinate.as_deref()) {
                 self.install_native_interface(file, declaration, &info, &schema);
+            }
+            if let Some(schema) = declaration
+                .kind
+                .as_ref()
+                .and_then(|kind| self.imported_definition(file, kind.as_str()))
+                .cloned()
+            {
+                self.install_definition_interface(&info, &schema);
             }
             if let Some(interface) = self.instances.get_mut(&info.id) {
                 for child in &declaration.children {
@@ -885,7 +1532,158 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
+        self.install_lexical_interfaces();
         self.resolve_pending_exports();
+        self.install_component_parts();
+    }
+
+    fn install_lexical_interfaces(&mut self) {
+        let instances = self
+            .declarations
+            .iter()
+            .filter_map(|((file_id, path), info)| {
+                self.instances.contains_key(&info.id).then_some((
+                    file_id.clone(),
+                    path.clone(),
+                    info.id.clone(),
+                ))
+            })
+            .collect::<Vec<_>>();
+        for (file_id, path, instance) in instances {
+            let Some(file) = self.project.files.get(&file_id) else {
+                continue;
+            };
+            if matches!(file.kind, ProjectFileKind::Definition(_)) {
+                continue;
+            }
+            let Some(declaration) = declaration_at(file.parsed.ast.root.declarations(), &path)
+            else {
+                continue;
+            };
+            if declaration.keyword.as_str() == "tool"
+                && declaration
+                    .kind
+                    .as_ref()
+                    .is_some_and(|kind| kind.as_str() == "behavior")
+            {
+                continue;
+            }
+            let mut exports = Vec::new();
+            for (index, child) in declaration.children.iter().enumerate() {
+                let mut child_path = path.clone();
+                child_path.push(index);
+                self.collect_lexical_exports(file, child, &child_path, false, &mut exports);
+            }
+            for (alias, target, span) in exports {
+                let collision = self.instances.get(&instance).is_some_and(|interface| {
+                    interface.exports.contains_key(&alias) || interface.parts.contains_key(&alias)
+                });
+                if collision {
+                    let mut diagnostic = Diagnostic::error(
+                        "AVENGER-RESOLVE-129",
+                        "component interface name collision",
+                        SourceLabel::new(
+                            span,
+                            format!("`{alias}` collides with another export or part"),
+                        ),
+                    );
+                    diagnostic.trace = self.import_trace_for_source(span.source);
+                    self.diagnostics.push(diagnostic);
+                } else if let Some(interface) = self.instances.get_mut(&instance) {
+                    // Ordinary lexical children participate in qualified
+                    // traversal, but only schema or explicit exports are
+                    // published as component interface exports.
+                    interface.exports.insert(alias, target);
+                }
+            }
+        }
+    }
+
+    fn collect_lexical_exports(
+        &self,
+        file: &ProjectFile,
+        declaration: &Decl,
+        path: &[usize],
+        inside_private: bool,
+        output: &mut Vec<(String, ResolvedTarget, SourceSpan)>,
+    ) {
+        let explicitly_public = declaration.visibility == Visibility::Public;
+        let hidden =
+            declaration.visibility == Visibility::Private || (inside_private && !explicitly_public);
+        if !hidden
+            && declaration.keyword.as_str() != "view"
+            && declaration.keyword.as_str() != "on"
+            && declaration.keyword.as_str() != "transform"
+            && let Some(name) = declaration.name.as_ref()
+            && let Some(info) = self.declarations.get(&(file.id.clone(), path.to_vec()))
+            && let Some(target) = info.runtime_target.clone()
+        {
+            output.push((name.to_string(), target, info.span));
+        }
+        let descend_private =
+            declaration.visibility == Visibility::Private || (inside_private && !explicitly_public);
+        if descend_private {
+            for (index, child) in declaration.children.iter().enumerate() {
+                let mut child_path = path.to_vec();
+                child_path.push(index);
+                self.collect_lexical_exports(file, child, &child_path, true, output);
+            }
+        }
+    }
+
+    fn install_component_parts(&mut self) {
+        let declarations = self
+            .declarations
+            .iter()
+            .filter_map(|((file_id, path), info)| {
+                let file = self.project.files.get(file_id)?;
+                let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+                let component_kind = declaration
+                    .props
+                    .get("component_kind")
+                    .and_then(value_atom)?
+                    .to_owned();
+                Some((info.id.clone(), component_kind))
+            })
+            .collect::<Vec<_>>();
+        for (id, component_kind) in declarations {
+            let Some(interface) = self.instances.get_mut(&id) else {
+                continue;
+            };
+            let exports = interface
+                .published_exports
+                .iter()
+                .filter_map(|alias| {
+                    interface
+                        .exports
+                        .get(alias)
+                        .cloned()
+                        .map(|target| (alias.clone(), target))
+                })
+                .collect::<Vec<_>>();
+            for (alias, target) in exports {
+                if matches!(
+                    target,
+                    ResolvedTarget::Mark(_)
+                        | ResolvedTarget::Part { .. }
+                        | ResolvedTarget::DefinitionStructural {
+                            kind: DefinitionExportKind::Mark,
+                            ..
+                        }
+                ) {
+                    interface.parts.insert(
+                        alias.clone(),
+                        ResolvedPart {
+                            source_alias: alias.clone(),
+                            runtime_kind: component_kind.clone(),
+                            runtime_alias: Some(alias),
+                            targetable: true,
+                            declaration: id.clone(),
+                        },
+                    );
+                }
+            }
+        }
     }
 
     fn install_native_interface(
@@ -913,34 +1711,150 @@ impl<'a> Resolver<'a> {
         let export_entries = schema
             .exports
             .values()
-            .map(|export| (export.alias.clone(), export.value_kind.clone()))
+            .map(|export| {
+                (
+                    export.alias.clone(),
+                    export.value_kind.clone(),
+                    export.binding_property.clone(),
+                    export.default_property.clone(),
+                )
+            })
             .collect::<Vec<_>>();
         let _ = interface;
-        for (alias, value_kind) in export_entries {
-            if let Some(existing) = existing_export_binding(declaration, &alias) {
-                if let Some(target) = self.resolve_binding_path(
+        for (alias, value_kind, binding_property, default_property) in export_entries {
+            if let Some(property) = binding_property
+                && let Some(authored) = declaration.props.get(&property)
+            {
+                if let Some(target) = self.resolve_existing_export(
                     info.containing_scope,
-                    &existing,
-                    None,
+                    authored,
+                    &value_kind,
                     info.span,
-                    false,
                 ) {
+                    if let Some(expected) = export_physical_type(declaration, &value_kind)
+                        && self.target_physical_type(&target).as_ref() != Some(&expected)
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-029",
+                            "existing widget/tool state binding has the wrong Arrow type",
+                            info.span,
+                            format!(
+                                "export `{alias}` requires `{expected}`, but the bound state has {}",
+                                self.target_physical_type(&target)
+                                    .map_or_else(|| "an unknown type".to_owned(), |actual| format!("`{actual}`"))
+                            ),
+                        );
+                    }
                     self.instances
                         .get_mut(&info.id)
                         .expect("instance exists")
                         .exports
-                        .insert(alias, target);
+                        .insert(alias.clone(), target);
+                    self.instances
+                        .get_mut(&info.id)
+                        .expect("instance exists")
+                        .published_exports
+                        .insert(alias);
                 }
                 continue;
             }
-            let target = self.generated_state_target(file, declaration, info, &alias, &value_kind);
+            let target = self.generated_state_target(
+                file,
+                declaration,
+                info,
+                &alias,
+                &value_kind,
+                default_property.as_deref(),
+            );
             if let Some(target) = target {
                 self.instances
                     .get_mut(&info.id)
                     .expect("instance exists")
                     .exports
-                    .insert(alias, target);
+                    .insert(alias.clone(), target);
+                self.instances
+                    .get_mut(&info.id)
+                    .expect("instance exists")
+                    .published_exports
+                    .insert(alias);
             }
+        }
+    }
+
+    fn resolve_existing_export(
+        &mut self,
+        scope: ScopeId,
+        authored: &Value,
+        value_kind: &str,
+        span: SourceSpan,
+    ) -> Option<ResolvedTarget> {
+        if value_kind.starts_with("param<") {
+            let Value::Binding { path, .. } = authored else {
+                return None;
+            };
+            let path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
+            return self.resolve_binding_path(scope, &path, Some(BindingKind::Param), span, false);
+        }
+        if value_kind == "store" || value_kind.starts_with("store<") {
+            let Value::Binding { path, .. } = authored else {
+                return None;
+            };
+            let path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
+            return self.resolve_binding_path(scope, &path, Some(BindingKind::Store), span, false);
+        }
+        if value_kind == "selection" || value_kind.starts_with("selection<") {
+            let Value::Ref { kind, path } = authored else {
+                return None;
+            };
+            return self
+                .resolve_reference(scope, *kind, path, span)
+                .map(|reference| reference.target);
+        }
+        None
+    }
+
+    fn install_definition_interface(&mut self, info: &DeclInfo, schema: &DefinitionSchema) {
+        let Some(interface) = self.instances.get_mut(&info.id) else {
+            return;
+        };
+        for (alias, export) in &schema.exports {
+            let target = match export.target_kind {
+                DefinitionExportKind::Param => ResolvedTarget::DefinitionParam {
+                    instance: info.id.clone(),
+                    definition: schema.declaration.clone(),
+                    alias: alias.clone(),
+                },
+                DefinitionExportKind::Store => ResolvedTarget::DefinitionStore {
+                    instance: info.id.clone(),
+                    definition: schema.declaration.clone(),
+                    alias: alias.clone(),
+                },
+                DefinitionExportKind::Selection => ResolvedTarget::DefinitionSelection {
+                    instance: info.id.clone(),
+                    definition: schema.declaration.clone(),
+                    alias: alias.clone(),
+                },
+                kind => ResolvedTarget::DefinitionStructural {
+                    instance: info.id.clone(),
+                    definition: schema.declaration.clone(),
+                    alias: alias.clone(),
+                    kind,
+                },
+            };
+            interface.exports.insert(alias.clone(), target);
+            interface.published_exports.insert(alias.clone());
+        }
+        for (alias, part) in &schema.parts {
+            interface.parts.insert(
+                alias.clone(),
+                ResolvedPart {
+                    source_alias: part.alias.clone(),
+                    runtime_kind: schema.source_name.clone(),
+                    runtime_alias: Some(alias.clone()),
+                    targetable: true,
+                    declaration: info.id.clone(),
+                },
+            );
         }
     }
 
@@ -951,18 +1865,14 @@ impl<'a> Resolver<'a> {
         info: &DeclInfo,
         alias: &str,
         value_kind: &str,
+        default_property: Option<&str>,
     ) -> Option<ResolvedTarget> {
         let origin = GeneratedStateOrigin {
             declaration: info.id.clone(),
             export_role: alias.to_owned(),
         };
-        let migration_key = StateMigrationKey(semantic_hash(&[
-            "generated-migration",
-            file.id.as_str(),
-            info.id.as_str(),
-            alias,
-            &ancestry_text(&info.ancestry),
-        ]));
+        let (migration_key, definition_local_seed) =
+            self.state_identity(file, info, &format!("generated:{alias}"));
         if let Some(inner) = value_kind
             .strip_prefix("param<")
             .and_then(|value| value.strip_suffix('>'))
@@ -988,26 +1898,36 @@ impl<'a> Resolver<'a> {
                 alias,
                 &ancestry_text(&info.ancestry),
             ]));
-            let default = declaration
-                .props
-                .get("default")
+            let source_default =
+                default_property.and_then(|property| declaration.props.get(property));
+            let default = source_default
                 .map(unresolved_value)
                 .unwrap_or(ResolvedValue::Null);
+            self.validate_typed_boundary(
+                &data_type,
+                source_default,
+                &default,
+                info.span,
+                "generated state default",
+            );
             self.params.insert(
                 id.clone(),
                 ResolvedParam {
                     id: id.clone(),
                     declaration: info.id.clone(),
                     source_name: format!("{}.{}", declaration.name_string(), alias),
-                    data_type,
+                    data_type: data_type.clone(),
                     default,
                     sharing: StateSharing::Shared,
                     migration_key,
+                    definition_local_seed,
                     lexical_scope: self.scopes[info.containing_scope.0].label.clone(),
                     owner_ancestry: info.ancestry.clone(),
                     generated_by: Some(origin),
+                    table_owner: None,
                 },
             );
+            self.param_types.insert(id.clone(), data_type);
             return Some(ResolvedTarget::Param(id));
         }
         if value_kind == "selection" || value_kind.starts_with("selection<") {
@@ -1024,7 +1944,10 @@ impl<'a> Resolver<'a> {
                     id: id.clone(),
                     declaration: info.id.clone(),
                     source_name: format!("{}.{}", declaration.name_string(), alias),
+                    empty: ResolvedSelectionEmpty::None,
+                    combine: ResolvedSelectionCombine::Union,
                     migration_key,
+                    definition_local_seed,
                     lexical_scope: self.scopes[info.containing_scope.0].label.clone(),
                     owner_ancestry: info.ancestry.clone(),
                     generated_by: Some(origin),
@@ -1032,7 +1955,318 @@ impl<'a> Resolver<'a> {
             );
             return Some(ResolvedTarget::Selection(id));
         }
+        if let Some(inner) = value_kind
+            .strip_prefix("store<")
+            .and_then(|value| value.strip_suffix('>'))
+        {
+            let Some(PhysicalType::Struct(fields)) = parse_type_text(inner) else {
+                self.error(
+                    "AVENGER-RESOLVE-031",
+                    "cannot determine generated store schema",
+                    info.span,
+                    format!("schema export `{alias}` must contain a struct Arrow type"),
+                );
+                return None;
+            };
+            let id = StoreId(semantic_hash(&[
+                "generated-store",
+                file.id.as_str(),
+                info.id.as_str(),
+                alias,
+                &ancestry_text(&info.ancestry),
+            ]));
+            self.stores.insert(
+                id.clone(),
+                ResolvedStore {
+                    id: id.clone(),
+                    declaration: info.id.clone(),
+                    source_name: format!("{}.{}", declaration.name_string(), alias),
+                    fields,
+                    primary_key: Vec::new(),
+                    rows: Vec::new(),
+                    sharing: StateSharing::Shared,
+                    migration_key,
+                    definition_local_seed,
+                    lexical_scope: self.scopes[info.containing_scope.0].label.clone(),
+                    owner_ancestry: info.ancestry.clone(),
+                    generated_by: Some(origin),
+                },
+            );
+            return Some(ResolvedTarget::Store(id));
+        }
+        if value_kind == "store" {
+            self.error(
+                "AVENGER-RESOLVE-031",
+                "generated store export is missing an Arrow schema",
+                info.span,
+                format!("schema export `{alias}` must use `store<struct(...)>`"),
+            );
+        }
         None
+    }
+
+    fn state_identity(
+        &self,
+        file: &ProjectFile,
+        info: &DeclInfo,
+        role: &str,
+    ) -> (Option<StateMigrationKey>, Option<DefinitionLocalSeed>) {
+        if matches!(file.kind, ProjectFileKind::Definition(_)) {
+            return (
+                None,
+                Some(DefinitionLocalSeed(semantic_hash(&[
+                    "definition-local-state",
+                    file.id.as_str(),
+                    info.id.as_str(),
+                    role,
+                ]))),
+            );
+        }
+        (
+            Some(StateMigrationKey(semantic_hash(&[
+                "state-migration",
+                file.id.as_str(),
+                info.id.as_str(),
+                role,
+                &ancestry_text(&info.ancestry),
+            ]))),
+            None,
+        )
+    }
+
+    fn resolve_sql_paths(
+        &mut self,
+        scope: ScopeId,
+        paths: Vec<Vec<String>>,
+        span: SourceSpan,
+        diagnose_transform_paths: bool,
+    ) -> Vec<ResolvedSqlReference> {
+        let mut output = Vec::new();
+        for path in paths {
+            let target = if path.first().is_some_and(|name| name == "repeat") {
+                Some(ResolvedTarget::Reserved {
+                    namespace: "repeat".to_owned(),
+                    path: path[1..].to_vec(),
+                })
+            } else {
+                self.resolve_any_path(scope, &path, span, false)
+            };
+            if let Some(target @ (ResolvedTarget::Output(_) | ResolvedTarget::Reserved { .. })) =
+                target
+            {
+                output.push(ResolvedSqlReference {
+                    authored_path: path,
+                    target,
+                });
+            } else if let Some(
+                target @ (ResolvedTarget::DefinitionSlot { .. }
+                | ResolvedTarget::DefinitionChannel { .. }),
+            ) = target
+            {
+                output.push(ResolvedSqlReference {
+                    authored_path: path,
+                    target,
+                });
+            } else if diagnose_transform_paths
+                && let Some(first) = path.first()
+                && let Some(transform_scope) = self.scope_with_transform(scope, first)
+            {
+                let message = if self.scopes[transform_scope.0]
+                    .structural
+                    .contains_key(first)
+                {
+                    "transform output handle is not declared"
+                } else {
+                    "transform alias is not visible before its stage"
+                };
+                self.error(
+                    "AVENGER-RESOLVE-083",
+                    message,
+                    span,
+                    format!(
+                        "`{}` cannot be resolved at this source position",
+                        path.join(".")
+                    ),
+                );
+            }
+        }
+        output.sort_by(|left, right| left.authored_path.cmp(&right.authored_path));
+        output.dedup_by(|left, right| left.authored_path == right.authored_path);
+        output
+    }
+
+    fn resolve_helpers(
+        &mut self,
+        scope: ScopeId,
+        calls: Vec<RawHelperCall>,
+        span: SourceSpan,
+        in_event: bool,
+        owner: &Decl,
+    ) -> Vec<ResolvedHelper> {
+        let (scope_is_event, scope_has_between) = self.scope_event_context(scope);
+        let in_event = in_event || scope_is_event;
+        let mut output = Vec::new();
+        for call in calls {
+            let Some(class) = helper_class(&call.name) else {
+                continue;
+            };
+            let expected = helper_arity(&call.name);
+            if expected.is_some_and(|expected| expected != call.args.len()) {
+                self.error(
+                    "AVENGER-RESOLVE-109",
+                    "reserved helper has the wrong arity",
+                    span,
+                    format!(
+                        "`{}(...)` expects {} arguments, found {}",
+                        call.name,
+                        expected.unwrap(),
+                        call.args.len()
+                    ),
+                );
+            }
+            if matches!(class, HelperClass::Event | HelperClass::Datum) && !in_event {
+                self.error(
+                    "AVENGER-RESOLVE-110",
+                    "event helper is outside an event context",
+                    span,
+                    format!(
+                        "`{}(...)` requires an event binding or event effect",
+                        call.name
+                    ),
+                );
+            }
+            if class == HelperClass::Channel && owner.keyword.as_str() != "mark" {
+                self.error(
+                    "AVENGER-RESOLVE-111",
+                    "channel helper is outside a mark channel",
+                    span,
+                    format!("`{}(...)` requires a mark encoding context", call.name),
+                );
+            }
+            if matches!(call.name.as_str(), "start_coord" | "event_path") && !scope_has_between {
+                self.error(
+                    "AVENGER-RESOLVE-132",
+                    "gesture-start helper requires a between interaction",
+                    span,
+                    format!("`{}(...)` has no start event in this binding", call.name),
+                );
+            }
+
+            let mut arguments = Vec::new();
+            for (index, argument) in call.args.iter().enumerate() {
+                let mut resolved = helper_argument(argument);
+                let expects_target =
+                    matches!(class, HelperClass::Selection | HelperClass::View) && index == 0;
+                if expects_target
+                    && let Some(path) = helper_argument_path(argument)
+                    && let Some(target) = if class == HelperClass::Selection {
+                        self.resolve_typed_reference_path(scope, &path, RefKind::Selection, span)
+                    } else {
+                        self.resolve_any_path(scope, &path, span, true)
+                    }
+                {
+                    let valid = match class {
+                        HelperClass::Selection => matches!(
+                            target,
+                            ResolvedTarget::Selection(_)
+                                | ResolvedTarget::DefinitionSelection { .. }
+                        ),
+                        HelperClass::View => matches!(target, ResolvedTarget::Declaration(_)),
+                        HelperClass::Channel => {
+                            matches!(target, ResolvedTarget::DefinitionChannel { .. })
+                        }
+                        _ => true,
+                    };
+                    if !valid {
+                        self.error(
+                            "AVENGER-RESOLVE-112",
+                            "reserved helper argument has the wrong target kind",
+                            span,
+                            format!("`{}` is not a valid {:?} target", path.join("."), class),
+                        );
+                    }
+                    resolved = ResolvedHelperArgument::Target(target);
+                } else if index == 0
+                    && helper_uses_channel_argument(&call.name)
+                    && let Some(path) = helper_argument_path(argument)
+                    && let Some(target @ ResolvedTarget::DefinitionChannel { .. }) =
+                        self.resolve_any_path(scope, &path, span, false)
+                {
+                    resolved = ResolvedHelperArgument::Target(target);
+                }
+                self.validate_helper_argument(&call.name, index, &resolved, span);
+                arguments.push(resolved);
+            }
+            output.push(ResolvedHelper {
+                name: call.name,
+                class,
+                arguments,
+            });
+        }
+        output
+    }
+
+    fn validate_helper_argument(
+        &mut self,
+        helper: &str,
+        index: usize,
+        argument: &ResolvedHelperArgument,
+        span: SourceSpan,
+    ) {
+        let valid = match (helper, index) {
+            ("datum" | "item_data", 0) => {
+                matches!(argument, ResolvedHelperArgument::String(value) if !value.is_empty())
+            }
+            ("event_facet_value", 0) => matches!(
+                argument,
+                ResolvedHelperArgument::Number(value)
+                    if value.parse::<u32>().is_ok()
+            ),
+            ("item_bbox", 0) => matches!(
+                argument,
+                ResolvedHelperArgument::Name(value)
+                    if matches!(value.as_str(), "top" | "right" | "bottom" | "left")
+            ),
+            ("view_x" | "view_y", 1) => matches!(
+                argument,
+                ResolvedHelperArgument::Name(value)
+                    if matches!(
+                        value.as_str(),
+                        "pixels" | "domain_start" | "domain_end"
+                    )
+            ),
+            _ => true,
+        };
+        if !valid {
+            self.error(
+                "AVENGER-RESOLVE-133",
+                "reserved helper argument has an invalid shape",
+                span,
+                format!("argument {} to `{helper}(...)` is invalid", index + 1),
+            );
+        }
+    }
+
+    fn scope_with_transform(&self, scope: ScopeId, name: &str) -> Option<ScopeId> {
+        let mut cursor = Some(scope);
+        while let Some(scope) = cursor {
+            if self.scopes[scope.0].transforms.contains(name) {
+                return Some(scope);
+            }
+            cursor = self.scopes[scope.0].parent;
+        }
+        None
+    }
+
+    fn scope_event_context(&self, scope: ScopeId) -> (bool, bool) {
+        let mut cursor = Some(scope);
+        while let Some(scope) = cursor {
+            if self.scopes[scope.0].event_binding {
+                return (true, self.scopes[scope.0].event_has_between);
+            }
+            cursor = self.scopes[scope.0].parent;
+        }
+        (false, false)
     }
 
     fn resolve_pending_exports(&mut self) {
@@ -1046,20 +2280,114 @@ impl<'a> Resolver<'a> {
                 continue;
             };
             for (alias, path) in pending {
-                if let Some(target) = self.resolve_any_path(
-                    scope,
-                    &path,
-                    SourceSpan::empty(SourceId::new(0), 0),
-                    false,
-                ) {
-                    self.instances
-                        .get_mut(&id)
-                        .expect("instance exists")
-                        .exports
-                        .insert(alias, target);
+                let span = self
+                    .declarations
+                    .values()
+                    .find(|info| info.id == id)
+                    .map_or_else(|| SourceSpan::empty(SourceId::new(0), 0), |info| info.span);
+                if let Some(target) = self.resolve_internal_path(scope, &path) {
+                    let collision = self.instances.get(&id).is_some_and(|interface| {
+                        interface.exports.contains_key(&alias)
+                            || interface.parts.contains_key(&alias)
+                    });
+                    if collision {
+                        self.error(
+                            "AVENGER-RESOLVE-130",
+                            "explicit export alias collides with the component interface",
+                            span,
+                            format!("`{alias}` is already a child, export, or part"),
+                        );
+                    } else {
+                        self.instances
+                            .get_mut(&id)
+                            .expect("instance exists")
+                            .exports
+                            .insert(alias.clone(), target);
+                        self.instances
+                            .get_mut(&id)
+                            .expect("instance exists")
+                            .published_exports
+                            .insert(alias);
+                    }
+                } else {
+                    self.error(
+                        "AVENGER-RESOLVE-131",
+                        "explicit export source cannot be resolved",
+                        span,
+                        format!("`{}` is not an exact internal path", path.join(".")),
+                    );
                 }
             }
         }
+    }
+
+    fn resolve_internal_path(&self, scope: ScopeId, path: &[String]) -> Option<ResolvedTarget> {
+        let first = path.first()?;
+        let mut cursor = Some(scope);
+        let mut target = None;
+        while let Some(id) = cursor {
+            if let Some(symbol) = self.scopes[id.0].values.get(first) {
+                target = Some(match symbol {
+                    ValueSymbol::Param(id, _) => ResolvedTarget::Param(id.clone()),
+                    ValueSymbol::Store(id) => ResolvedTarget::Store(id.clone()),
+                });
+                break;
+            }
+            if let Some(selection) = self.scopes[id.0].selections.get(first) {
+                target = Some(ResolvedTarget::Selection(selection.clone()));
+                break;
+            }
+            if let Some(declaration) = self.scopes[id.0].structural.get(first) {
+                target = self
+                    .declarations
+                    .values()
+                    .find(|info| &info.id == declaration)
+                    .and_then(|info| info.runtime_target.clone())
+                    .or_else(|| Some(ResolvedTarget::Declaration(declaration.clone())));
+                break;
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        let mut target = target?;
+        for segment in path.iter().skip(1) {
+            let declaration = match &target {
+                ResolvedTarget::Declaration(id) => id.clone(),
+                _ => self
+                    .declarations
+                    .values()
+                    .find(|info| info.runtime_target.as_ref() == Some(&target))?
+                    .id
+                    .clone(),
+            };
+            let interface = self.instances.get(&declaration)?;
+            let child_scope = interface.child_scope?;
+            if let Some(symbol) = self.scopes[child_scope.0].values.get(segment) {
+                target = match symbol {
+                    ValueSymbol::Param(id, _) => ResolvedTarget::Param(id.clone()),
+                    ValueSymbol::Store(id) => ResolvedTarget::Store(id.clone()),
+                };
+                continue;
+            }
+            if let Some(selection) = self.scopes[child_scope.0].selections.get(segment) {
+                target = ResolvedTarget::Selection(selection.clone());
+                continue;
+            }
+            if let Some(child) = self.scopes[child_scope.0].structural.get(segment) {
+                target = self
+                    .declarations
+                    .values()
+                    .find(|info| &info.id == child)
+                    .and_then(|info| info.runtime_target.clone())
+                    .unwrap_or_else(|| ResolvedTarget::Declaration(child.clone()));
+                continue;
+            }
+            if let Some(export) = interface.exports.get(segment) {
+                target = export.clone();
+                continue;
+            }
+            return None;
+        }
+        Some(target)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1070,6 +2398,7 @@ impl<'a> Resolver<'a> {
         path: &[usize],
         inherited_coordinate: Option<&str>,
         parent_public_path: Option<&str>,
+        inside_private: bool,
         in_event: bool,
     ) -> ResolvedDeclaration {
         let info = self
@@ -1077,20 +2406,17 @@ impl<'a> Resolver<'a> {
             .get(&(file.id.clone(), path.to_vec()))
             .cloned()
             .unwrap_or_else(|| DeclInfo {
-                id: declaration_id(&file.id, path, declaration.keyword.as_str()),
+                id: declaration_id(file, path),
                 span: root_span(file),
                 containing_scope: ScopeId(0),
                 child_scope: None,
                 ancestry: Vec::new(),
-                runtime_target: runtime_target(
-                    declaration,
-                    &declaration_id(&file.id, path, declaration.keyword.as_str()),
-                ),
+                runtime_target: runtime_target(declaration, &declaration_id(file, path)),
             });
         let coordinate = declaration_coordinate(declaration, inherited_coordinate);
         let parent = parent_declaration(file, path);
         self.validate_placement(declaration, parent, info.span);
-        self.validate_visibility(declaration, parent, info.span);
+        self.validate_visibility(file, path, declaration, info.span);
 
         let native_schema = self.native_schema(file, declaration, coordinate.as_deref());
         let definition_schema = declaration
@@ -1115,7 +2441,13 @@ impl<'a> Resolver<'a> {
         }
 
         if let Some(schema) = native_schema.as_ref() {
-            self.validate_native_declaration(declaration, schema, info.span);
+            self.validate_native_declaration(
+                declaration,
+                schema,
+                parent.map(|parent| parent.keyword.as_str()),
+                coordinate.as_deref(),
+                info.span,
+            );
         }
         if let Some(schema) = definition_schema.as_ref() {
             self.validate_definition_instance(declaration, schema, info.span);
@@ -1126,18 +2458,52 @@ impl<'a> Resolver<'a> {
         let event_context = in_event || declaration.keyword.as_str() == "on";
         let mut properties = BTreeMap::new();
         for (name, value) in declaration.props.iter() {
-            let resolved =
-                self.resolve_value(value_scope, value, info.span, event_context, declaration);
+            let definition_slot = definition_schema
+                .as_ref()
+                .and_then(|schema| schema.slots.get(name.as_str()));
+            let mut resolved = if let Some(slot) = definition_slot
+                && slot.shape == "ref"
+            {
+                self.resolve_definition_ref_value(
+                    value_scope,
+                    value,
+                    slot,
+                    info.span,
+                    event_context,
+                    declaration,
+                )
+            } else {
+                self.resolve_value(value_scope, value, info.span, event_context, declaration)
+            };
             if let Some(shape) = native_schema
                 .as_ref()
                 .and_then(|schema| schema_property(schema, name.as_str()))
+                .cloned()
             {
-                self.validate_value_shape(&resolved, shape, name.as_str(), info.span);
+                self.normalize_definition_arguments(
+                    value_scope,
+                    value,
+                    &mut resolved,
+                    &shape,
+                    info.span,
+                );
+                self.validate_value_shape(&resolved, &shape, name.as_str(), info.span);
             } else if let Some(slot) = definition_schema
                 .as_ref()
                 .and_then(|schema| schema.slots.get(name.as_str()))
             {
                 self.validate_definition_value(&resolved, slot, name.as_str(), info.span);
+            } else if let Some(channel) = definition_schema
+                .as_ref()
+                .and_then(|schema| schema.channels.get(name.as_str()))
+            {
+                self.validate_definition_channel(
+                    &resolved,
+                    channel,
+                    coordinate.as_deref(),
+                    name.as_str(),
+                    info.span,
+                );
             }
             properties.insert(name.to_string(), resolved);
         }
@@ -1146,7 +2512,10 @@ impl<'a> Resolver<'a> {
                 if !properties.contains_key(name)
                     && let Some(default) = &property.default
                 {
-                    properties.insert(name.clone(), resolved_json(default));
+                    properties.insert(
+                        name.clone(),
+                        resolved_schema_default(default, &property.shape),
+                    );
                 }
             }
         }
@@ -1158,14 +2527,51 @@ impl<'a> Resolver<'a> {
                     properties.insert(name.clone(), default.clone());
                 }
             }
+            for (name, channel) in &schema.channels {
+                if !properties.contains_key(name)
+                    && let Some(physical) = &channel.physical_channel
+                {
+                    let value = ResolvedValue::Atom(physical.clone());
+                    self.validate_definition_channel(
+                        &value,
+                        channel,
+                        coordinate.as_deref(),
+                        name,
+                        info.span,
+                    );
+                    properties.insert(name.clone(), value);
+                }
+            }
         }
+        if declaration.keyword.as_str() == "on" {
+            self.validate_event_properties(declaration, &properties, info.span);
+        }
+        let event_binding = (declaration.keyword.as_str() == "on")
+            .then(|| self.resolve_event_binding(value_scope, declaration, &properties, info.span));
 
-        let public_path = declaration_public_path(declaration, parent_public_path);
+        let public_path = declaration_public_path(declaration, parent_public_path, inside_private);
+        let child_inside_private = match declaration.visibility {
+            Visibility::Private => true,
+            Visibility::Public => false,
+            Visibility::Default => inside_private,
+        };
         self.resolve_state_declaration(file, declaration, &info, &properties);
 
-        let mut children = Vec::new();
+        let pipeline = declaration.keyword.as_str() == "transform"
+            && declaration
+                .kind
+                .as_ref()
+                .is_some_and(|kind| kind.as_str() == "pipeline");
+        let resolution_order = (0..declaration.children.len())
+            .filter(|index| !pipeline || declaration.children[*index].keyword.as_str() != "output")
+            .chain((0..declaration.children.len()).filter(|index| {
+                pipeline && declaration.children[*index].keyword.as_str() == "output"
+            }))
+            .collect::<Vec<_>>();
+        let mut resolved_children = vec![None; declaration.children.len()];
         let mut transform_outputs = BTreeMap::new();
-        for (index, child) in declaration.children.iter().enumerate() {
+        for index in resolution_order {
+            let child = &declaration.children[index];
             let mut child_path = path.to_vec();
             child_path.push(index);
             let resolved = self.resolve_declaration(
@@ -1174,6 +2580,7 @@ impl<'a> Resolver<'a> {
                 &child_path,
                 coordinate.as_deref(),
                 public_path.as_deref().or(parent_public_path),
+                child_inside_private,
                 event_context,
             );
             if child.keyword.as_str() == "transform" {
@@ -1182,16 +2589,37 @@ impl<'a> Resolver<'a> {
                     transform_outputs.insert(name.clone(), output.clone());
                 }
             }
-            children.push(resolved);
+            resolved_children[index] = Some(resolved);
         }
+        let mut children = resolved_children
+            .into_iter()
+            .map(|child| child.expect("every child resolves exactly once"))
+            .collect::<Vec<_>>();
         if declaration.keyword.as_str() == "transform" {
-            transform_outputs = self.transform_outputs(declaration, &info, &children);
+            transform_outputs =
+                self.transform_outputs(declaration, &info, &children, definition_schema.as_ref());
         }
-        self.validate_event_actions(declaration, &children, info.span);
+        self.validate_event_actions(declaration, &mut children, info.span);
 
         let interface = self.instances.get(&info.id).cloned().unwrap_or_default();
+        let published_exports = interface
+            .published_exports
+            .iter()
+            .filter_map(|alias| {
+                interface
+                    .exports
+                    .get(alias)
+                    .cloned()
+                    .map(|target| (alias.clone(), target))
+            })
+            .collect();
+        let (migration_key, definition_local_seed) = if declaration.keyword.as_str() == "on" {
+            self.state_identity(file, &info, "event")
+        } else {
+            (None, None)
+        };
         ResolvedDeclaration {
-            id: info.id,
+            id: info.id.clone(),
             source: file.source,
             span: info.span,
             keyword: declaration.keyword.to_string(),
@@ -1199,13 +2627,22 @@ impl<'a> Resolver<'a> {
             name: declaration.name.as_ref().map(ToString::to_string),
             visibility: declaration.visibility,
             coordinate,
+            component_kind: declaration
+                .props
+                .get("component_kind")
+                .and_then(value_atom)
+                .map(str::to_owned),
             properties,
             children,
             runtime_target: info.runtime_target,
+            migration_key,
+            definition_local_seed,
             public_path,
             parts: interface.parts,
-            exports: interface.exports,
+            exports: published_exports,
             transform_outputs,
+            event_binding,
+            state_lvalue: None,
         }
     }
 
@@ -1249,8 +2686,37 @@ impl<'a> Resolver<'a> {
         &mut self,
         declaration: &Decl,
         schema: &KindSchema,
+        parent: Option<&str>,
+        coordinate: Option<&str>,
         span: SourceSpan,
     ) {
+        if schema.body_mode == BodyMode::Properties && !declaration.children.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-015",
+                "native declaration requires a property-only body",
+                span,
+                format!("`{}` does not accept child declarations", schema.key.kind),
+            );
+        }
+        if !schema.allowed_parents.is_empty()
+            && parent.is_none_or(|parent| !schema.allowed_parents.contains(parent))
+        {
+            self.error(
+                "AVENGER-RESOLVE-016",
+                "native declaration is not allowed at this placement",
+                span,
+                format!(
+                    "`{}` requires one of these parents: {}",
+                    schema.key.kind,
+                    schema
+                        .allowed_parents
+                        .iter()
+                        .map(|parent| format!("`{parent}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            );
+        }
         let accepted = schema
             .properties
             .keys()
@@ -1287,18 +2753,16 @@ impl<'a> Resolver<'a> {
                 );
             }
         }
-        if !schema.compatible_coordinates.is_empty() {
-            let coordinate = nearest_coordinate_kind(declaration);
-            if let Some(coordinate) = coordinate
-                && !schema.compatible_coordinates.contains(coordinate)
-            {
-                self.error(
-                    "AVENGER-RESOLVE-023",
-                    "declaration is incompatible with its coordinate system",
-                    span,
-                    format!("`{}` does not support `{coordinate}`", schema.key.kind),
-                );
-            }
+        if !schema.compatible_coordinates.is_empty()
+            && let Some(coordinate) = coordinate
+            && !schema.compatible_coordinates.contains(coordinate)
+        {
+            self.error(
+                "AVENGER-RESOLVE-023",
+                "declaration is incompatible with its coordinate system",
+                span,
+                format!("`{}` does not support `{coordinate}`", schema.key.kind),
+            );
         }
         let counts = declaration.children.iter().fold(
             BTreeMap::<String, usize>::new(),
@@ -1397,6 +2861,19 @@ impl<'a> Resolver<'a> {
     fn validate_core_declaration(&mut self, declaration: &Decl, span: SourceSpan, in_event: bool) {
         match declaration.keyword.as_str() {
             "param" => {
+                self.validate_core_property_names(
+                    declaration,
+                    &["type", "default", "sharing", "kind"],
+                    span,
+                );
+                if !declaration.children.is_empty() {
+                    self.error(
+                        "AVENGER-RESOLVE-045",
+                        "declaration requires a property-only body",
+                        span,
+                        "`param` does not accept child declarations",
+                    );
+                }
                 for required in ["type", "default"] {
                     if declaration.props.get(required).is_none() {
                         self.error(
@@ -1417,6 +2894,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             "store" => {
+                self.validate_core_property_names(declaration, &["primary_key", "sharing"], span);
                 if declaration
                     .children
                     .iter()
@@ -1427,6 +2905,56 @@ impl<'a> Resolver<'a> {
                         "invalid store child",
                         span,
                         "stores accept only ordered `field` and `row` children",
+                    );
+                }
+                if let Some(primary_key) = declaration.props.get("primary_key") {
+                    let valid = matches!(primary_key, Value::Array(values)
+                        if !values.is_empty()
+                            && values.iter().all(|value| matches!(value, Value::Atom(_)))
+                            && values
+                                .iter()
+                                .filter_map(value_atom)
+                                .collect::<BTreeSet<_>>()
+                                .len()
+                                == values.len());
+                    if !valid {
+                        self.error(
+                            "AVENGER-RESOLVE-142",
+                            "invalid store primary-key declaration",
+                            span,
+                            "`primary_key:` requires a non-empty, duplicate-free array of field names",
+                        );
+                    }
+                }
+            }
+            "selection" => {
+                self.validate_core_property_names(declaration, &["empty", "combine"], span);
+                if declaration.props.get("empty").is_some_and(|value| {
+                    !value_atom(value).is_some_and(|value| matches!(value, "none" | "all"))
+                }) {
+                    self.error(
+                        "AVENGER-RESOLVE-143",
+                        "invalid empty-selection behavior",
+                        span,
+                        "`empty:` must be `none` or `all`",
+                    );
+                }
+                if declaration.props.get("combine").is_some_and(|value| {
+                    !value_atom(value).is_some_and(|value| matches!(value, "union" | "intersect"))
+                }) {
+                    self.error(
+                        "AVENGER-RESOLVE-144",
+                        "invalid selection combination",
+                        span,
+                        "`combine:` must be `union` or `intersect`",
+                    );
+                }
+                if !declaration.children.is_empty() {
+                    self.error(
+                        "AVENGER-RESOLVE-045",
+                        "declaration requires a property-only body",
+                        span,
+                        "`selection` does not accept child declarations",
                     );
                 }
             }
@@ -1460,6 +2988,21 @@ impl<'a> Resolver<'a> {
                     );
                 }
             }
+            "mark" | "group"
+                if declaration
+                    .children
+                    .iter()
+                    .filter(|child| child.keyword.as_str() == "view")
+                    .count()
+                    > 1 =>
+            {
+                self.error(
+                    "AVENGER-RESOLVE-044",
+                    "a mark or group may own at most one inline view",
+                    span,
+                    "combine the dependent transform/render chain into one view scope",
+                );
+            }
             "widget" if !declaration.children.is_empty() => self.error(
                 "AVENGER-RESOLVE-038",
                 "registered widgets have property-only bodies",
@@ -1472,7 +3015,36 @@ impl<'a> Resolver<'a> {
                 span,
                 "move this ordered action into an event binding",
             ),
+            "scale" | "axis" | "legend" if !declaration.children.is_empty() => {
+                self.error(
+                    "AVENGER-RESOLVE-045",
+                    "declaration requires a property-only body",
+                    span,
+                    format!(
+                        "`{}` does not accept child declarations",
+                        declaration.keyword
+                    ),
+                );
+            }
             _ => {}
+        }
+    }
+
+    fn validate_core_property_names(
+        &mut self,
+        declaration: &Decl,
+        allowed: &[&str],
+        span: SourceSpan,
+    ) {
+        for (name, _) in declaration.props.iter() {
+            if !allowed.contains(&name.as_str()) {
+                self.error(
+                    "AVENGER-RESOLVE-141",
+                    "unknown core declaration property",
+                    span,
+                    format!("`{}` does not have `{name}:`", declaration.keyword),
+                );
+            }
         }
     }
 
@@ -1494,21 +3066,44 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn validate_visibility(&mut self, declaration: &Decl, parent: Option<&Decl>, span: SourceSpan) {
+    fn validate_visibility(
+        &mut self,
+        file: &ProjectFile,
+        path: &[usize],
+        declaration: &Decl,
+        span: SourceSpan,
+    ) {
         if declaration.visibility == Visibility::Default {
             return;
         }
-        if declaration.name.is_none() || !is_structural(declaration) {
+        if matches!(file.kind, ProjectFileKind::Definition(_)) {
+            self.error(
+                "AVENGER-RESOLVE-043",
+                "visibility modifiers are invalid inside definitions",
+                span,
+                "definition bodies are private as a unit; publish exact names with header `export` declarations",
+            );
+            return;
+        }
+        let has_public_identity = is_structural(declaration)
+            || matches!(
+                declaration.keyword.as_str(),
+                "param" | "store" | "selection"
+            );
+        if declaration.name.is_none() || !has_public_identity {
             self.error(
                 "AVENGER-RESOLVE-041",
-                "visibility requires a named structural declaration",
+                "visibility requires a named public identity",
                 span,
-                "only named structural identities can be public or private",
+                "only named structure, params, stores, and selections can be public or private",
             );
         }
-        if declaration.visibility == Visibility::Public
-            && !parent.is_some_and(|parent| parent.visibility == Visibility::Private)
-        {
+        let has_private_ancestor = (1..path.len()).any(|length| {
+            declaration_at(file.parsed.ast.root.declarations(), &path[..length]).is_some_and(
+                |ancestor| ancestor.visibility == Visibility::Private && is_structural(ancestor),
+            )
+        });
+        if declaration.visibility == Visibility::Public && !has_private_ancestor {
             self.error(
                 "AVENGER-RESOLVE-042",
                 "public declaration requires a private structural ancestor",
@@ -1525,6 +3120,11 @@ impl<'a> Resolver<'a> {
         property: &str,
         span: SourceSpan,
     ) {
+        // Name/binding resolution already emitted the actionable diagnostic.
+        // Do not add a derivative shape error for the same authored value.
+        if resolved_value_contains_invalid(value) {
+            return;
+        }
         if value_matches_shape(value, shape) {
             if let (ResolvedValue::Object { properties, .. }, ValueShape::Object(fields)) =
                 (value, shape)
@@ -1543,6 +3143,91 @@ impl<'a> Resolver<'a> {
                 resolved_shape(value)
             ),
         );
+    }
+
+    fn normalize_definition_arguments(
+        &mut self,
+        scope: ScopeId,
+        source: &Value,
+        resolved: &mut ResolvedValue,
+        shape: &ValueShape,
+        span: SourceSpan,
+    ) {
+        match shape {
+            ValueShape::SqlExpression => {
+                self.normalize_expression_argument(scope, resolved, span);
+            }
+            ValueShape::Array(inner) => {
+                if let (Value::Array(sources), ResolvedValue::Array(values)) = (source, resolved) {
+                    for (source, value) in sources.iter().zip(values) {
+                        self.normalize_definition_arguments(scope, source, value, inner, span);
+                    }
+                }
+            }
+            ValueShape::Object(fields) => {
+                if let (Value::Block { body, .. }, ResolvedValue::Object { properties, .. }) =
+                    (source, resolved)
+                {
+                    for (name, field) in fields {
+                        if let (Some(source), Some(value)) =
+                            (body.props.get(name), properties.get_mut(name))
+                        {
+                            self.normalize_definition_arguments(
+                                scope,
+                                source,
+                                value,
+                                &field.shape,
+                                span,
+                            );
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn normalize_expression_argument(
+        &mut self,
+        scope: ScopeId,
+        value: &mut ResolvedValue,
+        span: SourceSpan,
+    ) {
+        match value {
+            ResolvedValue::Atom(name) => {
+                let path = vec![name.clone()];
+                if let Some(
+                    target @ (ResolvedTarget::DefinitionSlot { .. }
+                    | ResolvedTarget::DefinitionChannel { .. }),
+                ) = self.resolve_any_path(scope, &path, span, false)
+                {
+                    *value = ResolvedValue::DefinitionArgument(target);
+                }
+            }
+            ResolvedValue::Call { args, .. } | ResolvedValue::Array(args) => {
+                for argument in args {
+                    self.normalize_expression_argument(scope, argument, span);
+                }
+            }
+            ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+                self.normalize_expression_argument(scope, value, span);
+            }
+            ResolvedValue::Object {
+                properties,
+                children,
+                ..
+            } => {
+                for value in properties.values_mut() {
+                    self.normalize_expression_argument(scope, value, span);
+                }
+                for child in children {
+                    for value in child.properties.values_mut() {
+                        self.normalize_expression_argument(scope, value, span);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn validate_object_fields(
@@ -1584,20 +3269,54 @@ impl<'a> Resolver<'a> {
         property: &str,
         span: SourceSpan,
     ) {
+        if resolved_value_contains_invalid(value) {
+            return;
+        }
+        if matches!(
+            value,
+            ResolvedValue::DefinitionArgument(ResolvedTarget::DefinitionSlot { .. })
+        ) {
+            return;
+        }
         let valid = match slot.shape.as_str() {
             "expr" => is_expression_value(value),
             "expr_list" => {
                 matches!(value, ResolvedValue::Array(values) if values.iter().all(is_expression_value))
             }
             "literal" => is_literal_value(value),
-            "number" => matches!(value, ResolvedValue::Number(_)),
-            "string" => matches!(value, ResolvedValue::String(_)),
-            "boolean" => matches!(value, ResolvedValue::Boolean(_)),
+            "number" => matches!(
+                value,
+                ResolvedValue::Number(_) | ResolvedValue::Expression(_) | ResolvedValue::Binding(_)
+            ),
+            "string" => matches!(
+                value,
+                ResolvedValue::String(_) | ResolvedValue::Expression(_) | ResolvedValue::Binding(_)
+            ),
+            "boolean" => matches!(
+                value,
+                ResolvedValue::Boolean(_)
+                    | ResolvedValue::Expression(_)
+                    | ResolvedValue::Binding(_)
+            ),
             "enum" => {
                 matches!(value, ResolvedValue::Atom(atom) if slot.enum_values.iter().any(|candidate| candidate == atom))
             }
             "function" => matches!(value, ResolvedValue::Call { .. }),
-            "ref" => matches!(value, ResolvedValue::Reference(_)),
+            "ref" => {
+                matches!(
+                    value,
+                    ResolvedValue::Reference(reference)
+                        if slot.reference_kind.as_deref().is_none_or(|kind| {
+                            target_matches_definition_ref_kind(&reference.target, kind)
+                        })
+                ) || matches!(
+                    value,
+                    ResolvedValue::Binding(binding)
+                        if slot.reference_kind.as_deref().is_some_and(|kind| {
+                            target_matches_definition_ref_kind(&binding.target, kind)
+                        })
+                )
+            }
             "block" => matches!(value, ResolvedValue::Object { .. }),
             _ => false,
         };
@@ -1609,6 +3328,71 @@ impl<'a> Resolver<'a> {
                 format!("`{property}` expects slot shape `{}`", slot.shape),
             );
         }
+    }
+
+    fn validate_definition_channel(
+        &mut self,
+        value: &ResolvedValue,
+        channel: &DefinitionChannel,
+        coordinate: Option<&str>,
+        property: &str,
+        span: SourceSpan,
+    ) {
+        let Some(physical) = (match value {
+            ResolvedValue::Atom(value) => Some(value.as_str()),
+            _ => None,
+        }) else {
+            self.error(
+                "AVENGER-RESOLVE-054",
+                "definition channel argument has the wrong shape",
+                span,
+                format!("`{property}` requires a bare physical channel name"),
+            );
+            return;
+        };
+        if let Some(coordinate) = coordinate
+            && !self.registry.entries.values().any(|schema| {
+                schema.key.namespace == NativeKindNamespace::Mark
+                    && schema.key.coordinate.as_deref() == Some(coordinate)
+                    && schema.channels.contains_key(physical)
+            })
+        {
+            self.error(
+                "AVENGER-RESOLVE-055",
+                "definition channel is incompatible with the coordinate system",
+                span,
+                format!("`{physical}` is not a registered `{coordinate}` channel"),
+            );
+        }
+        let _ = channel;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn resolve_definition_ref_value(
+        &mut self,
+        scope: ScopeId,
+        value: &Value,
+        slot: &DefinitionSlot,
+        span: SourceSpan,
+        in_event: bool,
+        owner: &Decl,
+    ) -> ResolvedValue {
+        if let Value::Atom(name) = value
+            && let Some(kind) = slot.reference_kind.as_deref().and_then(definition_ref_kind)
+        {
+            let authored_path = vec![name.to_string()];
+            return self
+                .resolve_typed_reference_path(scope, &authored_path, kind, span)
+                .map(|target| {
+                    ResolvedValue::Reference(ResolvedReference {
+                        target,
+                        kind,
+                        authored_path,
+                    })
+                })
+                .unwrap_or(ResolvedValue::Invalid);
+        }
+        self.resolve_value(scope, value, span, in_event, owner)
     }
 
     fn resolve_value(
@@ -1643,10 +3427,20 @@ impl<'a> Resolver<'a> {
                     })
                     .collect();
                 let sql = expression.canonical_sql();
+                let references =
+                    self.resolve_sql_paths(scope, expression_paths(expression.ast()), span, true);
+                let helpers = self.resolve_helpers(
+                    scope,
+                    helper_calls(expression.ast()),
+                    span,
+                    in_event,
+                    owner,
+                );
                 ResolvedValue::Expression(ResolvedExpression {
-                    helpers: helpers_in_sql(&sql),
+                    helpers,
                     sql,
                     bindings,
+                    references,
                 })
             }
             Value::Query(query) => {
@@ -1666,10 +3460,20 @@ impl<'a> Resolver<'a> {
                     })
                     .collect();
                 let sql = query.canonical_sql();
+                let references =
+                    self.resolve_sql_paths(scope, query_paths(query.ast()), span, false);
+                let helpers = self.resolve_helpers(
+                    scope,
+                    query_helper_calls(query.ast()),
+                    span,
+                    in_event,
+                    owner,
+                );
                 ResolvedValue::Query(ResolvedQuery {
-                    helpers: helpers_in_sql(&sql),
+                    helpers,
                     sql,
                     bindings,
+                    references,
                 })
             }
             Value::Binding { kind, path, time } => self
@@ -1716,7 +3520,14 @@ impl<'a> Resolver<'a> {
                     .iter()
                     .enumerate()
                     .map(|(index, child)| {
-                        self.resolve_inline_declaration(scope, child, span, index, in_event)
+                        self.resolve_inline_declaration(
+                            scope,
+                            child,
+                            span,
+                            index,
+                            in_event,
+                            owner.keyword.as_str() == "widget",
+                        )
                     })
                     .collect(),
             },
@@ -1737,8 +3548,9 @@ impl<'a> Resolver<'a> {
         span: SourceSpan,
         index: usize,
         in_event: bool,
+        widget_action: bool,
     ) -> ResolvedDeclaration {
-        self.validate_core_declaration(declaration, span, in_event);
+        self.validate_core_declaration(declaration, span, in_event || widget_action);
         let id = DeclarationId(semantic_hash(&[
             "inline-declaration",
             &self.scopes[scope.0].label,
@@ -1755,7 +3567,7 @@ impl<'a> Resolver<'a> {
                 )
             })
             .collect();
-        ResolvedDeclaration {
+        let mut resolved = ResolvedDeclaration {
             id,
             source: span.source,
             span,
@@ -1764,21 +3576,41 @@ impl<'a> Resolver<'a> {
             name: declaration.name.as_ref().map(ToString::to_string),
             visibility: declaration.visibility,
             coordinate: None,
+            component_kind: declaration
+                .props
+                .get("component_kind")
+                .and_then(value_atom)
+                .map(str::to_owned),
             properties,
             children: declaration
                 .children
                 .iter()
                 .enumerate()
                 .map(|(index, child)| {
-                    self.resolve_inline_declaration(scope, child, span, index, in_event)
+                    self.resolve_inline_declaration(
+                        scope,
+                        child,
+                        span,
+                        index,
+                        in_event,
+                        widget_action,
+                    )
                 })
                 .collect(),
             runtime_target: None,
+            migration_key: None,
+            definition_local_seed: None,
             public_path: None,
             parts: BTreeMap::new(),
             exports: BTreeMap::new(),
             transform_outputs: BTreeMap::new(),
+            event_binding: None,
+            state_lvalue: None,
+        };
+        if declaration.keyword.as_str() == "set" && widget_action {
+            self.validate_action(declaration, &mut resolved, None, span, scope, true);
         }
+        resolved
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1790,10 +3622,12 @@ impl<'a> Resolver<'a> {
         time: BindingTime,
         span: SourceSpan,
         in_event: bool,
-        owner: &Decl,
+        _owner: &Decl,
     ) -> Option<ResolvedBinding> {
         let path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
         let target = self.resolve_binding_path(scope, &path, Some(kind), span, true)?;
+        let (scope_is_event, scope_has_between) = self.scope_event_context(scope);
+        let in_event = in_event || scope_is_event;
         if time != BindingTime::Current && !in_event {
             self.error(
                 "AVENGER-RESOLVE-060",
@@ -1802,7 +3636,7 @@ impl<'a> Resolver<'a> {
                 "`@start` and `@previous` are defined only for event invocations",
             );
         }
-        if time == BindingTime::Start && owner.props.get("between").is_none() {
+        if time == BindingTime::Start && !scope_has_between {
             self.error(
                 "AVENGER-RESOLVE-061",
                 "`@start` requires a between interaction",
@@ -1810,7 +3644,12 @@ impl<'a> Resolver<'a> {
                 "the containing event must declare `between:`",
             );
         }
-        if time != BindingTime::Current && matches!(target, ResolvedTarget::Store(_)) {
+        if time != BindingTime::Current
+            && matches!(
+                target,
+                ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. }
+            )
+        {
             self.error(
                 "AVENGER-RESOLVE-062",
                 "temporal qualifiers apply only to params",
@@ -1836,8 +3675,8 @@ impl<'a> Resolver<'a> {
     ) -> Option<ResolvedTarget> {
         let target = self.resolve_any_path(scope, path, span, diagnose)?;
         let actual = match target {
-            ResolvedTarget::Param(_) => BindingKind::Param,
-            ResolvedTarget::Store(_) => BindingKind::Store,
+            ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. } => BindingKind::Param,
+            ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. } => BindingKind::Store,
             _ => {
                 if diagnose {
                     self.error(
@@ -1879,7 +3718,7 @@ impl<'a> Resolver<'a> {
         span: SourceSpan,
     ) -> Option<ResolvedReference> {
         let authored_path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
-        let target = self.resolve_any_path(scope, &authored_path, span, true)?;
+        let target = self.resolve_typed_reference_path(scope, &authored_path, kind, span)?;
         if !reference_kind_matches(&target, kind) {
             self.error(
                 "AVENGER-RESOLVE-065",
@@ -1899,6 +3738,100 @@ impl<'a> Resolver<'a> {
         })
     }
 
+    fn resolve_typed_reference_path(
+        &mut self,
+        scope: ScopeId,
+        path: &[String],
+        kind: RefKind,
+        span: SourceSpan,
+    ) -> Option<ResolvedTarget> {
+        let target = if kind == RefKind::Selection && path.len() == 1 {
+            let name = path.first()?;
+            let mut cursor = Some(scope);
+            let mut found = None;
+            while let Some(id) = cursor {
+                if let Some(selection) = self.scopes[id.0].selections.get(name) {
+                    found = Some(ResolvedTarget::Selection(selection.clone()));
+                    break;
+                }
+                cursor = self.scopes[id.0].parent;
+            }
+            found
+        } else if path.len() == 1 {
+            let name = path.first()?;
+            let mut cursor = Some(scope);
+            let mut found = None;
+            while let Some(id) = cursor {
+                if let Some(declaration) = self.scopes[id.0].structural.get(name) {
+                    found = self
+                        .declarations
+                        .values()
+                        .find(|info| &info.id == declaration)
+                        .and_then(|info| info.runtime_target.clone())
+                        .or_else(|| Some(ResolvedTarget::Declaration(declaration.clone())));
+                    break;
+                }
+                cursor = self.scopes[id.0].parent;
+            }
+            found
+        } else {
+            self.resolve_qualified_structural_path(scope, path)
+        };
+        if target.is_none() {
+            self.error(
+                "AVENGER-RESOLVE-066",
+                "unresolved authored path",
+                span,
+                format!(
+                    "`{}` is not visible for a {kind:?} reference",
+                    path.join(".")
+                ),
+            );
+        }
+        target
+    }
+
+    fn resolve_qualified_structural_path(
+        &self,
+        scope: ScopeId,
+        path: &[String],
+    ) -> Option<ResolvedTarget> {
+        let first = path.first()?;
+        let mut cursor = Some(scope);
+        let mut current = loop {
+            let id = cursor?;
+            if let Some(found) = self.scopes[id.0].structural.get(first) {
+                break found.clone();
+            }
+            cursor = self.scopes[id.0].parent;
+        };
+        for (index, segment) in path.iter().enumerate().skip(1) {
+            let interface = self.instances.get(&current)?;
+            let target = interface.exports.get(segment).cloned().or_else(|| {
+                interface
+                    .parts
+                    .contains_key(segment)
+                    .then(|| ResolvedTarget::Part {
+                        declaration: current.clone(),
+                        alias: segment.clone(),
+                    })
+            })?;
+            if index == path.len() - 1 {
+                return Some(target);
+            }
+            current = match &target {
+                ResolvedTarget::Declaration(id) => id.clone(),
+                _ => self
+                    .declarations
+                    .values()
+                    .find(|info| info.runtime_target.as_ref() == Some(&target))?
+                    .id
+                    .clone(),
+            };
+        }
+        None
+    }
+
     fn resolve_any_path(
         &mut self,
         scope: ScopeId,
@@ -1916,6 +3849,9 @@ impl<'a> Resolver<'a> {
                         ValueSymbol::Store(id) => ResolvedTarget::Store(id.clone()),
                     });
                 }
+                if let Some(target) = self.scopes[id.0].definition_arguments.get(first) {
+                    return Some(target.clone());
+                }
                 if let Some(id) = self.scopes[id.0].selections.get(first) {
                     return Some(ResolvedTarget::Selection(id.clone()));
                 }
@@ -1929,41 +3865,8 @@ impl<'a> Resolver<'a> {
                 }
                 cursor = self.scopes[id.0].parent;
             }
-        } else {
-            let mut cursor = Some(scope);
-            let mut declaration = None;
-            while let Some(id) = cursor {
-                if let Some(found) = self.scopes[id.0].structural.get(first) {
-                    declaration = Some(found.clone());
-                    break;
-                }
-                cursor = self.scopes[id.0].parent;
-            }
-            if let Some(declaration) = declaration {
-                let mut current = declaration;
-                for (index, segment) in path.iter().enumerate().skip(1) {
-                    let Some(interface) = self.instances.get(&current) else {
-                        break;
-                    };
-                    if index == path.len() - 1 {
-                        if let Some(target) = interface.exports.get(segment) {
-                            return Some(target.clone());
-                        }
-                        if interface.parts.contains_key(segment) {
-                            return Some(ResolvedTarget::Part {
-                                declaration: current,
-                                alias: segment.clone(),
-                            });
-                        }
-                    }
-                    if let Some(ResolvedTarget::Declaration(next)) = interface.exports.get(segment)
-                    {
-                        current = next.clone();
-                        continue;
-                    }
-                    break;
-                }
-            }
+        } else if let Some(target) = self.resolve_qualified_structural_path(scope, path) {
+            return Some(target);
         }
         if diagnose {
             self.error(
@@ -2011,14 +3914,33 @@ impl<'a> Resolver<'a> {
                 );
                 let sharing =
                     parse_sharing(properties.get("sharing"), info.span, &mut self.diagnostics);
-                let migration_key = StateMigrationKey(semantic_hash(&[
-                    "param-migration",
-                    file.id.as_str(),
-                    info.id.as_str(),
-                    &ancestry_text(&info.ancestry),
-                ]));
+                let (migration_key, definition_local_seed) =
+                    self.state_identity(file, info, "param");
                 let dependencies = resolved_param_dependencies(&default);
-                self.param_dependencies.insert(id.clone(), dependencies);
+                let table_owner = self.table_owner(&info.id);
+                if table_owner.is_some()
+                    && !declaration.props.get("default").is_some_and(|value| {
+                        matches!(
+                            value,
+                            Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null
+                        )
+                    })
+                {
+                    self.error(
+                        "AVENGER-RESOLVE-135",
+                        "catalog-table param default must be a scalar literal",
+                        info.span,
+                        "table params are self-contained plan defaults and cannot read other params",
+                    );
+                }
+                self.param_dependencies.insert(
+                    id.clone(),
+                    if table_owner.is_some() {
+                        BTreeSet::new()
+                    } else {
+                        dependencies
+                    },
+                );
                 self.params.insert(
                     id.clone(),
                     ResolvedParam {
@@ -2029,9 +3951,11 @@ impl<'a> Resolver<'a> {
                         default,
                         sharing,
                         migration_key,
+                        definition_local_seed,
                         lexical_scope: self.scopes[info.containing_scope.0].label.clone(),
                         owner_ancestry: info.ancestry.clone(),
                         generated_by: None,
+                        table_owner,
                     },
                 );
             }
@@ -2044,18 +3968,28 @@ impl<'a> Resolver<'a> {
                 else {
                     return;
                 };
+                let (migration_key, definition_local_seed) =
+                    self.state_identity(file, info, "selection");
                 self.selections.insert(
                     id.clone(),
                     ResolvedSelection {
                         id,
                         declaration: info.id.clone(),
                         source_name: name,
-                        migration_key: StateMigrationKey(semantic_hash(&[
-                            "selection-migration",
-                            file.id.as_str(),
-                            info.id.as_str(),
-                            &ancestry_text(&info.ancestry),
-                        ])),
+                        empty: match properties.get("empty") {
+                            Some(ResolvedValue::Atom(value)) if value == "all" => {
+                                ResolvedSelectionEmpty::All
+                            }
+                            _ => ResolvedSelectionEmpty::None,
+                        },
+                        combine: match properties.get("combine") {
+                            Some(ResolvedValue::Atom(value)) if value == "intersect" => {
+                                ResolvedSelectionCombine::Intersect
+                            }
+                            _ => ResolvedSelectionCombine::Union,
+                        },
+                        migration_key,
+                        definition_local_seed,
                         lexical_scope: self.scopes[info.containing_scope.0].label.clone(),
                         owner_ancestry: info.ancestry.clone(),
                         generated_by: None,
@@ -2064,6 +3998,20 @@ impl<'a> Resolver<'a> {
             }
             _ => {}
         }
+    }
+
+    fn table_owner(&self, declaration: &DeclarationId) -> Option<DeclarationId> {
+        let ((file_id, path), _) = self
+            .declarations
+            .iter()
+            .find(|(_, info)| &info.id == declaration)?;
+        if path.len() < 2 {
+            return None;
+        }
+        let file = self.project.files.get(file_id)?;
+        let parent_path = &path[..path.len() - 1];
+        let parent = declaration_at(file.parsed.ast.root.declarations(), parent_path)?;
+        (parent.keyword.as_str() == "table").then(|| declaration_id(file, parent_path))
     }
 
     fn resolve_store(
@@ -2091,6 +4039,14 @@ impl<'a> Resolver<'a> {
             let Some(field_name) = field.name.as_ref().map(ToString::to_string) else {
                 continue;
             };
+            if field_name.starts_with("__avenger_store_") {
+                self.error(
+                    "AVENGER-RESOLVE-145",
+                    "store field uses the reserved runtime prefix",
+                    info.span,
+                    "field names beginning with `__avenger_store_` are reserved",
+                );
+            }
             if !field_names.insert(field_name.clone()) {
                 self.error(
                     "AVENGER-RESOLVE-070",
@@ -2139,12 +4095,13 @@ impl<'a> Resolver<'a> {
             }
         }
         let mut rows = Vec::new();
+        let mut static_keys = BTreeSet::new();
         for row in declaration
             .children
             .iter()
             .filter(|child| child.keyword.as_str() == "row")
         {
-            let values = row
+            let mut values = row
                 .props
                 .iter()
                 .map(|(name, value)| (name.to_string(), unresolved_value(value)))
@@ -2177,11 +4134,34 @@ impl<'a> Resolver<'a> {
                         info.span,
                         format!("row requires field `{}`", field.name),
                     ),
-                    None => {}
+                    None => {
+                        values.insert(field.name.clone(), ResolvedValue::Null);
+                    }
                 }
+            }
+            for key in &primary_key {
+                if matches!(row.props.get(key), Some(Value::Null)) {
+                    self.error(
+                        "AVENGER-RESOLVE-079",
+                        "store primary-key value cannot be null",
+                        info.span,
+                        format!("row field `{key}` is part of the primary key"),
+                    );
+                }
+            }
+            if let Some(key) = static_store_key(row, &primary_key)
+                && !static_keys.insert(key)
+            {
+                self.error(
+                    "AVENGER-RESOLVE-125",
+                    "store initial rows contain a duplicate primary key",
+                    info.span,
+                    "statically known key tuples must be unique",
+                );
             }
             rows.push(values);
         }
+        let (migration_key, definition_local_seed) = self.state_identity(file, info, "store");
         self.stores.insert(
             id.clone(),
             ResolvedStore {
@@ -2192,12 +4172,8 @@ impl<'a> Resolver<'a> {
                 primary_key,
                 rows,
                 sharing: parse_sharing(properties.get("sharing"), info.span, &mut self.diagnostics),
-                migration_key: StateMigrationKey(semantic_hash(&[
-                    "store-migration",
-                    file.id.as_str(),
-                    info.id.as_str(),
-                    &ancestry_text(&info.ancestry),
-                ])),
+                migration_key,
+                definition_local_seed,
                 lexical_scope: self.scopes[info.containing_scope.0].label.clone(),
                 owner_ancestry: info.ancestry.clone(),
                 generated_by: None,
@@ -2225,9 +4201,8 @@ impl<'a> Resolver<'a> {
             );
         }
         if let ResolvedValue::Binding(binding) = resolved
-            && let ResolvedTarget::Param(id) = &binding.target
-            && let Some(param) = self.params.get(id)
-            && &param.data_type != data_type
+            && let Some(actual) = self.target_physical_type(&binding.target)
+            && &actual != data_type
         {
             self.error(
                 "AVENGER-RESOLVE-077",
@@ -2235,9 +4210,24 @@ impl<'a> Resolver<'a> {
                 span,
                 format!(
                     "{boundary} expects `{data_type}`, but referenced param has `{}`; author an explicit CAST",
-                    param.data_type
+                    actual
                 ),
             );
+        }
+    }
+
+    fn target_physical_type(&self, target: &ResolvedTarget) -> Option<PhysicalType> {
+        match target {
+            ResolvedTarget::Param(id) => self.param_types.get(id).cloned(),
+            ResolvedTarget::DefinitionParam {
+                definition, alias, ..
+            } => self
+                .definitions
+                .values()
+                .find(|schema| &schema.declaration == definition)
+                .and_then(|schema| schema.exports.get(alias))
+                .and_then(|export| export.data_type.clone()),
+            _ => None,
         }
     }
 
@@ -2281,6 +4271,7 @@ impl<'a> Resolver<'a> {
         declaration: &Decl,
         info: &DeclInfo,
         children: &[ResolvedDeclaration],
+        definition: Option<&DefinitionSchema>,
     ) -> BTreeMap<String, ResolvedOutputHandle> {
         let mut output_names = Vec::new();
         if let Some(schema) = declaration.kind.as_ref().and_then(|kind| {
@@ -2290,6 +4281,26 @@ impl<'a> Resolver<'a> {
             ))
         }) {
             output_names.extend(schema.outputs.keys().cloned());
+        }
+        if let Some(definition) = definition {
+            output_names.extend(definition.outputs.keys().cloned());
+        }
+        if declaration
+            .kind
+            .as_ref()
+            .is_some_and(|kind| kind.as_str() == "aggregate")
+            && let Some(Value::Array(measures)) = declaration.props.get("measures")
+        {
+            output_names.extend(measures.iter().filter_map(|measure| {
+                let Value::Block { body, .. } = measure else {
+                    return None;
+                };
+                match body.props.get("name") {
+                    Some(Value::Str(name)) => Some(name.clone()),
+                    Some(Value::Atom(name)) => Some(name.to_string()),
+                    _ => None,
+                }
+            }));
         }
         if declaration
             .kind
@@ -2331,9 +4342,21 @@ impl<'a> Resolver<'a> {
             .rev()
             .find(|child| child.keyword == "transform")
             .map_or_else(|| info.id.clone(), |child| child.id.clone());
-        output_names.sort();
-        output_names.dedup();
-        output_names
+        let mut unique_names = Vec::new();
+        let mut seen = BTreeSet::new();
+        for name in output_names {
+            if seen.insert(name.clone()) {
+                unique_names.push(name);
+            } else {
+                self.error(
+                    "AVENGER-RESOLVE-150",
+                    "duplicate transform output handle",
+                    info.span,
+                    format!("output `{name}` is declared more than once"),
+                );
+            }
+        }
+        unique_names
             .into_iter()
             .enumerate()
             .map(|(ordinal, name)| {
@@ -2352,17 +4375,22 @@ impl<'a> Resolver<'a> {
     fn validate_event_actions(
         &mut self,
         declaration: &Decl,
-        children: &[ResolvedDeclaration],
+        children: &mut [ResolvedDeclaration],
         span: SourceSpan,
     ) {
         if declaration.keyword.as_str() != "on" {
             return;
         }
         let mut seen_action = false;
-        for child in children {
+        for (source_child, child) in declaration.children.iter().zip(children) {
             if child.keyword == "set" {
                 seen_action = true;
-                self.validate_action(child, declaration, span);
+                let scope = self
+                    .declarations
+                    .values()
+                    .find(|info| info.id == child.id)
+                    .map_or(ScopeId(0), |info| info.containing_scope);
+                self.validate_action(source_child, child, Some(declaration), span, scope, false);
             } else if seen_action && child.keyword != "set" {
                 self.error(
                     "AVENGER-RESOLVE-090",
@@ -2374,23 +4402,61 @@ impl<'a> Resolver<'a> {
         }
     }
 
-    fn validate_action(&mut self, action: &ResolvedDeclaration, event: &Decl, span: SourceSpan) {
+    fn validate_action(
+        &mut self,
+        source: &Decl,
+        action: &mut ResolvedDeclaration,
+        event: Option<&Decl>,
+        span: SourceSpan,
+        scope: ScopeId,
+        widget_action: bool,
+    ) {
         let kind = action.kind.as_deref().unwrap_or("");
         if kind == "cursor" {
-            if let Some(value) = action.properties.get("value")
-                && !matches!(
+            let value = action.properties.get("value");
+            if value.is_none() {
+                self.error(
+                    "AVENGER-RESOLVE-087",
+                    "cursor action is missing its value",
+                    span,
+                    "use `set cursor = <utf8 expression>`",
+                );
+            }
+            if value.is_some_and(|value| {
+                !matches!(
                     value,
                     ResolvedValue::String(_)
+                        | ResolvedValue::Null
                         | ResolvedValue::Expression(_)
                         | ResolvedValue::Binding(_)
                 )
-            {
+            }) {
                 self.error(
                     "AVENGER-RESOLVE-091",
                     "cursor action requires a UTF-8 scalar expression",
                     span,
                     "cursor is a write-only peer of params and stores",
                 );
+            }
+            if let Some(ResolvedValue::Binding(binding)) = value
+                && self.target_physical_type(&binding.target) != Some(PhysicalType::Utf8)
+            {
+                self.error(
+                    "AVENGER-RESOLVE-088",
+                    "cursor action binding must have exact utf8 type",
+                    span,
+                    "cast or bind a utf8 param before calling set_cursor",
+                );
+            }
+            for property in action.properties.keys() {
+                if property != "value" {
+                    self.error(
+                        "AVENGER-RESOLVE-086",
+                        "cursor action has an invalid l-value modifier",
+                        span,
+                        format!("`{property}` is not valid for the write-only cursor effect"),
+                    );
+                }
             }
             return;
         }
@@ -2399,23 +4465,62 @@ impl<'a> Resolver<'a> {
             .get("target")
             .and_then(resolved_path)
             .unwrap_or_default();
-        let scope = self
-            .declarations
-            .values()
-            .find(|info| info.id == action.id)
-            .map_or(ScopeId(0), |info| info.containing_scope);
         let expected = match kind {
             "param" => Some(BindingKind::Param),
             "store" => Some(BindingKind::Store),
             "selection" => None,
-            _ => return,
+            _ => {
+                self.error(
+                    "AVENGER-RESOLVE-089",
+                    "unknown state action target kind",
+                    span,
+                    format!("`set {kind}` is not a param, store, selection, or cursor action"),
+                );
+                return;
+            }
         };
+        if !action.properties.contains_key("value") {
+            self.error(
+                "AVENGER-RESOLVE-085",
+                "state action is missing its update value",
+                span,
+                "every param, store, and selection action requires `= <value>`",
+            );
+        }
+        for property in action.properties.keys() {
+            if !matches!(
+                property.as_str(),
+                "target" | "value" | "at" | "replacing_scopes"
+            ) {
+                self.error(
+                    "AVENGER-RESOLVE-134",
+                    "unknown state action property",
+                    span,
+                    format!("state l-values do not have a `{property}` modifier"),
+                );
+            }
+        }
+        if let Some(ResolvedValue::Atom(at)) = action.properties.get("at")
+            && !matches!(at.as_str(), "current" | "start")
+        {
+            self.error(
+                "AVENGER-RESOLVE-084",
+                "state action has an invalid owner route",
+                span,
+                "use `at current` or `at start`",
+            );
+        }
         let target = if kind == "selection" {
-            self.resolve_any_path(scope, &path, span, true)
+            self.resolve_typed_reference_path(scope, &path, RefKind::Selection, span)
         } else {
             self.resolve_binding_path(scope, &path, expected, span, true)
         };
-        if kind == "selection" && !matches!(target, Some(ResolvedTarget::Selection(_))) {
+        if kind == "selection"
+            && !matches!(
+                target,
+                Some(ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. })
+            )
+        {
             self.error(
                 "AVENGER-RESOLVE-092",
                 "selection action target has the wrong kind",
@@ -2423,8 +4528,53 @@ impl<'a> Resolver<'a> {
                 format!("`{}` is not a selection", path.join(".")),
             );
         }
+        if let Some(target) = target.clone() {
+            action.state_lvalue = Some(ResolvedStateLValue {
+                target: target.clone(),
+                route: if matches!(
+                    action.properties.get("at"),
+                    Some(ResolvedValue::Atom(at)) if at == "start"
+                ) {
+                    ResolvedActionRoute::Start
+                } else {
+                    ResolvedActionRoute::Current
+                },
+                replacing_scopes: action.properties.contains_key("replacing_scopes"),
+            });
+            if widget_action && !self.target_is_shared(&target) {
+                self.error(
+                    "AVENGER-RESOLVE-124",
+                    "widget action target must be shared",
+                    span,
+                    "button-style actions cannot select a scoped owner without an event route",
+                );
+            }
+        }
+        if kind == "param"
+            && let Some(target) = target.as_ref()
+            && let Some(data_type) = self.target_physical_type(target)
+        {
+            self.validate_typed_boundary(
+                &data_type,
+                source.props.get("value"),
+                action
+                    .properties
+                    .get("value")
+                    .unwrap_or(&ResolvedValue::Invalid),
+                span,
+                "param action assignment",
+            );
+        }
+        if kind == "store"
+            && let Some(target) = target.as_ref()
+        {
+            self.validate_store_action(source, action, target, span);
+        }
+        if kind == "selection" {
+            self.validate_selection_action(source, action, span);
+        }
         if matches!(action.properties.get("at"), Some(ResolvedValue::Atom(at)) if at == "start")
-            && event.props.get("between").is_none()
+            && event.is_none_or(|event| event.props.get("between").is_none())
         {
             self.error(
                 "AVENGER-RESOLVE-093",
@@ -2440,6 +4590,855 @@ impl<'a> Resolver<'a> {
                 span,
                 "the modifier is defined only for params and stores",
             );
+        }
+    }
+
+    fn target_is_shared(&self, target: &ResolvedTarget) -> bool {
+        match target {
+            ResolvedTarget::Param(id) => self
+                .params
+                .get(id)
+                .is_none_or(|param| param.sharing == StateSharing::Shared),
+            ResolvedTarget::Store(id) => self
+                .stores
+                .get(id)
+                .is_none_or(|store| store.sharing == StateSharing::Shared),
+            // Definition exports are instantiated later; their resolved
+            // interface contract is shared unless expansion says otherwise.
+            ResolvedTarget::DefinitionParam { .. }
+            | ResolvedTarget::DefinitionStore { .. }
+            | ResolvedTarget::Selection(_)
+            | ResolvedTarget::DefinitionSelection { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn validate_event_properties(
+        &mut self,
+        declaration: &Decl,
+        properties: &BTreeMap<String, ResolvedValue>,
+        span: SourceSpan,
+    ) {
+        const EVENT_TYPES: &[&str] = &[
+            "mouse_down",
+            "mouse_up",
+            "click",
+            "double_click",
+            "mouse_wheel",
+            "key_press",
+            "key_release",
+            "cursor_moved",
+            "mark_mouse_enter",
+            "mark_mouse_leave",
+            "window_resize",
+            "window_resize_settled",
+            "canvas_resize",
+            "canvas_resize_settled",
+            "window_moved",
+            "window_focused",
+            "window_close_requested",
+        ];
+        if !declaration
+            .kind
+            .as_ref()
+            .is_some_and(|kind| EVENT_TYPES.contains(&kind.as_str()))
+        {
+            self.error(
+                "AVENGER-RESOLVE-095",
+                "unknown event type",
+                span,
+                format!(
+                    "`{}` is not an exposed v1 event",
+                    declaration.kind.as_ref().map_or("<missing>", Name::as_str)
+                ),
+            );
+        }
+        let allowed = [
+            "target",
+            "scope",
+            "surface",
+            "filter",
+            "throttle_ms",
+            "consume",
+            "mode",
+            "settle_exact",
+            "between",
+        ];
+        for name in properties.keys() {
+            if !allowed.contains(&name.as_str()) {
+                self.error(
+                    "AVENGER-RESOLVE-096",
+                    "unknown event binding property",
+                    span,
+                    format!("event bindings do not have `{name}:`"),
+                );
+            }
+        }
+        for (name, valid) in [
+            (
+                "filter",
+                properties.get("filter").is_none_or(is_expression_value),
+            ),
+            (
+                "throttle_ms",
+                properties.get("throttle_ms").is_none_or(|value| {
+                    matches!(value, ResolvedValue::Number(value) if value.parse::<u64>().is_ok())
+                }),
+            ),
+            (
+                "consume",
+                properties
+                    .get("consume")
+                    .is_none_or(|value| matches!(value, ResolvedValue::Boolean(_))),
+            ),
+            (
+                "mode",
+                properties.get("mode").is_none_or(|value| {
+                    matches!(value, ResolvedValue::Atom(value) if matches!(value.as_str(), "preview" | "exact"))
+                }),
+            ),
+            (
+                "settle_exact",
+                properties
+                    .get("settle_exact")
+                    .is_none_or(|value| matches!(value, ResolvedValue::Boolean(_))),
+            ),
+            (
+                "between",
+                properties
+                    .get("between")
+                    .is_none_or(|value| matches!(value, ResolvedValue::Object { .. })),
+            ),
+        ] {
+            if !valid {
+                self.error(
+                    "AVENGER-RESOLVE-146",
+                    "event binding property has the wrong shape",
+                    span,
+                    format!("`{name}:` has an invalid value"),
+                );
+            }
+        }
+        if let Some(target) = properties.get("target")
+            && !self.valid_event_target_value(target)
+        {
+            self.error(
+                "AVENGER-RESOLVE-097",
+                "invalid event target filter",
+                span,
+                "`target:` requires one or more distinct targetable mark paths",
+            );
+        }
+        if let Some(scope) = properties.get("scope")
+            && !valid_event_scope(scope)
+        {
+            self.error(
+                "AVENGER-RESOLVE-098",
+                "invalid event scope",
+                span,
+                "use `plot`, `subplot <path>`, or a non-empty `subplots [...]` list",
+            );
+        }
+        if let Some(surface) = properties.get("surface")
+            && !valid_event_surface(surface)
+        {
+            self.error(
+                "AVENGER-RESOLVE-099",
+                "invalid event surface",
+                span,
+                "use `plot`, `all`, or `legend <channel>`",
+            );
+        }
+        if let Some(ResolvedValue::Object { properties, .. }) = properties.get("between") {
+            for required in ["start", "end"] {
+                if !properties.contains_key(required) {
+                    self.error(
+                        "AVENGER-RESOLVE-103",
+                        "incomplete between interaction",
+                        span,
+                        format!("`between:` requires `{required}: <event> {{ ... }}`"),
+                    );
+                }
+            }
+            for (role, stream) in properties {
+                if !matches!(role.as_str(), "start" | "end") {
+                    self.error(
+                        "AVENGER-RESOLVE-104",
+                        "unknown between stream role",
+                        span,
+                        format!("`between:` has no `{role}:` role"),
+                    );
+                }
+                if let ResolvedValue::Object {
+                    kind,
+                    properties: stream_properties,
+                    ..
+                } = stream
+                {
+                    if !kind
+                        .as_deref()
+                        .is_some_and(|kind| EVENT_TYPES.contains(&kind))
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-147",
+                            "between stream has an unknown event type",
+                            span,
+                            format!(
+                                "`{}` is not an exposed v1 event",
+                                kind.as_deref().unwrap_or("<missing>")
+                            ),
+                        );
+                    }
+                    for property in stream_properties.keys() {
+                        if !matches!(property.as_str(), "target" | "filter" | "scope" | "surface") {
+                            self.error(
+                                "AVENGER-RESOLVE-148",
+                                "unknown between-stream property",
+                                span,
+                                format!("between streams do not have `{property}:`"),
+                            );
+                        }
+                    }
+                    if stream_properties.contains_key("scope")
+                        || stream_properties.contains_key("surface")
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-105",
+                            "between streams inherit scope and surface",
+                            span,
+                            "remove nested `scope:`/`surface:` and configure the outer event",
+                        );
+                    }
+                    if let Some(target) = stream_properties.get("target")
+                        && !self.valid_event_target_value(target)
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-097",
+                            "invalid event target filter",
+                            span,
+                            "nested `target:` requires one or more distinct targetable mark paths",
+                        );
+                    }
+                    if let Some(filter) = stream_properties.get("filter") {
+                        if !is_expression_value(filter) {
+                            self.error(
+                                "AVENGER-RESOLVE-146",
+                                "event binding property has the wrong shape",
+                                span,
+                                "nested `filter:` requires a SQL scalar expression",
+                            );
+                        }
+                        if resolved_value_has_forbidden_stream_binding(filter) {
+                            self.error(
+                                "AVENGER-RESOLVE-106",
+                                "stream filter uses unavailable state",
+                                span,
+                                "start/end filters may read current params, but not stores or temporal snapshots",
+                            );
+                        }
+                    }
+                } else {
+                    self.error(
+                        "AVENGER-RESOLVE-149",
+                        "between stream has the wrong shape",
+                        span,
+                        format!("`{role}:` requires an event block"),
+                    );
+                }
+            }
+        }
+    }
+
+    fn valid_event_target_value(&self, value: &ResolvedValue) -> bool {
+        let targets = match value {
+            ResolvedValue::Reference(reference) => vec![&reference.target],
+            ResolvedValue::Array(values) => values
+                .iter()
+                .filter_map(|value| match value {
+                    ResolvedValue::Reference(reference) => Some(&reference.target),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let expected_len = match value {
+            ResolvedValue::Reference(_) => 1,
+            ResolvedValue::Array(values) => values.len(),
+            _ => 0,
+        };
+        !targets.is_empty()
+            && targets.len() == expected_len
+            && targets
+                .iter()
+                .all(|target| self.is_targetable_event_target(target))
+            && targets.iter().copied().collect::<BTreeSet<_>>().len() == targets.len()
+    }
+
+    fn is_targetable_event_target(&self, target: &ResolvedTarget) -> bool {
+        match target {
+            ResolvedTarget::Mark(_)
+            | ResolvedTarget::DefinitionStructural {
+                kind: DefinitionExportKind::Mark,
+                ..
+            } => true,
+            ResolvedTarget::Part { declaration, alias } => self
+                .instances
+                .get(declaration)
+                .and_then(|interface| interface.parts.get(alias))
+                .is_some_and(|part| part.targetable),
+            _ => false,
+        }
+    }
+
+    fn resolve_event_binding(
+        &mut self,
+        scope: ScopeId,
+        declaration: &Decl,
+        properties: &BTreeMap<String, ResolvedValue>,
+        span: SourceSpan,
+    ) -> ResolvedEventBinding {
+        let plot = self.containing_plot(scope).unwrap_or_else(|| {
+            self.declarations
+                .values()
+                .find(|info| info.child_scope == Some(scope))
+                .map_or_else(
+                    || DeclarationId(semantic_hash(&["missing-event-plot"])),
+                    |info| info.id.clone(),
+                )
+        });
+        let targets = match properties.get("target") {
+            Some(ResolvedValue::Reference(reference)) => vec![reference.target.clone()],
+            Some(ResolvedValue::Array(values)) => values
+                .iter()
+                .filter_map(|value| match value {
+                    ResolvedValue::Reference(reference) => Some(reference.target.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let scope = match properties.get("scope") {
+            None => ResolvedEventScope::Plot(plot.clone()),
+            Some(ResolvedValue::Atom(value)) if value == "plot" => {
+                ResolvedEventScope::Plot(plot.clone())
+            }
+            Some(value) => {
+                let calls = match value {
+                    ResolvedValue::Call { function, args } if function == "subplot" => {
+                        vec![args.as_slice()]
+                    }
+                    ResolvedValue::Array(values) => values
+                        .iter()
+                        .filter_map(|value| match value {
+                            ResolvedValue::Call { function, args } if function == "subplot" => {
+                                Some(args.as_slice())
+                            }
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let mut targets = Vec::new();
+                for args in calls {
+                    let path = args
+                        .iter()
+                        .filter_map(|value| match value {
+                            ResolvedValue::Atom(value) => Some(value.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if let Some(target) = self.resolve_any_path(scope, &path, span, true) {
+                        if matches!(target, ResolvedTarget::Declaration(_)) {
+                            targets.push(target);
+                        } else {
+                            self.error(
+                                "AVENGER-RESOLVE-113",
+                                "event subplot scope resolves to a non-structural target",
+                                span,
+                                format!("`{}` is not a subplot path", path.join(".")),
+                            );
+                        }
+                    }
+                }
+                ResolvedEventScope::Subplots {
+                    plot: plot.clone(),
+                    targets,
+                }
+            }
+        };
+        let surface = match properties.get("surface") {
+            Some(ResolvedValue::Atom(value)) if value == "all" => {
+                ResolvedEventSurface::All(plot.clone())
+            }
+            Some(ResolvedValue::Call { function, args }) if function == "legend" => args
+                .first()
+                .and_then(|value| match value {
+                    ResolvedValue::Atom(channel) => Some(ResolvedEventSurface::Legend {
+                        plot: plot.clone(),
+                        channel: channel.clone(),
+                    }),
+                    _ => None,
+                })
+                .unwrap_or_else(|| ResolvedEventSurface::Plot(plot.clone())),
+            _ => ResolvedEventSurface::Plot(plot.clone()),
+        };
+        ResolvedEventBinding {
+            event_type: declaration
+                .kind
+                .as_ref()
+                .map_or_else(String::new, ToString::to_string),
+            targets,
+            scope,
+            surface,
+        }
+    }
+
+    fn containing_plot(&self, scope: ScopeId) -> Option<DeclarationId> {
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if let Some(owner) = self.scopes[id.0].owner.as_ref()
+                && self
+                    .declaration_source(owner)
+                    .is_some_and(|(_, declaration)| {
+                        matches!(declaration.keyword.as_str(), "chart" | "plot")
+                    })
+            {
+                return Some(owner.clone());
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        None
+    }
+
+    fn validate_store_action(
+        &mut self,
+        source: &Decl,
+        action: &ResolvedDeclaration,
+        target: &ResolvedTarget,
+        span: SourceSpan,
+    ) {
+        if matches!(action.properties.get("value"), Some(ResolvedValue::Atom(operation)) if operation == "clear")
+        {
+            return;
+        }
+        let operation = match action.properties.get("value") {
+            Some(ResolvedValue::Object {
+                kind: Some(operation),
+                ..
+            }) => matches!(
+                operation.as_str(),
+                "insert_rows"
+                    | "replace_rows"
+                    | "upsert_rows"
+                    | "update_by_key"
+                    | "delete_by_key"
+                    | "toggle_rows"
+            )
+            .then_some(operation.as_str()),
+            _ => None,
+        };
+        let Some(operation) = operation else {
+            self.error(
+                "AVENGER-RESOLVE-107",
+                "invalid store update operation",
+                span,
+                "use clear, insert_rows, replace_rows, upsert_rows, update_by_key, delete_by_key, or toggle_rows",
+            );
+            return;
+        };
+        let Some((fields, primary_key)) = self.store_shape(target) else {
+            return;
+        };
+        if matches!(
+            operation,
+            "upsert_rows" | "update_by_key" | "delete_by_key" | "toggle_rows"
+        ) && primary_key.is_empty()
+        {
+            self.error(
+                "AVENGER-RESOLVE-114",
+                "store operation requires a primary key",
+                span,
+                format!("`{operation}` cannot target an unkeyed store"),
+            );
+        }
+        let (
+            Some(Value::Block {
+                body: source_body, ..
+            }),
+            Some(ResolvedValue::Object { children, .. }),
+        ) = (source.props.get("value"), action.properties.get("value"))
+        else {
+            return;
+        };
+        match operation {
+            "insert_rows" | "replace_rows" | "upsert_rows" | "toggle_rows" => {
+                let source_rows = source_body
+                    .children
+                    .iter()
+                    .filter(|child| child.keyword.as_str() == "row")
+                    .collect::<Vec<_>>();
+                let resolved_rows = children
+                    .iter()
+                    .filter(|child| child.keyword == "row")
+                    .collect::<Vec<_>>();
+                if source_rows.is_empty() || source_rows.len() != source_body.children.len() {
+                    self.error(
+                        "AVENGER-RESOLVE-115",
+                        "store row operation requires only row payloads",
+                        span,
+                        format!("`{operation}` requires one or more `row {{ ... }}` children"),
+                    );
+                }
+                for (source_row, row) in source_rows.into_iter().zip(resolved_rows) {
+                    self.validate_store_payload_fields(
+                        source_row,
+                        row,
+                        &fields,
+                        &primary_key,
+                        StorePayloadShape::CompleteRow,
+                        span,
+                    );
+                }
+                let mut keys = BTreeSet::new();
+                for row in source_body
+                    .children
+                    .iter()
+                    .filter(|child| child.keyword.as_str() == "row")
+                {
+                    if let Some(key) = static_store_key(row, &primary_key)
+                        && !keys.insert(key)
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-126",
+                            "store update payload contains a duplicate primary key",
+                            span,
+                            "all statically known payload key tuples must be unique before mutation",
+                        );
+                    }
+                }
+            }
+            "update_by_key" => {
+                self.validate_key_patch_payload(source_body, children, &fields, &primary_key, span);
+            }
+            "delete_by_key" => {
+                self.validate_key_only_payload(source_body, children, &fields, &primary_key, span);
+            }
+            _ => {}
+        }
+    }
+
+    fn store_shape(&self, target: &ResolvedTarget) -> Option<(Vec<PhysicalField>, Vec<String>)> {
+        let ResolvedTarget::Store(id) = target else {
+            return None;
+        };
+        if let Some(store) = self.stores.get(id) {
+            return Some((store.fields.clone(), store.primary_key.clone()));
+        }
+        let info = self
+            .declarations
+            .values()
+            .find(|info| info.runtime_target.as_ref() == Some(target))?;
+        let (_, declaration) = self.declaration_source(&info.id)?;
+        let fields = declaration
+            .children
+            .iter()
+            .filter(|child| child.keyword.as_str() == "field")
+            .filter_map(|field| {
+                Some(PhysicalField {
+                    name: field.name.as_ref()?.to_string(),
+                    data_type: PhysicalType::parse(field.props.get("type")?).ok()?,
+                    nullable: matches!(field.props.get("nullable"), Some(Value::Bool(true))),
+                })
+            })
+            .collect();
+        Some((fields, value_names(declaration.props.get("primary_key"))))
+    }
+
+    fn validate_store_payload_fields(
+        &mut self,
+        source: &Decl,
+        resolved: &ResolvedDeclaration,
+        fields: &[PhysicalField],
+        primary_key: &[String],
+        shape: StorePayloadShape,
+        span: SourceSpan,
+    ) {
+        for name in resolved.properties.keys() {
+            let Some(field) = fields.iter().find(|field| &field.name == name) else {
+                self.error(
+                    "AVENGER-RESOLVE-116",
+                    "store update references an unknown field",
+                    span,
+                    format!("field `{name}` is not declared by the target store"),
+                );
+                continue;
+            };
+            if matches!(shape, StorePayloadShape::Key) && !primary_key.contains(name) {
+                self.error(
+                    "AVENGER-RESOLVE-117",
+                    "store key payload contains a non-key field",
+                    span,
+                    format!("field `{name}` is not part of the primary key"),
+                );
+            }
+            if matches!(shape, StorePayloadShape::Patch) && primary_key.contains(name) {
+                self.error(
+                    "AVENGER-RESOLVE-118",
+                    "store patch cannot modify a primary-key field",
+                    span,
+                    format!("delete and insert/upsert to change `{name}`"),
+                );
+            }
+            if let Some(source_value) = source.props.get(name)
+                && let Some(resolved_value) = resolved.properties.get(name)
+            {
+                self.validate_typed_boundary(
+                    &field.data_type,
+                    Some(source_value),
+                    resolved_value,
+                    span,
+                    "store action field",
+                );
+            }
+            if primary_key.contains(name) && matches!(source.props.get(name), Some(Value::Null)) {
+                self.error(
+                    "AVENGER-RESOLVE-127",
+                    "store action primary-key value cannot be null",
+                    span,
+                    format!("field `{name}` is part of the primary key"),
+                );
+            }
+        }
+        match shape {
+            StorePayloadShape::CompleteRow => {
+                for field in fields {
+                    if !field.nullable && !resolved.properties.contains_key(&field.name) {
+                        self.error(
+                            "AVENGER-RESOLVE-119",
+                            "store action row is incomplete",
+                            span,
+                            format!("row requires non-nullable field `{}`", field.name),
+                        );
+                    }
+                }
+            }
+            StorePayloadShape::Key => {
+                for key in primary_key {
+                    if !resolved.properties.contains_key(key) {
+                        self.error(
+                            "AVENGER-RESOLVE-120",
+                            "store action key is incomplete",
+                            span,
+                            format!("key requires field `{key}`"),
+                        );
+                    }
+                }
+            }
+            StorePayloadShape::Patch if resolved.properties.is_empty() => self.error(
+                "AVENGER-RESOLVE-121",
+                "store action patch is empty",
+                span,
+                "`fields { ... }` must update at least one non-key field",
+            ),
+            StorePayloadShape::Patch => {}
+        }
+    }
+
+    fn validate_key_patch_payload(
+        &mut self,
+        source: &crate::ast::Body,
+        resolved: &[ResolvedDeclaration],
+        fields: &[PhysicalField],
+        primary_key: &[String],
+        span: SourceSpan,
+    ) {
+        let source_key = unique_child(&source.children, "key");
+        let source_fields = unique_child(&source.children, "fields");
+        let resolved_key = unique_resolved_child(resolved, "key");
+        let resolved_fields = unique_resolved_child(resolved, "fields");
+        if source_key.is_none()
+            || source_fields.is_none()
+            || source.children.len() != 2
+            || resolved_key.is_none()
+            || resolved_fields.is_none()
+        {
+            self.error(
+                "AVENGER-RESOLVE-122",
+                "update_by_key requires one key and one fields block",
+                span,
+                "use `key { ... } fields { ... }` with no other children",
+            );
+            return;
+        }
+        self.validate_store_payload_fields(
+            source_key.unwrap(),
+            resolved_key.unwrap(),
+            fields,
+            primary_key,
+            StorePayloadShape::Key,
+            span,
+        );
+        self.validate_store_payload_fields(
+            source_fields.unwrap(),
+            resolved_fields.unwrap(),
+            fields,
+            primary_key,
+            StorePayloadShape::Patch,
+            span,
+        );
+    }
+
+    fn validate_key_only_payload(
+        &mut self,
+        source: &crate::ast::Body,
+        resolved: &[ResolvedDeclaration],
+        fields: &[PhysicalField],
+        primary_key: &[String],
+        span: SourceSpan,
+    ) {
+        let source_key = unique_child(&source.children, "key");
+        let resolved_key = unique_resolved_child(resolved, "key");
+        if source_key.is_none() || source.children.len() != 1 || resolved_key.is_none() {
+            self.error(
+                "AVENGER-RESOLVE-123",
+                "delete_by_key requires exactly one key block",
+                span,
+                "use `key { ... }` with no other children",
+            );
+            return;
+        }
+        self.validate_store_payload_fields(
+            source_key.unwrap(),
+            resolved_key.unwrap(),
+            fields,
+            primary_key,
+            StorePayloadShape::Key,
+            span,
+        );
+    }
+
+    fn validate_selection_action(
+        &mut self,
+        source: &Decl,
+        action: &ResolvedDeclaration,
+        span: SourceSpan,
+    ) {
+        let valid = match action.properties.get("value") {
+            Some(ResolvedValue::Atom(operation)) => operation == "clear",
+            Some(ResolvedValue::Object {
+                kind: Some(operation),
+                ..
+            }) => matches!(
+                operation.as_str(),
+                "clear_in_scope"
+                    | "replace_all_clauses"
+                    | "replace_clauses_in_scope"
+                    | "upsert_clauses"
+                    | "toggle_clauses"
+                    | "delete_clauses"
+                    | "delete_clauses_in_scope"
+                    | "replace_all_from_scene_query"
+                    | "replace_from_scene_query_in_scope"
+                    | "upsert_from_scene_query"
+                    | "toggle_from_scene_query"
+            ),
+            _ => false,
+        };
+        if !valid {
+            self.error(
+                "AVENGER-RESOLVE-108",
+                "invalid selection update operation",
+                span,
+                "use one of the closed v1 clause or scene-query update operations",
+            );
+            return;
+        }
+        let (
+            Some(Value::Block {
+                body: source_body, ..
+            }),
+            Some(ResolvedValue::Object {
+                kind: Some(operation),
+                properties,
+                children,
+            }),
+        ) = (source.props.get("value"), action.properties.get("value"))
+        else {
+            return;
+        };
+        if operation == "clear_in_scope" && !properties.contains_key("scope") {
+            self.error(
+                "AVENGER-RESOLVE-136",
+                "clear_in_scope requires a selection scope",
+                span,
+                "add `scope: level(n)` to the update payload",
+            );
+        }
+        if matches!(
+            operation.as_str(),
+            "replace_all_clauses"
+                | "replace_clauses_in_scope"
+                | "upsert_clauses"
+                | "toggle_clauses"
+        ) {
+            let clauses = children
+                .iter()
+                .filter(|child| child.keyword == "clause")
+                .collect::<Vec<_>>();
+            if clauses.is_empty() || clauses.len() != children.len() {
+                self.error(
+                    "AVENGER-RESOLVE-137",
+                    "selection clause update requires only clause payloads",
+                    span,
+                    format!("`{operation}` requires one or more `clause {{ ... }}` children"),
+                );
+            }
+            let source_clauses = source_body
+                .children
+                .iter()
+                .filter(|child| child.keyword.as_str() == "clause");
+            for (source_clause, clause) in source_clauses.zip(clauses) {
+                let source_id = source_clause.props.get("id");
+                let resolved_id = clause.properties.get("id");
+                if source_id.is_none() || resolved_id.is_none() {
+                    self.error(
+                        "AVENGER-RESOLVE-138",
+                        "selection clause requires an id",
+                        span,
+                        "clause ids are exact non-empty utf8 values",
+                    );
+                    continue;
+                }
+                self.validate_typed_boundary(
+                    &PhysicalType::Utf8,
+                    source_id,
+                    resolved_id.expect("checked"),
+                    span,
+                    "selection clause id",
+                );
+                if matches!(source_id, Some(Value::Null))
+                    || matches!(source_id, Some(Value::Str(value)) if value.is_empty())
+                {
+                    self.error(
+                        "AVENGER-RESOLVE-139",
+                        "selection clause id must be non-empty utf8",
+                        span,
+                        "NULL and the empty string are not stable clause identities",
+                    );
+                }
+            }
+        }
+        if operation.contains("scene_query") {
+            for required in ["geometry", "policy", "marks"] {
+                if !properties.contains_key(required) {
+                    self.error(
+                        "AVENGER-RESOLVE-140",
+                        "scene-query selection update is incomplete",
+                        span,
+                        format!("`{operation}` requires `{required}:`"),
+                    );
+                }
+            }
         }
     }
 
@@ -2462,7 +5461,7 @@ impl<'a> Resolver<'a> {
                         "cycle: {}",
                         cycle
                             .iter()
-                            .map(ParamId::as_str)
+                            .map(|id| self.param_display_name(id))
                             .collect::<Vec<_>>()
                             .join(" -> ")
                     ),
@@ -2491,7 +5490,7 @@ impl<'a> Resolver<'a> {
                         "cycle: {}",
                         cycle
                             .iter()
-                            .map(DeclarationId::as_str)
+                            .map(|id| self.table_display_name(id))
                             .collect::<Vec<_>>()
                             .join(" -> ")
                     ),
@@ -2517,6 +5516,20 @@ impl<'a> Resolver<'a> {
         topological_order(&dependencies).unwrap_or_default()
     }
 
+    fn param_display_name(&self, id: &ParamId) -> String {
+        self.params.get(id).map_or_else(
+            || id.as_str().to_owned(),
+            |param| format!("{}::{}", param.lexical_scope, param.source_name),
+        )
+    }
+
+    fn table_display_name(&self, id: &DeclarationId) -> String {
+        self.table_names
+            .iter()
+            .find_map(|(name, candidate)| (candidate == id).then_some(name.clone()))
+            .unwrap_or_else(|| id.as_str().to_owned())
+    }
+
     fn error(
         &mut self,
         code: &'static str,
@@ -2524,11 +5537,32 @@ impl<'a> Resolver<'a> {
         span: SourceSpan,
         label: impl Into<String>,
     ) {
-        self.diagnostics.push(Diagnostic::error(
-            code,
-            message,
-            SourceLabel::new(span, label),
-        ));
+        let mut diagnostic = Diagnostic::error(code, message, SourceLabel::new(span, label));
+        diagnostic.trace = self.import_trace_for_source(span.source);
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn import_trace_for_source(&self, target: SourceId) -> Vec<ExpansionOrImportFrame> {
+        let roots = self
+            .project
+            .chart_roots
+            .iter()
+            .filter_map(|file| self.project.files.get(file).map(|file| file.source))
+            .collect::<Vec<_>>();
+        for root in roots {
+            let mut visiting = BTreeSet::new();
+            let mut path = Vec::new();
+            if find_import_trace(
+                root,
+                target,
+                &self.project.imports,
+                &mut visiting,
+                &mut path,
+            ) {
+                return path;
+            }
+        }
+        Vec::new()
     }
 
     // The remaining resolution operations are implemented below in focused
@@ -2538,18 +5572,113 @@ impl<'a> Resolver<'a> {
 fn collect_public_targets(
     declaration: &ResolvedDeclaration,
     output: &mut BTreeMap<String, ResolvedTarget>,
+    origins: &mut BTreeMap<String, SourceSpan>,
+    collisions: &mut Vec<(String, SourceSpan, SourceSpan)>,
 ) {
     if let (Some(path), Some(target)) = (&declaration.public_path, &declaration.runtime_target) {
-        output.insert(path.clone(), target.clone());
+        insert_public_target(path, target, declaration.span, output, origins, collisions);
     }
     for (alias, target) in &declaration.exports {
         if let Some(path) = &declaration.public_path {
-            output.insert(format!("{path}.{alias}"), target.clone());
+            insert_public_target(
+                &format!("{path}.{alias}"),
+                target,
+                declaration.span,
+                output,
+                origins,
+                collisions,
+            );
         }
     }
     for child in &declaration.children {
-        collect_public_targets(child, output);
+        collect_public_targets(child, output, origins, collisions);
     }
+}
+
+fn insert_public_target(
+    path: &str,
+    target: &ResolvedTarget,
+    span: SourceSpan,
+    output: &mut BTreeMap<String, ResolvedTarget>,
+    origins: &mut BTreeMap<String, SourceSpan>,
+    collisions: &mut Vec<(String, SourceSpan, SourceSpan)>,
+) {
+    if let Some(first) = origins.get(path) {
+        collisions.push((path.to_owned(), *first, span));
+        return;
+    }
+    origins.insert(path.to_owned(), span);
+    output.insert(path.to_owned(), target.clone());
+}
+
+fn unique_child<'a>(children: &'a [Decl], keyword: &str) -> Option<&'a Decl> {
+    let mut matches = children
+        .iter()
+        .filter(|child| child.keyword.as_str() == keyword);
+    let child = matches.next()?;
+    matches.next().is_none().then_some(child)
+}
+
+fn static_store_key(row: &Decl, primary_key: &[String]) -> Option<String> {
+    if primary_key.is_empty() {
+        return None;
+    }
+    let values = primary_key
+        .iter()
+        .map(|field| row.props.get(field))
+        .collect::<Option<Vec<_>>>()?;
+    if !values
+        .iter()
+        .all(|value| matches!(value, Value::Str(_) | Value::Num(_) | Value::Bool(_)))
+    {
+        return None;
+    }
+    serde_json::to_string(&values).ok()
+}
+
+fn unique_resolved_child<'a>(
+    children: &'a [ResolvedDeclaration],
+    keyword: &str,
+) -> Option<&'a ResolvedDeclaration> {
+    let mut matches = children.iter().filter(|child| child.keyword == keyword);
+    let child = matches.next()?;
+    matches.next().is_none().then_some(child)
+}
+
+fn find_import_trace(
+    current: SourceId,
+    target: SourceId,
+    imports: &[crate::project::ImportEdge],
+    visiting: &mut BTreeSet<SourceId>,
+    path: &mut Vec<ExpansionOrImportFrame>,
+) -> bool {
+    if current == target {
+        return true;
+    }
+    if !visiting.insert(current) {
+        return false;
+    }
+    let mut edges = imports
+        .iter()
+        .filter(|edge| edge.importer == current)
+        .collect::<Vec<_>>();
+    edges.sort_by(|left, right| {
+        left.binding
+            .cmp(&right.binding)
+            .then_with(|| left.site.cmp(&right.site))
+    });
+    for edge in edges {
+        path.push(ExpansionOrImportFrame {
+            span: edge.site,
+            message: format!("imported through binding `{}`", edge.binding),
+        });
+        if find_import_trace(edge.imported, target, imports, visiting, path) {
+            return true;
+        }
+        path.pop();
+    }
+    visiting.remove(&current);
+    false
 }
 
 fn declaration_coordinate(declaration: &Decl, inherited: Option<&str>) -> Option<String> {
@@ -2557,6 +5686,15 @@ fn declaration_coordinate(declaration: &Decl, inherited: Option<&str>) -> Option
         "chart" | "plot" | "view" => declaration.kind.as_ref().map(ToString::to_string),
         _ => inherited.map(str::to_owned),
     }
+}
+
+fn coordinate_at_path(file: &ProjectFile, path: &[usize]) -> Option<String> {
+    let mut coordinate = None;
+    for length in 1..=path.len() {
+        let declaration = declaration_at(file.parsed.ast.root.declarations(), &path[..length])?;
+        coordinate = declaration_coordinate(declaration, coordinate.as_deref());
+    }
+    coordinate
 }
 
 fn parent_declaration<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a Decl> {
@@ -2579,6 +5717,9 @@ fn requires_registered_kind(declaration: &Decl) -> bool {
 }
 
 fn placement_allowed(parent: &str, child: &str) -> bool {
+    if child == "view" {
+        return matches!(parent, "mark" | "group");
+    }
     match parent {
         "define" => {
             matches!(
@@ -2633,7 +5774,10 @@ fn ordinary_plot_child(child: &str) -> bool {
 
 fn core_property(declaration: &Decl, property: &str) -> bool {
     match declaration.keyword.as_str() {
-        "chart" => matches!(property, "data" | "title" | "subtitle" | "layout" | "theme"),
+        "chart" | "plot" => {
+            matches!(property, "data" | "title" | "subtitle" | "layout" | "theme")
+        }
+        "view" => property == "data",
         "group" => matches!(property, "data" | "component_kind" | "label"),
         "mark" => matches!(property, "data"),
         "tool" => matches!(property, "id"),
@@ -2651,22 +5795,24 @@ fn schema_property<'a>(schema: &'a KindSchema, name: &str) -> Option<&'a ValueSh
         .or_else(|| schema.channels.get(name).map(|channel| &channel.shape))
 }
 
-fn nearest_coordinate_kind(_declaration: &Decl) -> Option<&str> {
-    // Coordinate compatibility is also encoded by coordinate-specific keys.
-    // The inherited coordinate is retained on `ResolvedDeclaration` and is
-    // checked by `native_schema`; this helper remains conservative for the
-    // coordinate-independent tool-key form.
-    None
-}
-
-fn declaration_public_path(declaration: &Decl, parent: Option<&str>) -> Option<String> {
+fn declaration_public_path(
+    declaration: &Decl,
+    parent: Option<&str>,
+    inside_private: bool,
+) -> Option<String> {
+    if declaration.keyword.as_str() == "on" {
+        return None;
+    }
     let name = declaration.name.as_ref()?.as_str();
-    if declaration.visibility == Visibility::Private || declaration.keyword.as_str() == "view" {
+    if declaration.visibility == Visibility::Private
+        || declaration.keyword.as_str() == "view"
+        || (inside_private && declaration.visibility != Visibility::Public)
+    {
         return None;
     }
     Some(match parent {
-        Some(parent) if declaration.visibility != Visibility::Public => format!("{parent}.{name}"),
-        _ => name.to_owned(),
+        Some(parent) => format!("{parent}.{name}"),
+        None => name.to_owned(),
     })
 }
 
@@ -2695,7 +5841,7 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             matches!(
                 value,
                 ResolvedValue::Binding(ResolvedBinding {
-                    target: ResolvedTarget::Param(_),
+                    target: ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. },
                     ..
                 })
             )
@@ -2704,7 +5850,7 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             matches!(
                 value,
                 ResolvedValue::Binding(ResolvedBinding {
-                    target: ResolvedTarget::Store(_),
+                    target: ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. },
                     ..
                 })
             )
@@ -2722,12 +5868,42 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
     }
 }
 
+fn resolved_value_contains_invalid(value: &ResolvedValue) -> bool {
+    match value {
+        ResolvedValue::Invalid => true,
+        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            resolved_value_contains_invalid(value)
+        }
+        ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
+            values.iter().any(resolved_value_contains_invalid)
+        }
+        ResolvedValue::Object {
+            properties,
+            children,
+            ..
+        } => {
+            properties.values().any(resolved_value_contains_invalid)
+                || children.iter().any(|child| {
+                    child
+                        .properties
+                        .values()
+                        .any(resolved_value_contains_invalid)
+                })
+        }
+        _ => false,
+    }
+}
+
 fn namespace_matches_target(namespace: NativeKindNamespace, target: &ResolvedTarget) -> bool {
     matches!(
         (namespace, target),
         (NativeKindNamespace::Mark, ResolvedTarget::Mark(_))
             | (NativeKindNamespace::Tool, ResolvedTarget::Tool(_))
             | (NativeKindNamespace::Widget, ResolvedTarget::Widget(_))
+            | (
+                NativeKindNamespace::Mark | NativeKindNamespace::Tool | NativeKindNamespace::Widget,
+                ResolvedTarget::DefinitionStructural { .. }
+            )
     )
 }
 
@@ -2737,12 +5913,80 @@ fn reference_kind_matches(target: &ResolvedTarget, kind: RefKind) -> bool {
         (
             RefKind::Mark,
             ResolvedTarget::Mark(_) | ResolvedTarget::Part { .. }
+        ) | (
+            RefKind::Mark,
+            ResolvedTarget::DefinitionStructural {
+                kind: DefinitionExportKind::Mark,
+                ..
+            }
         ) | (RefKind::Group, ResolvedTarget::Declaration(_))
-            | (RefKind::Selection, ResolvedTarget::Selection(_))
+            | (
+                RefKind::Group,
+                ResolvedTarget::DefinitionStructural {
+                    kind: DefinitionExportKind::Group,
+                    ..
+                }
+            )
+            | (
+                RefKind::Selection,
+                ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }
+            )
             | (RefKind::Tool, ResolvedTarget::Tool(_))
+            | (
+                RefKind::Tool,
+                ResolvedTarget::DefinitionStructural {
+                    kind: DefinitionExportKind::Tool,
+                    ..
+                }
+            )
             | (RefKind::Widget, ResolvedTarget::Widget(_))
+            | (
+                RefKind::Widget,
+                ResolvedTarget::DefinitionStructural {
+                    kind: DefinitionExportKind::Widget,
+                    ..
+                }
+            )
             | (RefKind::Resource, ResolvedTarget::Declaration(_))
     )
+}
+
+fn target_matches_definition_ref_kind(target: &ResolvedTarget, kind: &str) -> bool {
+    match kind {
+        "param" => matches!(
+            target,
+            ResolvedTarget::Param(_) | ResolvedTarget::DefinitionParam { .. }
+        ),
+        "store" => matches!(
+            target,
+            ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. }
+        ),
+        "selection" => matches!(
+            target,
+            ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. }
+        ),
+        "mark" => reference_kind_matches(target, RefKind::Mark),
+        "group" => reference_kind_matches(target, RefKind::Group),
+        "tool" => reference_kind_matches(target, RefKind::Tool),
+        "widget" => reference_kind_matches(target, RefKind::Widget),
+        "resource" => reference_kind_matches(target, RefKind::Resource),
+        _ => false,
+    }
+}
+
+fn definition_ref_kind(kind: &str) -> Option<RefKind> {
+    Some(match kind {
+        "mark" => RefKind::Mark,
+        "group" => RefKind::Group,
+        "selection" => RefKind::Selection,
+        "tool" => RefKind::Tool,
+        "widget" => RefKind::Widget,
+        "resource" => RefKind::Resource,
+        // Param and store ref slots use `$` value-binding syntax and therefore
+        // do not have a `RefKind` representation.
+        "param" | "store" => return None,
+        _ => return None,
+    })
 }
 
 fn is_expression_value(value: &ResolvedValue) -> bool {
@@ -2758,6 +6002,7 @@ fn is_expression_value(value: &ResolvedValue) -> bool {
             | ResolvedValue::Binding(_)
             | ResolvedValue::Visual(_)
             | ResolvedValue::Object { .. }
+            | ResolvedValue::DefinitionArgument(_)
     )
 }
 
@@ -2809,6 +6054,7 @@ fn resolved_shape(value: &ResolvedValue) -> &'static str {
         ResolvedValue::Array(_) => "array",
         ResolvedValue::Object { .. } => "object",
         ResolvedValue::Call { .. } => "call",
+        ResolvedValue::DefinitionArgument(_) => "definition argument",
         ResolvedValue::Invalid => "invalid value",
     }
 }
@@ -2830,6 +6076,35 @@ fn resolved_json(value: &serde_json::Value) -> ResolvedValue {
                 .collect(),
             children: Vec::new(),
         },
+    }
+}
+
+fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> ResolvedValue {
+    match (value, shape) {
+        (serde_json::Value::String(value), ValueShape::Atom { .. }) => {
+            ResolvedValue::Atom(value.clone())
+        }
+        (serde_json::Value::Array(values), ValueShape::Array(inner)) => ResolvedValue::Array(
+            values
+                .iter()
+                .map(|value| resolved_schema_default(value, inner))
+                .collect(),
+        ),
+        (serde_json::Value::Object(values), ValueShape::Object(fields)) => ResolvedValue::Object {
+            kind: None,
+            properties: values
+                .iter()
+                .map(|(name, value)| {
+                    let resolved = fields.get(name).map_or_else(
+                        || resolved_json(value),
+                        |field| resolved_schema_default(value, &field.shape),
+                    );
+                    (name.clone(), resolved)
+                })
+                .collect(),
+            children: Vec::new(),
+        },
+        _ => resolved_json(value),
     }
 }
 
@@ -2857,6 +6132,88 @@ fn resolved_path(value: &ResolvedValue) -> Option<Vec<String>> {
             })
             .collect(),
         _ => None,
+    }
+}
+
+fn valid_event_scope(value: &ResolvedValue) -> bool {
+    match value {
+        ResolvedValue::Atom(value) => value == "plot",
+        ResolvedValue::Call { function, args } => {
+            function == "subplot"
+                && !args.is_empty()
+                && args
+                    .iter()
+                    .all(|value| matches!(value, ResolvedValue::Atom(_)))
+        }
+        ResolvedValue::Array(values) => {
+            !values.is_empty()
+                && values.iter().all(|value| {
+                    matches!(value, ResolvedValue::Call { function, args }
+                        if function == "subplot"
+                            && !args.is_empty()
+                            && args.iter().all(|value| matches!(value, ResolvedValue::Atom(_))))
+                })
+                && !values
+                    .iter()
+                    .enumerate()
+                    .any(|(index, value)| values[..index].contains(value))
+        }
+        _ => false,
+    }
+}
+
+fn valid_event_surface(value: &ResolvedValue) -> bool {
+    match value {
+        ResolvedValue::Atom(value) => matches!(value.as_str(), "plot" | "all"),
+        ResolvedValue::Call { function, args } => {
+            function == "legend" && matches!(args.as_slice(), [ResolvedValue::Atom(_)])
+        }
+        _ => false,
+    }
+}
+
+fn resolved_value_has_forbidden_stream_binding(value: &ResolvedValue) -> bool {
+    match value {
+        ResolvedValue::Binding(binding) => {
+            binding.time != BindingTime::Current
+                || matches!(
+                    &binding.target,
+                    ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. }
+                )
+        }
+        ResolvedValue::Expression(expression) => expression.bindings.iter().any(|binding| {
+            binding.time != BindingTime::Current
+                || matches!(
+                    &binding.target,
+                    ResolvedTarget::Store(_) | ResolvedTarget::DefinitionStore { .. }
+                )
+        }),
+        ResolvedValue::Query(_) => true,
+        ResolvedValue::Array(values) => values
+            .iter()
+            .any(resolved_value_has_forbidden_stream_binding),
+        ResolvedValue::Object {
+            properties,
+            children,
+            ..
+        } => {
+            properties
+                .values()
+                .any(resolved_value_has_forbidden_stream_binding)
+                || children.iter().any(|child| {
+                    child
+                        .properties
+                        .values()
+                        .any(resolved_value_has_forbidden_stream_binding)
+                })
+        }
+        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            resolved_value_has_forbidden_stream_binding(value)
+        }
+        ResolvedValue::Call { args, .. } => {
+            args.iter().any(resolved_value_has_forbidden_stream_binding)
+        }
+        _ => false,
     }
 }
 
@@ -3024,11 +6381,13 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             sql: value.canonical_sql(),
             bindings: Vec::new(),
             helpers: helpers_in_sql(&value.canonical_sql()),
+            references: Vec::new(),
         }),
         Value::Query(value) => ResolvedValue::Query(ResolvedQuery {
             sql: value.canonical_sql(),
             bindings: Vec::new(),
             helpers: helpers_in_sql(&value.canonical_sql()),
+            references: Vec::new(),
         }),
         Value::Binding { kind, path, time } => ResolvedValue::Binding(ResolvedBinding {
             target: ResolvedTarget::Declaration(DeclarationId("unresolved".to_owned())),
@@ -3065,6 +6424,97 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
     }
 }
 
+fn definition_value(
+    value: &Value,
+    definition: &DeclarationId,
+    slots: &BTreeSet<String>,
+) -> ResolvedValue {
+    let mut resolved = unresolved_value(value);
+    normalize_definition_value_references(value, &mut resolved, definition, slots);
+    resolved
+}
+
+fn normalize_definition_value_references(
+    source: &Value,
+    resolved: &mut ResolvedValue,
+    definition: &DeclarationId,
+    slots: &BTreeSet<String>,
+) {
+    match (source, resolved) {
+        (Value::Atom(name), resolved) if slots.contains(name.as_str()) => {
+            *resolved = ResolvedValue::DefinitionArgument(ResolvedTarget::DefinitionSlot {
+                definition: definition.clone(),
+                name: name.to_string(),
+            });
+        }
+        (Value::Expr(expression), ResolvedValue::Expression(resolved)) => {
+            resolved.references = expression_paths(expression.ast())
+                .into_iter()
+                .filter_map(|path| {
+                    let name = path.first()?.clone();
+                    slots.contains(&name).then(|| ResolvedSqlReference {
+                        authored_path: path,
+                        target: ResolvedTarget::DefinitionSlot {
+                            definition: definition.clone(),
+                            name,
+                        },
+                    })
+                })
+                .collect();
+        }
+        (Value::Query(query), ResolvedValue::Query(resolved)) => {
+            resolved.references = query_paths(query.ast())
+                .into_iter()
+                .filter_map(|path| {
+                    let name = path.first()?.clone();
+                    slots.contains(&name).then(|| ResolvedSqlReference {
+                        authored_path: path,
+                        target: ResolvedTarget::DefinitionSlot {
+                            definition: definition.clone(),
+                            name,
+                        },
+                    })
+                })
+                .collect();
+        }
+        (Value::Visual(source), ResolvedValue::Visual(resolved))
+        | (Value::Pattern(source), ResolvedValue::Pattern(resolved)) => {
+            normalize_definition_value_references(source, resolved, definition, slots);
+        }
+        (Value::Array(sources), ResolvedValue::Array(resolved)) => {
+            for (source, resolved) in sources.iter().zip(resolved) {
+                normalize_definition_value_references(source, resolved, definition, slots);
+            }
+        }
+        (
+            Value::Block { head, body },
+            ResolvedValue::Object {
+                kind, properties, ..
+            },
+        ) => {
+            if let (Some(source), Some(resolved)) = (head.as_deref(), kind.as_mut())
+                && let Value::Atom(name) = source
+                && slots.contains(name.as_str())
+            {
+                // A block head is structural syntax rather than a value slot;
+                // leave its spelling intact for Phase 7 expansion.
+                *resolved = name.to_string();
+            }
+            for (name, source) in body.props.iter() {
+                if let Some(resolved) = properties.get_mut(name.as_str()) {
+                    normalize_definition_value_references(source, resolved, definition, slots);
+                }
+            }
+        }
+        (Value::Call { args: sources, .. }, ResolvedValue::Call { args: resolved, .. }) => {
+            for (source, resolved) in sources.iter().zip(resolved) {
+                normalize_definition_value_references(source, resolved, definition, slots);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn runtime_target(declaration: &Decl, id: &DeclarationId) -> Option<ResolvedTarget> {
     Some(match declaration.keyword.as_str() {
         "mark" => ResolvedTarget::Mark(MarkId(semantic_hash(&["mark", id.as_str()]))),
@@ -3096,7 +6546,7 @@ fn is_structural(declaration: &Decl) -> bool {
 fn owns_lexical_scope(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "define" | "group" | "view" | "cell" | "plot" | "overlay"
+        "chart" | "define" | "group" | "view" | "cell" | "plot" | "overlay" | "on" | "table"
     ) || (matches!(declaration.keyword.as_str(), "tool" | "mark")
         && !declaration.children.is_empty())
 }
@@ -3108,13 +6558,42 @@ fn is_instance_boundary(declaration: &Decl) -> bool {
     )
 }
 
-fn declaration_id(file: &ProjectFileId, path: &[usize], keyword: &str) -> DeclarationId {
+fn declaration_id(file: &ProjectFile, path: &[usize]) -> DeclarationId {
+    let stable_path = stable_declaration_path(file, path);
     DeclarationId(semantic_hash(&[
         "declaration",
-        file.as_str(),
-        &path_text(path),
-        keyword,
+        file.id.as_str(),
+        &stable_path,
     ]))
+}
+
+fn stable_declaration_path(file: &ProjectFile, path: &[usize]) -> String {
+    let mut components = Vec::with_capacity(path.len());
+    for (depth, index) in path.iter().copied().enumerate() {
+        let siblings = if depth == 0 {
+            file.parsed.ast.root.declarations()
+        } else {
+            declaration_at(file.parsed.ast.root.declarations(), &path[..depth])
+                .map_or(&[][..], |parent| parent.children.as_slice())
+        };
+        let Some(declaration) = siblings.get(index) else {
+            components.push(format!("missing:{index}"));
+            continue;
+        };
+        let signature = declaration_identity_signature(declaration);
+        let ordinal = siblings[..index]
+            .iter()
+            .filter(|candidate| declaration_identity_signature(candidate) == signature)
+            .count();
+        components.push(format!("{signature}#{ordinal}"));
+    }
+    components.join("/")
+}
+
+fn declaration_identity_signature(declaration: &Decl) -> String {
+    let name = declaration.name.as_ref().map_or("", Name::as_str);
+    let kind = declaration.kind.as_ref().map_or("", Name::as_str);
+    format!("{}:{}:{}", declaration.keyword, name, kind)
 }
 
 fn semantic_hash(parts: &[&str]) -> String {
@@ -3233,12 +6712,84 @@ fn value_path(value: Option<&Value>) -> Option<Vec<String>> {
     }
 }
 
-fn existing_export_binding(declaration: &Decl, alias: &str) -> Option<Vec<String>> {
-    let property = format!("{alias}_param");
-    let Value::Binding { path, .. } = declaration.props.get(&property)? else {
-        return None;
+fn find_definition_target<'a>(declaration: &'a Decl, path: &[String]) -> Option<&'a Decl> {
+    let (first, rest) = path.split_first()?;
+    let target = declaration.children.iter().find(|child| {
+        child
+            .name
+            .as_ref()
+            .is_some_and(|name| name.as_str() == first)
+    })?;
+    find_named_descendant(target, rest)
+}
+
+fn find_named_descendant<'a>(declaration: &'a Decl, path: &[String]) -> Option<&'a Decl> {
+    let Some((first, rest)) = path.split_first() else {
+        return Some(declaration);
     };
-    Some(path.iter().map(ToString::to_string).collect())
+    let child = declaration.children.iter().find(|child| {
+        child
+            .name
+            .as_ref()
+            .is_some_and(|name| name.as_str() == first)
+    })?;
+    find_named_descendant(child, rest)
+}
+
+fn definition_export_kind(declaration: &Decl) -> DefinitionExportKind {
+    match declaration.keyword.as_str() {
+        "param" => DefinitionExportKind::Param,
+        "store" => DefinitionExportKind::Store,
+        "selection" => DefinitionExportKind::Selection,
+        "mark" => DefinitionExportKind::Mark,
+        "group" => DefinitionExportKind::Group,
+        "tool" => DefinitionExportKind::Tool,
+        "widget" => DefinitionExportKind::Widget,
+        _ => DefinitionExportKind::Unknown,
+    }
+}
+
+fn collect_definition_slot_dependencies(
+    value: &Value,
+    slots: &BTreeSet<String>,
+    output: &mut BTreeSet<String>,
+) {
+    match value {
+        Value::Atom(name) if slots.contains(name.as_str()) => {
+            output.insert(name.to_string());
+        }
+        Value::Expr(expression) => {
+            for path in expression_paths(expression.ast()) {
+                if let Some(name) = path.first()
+                    && slots.contains(name)
+                {
+                    output.insert(name.clone());
+                }
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_definition_slot_dependencies(value, slots, output);
+            }
+        }
+        Value::Visual(value) | Value::Pattern(value) => {
+            collect_definition_slot_dependencies(value, slots, output);
+        }
+        Value::Block { head, body } => {
+            if let Some(head) = head {
+                collect_definition_slot_dependencies(head, slots, output);
+            }
+            for (_, value) in body.props.iter() {
+                collect_definition_slot_dependencies(value, slots, output);
+            }
+        }
+        Value::Call { args, .. } => {
+            for value in args {
+                collect_definition_slot_dependencies(value, slots, output);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn infer_widget_item_type(declaration: &Decl) -> Option<PhysicalType> {
@@ -3267,6 +6818,15 @@ fn infer_widget_item_type(declaration: &Decl) -> Option<PhysicalType> {
             _ => false,
         })
         .then_some(inferred)
+}
+
+fn export_physical_type(declaration: &Decl, value_kind: &str) -> Option<PhysicalType> {
+    let inner = value_kind.strip_prefix("param<")?.strip_suffix('>')?;
+    if inner == "item_scalar" {
+        infer_widget_item_type(declaration)
+    } else {
+        parse_type_text(inner)
+    }
 }
 
 fn parse_type_text(text: &str) -> Option<PhysicalType> {
@@ -3302,8 +6862,213 @@ fn helpers_in_sql(sql: &str) -> Vec<ResolvedHelper> {
         .map(|(name, class)| ResolvedHelper {
             name: (*name).to_owned(),
             class: *class,
+            arguments: Vec::new(),
         })
         .collect()
+}
+
+fn expression_paths(expression: &Expr) -> Vec<Vec<String>> {
+    let mut paths = SqlPaths::default();
+    let _ = expression.visit(&mut paths);
+    paths.0
+}
+
+fn query_paths(query: &sqlparser::ast::Query) -> Vec<Vec<String>> {
+    let mut paths = SqlPaths::default();
+    let _ = query.visit(&mut paths);
+    paths.0
+}
+
+#[derive(Clone)]
+struct RawHelperCall {
+    name: String,
+    args: Vec<Expr>,
+}
+
+fn helper_calls(expression: &Expr) -> Vec<RawHelperCall> {
+    let mut helpers = HelperCalls::default();
+    let _ = expression.visit(&mut helpers);
+    helpers.0
+}
+
+fn query_helper_calls(query: &sqlparser::ast::Query) -> Vec<RawHelperCall> {
+    let mut helpers = HelperCalls::default();
+    let _ = query.visit(&mut helpers);
+    helpers.0
+}
+
+#[derive(Default)]
+struct HelperCalls(Vec<RawHelperCall>);
+
+impl Visitor for HelperCalls {
+    type Break = ();
+
+    fn pre_visit_expr(&mut self, expression: &Expr) -> std::ops::ControlFlow<Self::Break> {
+        let Expr::Function(function) = expression else {
+            return std::ops::ControlFlow::Continue(());
+        };
+        let Some(name) = function.name.0.last().and_then(|part| part.as_ident()) else {
+            return std::ops::ControlFlow::Continue(());
+        };
+        let name = name.value.to_ascii_lowercase();
+        if helper_class(&name).is_none() {
+            return std::ops::ControlFlow::Continue(());
+        }
+        let args = match &function.args {
+            FunctionArguments::List(arguments) => arguments
+                .args
+                .iter()
+                .filter_map(|argument| match argument {
+                    FunctionArg::Unnamed(FunctionArgExpr::Expr(expression)) => {
+                        Some(expression.clone())
+                    }
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        self.0.push(RawHelperCall { name, args });
+        std::ops::ControlFlow::Continue(())
+    }
+}
+
+fn helper_class(name: &str) -> Option<HelperClass> {
+    Some(match name {
+        "channel" => HelperClass::Channel,
+        "datum" | "item_data" => HelperClass::Datum,
+        "event_coord" | "start_coord" | "event_domain_start" | "event_domain_end"
+        | "event_path" | "event_facet_value" | "legend_value" | "item_channel" | "item_bbox" => {
+            HelperClass::Event
+        }
+        "selection_contains" => HelperClass::Selection,
+        "view_x" | "view_y" => HelperClass::View,
+        "span" | "span_ordered" | "polygon" => HelperClass::Reserved,
+        _ => return None,
+    })
+}
+
+fn helper_arity(name: &str) -> Option<usize> {
+    Some(match name {
+        "event_path" | "legend_value" => 0,
+        "channel" | "datum" | "event_coord" | "start_coord" | "event_domain_start"
+        | "event_domain_end" | "event_facet_value" | "item_channel" | "item_data" | "item_bbox"
+        | "polygon" => 1,
+        "selection_contains" | "view_x" | "view_y" | "span" | "span_ordered" => 2,
+        _ => return None,
+    })
+}
+
+fn helper_uses_channel_argument(name: &str) -> bool {
+    matches!(
+        name,
+        "channel"
+            | "event_coord"
+            | "start_coord"
+            | "event_domain_start"
+            | "event_domain_end"
+            | "item_channel"
+    )
+}
+
+fn helper_argument(expression: &Expr) -> ResolvedHelperArgument {
+    match expression {
+        Expr::Identifier(identifier) if identifier.quote_style.is_none() => {
+            ResolvedHelperArgument::Name(identifier.value.clone())
+        }
+        Expr::CompoundIdentifier(identifiers)
+            if identifiers
+                .iter()
+                .all(|identifier| identifier.quote_style.is_none()) =>
+        {
+            ResolvedHelperArgument::Name(
+                identifiers
+                    .iter()
+                    .map(|identifier| identifier.value.as_str())
+                    .collect::<Vec<_>>()
+                    .join("."),
+            )
+        }
+        Expr::Value(value) => match &value.value {
+            SqlValue::SingleQuotedString(value) => ResolvedHelperArgument::String(value.clone()),
+            SqlValue::Number(value, false) => ResolvedHelperArgument::Number(value.clone()),
+            _ => ResolvedHelperArgument::Sql(expression.to_string()),
+        },
+        _ => ResolvedHelperArgument::Sql(expression.to_string()),
+    }
+}
+
+fn helper_argument_path(expression: &Expr) -> Option<Vec<String>> {
+    match expression {
+        Expr::Identifier(identifier) if identifier.quote_style.is_none() => {
+            Some(vec![identifier.value.clone()])
+        }
+        Expr::CompoundIdentifier(identifiers)
+            if identifiers
+                .iter()
+                .all(|identifier| identifier.quote_style.is_none()) =>
+        {
+            Some(
+                identifiers
+                    .iter()
+                    .map(|identifier| identifier.value.clone())
+                    .collect(),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn relation_paths(query: &sqlparser::ast::Query) -> Vec<Vec<String>> {
+    #[derive(Default)]
+    struct Relations(Vec<Vec<String>>);
+
+    impl Visitor for Relations {
+        type Break = ();
+
+        fn pre_visit_relation(
+            &mut self,
+            relation: &ObjectName,
+        ) -> std::ops::ControlFlow<Self::Break> {
+            self.0.push(
+                relation
+                    .0
+                    .iter()
+                    .filter_map(|part| part.as_ident())
+                    .map(|identifier| identifier.value.clone())
+                    .collect(),
+            );
+            std::ops::ControlFlow::Continue(())
+        }
+    }
+
+    let mut relations = Relations::default();
+    let _ = query.visit(&mut relations);
+    relations.0.retain(|path| !path.is_empty());
+    relations.0
+}
+
+#[derive(Default)]
+struct SqlPaths(Vec<Vec<String>>);
+
+impl Visitor for SqlPaths {
+    type Break = ();
+
+    fn pre_visit_expr(&mut self, expression: &Expr) -> std::ops::ControlFlow<Self::Break> {
+        if let Expr::CompoundIdentifier(identifiers) = expression
+            && identifiers.len() >= 2
+            && identifiers
+                .iter()
+                .all(|identifier| identifier.quote_style.is_none())
+        {
+            self.0.push(
+                identifiers
+                    .iter()
+                    .map(|identifier| identifier.value.clone())
+                    .collect(),
+            );
+        }
+        std::ops::ControlFlow::Continue(())
+    }
 }
 
 trait DeclName {

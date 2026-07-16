@@ -1,8 +1,39 @@
+use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
-    PhysicalType, SourceFile, SourceId, SourceOrigin,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, PhysicalType,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId, SourceOrigin,
     ast::{Root, Value},
+    resolve_project, semantic_json_schema,
     syntax::parse_file,
 };
+
+fn bootstrap_schema() -> NativeSchemaSnapshot {
+    serde_json::from_str(include_str!(
+        "../../avenger-chart-lang-registry/snapshots/bootstrap-schema.json"
+    ))
+    .unwrap()
+}
+
+async fn semantic_project(text: &str) -> avenger_lang_core::ParsedProject {
+    let loader = InMemorySourceLoader::default().with_source(LoadedSource::new(
+        SourceOrigin::Memory("chart.avenger".to_owned()),
+        text,
+        ContentVersion::new("fixture-v1"),
+    ));
+    ProjectLoader::new(&loader)
+        .load(ProjectLoadRequest {
+            project_root: "/project".into(),
+            roots: vec![ProjectRoot::chart(SourceOrigin::Memory(
+                "chart.avenger".to_owned(),
+            ))],
+            capabilities: ImportCapabilities::in_memory("/project"),
+            schema_version: "semantic-v1".to_owned(),
+            registry_version: "bootstrap".to_owned(),
+        })
+        .await
+        .result
+        .unwrap()
+}
 
 fn type_value(spelling: &str) -> Value {
     let text = format!(
@@ -107,6 +138,90 @@ fn schema_destination_typed_literals_are_exact() {
     assert!(PhysicalType::parse(&null).is_ok());
 }
 
+#[test]
+fn schema_recursive_list_and_struct_literals_use_destination_types() {
+    let list = PhysicalType::parse(&type_value("fixed_size_list(int8,2)")).unwrap();
+    assert!(
+        list.accepts_literal(&Value::Array(vec![number("1"), number("127")]))
+            .is_ok()
+    );
+    assert!(
+        list.accepts_literal(&Value::Array(vec![number("1")]))
+            .is_err()
+    );
+
+    let data_type = PhysicalType::parse(&type_value(
+        "struct(field('x',float64),field('labels',list(utf8)))",
+    ))
+    .unwrap();
+    let value = object(&[("x", number("1.25")), ("labels", strings(&["a", "b"]))]);
+    assert!(data_type.accepts_literal(&value).is_ok());
+    let invalid = object(&[("x", Value::Str("not a number".to_owned()))]);
+    assert!(data_type.accepts_literal(&invalid).is_err());
+}
+
+#[tokio::test]
+async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
+    let registry = bootstrap_schema();
+    let schema = semantic_json_schema(&registry, "bootstrap-test-profile");
+    let validator = jsonschema::validator_for(&schema).expect("generated schema compiles");
+    let corpus = [
+        (
+            true,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots { x: "x"; y: "y"; }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots { x: "x"; }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                mark symbol as dots { x: "x"; y: "y"; bogus: 1; }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                param as limit { type: int64; }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                on invented_event as handler {}
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                widget radio_button_list as choice {
+                    items: [{ value: 1; label: 'one'; }];
+                }
+            }"#,
+        ),
+    ];
+    for (expected, source) in corpus {
+        let project = semantic_project(source).await;
+        let semantic_valid = resolve_project(&project, &registry).result.is_ok();
+        let file = project.files.values().next().expect("one source file");
+        let instance = serde_json::to_value(&file.parsed.ast).unwrap();
+        let schema_valid = validator.is_valid(&instance);
+        assert_eq!(semantic_valid, expected, "semantic result for {source}");
+        assert_eq!(schema_valid, expected, "JSON Schema result for {source}");
+    }
+
+    let second = semantic_json_schema(&registry, "bootstrap-test-profile");
+    assert_eq!(
+        schema, second,
+        "semantic schema generation is deterministic"
+    );
+}
+
 fn number(spelling: &str) -> Value {
     let text = format!(
         "avenger 1; chart cartesian as chart {{ param as value {{ type: int64; default: {spelling}; }} }}"
@@ -121,4 +236,26 @@ fn number(spelling: &str) -> Value {
         panic!("chart root")
     };
     chart.children[0].props.get("default").unwrap().clone()
+}
+
+fn strings(values: &[&str]) -> Value {
+    Value::Array(
+        values
+            .iter()
+            .map(|value| Value::Str((*value).to_owned()))
+            .collect(),
+    )
+}
+
+fn object(fields: &[(&str, Value)]) -> Value {
+    let mut body = avenger_lang_core::ast::Body::default();
+    for (name, value) in fields {
+        body.props
+            .insert(
+                avenger_lang_core::ast::Name::new(*name).unwrap(),
+                value.clone(),
+            )
+            .unwrap();
+    }
+    Value::Block { head: None, body }
 }

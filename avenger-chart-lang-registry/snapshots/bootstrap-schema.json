@@ -13,7 +13,7 @@
         }
       },
       "channels": {}, "parts": {}, "exports": {}, "outputs": {},
-      "compatible_coordinates": [], "stateless": false, "child_rules": []
+      "compatible_coordinates": [], "body_mode": "mixed", "stateless": false, "child_rules": []
     },
     {
       "key": { "namespace": "mark", "kind": "symbol", "coordinate": "cartesian" },
@@ -32,7 +32,8 @@
         "y": { "name": "y", "required": true, "shape": { "shape": "sql_expression" }, "docs": "The symbol `y` encoding expression." }
       },
       "parts": {}, "exports": {}, "outputs": {},
-      "compatible_coordinates": [], "stateless": false, "child_rules": []
+      "compatible_coordinates": [], "body_mode": "mixed", "stateless": false,
+      "child_rules": [{ "role": "view", "min": 0, "max": 1, "docs": "Optional inline view scope owned by this mark." }]
     },
     {
       "key": { "namespace": "transform", "kind": "aggregate" },
@@ -162,9 +163,9 @@
         "label": { "alias": "label", "runtime_kind": "radio-button-list", "runtime_alias": "label", "targetable": true, "docs": "The row label." }
       },
       "exports": {
-        "value": { "alias": "value", "value_kind": "param<item_scalar>", "docs": "The currently selected item value." }
+        "value": { "alias": "value", "value_kind": "param<item_scalar>", "binding_property": "value_param", "default_property": "default", "docs": "The currently selected item value." }
       },
-      "outputs": {}, "compatible_coordinates": [], "stateless": false, "child_rules": []
+      "outputs": {}, "compatible_coordinates": [], "allowed_parents": ["chart"], "stateless": false, "child_rules": []
     },
     {
       "key": { "namespace": "scale", "kind": "linear" },

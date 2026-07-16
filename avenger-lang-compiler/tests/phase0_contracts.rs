@@ -140,7 +140,7 @@ async fn compile_attempt_retains_discovered_dependencies_on_failure() {
     let loader = Arc::new(
         InMemorySourceLoader::default().with_source(LoadedSource::new(
             origin.clone(),
-            "avenger 1; chart demo as chart {}",
+            "avenger 1; chart cartesian as chart {}",
             ContentVersion::new("sha256:test"),
         )),
     );
@@ -153,7 +153,7 @@ async fn compile_attempt_retains_discovered_dependencies_on_failure() {
     let attempt = compiler.compile_file_attempt("chart.avenger").await;
     assert_eq!(
         attempt.result.unwrap_err().diagnostics[0].code.as_str(),
-        "AV0000"
+        "AV0005"
     );
     let dependencies = attempt.dependencies.iter().collect::<Vec<_>>();
     assert_eq!(dependencies.len(), 1);

@@ -15,8 +15,8 @@ use avenger_chart::{
 };
 use avenger_chart_core::DataTransform;
 use avenger_chart_schema::{
-    ChannelSchema, EnumValueSchema, ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace,
-    PartSchema, PropertySchema, TransformOutputSchema, ValueShape,
+    BodyMode, ChannelSchema, EnumValueSchema, ExportSchema, KindSchema, NativeKindKey,
+    NativeKindNamespace, PartSchema, PropertySchema, TransformOutputSchema, ValueShape,
 };
 use avenger_chart_transforms::{Aggregate, Filter, Sql};
 use avenger_chart_widgets::RadioButtonList;
@@ -75,6 +75,7 @@ fn cartesian_base_pack() -> CoordinatePack<Cartesian> {
         NativeKindKey::new(NativeKindNamespace::Coordinate, "cartesian"),
         "A two-dimensional Cartesian coordinate system.",
     )
+    .body_mode(BodyMode::Mixed)
     .property(
         "unit_aspect",
         PropertySchema::optional(
@@ -100,11 +101,15 @@ fn pan_scroll_zoom_schema() -> KindSchema {
     .export(ExportSchema {
         alias: "x_domain".to_string(),
         value_kind: "param<fixed_size_list<float64, 2>>".to_string(),
+        binding_property: None,
+        default_property: None,
         docs: "The tool-owned current x domain.".to_string(),
     })
     .export(ExportSchema {
         alias: "y_domain".to_string(),
         value_kind: "param<fixed_size_list<float64, 2>>".to_string(),
+        binding_property: None,
+        default_property: None,
         docs: "The tool-owned current y domain.".to_string(),
     });
     tool.compatible_coordinates.insert("cartesian".to_string());
@@ -142,7 +147,14 @@ pub fn symbol_schema() -> KindSchema {
     let mut schema = KindSchema::new(
         NativeKindKey::mark("cartesian", "symbol"),
         "A point symbol positioned in Cartesian coordinates.",
-    );
+    )
+    .body_mode(BodyMode::Mixed)
+    .child_rule(avenger_chart_schema::ChildRule {
+        role: "view".to_string(),
+        min: 0,
+        max: Some(1),
+        docs: "Optional inline view scope owned by this mark.".to_string(),
+    });
     for name in [
         "x",
         "y",
@@ -353,6 +365,7 @@ fn register_radio_button_list(builder: &mut NativeRegistryBuilder) -> Result<(),
         NativeKindKey::new(NativeKindNamespace::Widget, "radio_button_list"),
         "A list that selects exactly one scalar value.",
     )
+    .allowed_parent("chart")
     .runtime_kind("radio-button-list")
     .property(
         "id",
@@ -380,6 +393,8 @@ fn register_radio_button_list(builder: &mut NativeRegistryBuilder) -> Result<(),
     .export(ExportSchema {
         alias: "value".to_string(),
         value_kind: "param<item_scalar>".to_string(),
+        binding_property: Some("value_param".to_string()),
+        default_property: Some("default".to_string()),
         docs: "The currently selected item value.".to_string(),
     })
     .part(PartSchema {

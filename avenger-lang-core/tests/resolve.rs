@@ -35,7 +35,7 @@ async fn project(sources: &[(&str, &str)], root: &str) -> avenger_lang_core::Par
 
 #[tokio::test]
 async fn resolve_valid_kernel_project_binds_forward_params_and_native_mark() {
-    let project = project(
+    let valid_project = project(
         &[(
             "chart.avenger",
             r#"
@@ -52,7 +52,7 @@ chart cartesian as chart {
         "chart.avenger",
     )
     .await;
-    let resolved = resolve_project(&project, &bootstrap_schema())
+    let resolved = resolve_project(&valid_project, &bootstrap_schema())
         .result
         .unwrap();
     assert_eq!(resolved.params.len(), 2);
@@ -160,6 +160,268 @@ chart cartesian {
     assert!(codes.contains(&"AVENGER-RESOLVE-100"));
     assert!(codes.contains(&"AVENGER-RESOLVE-021"));
     assert!(codes.contains(&"AVENGER-RESOLVE-022"));
+}
+
+#[tokio::test]
+async fn resolve_imported_definition_exports_are_typed_and_instance_scoped() {
+    let project = project(
+        &[
+            (
+                "chart.avenger",
+                r#"
+avenger 1;
+import 'controller.tool.avenger';
+chart cartesian as chart {
+  tool controller as first {}
+  tool controller as second {}
+  param as selected { type: int64; default: $first.value; }
+}
+"#,
+            ),
+            (
+                "controller.tool.avenger",
+                r#"
+avenger 1;
+define tool controller {
+  param as threshold { type: int64; default: 0; }
+  export threshold as value;
+}
+"#,
+            ),
+        ],
+        "chart.avenger",
+    )
+    .await;
+    let resolved = resolve_project(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = resolved
+        .files
+        .values()
+        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .unwrap();
+    let instances = chart.roots[0]
+        .children
+        .iter()
+        .filter(|child| child.keyword == "tool")
+        .collect::<Vec<_>>();
+    assert_eq!(instances.len(), 2);
+    let first = instances[0].exports.get("value").unwrap();
+    let second = instances[1].exports.get("value").unwrap();
+    assert!(matches!(first, ResolvedTarget::DefinitionParam { .. }));
+    assert!(matches!(second, ResolvedTarget::DefinitionParam { .. }));
+    assert_ne!(first, second);
+    let definition = resolved.definitions.values().next().unwrap();
+    assert_eq!(
+        definition.exports["value"].target_kind,
+        avenger_lang_core::DefinitionExportKind::Param
+    );
+    assert_eq!(
+        definition.exports["value"]
+            .data_type
+            .as_ref()
+            .unwrap()
+            .to_string(),
+        "int64"
+    );
+}
+
+#[tokio::test]
+async fn resolve_transform_outputs_are_sequential_typed_handles() {
+    let valid_project = project(
+        &[(
+            "pipeline.avenger",
+            r#"
+avenger 1;
+chart cartesian as pipeline {
+  transform aggregate as stats {
+    measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+  }
+  mark symbol as points { x: stats.total; y: "y"; }
+}
+"#,
+        )],
+        "pipeline.avenger",
+    )
+    .await;
+    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let root = &resolved.files.values().next().unwrap().roots[0];
+    let transform = &root.children[0];
+    assert!(transform.transform_outputs.contains_key("total"));
+    let mark = &root.children[1];
+    let avenger_lang_core::ResolvedValue::Expression(expression) = &mark.properties["x"] else {
+        panic!("x expression")
+    };
+    assert!(matches!(
+        expression.references.as_slice(),
+        [avenger_lang_core::ResolvedSqlReference {
+            target: ResolvedTarget::Output(_),
+            ..
+        }]
+    ));
+
+    let invalid = project(
+        &[(
+            "future.avenger",
+            r#"
+avenger 1;
+chart cartesian as future {
+  mark symbol { x: stats.total; y: "y"; }
+  transform aggregate as stats {
+    measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+  }
+}
+"#,
+        )],
+        "future.avenger",
+    )
+    .await;
+    let failure = resolve_project(&invalid, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-083")
+    );
+}
+
+#[tokio::test]
+async fn resolve_table_dag_orders_relations_and_reports_cycles() {
+    let valid_project = project(
+        &[
+            (
+                "tables.avenger",
+                "avenger 1; import 'catalog.data.avenger'; chart cartesian as tables {}",
+            ),
+            (
+                "catalog.data.avenger",
+                r#"
+avenger 1;
+schema tables as vega {
+  table csv as base { path: 'base.csv'; }
+  table sql as derived { sql: SELECT * FROM vega.base; }
+}
+"#,
+            ),
+        ],
+        "tables.avenger",
+    )
+    .await;
+    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+        .result
+        .unwrap();
+    assert_eq!(resolved.table_order.len(), 2);
+
+    let cyclic = project(
+        &[
+            (
+                "cycle.avenger",
+                "avenger 1; import 'cycle.data.avenger'; chart cartesian as cycle {}",
+            ),
+            (
+                "cycle.data.avenger",
+                r#"
+avenger 1;
+schema tables as vega {
+  table sql as a { sql: SELECT * FROM vega.b; }
+  table sql as b { sql: SELECT * FROM vega.a; }
+}
+"#,
+            ),
+        ],
+        "cycle.avenger",
+    )
+    .await;
+    let failure = resolve_project(&cyclic, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-101")
+    );
+}
+
+#[tokio::test]
+async fn resolve_event_routes_temporal_reads_and_ordered_typed_actions() {
+    let valid_project = project(
+        &[(
+            "events.avenger",
+            r#"
+avenger 1;
+chart cartesian as events {
+  param as x { type: int8; default: 0; }
+  mark symbol as points { x: "x"; y: "y"; }
+  on cursor_moved as drag {
+    target: mark points;
+    scope: plot;
+    surface: plot;
+    between: {
+      start: mouse_down { filter: $x >= 0; }
+      end: mouse_up { filter: $x >= 0; }
+    }
+    set param x at start = $x@start + event_facet_value(0);
+    set cursor = 'crosshair';
+  }
+}
+"#,
+        )],
+        "events.avenger",
+    )
+    .await;
+    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let event = &resolved.files.values().next().unwrap().roots[0].children[2];
+    assert!(event.migration_key.is_some());
+    assert!(event.public_path.is_none());
+    assert_eq!(event.children.len(), 2);
+    let avenger_lang_core::ResolvedValue::Expression(value) =
+        &event.children[0].properties["value"]
+    else {
+        panic!("param action expression")
+    };
+    assert_eq!(value.helpers[0].name, "event_facet_value");
+    assert!(matches!(
+        value.helpers[0].arguments.as_slice(),
+        [avenger_lang_core::ResolvedHelperArgument::Number(value)] if value == "0"
+    ));
+
+    let invalid = project(
+        &[(
+            "bad_events.avenger",
+            r#"
+avenger 1;
+chart cartesian as bad_events {
+  param as x { type: int8; default: 0; }
+  on cursor_moved as drag {
+    between: {
+      start: mouse_down { filter: $x@previous > 0; }
+      end: mouse_up {}
+    }
+    set param x = 128;
+  }
+}
+"#,
+        )],
+        "bad_events.avenger",
+    )
+    .await;
+    let failure = resolve_project(&invalid, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    let codes = failure
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<Vec<_>>();
+    assert!(codes.contains(&"AVENGER-RESOLVE-106"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-076"));
 }
 
 fn contains_invalid(declaration: &avenger_lang_core::ResolvedDeclaration) -> bool {

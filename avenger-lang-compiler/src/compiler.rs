@@ -10,10 +10,11 @@ use avenger_chart_lang_registry::{
 use avenger_lang_core::{
     DataCapabilities, Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider,
     ImportCapabilities, ParsedProject, ProjectDependencyRole, ProjectLoadAttempt,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId, SourceLabel,
-    SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedProject, SourceFile, SourceId,
+    SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
     ast::{Decl, Value},
     project::{normalize_path, resolve_import_origin},
+    resolve_project as resolve_semantics,
 };
 use datafusion::logical_expr::col;
 use serde::{Deserialize, Serialize};
@@ -125,8 +126,8 @@ impl Compiler {
         &self,
         path: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledChartArtifact> {
-        let attempt = self.load_file_project_attempt(path).await;
-        map_loaded_project_to_compilation(attempt)
+        let attempt = self.resolve_file_project_attempt(path).await;
+        map_resolved_project_to_compilation(attempt)
     }
 
     pub async fn compile_file(
@@ -140,8 +141,8 @@ impl Compiler {
         &self,
         root: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledProject> {
-        let attempt = self.load_project_graph_attempt(root).await;
-        map_loaded_project_to_project_compilation(attempt)
+        let attempt = self.resolve_project_graph_attempt(root).await;
+        map_resolved_project_to_project_compilation(attempt)
     }
 
     pub async fn compile_project(
@@ -155,15 +156,15 @@ impl Compiler {
         &self,
         root: impl AsRef<Path>,
     ) -> Result<ProjectAnalysis, CompileFailure> {
-        Err(self
-            .compile_project_attempt(root)
-            .await
-            .result
-            .expect_err("phase-zero frontend is unavailable"))
+        let project = self.resolve_project_graph_attempt(root).await.result?;
+        Err(phase_five_frontend_failure(&project))
     }
 
     pub async fn check_project(&self, root: impl AsRef<Path>) -> Result<(), CompileFailure> {
-        self.analyze_project(root).await.map(|_| ())
+        self.resolve_project_graph_attempt(root)
+            .await
+            .result
+            .map(|_| ())
     }
 
     pub async fn expand_file(
@@ -175,6 +176,34 @@ impl Compiler {
             .await
             .result
             .expect_err("phase-zero frontend is unavailable"))
+    }
+
+    /// Phase 4 frontend seam: load and semantically resolve one chart and its
+    /// complete dependency closure without constructing native chart objects.
+    pub async fn resolve_file_project_attempt(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> CompileAttempt<ResolvedProject> {
+        let attempt = self.load_file_project_attempt(path).await;
+        map_parsed_project_to_resolution(attempt, self.host.authoring_schema())
+    }
+
+    /// Convenience wrapper for callers that do not need dependency metadata.
+    pub async fn resolve_file_project(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<ResolvedProject, CompileFailure> {
+        self.resolve_file_project_attempt(path).await.result
+    }
+
+    /// Phase 4 frontend seam: discover and semantically resolve every chart
+    /// root and ambient data file below a project directory.
+    pub async fn resolve_project_graph_attempt(
+        &self,
+        root: impl AsRef<Path>,
+    ) -> CompileAttempt<ResolvedProject> {
+        let attempt = self.load_project_graph_attempt(root).await;
+        map_parsed_project_to_resolution(attempt, self.host.authoring_schema())
     }
 
     /// Phase 3 frontend seam: load one chart and its complete import/data
@@ -461,16 +490,27 @@ pub enum CompilerBuildError {
     SourceLoader(#[from] SourceLoaderError),
 }
 
-fn phase_zero_frontend_diagnostic(source: &SourceFile) -> Diagnostic {
+fn phase_five_frontend_diagnostic(source: SourceId) -> Diagnostic {
     Diagnostic::error(
-        "AV0000",
-        "semantic validation is not implemented yet",
+        "AV0005",
+        "native chart lowering is not implemented yet",
         SourceLabel::new(
-            SourceSpan::empty(source.id, 0),
-            "Phase 3 loaded and parsed the project; Phase 4 validates declarations",
+            SourceSpan::empty(source, 0),
+            "Phase 4 resolved the project; Phase 5 constructs native charts",
         ),
     )
-    .with_note("project loading completed successfully")
+    .with_note("semantic validation and name resolution completed successfully")
+}
+
+fn phase_five_frontend_failure(project: &ResolvedProject) -> CompileFailure {
+    let source = project
+        .files
+        .values()
+        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+        .map_or(SourceId::new(0), |file| file.source);
+    CompileFailure {
+        diagnostics: vec![phase_five_frontend_diagnostic(source)],
+    }
 }
 
 fn phase_zero_failure(message: String) -> CompileFailure {
@@ -522,19 +562,16 @@ fn compiler_dependencies(
     result
 }
 
-fn map_loaded_project_to_compilation(
+fn map_parsed_project_to_resolution(
     attempt: CompileAttempt<ParsedProject>,
-) -> CompileAttempt<CompiledChartArtifact> {
+    schema: &avenger_chart_schema::NativeSchemaSnapshot,
+) -> CompileAttempt<ResolvedProject> {
     let result = attempt.result.and_then(|project| {
-        let source = project
-            .chart_roots
-            .first()
-            .and_then(|id| project.files.get(id))
-            .and_then(|file| project.sources.get(file.source))
-            .expect("a loaded file project has one chart root");
-        Err(CompileFailure {
-            diagnostics: vec![phase_zero_frontend_diagnostic(source)],
-        })
+        resolve_semantics(&project, schema)
+            .result
+            .map_err(|failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+            })
     });
     CompileAttempt {
         result,
@@ -542,20 +579,24 @@ fn map_loaded_project_to_compilation(
     }
 }
 
-fn map_loaded_project_to_project_compilation(
-    attempt: CompileAttempt<ParsedProject>,
+fn map_resolved_project_to_compilation(
+    attempt: CompileAttempt<ResolvedProject>,
+) -> CompileAttempt<CompiledChartArtifact> {
+    let result = attempt
+        .result
+        .and_then(|project| Err(phase_five_frontend_failure(&project)));
+    CompileAttempt {
+        result,
+        dependencies: attempt.dependencies,
+    }
+}
+
+fn map_resolved_project_to_project_compilation(
+    attempt: CompileAttempt<ResolvedProject>,
 ) -> CompileAttempt<CompiledProject> {
-    let result = attempt.result.and_then(|project| {
-        let source = project
-            .chart_roots
-            .first()
-            .and_then(|id| project.files.get(id))
-            .and_then(|file| project.sources.get(file.source))
-            .expect("a loaded project has a chart root");
-        Err(CompileFailure {
-            diagnostics: vec![phase_zero_frontend_diagnostic(source)],
-        })
-    });
+    let result = attempt
+        .result
+        .and_then(|project| Err(phase_five_frontend_failure(&project)));
     CompileAttempt {
         result,
         dependencies: attempt.dependencies,

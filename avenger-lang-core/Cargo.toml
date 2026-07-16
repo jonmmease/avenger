@@ -17,4 +17,5 @@ thiserror = { workspace = true }
 url = "2.5"
 
 [dev-dependencies]
+jsonschema = { version = "0.37", default-features = false }
 tokio = { workspace = true, features = ["macros", "rt"] }
