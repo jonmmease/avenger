@@ -32,6 +32,7 @@ const INVALID_FIXTURES: &[&str] = &[
     "illegal-visibility.avenger",
     "invalid-slot-shape.avenger",
     "late-interface.avenger",
+    "wrong-root.avenger",
 ];
 
 fn fixture(relative: impl AsRef<Path>) -> PathBuf {
@@ -296,6 +297,26 @@ fn numeric_and_sql_normalization_boundaries_are_exact() {
     }
     assert!(SqlQuery::parse("FROM movies").is_err());
     assert!(SqlQuery::parse("SELECT 1; SELECT 2").is_err());
+
+    for value in [
+        "99999999999999999999999999999999999999",
+        "9999999999999999999999999999999999999999999999999999999999999999999999999999",
+    ] {
+        assert_eq!(NumericLiteral::new(value).unwrap().as_str(), value);
+    }
+    let expression = SqlExpression::parse(
+        "EXISTS (SELECT 1 FROM movies WHERE movies.id IN (SELECT id FROM ratings))",
+    )
+    .unwrap();
+    assert_eq!(
+        expression,
+        SqlExpression::parse(&expression.canonical_sql()).unwrap()
+    );
+    let commented = SqlQuery::parse("SELECT * -- retained only by the CST\nFROM movies").unwrap();
+    assert_eq!(
+        commented,
+        SqlQuery::parse(&commented.canonical_sql()).unwrap()
+    );
 }
 
 #[test]
@@ -342,6 +363,24 @@ fn standard_and_from_first_queries_preserve_flavor_with_equivalent_roles() {
     assert_eq!(standard_select.group_by, from_first_select.group_by);
     assert!(standard.canonical_sql().starts_with("SELECT"));
     assert!(from_first.canonical_sql().starts_with("FROM"));
+
+    let standard_cte = SqlQuery::parse(
+        "WITH filtered AS (SELECT * FROM movies WHERE rating > 0) SELECT f.title FROM filtered AS f",
+    )
+    .unwrap();
+    let from_first_cte = SqlQuery::parse(
+        "WITH filtered AS (SELECT * FROM movies WHERE rating > 0) FROM filtered AS f SELECT f.title",
+    )
+    .unwrap();
+    assert_eq!(standard_cte.ast().with, from_first_cte.ast().with);
+    let SetExpr::Select(standard_select) = standard_cte.ast().body.as_ref() else {
+        panic!()
+    };
+    let SetExpr::Select(from_first_select) = from_first_cte.ast().body.as_ref() else {
+        panic!()
+    };
+    assert_eq!(standard_select.from, from_first_select.from);
+    assert_eq!(standard_select.projection, from_first_select.projection);
 }
 
 fn generated_value(seed: u32) -> Value {
