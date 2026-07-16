@@ -5101,7 +5101,7 @@ value         = body                                 (* anonymous object *)
               | typed_ref
               | array , ";"
               | "value" , sql_expr , terminator      (* unscaled literal value *)
-              | "dim" , qual , [ body ]              (* raster dimension handle *)
+              | "dim" , qual , ( body | ";" )        (* raster dimension handle *)
               | "pattern" , body
               | "env" , string , ";"                 (* environment variable, capability-gated *)
               | "none" , ";"
