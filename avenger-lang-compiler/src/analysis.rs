@@ -1,0 +1,177 @@
+use std::collections::BTreeMap;
+
+use arrow::datatypes::SchemaRef;
+use avenger_chart_lang_registry::NativeRegistryProfileId;
+use avenger_lang_core::{SourceMap, SourceSpan};
+use serde::{Deserialize, Serialize};
+
+use crate::ProjectFingerprint;
+
+/// Stable compiler identity for one project dataset declaration.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProjectDatasetId(String);
+
+impl ProjectDatasetId {
+    pub fn new(stable_identity: impl Into<String>) -> Self {
+        Self(stable_identity.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Stable identity for the source or a transform stage of a dataset.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DatasetStageId {
+    pub dataset: ProjectDatasetId,
+    pub ordinal: u32,
+}
+
+impl DatasetStageId {
+    pub fn new(dataset: ProjectDatasetId, ordinal: u32) -> Self {
+        Self { dataset, ordinal }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DatasetStageKind {
+    CatalogTable,
+    SqlView,
+    DatasetSource,
+    Transform { native_kind: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DatasetProvenance {
+    pub declaration_span: SourceSpan,
+    pub stage_span: SourceSpan,
+    pub stage_kind: DatasetStageKind,
+}
+
+#[derive(Clone)]
+pub struct AnalyzedDataset {
+    pub id: ProjectDatasetId,
+    pub stage: DatasetStageId,
+    pub provenance: DatasetProvenance,
+    pub schema: SchemaRef,
+}
+
+impl std::fmt::Debug for AnalyzedDataset {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AnalyzedDataset")
+            .field("id", &self.id)
+            .field("stage", &self.stage)
+            .field("provenance", &self.provenance)
+            .field("schema", &self.schema)
+            .finish()
+    }
+}
+
+/// Exact Arrow schemas for every dataset stage.
+#[derive(Clone, Debug, Default)]
+pub struct DatasetSchemaIndex {
+    stages: BTreeMap<DatasetStageId, AnalyzedDataset>,
+}
+
+impl DatasetSchemaIndex {
+    pub fn insert(&mut self, dataset: AnalyzedDataset) -> Result<(), AnalysisIndexError> {
+        if dataset.stage.dataset != dataset.id {
+            return Err(AnalysisIndexError::DatasetStageMismatch);
+        }
+        let id = dataset.stage.clone();
+        if self.stages.insert(id.clone(), dataset).is_some() {
+            return Err(AnalysisIndexError::DuplicateStage(id));
+        }
+        Ok(())
+    }
+
+    pub fn get(&self, stage: &DatasetStageId) -> Option<&AnalyzedDataset> {
+        self.stages.get(stage)
+    }
+
+    pub fn stages_for(&self, dataset: &ProjectDatasetId) -> impl Iterator<Item = &AnalyzedDataset> {
+        self.stages
+            .values()
+            .filter(move |stage| &stage.id == dataset)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&DatasetStageId, &AnalyzedDataset)> {
+        self.stages.iter()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.stages.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnLineage {
+    pub output_column: String,
+    pub inputs: Vec<(DatasetStageId, String)>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DatasetLineage {
+    pub upstream_stages: Vec<DatasetStageId>,
+    pub columns: Vec<ColumnLineage>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct DatasetLineageIndex {
+    stages: BTreeMap<DatasetStageId, DatasetLineage>,
+}
+
+impl DatasetLineageIndex {
+    pub fn insert(
+        &mut self,
+        stage: DatasetStageId,
+        lineage: DatasetLineage,
+    ) -> Result<(), AnalysisIndexError> {
+        if self.stages.insert(stage.clone(), lineage).is_some() {
+            return Err(AnalysisIndexError::DuplicateStage(stage));
+        }
+        Ok(())
+    }
+
+    pub fn get(&self, stage: &DatasetStageId) -> Option<&DatasetLineage> {
+        self.stages.get(stage)
+    }
+}
+
+/// Immutable, execution-free project analysis. It deliberately contains no
+/// mutable DataFusion `SessionContext`.
+#[derive(Clone, Debug)]
+pub struct ProjectAnalysis {
+    pub sources: SourceMap,
+    pub datasets: DatasetSchemaIndex,
+    pub lineage: DatasetLineageIndex,
+    pub native_registry_profile: NativeRegistryProfileId,
+    pub project_fingerprint: ProjectFingerprint,
+}
+
+impl ProjectAnalysis {
+    pub fn empty(
+        sources: SourceMap,
+        native_registry_profile: NativeRegistryProfileId,
+        project_fingerprint: ProjectFingerprint,
+    ) -> Self {
+        Self {
+            sources,
+            datasets: DatasetSchemaIndex::default(),
+            lineage: DatasetLineageIndex::default(),
+            native_registry_profile,
+            project_fingerprint,
+        }
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum AnalysisIndexError {
+    #[error("dataset stage identity does not belong to the analyzed dataset")]
+    DatasetStageMismatch,
+    #[error("duplicate dataset stage {0:?}")]
+    DuplicateStage(DatasetStageId),
+}

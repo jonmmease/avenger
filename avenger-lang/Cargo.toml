@@ -9,6 +9,7 @@ description = "Public facade for compiling Avenger chart-language projects"
 avenger-chart-lang-registry = { path = "../avenger-chart-lang-registry" }
 avenger-lang-compiler = { path = "../avenger-lang-compiler" }
 avenger-lang-core = { path = "../avenger-lang-core" }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

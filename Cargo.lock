@@ -1252,6 +1252,7 @@ dependencies = [
  "avenger-chart-lang-registry",
  "avenger-lang-compiler",
  "avenger-lang-core",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
