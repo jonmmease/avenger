@@ -1,0 +1,27 @@
+[package]
+name = "avenger-lang-compiler"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Chart-aware compiler for the Avenger chart language"
+
+[dependencies]
+async-trait = { workspace = true }
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-lang-registry = { path = "../avenger-chart-lang-registry" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
+avenger-lang-core = { path = "../avenger-lang-core" }
+arrow = { workspace = true }
+datafusion = { workspace = true }
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-wgpu = { path = "../avenger-wgpu" }
+image = { workspace = true }
+image-compare = "0.4"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

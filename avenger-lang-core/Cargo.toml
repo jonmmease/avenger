@@ -1,0 +1,17 @@
+[package]
+name = "avenger-lang-core"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Dependency-light frontend contracts for the Avenger chart language"
+
+[dependencies]
+async-trait = { workspace = true }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
+indexmap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

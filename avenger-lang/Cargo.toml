@@ -1,0 +1,14 @@
+[package]
+name = "avenger-lang"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Public facade for compiling Avenger chart-language projects"
+
+[dependencies]
+avenger-chart-lang-registry = { path = "../avenger-chart-lang-registry" }
+avenger-lang-compiler = { path = "../avenger-lang-compiler" }
+avenger-lang-core = { path = "../avenger-lang-core" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

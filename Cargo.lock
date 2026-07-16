@@ -1246,6 +1246,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-lang"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart-lang-registry",
+ "avenger-lang-compiler",
+ "avenger-lang-core",
+ "tokio",
+]
+
+[[package]]
+name = "avenger-lang-compiler"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "async-trait",
+ "avenger-chart",
+ "avenger-chart-core",
+ "avenger-chart-lang-registry",
+ "avenger-chart-schema",
+ "avenger-common",
+ "avenger-lang-core",
+ "avenger-wgpu",
+ "datafusion",
+ "image",
+ "image-compare",
+ "indexmap 2.14.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "avenger-lang-core"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "avenger-chart-schema",
+ "indexmap 2.14.0",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "avenger-layout"
 version = "0.1.0"
 dependencies = [
