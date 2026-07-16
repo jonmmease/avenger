@@ -67,6 +67,7 @@ pub struct ConcreteNode {
 pub struct ParsedFile {
     pub ast: File,
     pub source_map: AstSourceMap,
+    pub import_spans: Vec<SourceSpan>,
     pub concrete: ConcreteFile,
 }
 
@@ -108,10 +109,12 @@ pub fn parse_file(source: &SourceFile) -> Result<ParsedFile, ParseError> {
     let mut parser = Parser::new(tokens.clone());
     let ast = parser.file()?;
     let source_map = parser.source_map;
+    let import_spans = parser.import_spans;
     let nodes = concrete_nodes(&tokens, &source_map);
     Ok(ParsedFile {
         ast,
         source_map,
+        import_spans,
         concrete: ConcreteFile {
             source: source.clone(),
             tokens,
@@ -125,6 +128,7 @@ struct Parser {
     index: usize,
     next_node_id: u32,
     source_map: AstSourceMap,
+    import_spans: Vec<SourceSpan>,
 }
 
 impl Parser {
@@ -134,6 +138,7 @@ impl Parser {
             index: 0,
             next_node_id: 0,
             source_map: AstSourceMap::default(),
+            import_spans: Vec::new(),
         }
     }
 
@@ -154,7 +159,12 @@ impl Parser {
         self.expect(Token::SemiColon, "`;` after the version")?;
         let mut imports = Vec::new();
         while self.word_is("import") {
+            let start = self.start();
             imports.push(self.import()?);
+            self.import_spans.push(
+                SourceSpan::new(self.stream.source(), start, self.end())
+                    .expect("parser token spans are ordered"),
+            );
         }
         let _ = self.leading_doc();
         let root = if self.word_is("chart") {

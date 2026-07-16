@@ -13,6 +13,7 @@ mod diagnostic;
 pub mod interchange;
 mod loader;
 pub mod print;
+pub mod project;
 mod source;
 pub mod sql;
 pub mod syntax;
@@ -27,6 +28,11 @@ pub use diagnostic::{
 };
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
+};
+pub use project::{
+    DefinitionKind, ImportEdge, ParsedProject, ProjectDependency, ProjectDependencyRole,
+    ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot,
 };
 pub use source::{
     ByteSpan, LineIndex, SourceError, SourceFile, SourceId, SourceLocation, SourceMap,

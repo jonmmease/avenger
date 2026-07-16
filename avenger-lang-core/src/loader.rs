@@ -79,7 +79,9 @@ impl SourceLoader for InMemorySourceLoader {
         let allowed = match origin {
             SourceOrigin::Memory(_) => capabilities.allow_memory,
             SourceOrigin::File(path) => {
-                capabilities.allow_filesystem && path.starts_with(&capabilities.project_root)
+                capabilities.allow_filesystem
+                    && crate::project::normalize_path(path)
+                        .starts_with(crate::project::normalize_path(&capabilities.project_root))
             }
             SourceOrigin::Std(_) => capabilities.allow_std,
             SourceOrigin::Http(_) => capabilities.allow_http,

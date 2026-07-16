@@ -9,8 +9,11 @@ use avenger_chart_lang_registry::{
 };
 use avenger_lang_core::{
     DataCapabilities, Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider,
-    ImportCapabilities, InMemorySourceLoader, SourceFile, SourceId, SourceLabel, SourceLoader,
-    SourceMap, SourceOrigin, SourceSpan,
+    ImportCapabilities, ParsedProject, ProjectDependencyRole, ProjectLoadAttempt,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId, SourceLabel,
+    SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
+    ast::{Decl, Value},
+    project::{normalize_path, resolve_import_origin},
 };
 use datafusion::logical_expr::col;
 use serde::{Deserialize, Serialize};
@@ -18,7 +21,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
     CompiledChartArtifact, CompiledProject, CompilerOptions, DefaultCompileEnvironmentFactory,
-    DependencyFingerprint, LanguageHost, ProjectAnalysis, ProjectChartId, ProjectFingerprint,
+    DefaultSourceLoader, DependencyFingerprint, LanguageHost, ProjectAnalysis, ProjectChartId,
+    ProjectFingerprint,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -34,6 +38,7 @@ pub enum DependencyRole {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledDependency {
     pub role: DependencyRole,
+    pub requested_origin: SourceOrigin,
     pub canonical_origin: SourceOrigin,
     pub content_version: Option<String>,
     pub nearest_existing_parent: Option<PathBuf>,
@@ -47,7 +52,7 @@ pub struct DiscoveredDependencySet {
 impl DiscoveredDependencySet {
     pub fn insert(&mut self, dependency: CompiledDependency) {
         self.dependencies.insert(
-            (dependency.canonical_origin.clone(), dependency.role),
+            (dependency.requested_origin.clone(), dependency.role),
             dependency,
         );
     }
@@ -120,53 +125,8 @@ impl Compiler {
         &self,
         path: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledChartArtifact> {
-        let path = self.resolve_path(path.as_ref());
-        let origin = SourceOrigin::File(path.clone());
-        let mut dependencies = DiscoveredDependencySet::default();
-        dependencies.insert(CompiledDependency {
-            role: DependencyRole::RootChart,
-            canonical_origin: origin.clone(),
-            content_version: None,
-            nearest_existing_parent: nearest_existing_parent(&path),
-        });
-
-        let loaded = self
-            .options
-            .source_loader
-            .load(&origin, &self.options.import_capabilities)
-            .await;
-        let (source, diagnostic) = match loaded {
-            Ok(loaded) => {
-                dependencies.insert(CompiledDependency {
-                    role: DependencyRole::RootChart,
-                    canonical_origin: loaded.origin.clone(),
-                    content_version: Some(loaded.version.as_str().to_string()),
-                    nearest_existing_parent: nearest_existing_parent(&path),
-                });
-                let source = SourceFile::new(SourceId::new(0), loaded.origin, loaded.text);
-                let diagnostic = phase_zero_frontend_diagnostic(&source);
-                (source, diagnostic)
-            }
-            Err(error) => {
-                let source = SourceFile::new(SourceId::new(0), origin, "");
-                let diagnostic = Diagnostic::error(
-                    "AV0003",
-                    "source could not be loaded",
-                    SourceLabel::new(SourceSpan::empty(source.id, 0), error.to_string()),
-                );
-                (source, diagnostic)
-            }
-        };
-        let mut sources = SourceMap::default();
-        sources.insert(source).expect("fresh source id");
-        let _ = sources;
-
-        CompileAttempt {
-            result: Err(CompileFailure {
-                diagnostics: vec![diagnostic],
-            }),
-            dependencies,
-        }
+        let attempt = self.load_file_project_attempt(path).await;
+        map_loaded_project_to_compilation(attempt)
     }
 
     pub async fn compile_file(
@@ -180,13 +140,8 @@ impl Compiler {
         &self,
         root: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledProject> {
-        let attempt = self.compile_file_attempt(root.as_ref()).await;
-        CompileAttempt {
-            result: Err(attempt
-                .result
-                .expect_err("phase-zero frontend is unavailable")),
-            dependencies: attempt.dependencies,
-        }
+        let attempt = self.load_project_graph_attempt(root).await;
+        map_loaded_project_to_project_compilation(attempt)
     }
 
     pub async fn compile_project(
@@ -220,6 +175,116 @@ impl Compiler {
             .await
             .result
             .expect_err("phase-zero frontend is unavailable"))
+    }
+
+    /// Phase 3 frontend seam: load one chart and its complete import/data
+    /// closure without performing semantic validation or lowering.
+    pub async fn load_file_project_attempt(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> CompileAttempt<ParsedProject> {
+        let chart = canonicalize_if_exists(&self.resolve_path(path.as_ref()));
+        let ambient = discover_avenger_files(&self.options.project_root)
+            .map(|files| {
+                files
+                    .into_iter()
+                    .filter(|path| is_data_path(path))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let mut roots = vec![ProjectRoot::chart(SourceOrigin::File(chart))];
+        roots.extend(
+            ambient
+                .into_iter()
+                .map(|path| ProjectRoot::data(SourceOrigin::File(path))),
+        );
+        self.load_roots(roots).await
+    }
+
+    /// Phase 3 frontend seam: discover all chart roots and ambient data files
+    /// below a directory, then load their shared import closure once.
+    pub async fn load_project_graph_attempt(
+        &self,
+        root: impl AsRef<Path>,
+    ) -> CompileAttempt<ParsedProject> {
+        let root = canonicalize_if_exists(&self.resolve_path(root.as_ref()));
+        let files = match discover_avenger_files(&root) {
+            Ok(files) => files,
+            Err(error) => return discovery_failure(&root, error),
+        };
+        let roots = files
+            .into_iter()
+            .filter_map(|path| {
+                if is_data_path(&path) {
+                    Some(ProjectRoot::data(SourceOrigin::File(path)))
+                } else if is_chart_path(&path) {
+                    Some(ProjectRoot::chart(SourceOrigin::File(path)))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        if roots
+            .iter()
+            .all(|root| root.role != ProjectDependencyRole::RootChart)
+        {
+            let source = SourceFile::new(SourceId::new(0), SourceOrigin::File(root.clone()), "");
+            let mut sources = SourceMap::default();
+            sources.insert(source).expect("fresh source id");
+            return CompileAttempt {
+                result: Err(CompileFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-PROJECT-016",
+                        "project contains no chart roots",
+                        SourceLabel::new(
+                            SourceSpan::empty(SourceId::new(0), 0),
+                            "add a .avenger chart file",
+                        ),
+                    )],
+                }),
+                dependencies: DiscoveredDependencySet::default(),
+            };
+        }
+        self.load_roots(roots).await
+    }
+
+    async fn load_roots(&self, roots: Vec<ProjectRoot>) -> CompileAttempt<ParsedProject> {
+        let request = ProjectLoadRequest {
+            project_root: normalize_path(&self.options.project_root),
+            roots,
+            capabilities: self.options.import_capabilities.clone(),
+            schema_version: "avenger-ast-core-1".to_owned(),
+            registry_version: self
+                .options
+                .native_registry
+                .profile_id()
+                .as_str()
+                .to_owned(),
+        };
+        let ProjectLoadAttempt {
+            result,
+            dependencies,
+        } = ProjectLoader::new(self.options.source_loader.as_ref())
+            .load(request)
+            .await;
+        let mut dependencies = compiler_dependencies(dependencies);
+        let result = result.map_err(|failure| CompileFailure {
+            diagnostics: failure.diagnostics,
+        });
+        let result = result.and_then(|mut project| {
+            discover_local_resources(
+                &project,
+                &self.options.project_root,
+                &self.options.import_capabilities,
+                &mut dependencies,
+            )?;
+            project.fingerprint = augment_project_fingerprint(&project.fingerprint, &dependencies);
+            Ok(project)
+        });
+        CompileAttempt {
+            result,
+            dependencies,
+        }
     }
 
     /// Temporary Phase 0 vertical slice. Phase 5 replaces this with a real DSL
@@ -350,10 +415,16 @@ impl CompilerBuilder {
         let project_root = self
             .project_root
             .ok_or(CompilerBuildError::MissingProjectRoot)?;
+        let project_root =
+            std::fs::canonicalize(&project_root).unwrap_or_else(|_| normalize_path(&project_root));
         let registry = match self.native_registry {
             Some(registry) => registry,
             None => Arc::new(builtins::bootstrap_registry()?),
         };
+        let source_loader = self.source_loader.map(Ok).unwrap_or_else(|| {
+            DefaultSourceLoader::new(&project_root)
+                .map(|loader| Arc::new(loader) as Arc<dyn SourceLoader>)
+        })?;
         let options = CompilerOptions {
             import_capabilities: self
                 .import_capabilities
@@ -364,9 +435,7 @@ impl CompilerBuilder {
                 .environment
                 .unwrap_or_else(|| Arc::new(EmptyEnvironmentProvider)),
             native_registry: registry.clone(),
-            source_loader: self
-                .source_loader
-                .unwrap_or_else(|| Arc::new(InMemorySourceLoader::default())),
+            source_loader,
             catalog_factories: self.catalog_factories,
             environment_factory: self
                 .environment_factory
@@ -385,18 +454,20 @@ pub enum CompilerBuildError {
     MissingProjectRoot,
     #[error(transparent)]
     Registry(#[from] RegistryError),
+    #[error(transparent)]
+    SourceLoader(#[from] SourceLoaderError),
 }
 
 fn phase_zero_frontend_diagnostic(source: &SourceFile) -> Diagnostic {
     Diagnostic::error(
         "AV0000",
-        "the strict DSL frontend is not implemented yet",
+        "semantic validation is not implemented yet",
         SourceLabel::new(
             SourceSpan::empty(source.id, 0),
-            "Phase 0 accepts only the temporary programmatic compiler harness",
+            "Phase 3 loaded and parsed the project; Phase 4 validates declarations",
         ),
     )
-    .with_note("source parsing begins in Phase 2")
+    .with_note("project loading completed successfully")
 }
 
 fn phase_zero_failure(message: String) -> CompileFailure {
@@ -413,4 +484,326 @@ fn nearest_existing_parent(path: &Path) -> Option<PathBuf> {
     path.ancestors()
         .find(|ancestor| ancestor.exists())
         .map(Path::to_path_buf)
+}
+
+fn canonicalize_if_exists(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| normalize_path(path))
+}
+
+fn compiler_dependencies(
+    dependencies: Vec<avenger_lang_core::ProjectDependency>,
+) -> DiscoveredDependencySet {
+    let mut result = DiscoveredDependencySet::default();
+    for dependency in dependencies {
+        let requested_origin = dependency.requested_origin;
+        let canonical_origin = dependency
+            .canonical_origin
+            .unwrap_or_else(|| requested_origin.clone());
+        let nearest_existing_parent = match &requested_origin {
+            SourceOrigin::File(path) => nearest_existing_parent(path),
+            _ => None,
+        };
+        let role = match dependency.role {
+            ProjectDependencyRole::RootChart => DependencyRole::RootChart,
+            ProjectDependencyRole::Import => DependencyRole::Import,
+            ProjectDependencyRole::DataConfiguration => DependencyRole::DataConfiguration,
+        };
+        result.insert(CompiledDependency {
+            role,
+            requested_origin,
+            canonical_origin,
+            content_version: dependency.content_version,
+            nearest_existing_parent,
+        });
+    }
+    result
+}
+
+fn map_loaded_project_to_compilation(
+    attempt: CompileAttempt<ParsedProject>,
+) -> CompileAttempt<CompiledChartArtifact> {
+    let result = attempt.result.and_then(|project| {
+        let source = project
+            .chart_roots
+            .first()
+            .and_then(|id| project.files.get(id))
+            .and_then(|file| project.sources.get(file.source))
+            .expect("a loaded file project has one chart root");
+        Err(CompileFailure {
+            diagnostics: vec![phase_zero_frontend_diagnostic(source)],
+        })
+    });
+    CompileAttempt {
+        result,
+        dependencies: attempt.dependencies,
+    }
+}
+
+fn map_loaded_project_to_project_compilation(
+    attempt: CompileAttempt<ParsedProject>,
+) -> CompileAttempt<CompiledProject> {
+    let result = attempt.result.and_then(|project| {
+        let source = project
+            .chart_roots
+            .first()
+            .and_then(|id| project.files.get(id))
+            .and_then(|file| project.sources.get(file.source))
+            .expect("a loaded project has a chart root");
+        Err(CompileFailure {
+            diagnostics: vec![phase_zero_frontend_diagnostic(source)],
+        })
+    });
+    CompileAttempt {
+        result,
+        dependencies: attempt.dependencies,
+    }
+}
+
+fn discover_avenger_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+    if !root.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("{} does not exist", root.display()),
+        ));
+    }
+    if root.is_file() {
+        return Ok(vec![normalize_path(root)]);
+    }
+    let mut pending = vec![root.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        let mut entries = std::fs::read_dir(&directory)?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(std::fs::DirEntry::path);
+        for entry in entries.into_iter().rev() {
+            let file_type = entry.file_type()?;
+            let path = entry.path();
+            if file_type.is_dir() {
+                pending.push(path);
+            } else if file_type.is_file() && path.to_string_lossy().ends_with(".avenger") {
+                files.push(normalize_path(&path));
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn is_data_path(path: &Path) -> bool {
+    path.to_string_lossy().ends_with(".data.avenger")
+}
+
+fn is_definition_path(path: &Path) -> bool {
+    let path = path.to_string_lossy();
+    path.ends_with(".mark.avenger")
+        || path.ends_with(".tool.avenger")
+        || path.ends_with(".transform.avenger")
+}
+
+fn is_chart_path(path: &Path) -> bool {
+    path.to_string_lossy().ends_with(".avenger") && !is_data_path(path) && !is_definition_path(path)
+}
+
+fn discovery_failure<T>(root: &Path, error: std::io::Error) -> CompileAttempt<T> {
+    CompileAttempt {
+        result: Err(CompileFailure {
+            diagnostics: vec![Diagnostic::error(
+                "AVENGER-PROJECT-017",
+                "project discovery failed",
+                SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
+            )],
+        }),
+        dependencies: {
+            let mut dependencies = DiscoveredDependencySet::default();
+            dependencies.insert(CompiledDependency {
+                role: DependencyRole::LocalResource,
+                requested_origin: SourceOrigin::File(root.to_path_buf()),
+                canonical_origin: SourceOrigin::File(root.to_path_buf()),
+                content_version: None,
+                nearest_existing_parent: nearest_existing_parent(root),
+            });
+            dependencies
+        },
+    }
+}
+
+fn discover_local_resources(
+    project: &ParsedProject,
+    project_root: &Path,
+    capabilities: &ImportCapabilities,
+    dependencies: &mut DiscoveredDependencySet,
+) -> Result<(), CompileFailure> {
+    for file in project.files.values() {
+        for declaration in file.parsed.ast.root.declarations() {
+            discover_declaration_resources(
+                declaration,
+                file.source,
+                &file.origin,
+                project_root,
+                capabilities,
+                dependencies,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn discover_declaration_resources(
+    declaration: &Decl,
+    source: SourceId,
+    declaring_origin: &SourceOrigin,
+    project_root: &Path,
+    capabilities: &ImportCapabilities,
+    dependencies: &mut DiscoveredDependencySet,
+) -> Result<(), CompileFailure> {
+    if declaration.keyword.as_str() == "table"
+        && let Some(value) = declaration.props.get("path")
+    {
+        let mut paths = Vec::new();
+        collect_string_values(value, &mut paths);
+        for path in paths {
+            discover_resource(
+                path,
+                source,
+                declaring_origin,
+                project_root,
+                capabilities,
+                dependencies,
+            )?;
+        }
+    }
+    for child in &declaration.children {
+        discover_declaration_resources(
+            child,
+            source,
+            declaring_origin,
+            project_root,
+            capabilities,
+            dependencies,
+        )?;
+    }
+    Ok(())
+}
+
+fn collect_string_values<'a>(value: &'a Value, paths: &mut Vec<&'a str>) {
+    match value {
+        Value::Str(path) => paths.push(path),
+        Value::Array(values) => {
+            for value in values {
+                collect_string_values(value, paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn discover_resource(
+    path: &str,
+    source: SourceId,
+    declaring_origin: &SourceOrigin,
+    project_root: &Path,
+    capabilities: &ImportCapabilities,
+    dependencies: &mut DiscoveredDependencySet,
+) -> Result<(), CompileFailure> {
+    let origin =
+        resolve_import_origin(declaring_origin, path, project_root).map_err(|message| {
+            CompileFailure {
+                diagnostics: vec![Diagnostic::error(
+                    "AVENGER-PROJECT-018",
+                    "invalid local data resource",
+                    SourceLabel::new(SourceSpan::empty(source, 0), message),
+                )],
+            }
+        })?;
+    let role = match origin {
+        SourceOrigin::Http(_) => DependencyRole::RemoteResource,
+        _ => DependencyRole::LocalResource,
+    };
+    let mut dependency = CompiledDependency {
+        role,
+        requested_origin: origin.clone(),
+        canonical_origin: origin.clone(),
+        content_version: None,
+        nearest_existing_parent: match &origin {
+            SourceOrigin::File(path) => nearest_existing_parent(path),
+            _ => None,
+        },
+    };
+    dependencies.insert(dependency.clone());
+    let SourceOrigin::File(candidate) = origin else {
+        return Ok(());
+    };
+    let normalized_root = normalize_path(project_root);
+    let normalized_candidate = normalize_path(&candidate);
+    if !capabilities.allow_filesystem || !normalized_candidate.starts_with(&normalized_root) {
+        return Err(resource_failure(
+            source,
+            "local data resource is outside the project capability root",
+            normalized_candidate.display().to_string(),
+        ));
+    }
+    let canonical = std::fs::canonicalize(&normalized_candidate).map_err(|error| {
+        resource_failure(
+            source,
+            "local data resource could not be loaded",
+            format!("{}: {error}", normalized_candidate.display()),
+        )
+    })?;
+    if !canonical.starts_with(&normalized_root) {
+        return Err(resource_failure(
+            source,
+            "local data resource escapes the project through a symlink",
+            canonical.display().to_string(),
+        ));
+    }
+    dependency.canonical_origin = SourceOrigin::File(canonical.clone());
+    dependency.nearest_existing_parent = canonical.parent().map(Path::to_path_buf);
+    dependency.content_version = Some(resource_content_version(&canonical).map_err(|error| {
+        resource_failure(
+            source,
+            "local data resource could not be fingerprinted",
+            error.to_string(),
+        )
+    })?);
+    dependencies.insert(dependency);
+    Ok(())
+}
+
+fn resource_content_version(path: &Path) -> Result<String, std::io::Error> {
+    use sha2::{Digest, Sha256};
+    if path.is_dir() {
+        return Ok("directory".to_owned());
+    }
+    let bytes = std::fs::read(path)?;
+    Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+}
+
+fn resource_failure(source: SourceId, message: &str, label: String) -> CompileFailure {
+    CompileFailure {
+        diagnostics: vec![Diagnostic::error(
+            "AVENGER-PROJECT-019",
+            message,
+            SourceLabel::new(SourceSpan::empty(source, 0), label),
+        )],
+    }
+}
+
+fn augment_project_fingerprint(
+    source_fingerprint: &str,
+    dependencies: &DiscoveredDependencySet,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"avenger-compiler-project-v1\0");
+    hasher.update(source_fingerprint.as_bytes());
+    for dependency in dependencies.iter() {
+        hasher.update(b"\0dependency\0");
+        hasher.update(dependency.canonical_origin.canonical_uri().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(format!("{:?}", dependency.role).as_bytes());
+        hasher.update(b"\0");
+        if let Some(version) = &dependency.content_version {
+            hasher.update(version.as_bytes());
+        }
+    }
+    format!("sha256:{:x}", hasher.finalize())
 }

@@ -42,6 +42,22 @@ impl SourceOrigin {
             Self::Http(url) => url.clone(),
         }
     }
+
+    /// Stable URI spelling used by project identities and fingerprints.
+    pub fn canonical_uri(&self) -> String {
+        match self {
+            Self::Memory(name) => format!("memory:{}", normalize_uri_path(name)),
+            Self::File(path) => url::Url::from_file_path(path)
+                .map(|url| url.to_string())
+                .unwrap_or_else(|()| format!("file://{}", path.to_string_lossy())),
+            Self::Std(path) => format!("std:{}", normalize_uri_path(path)),
+            Self::Http(url) => url.clone(),
+        }
+    }
+}
+
+fn normalize_uri_path(value: &str) -> String {
+    value.replace('\\', "/").trim_start_matches('/').to_owned()
 }
 
 impl fmt::Display for SourceOrigin {

@@ -1,0 +1,11 @@
+avenger 1;
+
+define mark error_bar {
+  channel x;
+  channel y;
+
+  private mark rule {
+    x: channel(x);
+    y: channel(y);
+  }
+}

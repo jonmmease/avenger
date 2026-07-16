@@ -140,7 +140,7 @@ async fn compile_attempt_retains_discovered_dependencies_on_failure() {
     let loader = Arc::new(
         InMemorySourceLoader::default().with_source(LoadedSource::new(
             origin.clone(),
-            "avenger 1; chart demo {}",
+            "avenger 1; chart demo as chart {}",
             ContentVersion::new("sha256:test"),
         )),
     );

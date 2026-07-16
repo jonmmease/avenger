@@ -11,6 +11,7 @@ mod artifact;
 mod compiler;
 mod options;
 mod schema;
+mod source_loader;
 
 pub use analysis::{
     AnalyzedDataset, ColumnLineage, DatasetLineage, DatasetLineageIndex, DatasetProvenance,
@@ -30,6 +31,7 @@ pub use options::{
     DefaultCompileEnvironmentFactory,
 };
 pub use schema::{LanguageHost, SemanticJsonSchema};
+pub use source_loader::{DefaultSourceLoader, SourceLoaderLimits};
 
-/// Phase-zero marker used while the strict language frontend is built.
-pub const COMPILER_PHASE: u8 = 0;
+/// Last fully implemented language/compiler plan phase.
+pub const COMPILER_PHASE: u8 = 3;
