@@ -6295,10 +6295,10 @@ paths, `@start`/`@previous`, cast and JSON-access composition, trivia around `.`
 and rejected whitespace before `@` and quoted/numeric path segments, alongside
 the normalized synthetic-token side-table expectations.
 
-`TokenWithSpan` carries line and column spans, which is enough for diagnostics.
-If exact source text reconstruction or byte-range source maps become important,
-the DSL parser should maintain a separate line/column-to-byte-offset table
-alongside the token buffer.
+`TokenWithSpan` carries line and column spans. The frontend maintains a
+line/column-to-byte-offset index alongside the shared token buffer, so every
+token also has an exact half-open UTF-8 byte span for diagnostics, source maps,
+and lossless binding side-table entries.
 
 ## Zed Editor Support
 
