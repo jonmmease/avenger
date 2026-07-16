@@ -82,9 +82,10 @@ impl DatasetSchemaIndex {
             return Err(AnalysisIndexError::DatasetStageMismatch);
         }
         let id = dataset.stage.clone();
-        if self.stages.insert(id.clone(), dataset).is_some() {
+        if self.stages.contains_key(&id) {
             return Err(AnalysisIndexError::DuplicateStage(id));
         }
+        self.stages.insert(id, dataset);
         Ok(())
     }
 
@@ -130,9 +131,10 @@ impl DatasetLineageIndex {
         stage: DatasetStageId,
         lineage: DatasetLineage,
     ) -> Result<(), AnalysisIndexError> {
-        if self.stages.insert(stage.clone(), lineage).is_some() {
+        if self.stages.contains_key(&stage) {
             return Err(AnalysisIndexError::DuplicateStage(stage));
         }
+        self.stages.insert(stage, lineage);
         Ok(())
     }
 

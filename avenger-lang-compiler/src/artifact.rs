@@ -29,17 +29,8 @@ string_id!(ProjectChartId);
 string_id!(ProjectFingerprint);
 string_id!(DependencyFingerprint);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InterfaceStateKind {
-    Param,
-    Store,
-    Selection,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceStateBinding {
-    pub kind: InterfaceStateKind,
     pub runtime_id: String,
     pub migration_key: Option<StateMigrationKey>,
 }
@@ -47,7 +38,9 @@ pub struct InterfaceStateBinding {
 /// Public host-binding surface retained alongside the compiled plot.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledChartInterface {
-    pub states: BTreeMap<String, InterfaceStateBinding>,
+    pub params: BTreeMap<String, InterfaceStateBinding>,
+    pub stores: BTreeMap<String, InterfaceStateBinding>,
+    pub selections: BTreeMap<String, InterfaceStateBinding>,
     pub widget_exports: BTreeMap<String, String>,
     pub public_targets: BTreeMap<String, String>,
 }
@@ -56,30 +49,27 @@ impl CompiledChartInterface {
     pub fn from_compiled(compiled: &CompiledPlot) -> Self {
         let mut interface = Self::default();
         for (name, spec) in compiled.param_specs() {
-            interface.states.insert(
+            interface.params.insert(
                 name.clone(),
                 InterfaceStateBinding {
-                    kind: InterfaceStateKind::Param,
                     runtime_id: spec.runtime_id.as_opaque_str().to_string(),
                     migration_key: spec.migration_key.clone(),
                 },
             );
         }
         for (name, spec) in compiled.store_specs() {
-            interface.states.insert(
+            interface.stores.insert(
                 name.clone(),
                 InterfaceStateBinding {
-                    kind: InterfaceStateKind::Store,
                     runtime_id: spec.runtime_id.as_opaque_str().to_string(),
                     migration_key: spec.migration_key.clone(),
                 },
             );
         }
         for (name, spec) in compiled.selection_specs() {
-            interface.states.insert(
+            interface.selections.insert(
                 name.clone(),
                 InterfaceStateBinding {
-                    kind: InterfaceStateKind::Selection,
                     runtime_id: spec.runtime_id.as_opaque_str().to_string(),
                     migration_key: spec.migration_key.clone(),
                 },
@@ -149,9 +139,9 @@ pub struct CompiledProject {
 
 impl CompiledProject {
     pub fn chart(&self, name: &str) -> Option<&CompiledChartArtifact> {
-        self.charts
-            .iter()
-            .find_map(|(id, chart)| (id.as_str() == name).then_some(chart))
+        self.charts.iter().find_map(|(id, chart)| {
+            (id.as_str() == name || chart.name.as_deref() == Some(name)).then_some(chart)
+        })
     }
 }
 

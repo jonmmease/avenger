@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use avenger_lang_core::{LineIndex, SourceError};
+use avenger_lang_core::{LineIndex, SourceError, SourceFile, SourceId, SourceMap, SourceOrigin};
 
 #[test]
 fn utf8_crlf_tabs_and_eof_have_stable_positions() {
@@ -46,4 +46,26 @@ fn positions_reject_non_boundaries_and_out_of_range_offsets() {
         index.location(text.len() + 1),
         Err(SourceError::OffsetOutOfBounds { .. })
     ));
+}
+
+#[test]
+fn duplicate_source_ids_do_not_replace_the_original_source() {
+    let id = SourceId::new(4);
+    let mut sources = SourceMap::default();
+    sources
+        .insert(SourceFile::new(
+            id,
+            SourceOrigin::Memory("first".to_string()),
+            "first",
+        ))
+        .unwrap();
+    assert!(matches!(
+        sources.insert(SourceFile::new(
+            id,
+            SourceOrigin::Memory("second".to_string()),
+            "second",
+        )),
+        Err(SourceError::DuplicateSourceId(found)) if found == id
+    ));
+    assert_eq!(sources.get(id).unwrap().text(), "first");
 }

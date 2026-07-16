@@ -18,8 +18,7 @@ pub use analysis::{
 };
 pub use artifact::{
     ArtifactCacheKey, CompiledChartArtifact, CompiledChartInterface, CompiledProject,
-    DependencyFingerprint, InterfaceStateBinding, InterfaceStateKind, ProjectChartId,
-    ProjectFingerprint,
+    DependencyFingerprint, InterfaceStateBinding, ProjectChartId, ProjectFingerprint,
 };
 pub use compiler::{
     CompileAttempt, CompileFailure, CompiledDependency, Compiler, CompilerBuildError,

@@ -272,9 +272,10 @@ pub struct SourceMap {
 impl SourceMap {
     pub fn insert(&mut self, source: SourceFile) -> Result<(), SourceError> {
         let id = source.id;
-        if self.sources.insert(id, source).is_some() {
+        if self.sources.contains_key(&id) {
             return Err(SourceError::DuplicateSourceId(id));
         }
+        self.sources.insert(id, source);
         Ok(())
     }
 

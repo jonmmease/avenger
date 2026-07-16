@@ -73,9 +73,10 @@ impl CatalogFactoryRegistry {
         factory: Arc<dyn CatalogFactory>,
     ) -> Result<(), CatalogFactoryError> {
         let kind = kind.into();
-        if self.factories.insert(kind.clone(), factory).is_some() {
+        if self.factories.contains_key(&kind) {
             return Err(CatalogFactoryError::DuplicateKind(kind));
         }
+        self.factories.insert(kind, factory);
         Ok(())
     }
 
@@ -124,5 +125,36 @@ impl std::fmt::Debug for CompilerOptions {
             )
             .field("catalog_factories", &self.catalog_factories)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct FailingFactory(&'static str);
+
+    #[async_trait]
+    impl CatalogFactory for FailingFactory {
+        async fn create(
+            &self,
+            _options: &serde_json::Value,
+            _environment: &CompileEnvironment,
+        ) -> Result<Arc<dyn CatalogProvider>, CatalogFactoryError> {
+            Err(CatalogFactoryError::Message(self.0.to_string()))
+        }
+    }
+
+    #[test]
+    fn duplicate_catalog_factory_does_not_replace_the_original() {
+        let first: Arc<dyn CatalogFactory> = Arc::new(FailingFactory("first"));
+        let second: Arc<dyn CatalogFactory> = Arc::new(FailingFactory("second"));
+        let mut factories = CatalogFactoryRegistry::default();
+        factories.register("fixture", first.clone()).unwrap();
+        assert!(matches!(
+            factories.register("fixture", second),
+            Err(CatalogFactoryError::DuplicateKind(kind)) if kind == "fixture"
+        ));
+        assert!(Arc::ptr_eq(factories.get("fixture").unwrap(), &first));
     }
 }

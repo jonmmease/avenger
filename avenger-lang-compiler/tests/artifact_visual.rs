@@ -65,8 +65,10 @@ async fn artifact_wrapper_matches_existing_simple_scatter_baseline() {
         size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
         scale: 2.0,
     };
-    let mut config = CanvasConfig::default();
-    config.font_resolution = avenger_chart::fonts::default_font_resolution();
+    let config = CanvasConfig {
+        font_resolution: avenger_chart::fonts::default_font_resolution(),
+        ..Default::default()
+    };
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
     canvas.set_scene(&evaluated.scene_graph).unwrap();
     let actual = canvas.render().await.unwrap();

@@ -199,5 +199,23 @@ fn dataset_schema_index_keeps_physical_schema_and_source_provenance() {
     let analyzed = index.get(&stage).unwrap();
     assert_eq!(analyzed.schema, schema);
     assert_eq!(analyzed.provenance.declaration_span.source, source_id);
+    let original_provenance = analyzed.provenance.clone();
     assert_eq!(index.stages_for(&dataset).count(), 1);
+
+    let replacement_schema = Arc::new(Schema::new(vec![Field::new(
+        "replacement",
+        DataType::Utf8,
+        false,
+    )]));
+    assert!(
+        index
+            .insert(AnalyzedDataset {
+                id: dataset,
+                stage: stage.clone(),
+                provenance: original_provenance,
+                schema: replacement_schema,
+            })
+            .is_err()
+    );
+    assert_eq!(index.get(&stage).unwrap().schema, schema);
 }
