@@ -185,7 +185,7 @@ impl TokenStream {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TokenizeError {
-    diagnostic: Diagnostic,
+    diagnostic: Box<Diagnostic>,
 }
 
 impl TokenizeError {
@@ -194,7 +194,7 @@ impl TokenizeError {
     }
 
     pub fn into_diagnostic(self) -> Diagnostic {
-        self.diagnostic
+        *self.diagnostic
     }
 }
 
@@ -247,11 +247,11 @@ fn tokenizer_error(
         .map_or(start, |character| start + character.len_utf8());
     let span = SourceSpan::new(source.id, start, end).expect("ordered token error span");
     TokenizeError {
-        diagnostic: Diagnostic::error(
+        diagnostic: Box::new(Diagnostic::error(
             "AVENGER-TOKEN-001",
             error.message.clone(),
             SourceLabel::new(span, error.message),
-        ),
+        )),
     }
 }
 

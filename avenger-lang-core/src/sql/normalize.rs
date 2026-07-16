@@ -59,12 +59,14 @@ impl NormalizedSql {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SqlFrontendError {
-    diagnostic: Diagnostic,
+    diagnostic: Box<Diagnostic>,
 }
 
 impl SqlFrontendError {
     pub(crate) fn new(diagnostic: Diagnostic) -> Self {
-        Self { diagnostic }
+        Self {
+            diagnostic: Box::new(diagnostic),
+        }
     }
 
     pub fn diagnostic(&self) -> &Diagnostic {
@@ -72,7 +74,7 @@ impl SqlFrontendError {
     }
 
     pub fn into_diagnostic(self) -> Diagnostic {
-        self.diagnostic
+        *self.diagnostic
     }
 }
 
