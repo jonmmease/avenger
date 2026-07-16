@@ -86,6 +86,9 @@ mod tests {
     use indexmap::IndexMap;
     use std::{collections::HashSet, sync::Arc};
 
+    type BinRow = (Option<f64>, Option<f64>, Option<f64>, Option<i64>);
+    type LumpRow = (Option<String>, f64, Option<String>, Option<f64>, bool);
+
     fn sample_dataframe(ctx: &SessionContext) -> DataFrame {
         let batch = RecordBatch::try_new(
             Arc::new(Schema::new(vec![
@@ -627,7 +630,7 @@ mod tests {
         )
     }
 
-    fn bin_rows(batch: &RecordBatch) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
+    fn bin_rows(batch: &RecordBatch) -> Vec<BinRow> {
         let value = batch
             .column_by_name("value")
             .unwrap()
@@ -664,9 +667,7 @@ mod tests {
             .collect()
     }
 
-    fn bin_rows_from_batches(
-        batches: &[RecordBatch],
-    ) -> Vec<(Option<f64>, Option<f64>, Option<f64>, Option<i64>)> {
+    fn bin_rows_from_batches(batches: &[RecordBatch]) -> Vec<BinRow> {
         batches.iter().flat_map(bin_rows).collect()
     }
 
@@ -776,9 +777,7 @@ mod tests {
             .collect()
     }
 
-    fn lump_rows(
-        batch: &RecordBatch,
-    ) -> Vec<(Option<String>, f64, Option<String>, Option<f64>, bool)> {
+    fn lump_rows(batch: &RecordBatch) -> Vec<LumpRow> {
         let category = batch
             .column_by_name("category")
             .unwrap()
@@ -822,9 +821,7 @@ mod tests {
             .collect()
     }
 
-    fn lump_rows_from_batches(
-        batches: &[RecordBatch],
-    ) -> Vec<(Option<String>, f64, Option<String>, Option<f64>, bool)> {
+    fn lump_rows_from_batches(batches: &[RecordBatch]) -> Vec<LumpRow> {
         batches.iter().flat_map(lump_rows).collect()
     }
 
@@ -1287,7 +1284,7 @@ mod tests {
         let offset = {
             let __avenger_param_name = "offset";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(5.0))).into();
+                ScalarValue::Float64(Some(5.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -1346,7 +1343,7 @@ mod tests {
         let threshold = {
             let __avenger_param_name = "threshold";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(3.0))).into();
+                ScalarValue::Float64(Some(3.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -1417,7 +1414,7 @@ mod tests {
         let offset = {
             let __avenger_param_name = "select_offset";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(2.5))).into();
+                ScalarValue::Float64(Some(2.5));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -1502,7 +1499,7 @@ mod tests {
         let bonus = {
             let __avenger_param_name = "fold_bonus";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(10.0))).into();
+                ScalarValue::Float64(Some(10.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -2476,7 +2473,7 @@ mod tests {
         let maxbins = {
             let __avenger_param_name = "time_maxbins";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(2))).into();
+                ScalarValue::Int64(Some(2));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -3811,7 +3808,7 @@ mod tests {
         let top_n = {
             let __avenger_param_name = "lump_top_n";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(3))).into();
+                ScalarValue::Int64(Some(3));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4617,7 +4614,7 @@ mod tests {
         let steps = {
             let __avenger_param_name = "kde_steps";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(3))).into();
+                ScalarValue::Int64(Some(3));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4628,7 +4625,7 @@ mod tests {
         let bandwidth = {
             let __avenger_param_name = "kde_bandwidth";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(0.5))).into();
+                ScalarValue::Float64(Some(0.5));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4979,7 +4976,7 @@ mod tests {
                         {
                             let __avenger_param_name = "x0";
                             let __avenger_param_default: datafusion::common::ScalarValue =
-                                (ScalarValue::Float64(Some(-1.0))).into();
+                                ScalarValue::Float64(Some(-1.0));
                             Param::typed(
                                 __avenger_param_name,
                                 __avenger_param_default.data_type(),
@@ -4991,7 +4988,7 @@ mod tests {
                         {
                             let __avenger_param_name = "x1";
                             let __avenger_param_default: datafusion::common::ScalarValue =
-                                (ScalarValue::Float64(Some(1.0))).into();
+                                ScalarValue::Float64(Some(1.0));
                             Param::typed(
                                 __avenger_param_name,
                                 __avenger_param_default.data_type(),
@@ -5005,7 +5002,7 @@ mod tests {
                         {
                             let __avenger_param_name = "xbins";
                             let __avenger_param_default: datafusion::common::ScalarValue =
-                                (ScalarValue::UInt32(Some(1))).into();
+                                ScalarValue::UInt32(Some(1));
                             Param::typed(
                                 __avenger_param_name,
                                 __avenger_param_default.data_type(),
@@ -5021,7 +5018,7 @@ mod tests {
                         {
                             let __avenger_param_name = "y0";
                             let __avenger_param_default: datafusion::common::ScalarValue =
-                                (ScalarValue::Float64(Some(-1.0))).into();
+                                ScalarValue::Float64(Some(-1.0));
                             Param::typed(
                                 __avenger_param_name,
                                 __avenger_param_default.data_type(),
@@ -5033,7 +5030,7 @@ mod tests {
                         {
                             let __avenger_param_name = "y1";
                             let __avenger_param_default: datafusion::common::ScalarValue =
-                                (ScalarValue::Float64(Some(1.0))).into();
+                                ScalarValue::Float64(Some(1.0));
                             Param::typed(
                                 __avenger_param_name,
                                 __avenger_param_default.data_type(),
@@ -5047,7 +5044,7 @@ mod tests {
                         {
                             let __avenger_param_name = "ybins";
                             let __avenger_param_default: datafusion::common::ScalarValue =
-                                (ScalarValue::UInt32(Some(1))).into();
+                                ScalarValue::UInt32(Some(1));
                             Param::typed(
                                 __avenger_param_name,
                                 __avenger_param_default.data_type(),
@@ -6068,7 +6065,7 @@ mod tests {
         let threshold = {
             let __avenger_param_name = "threshold";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(0.0))).into();
+                ScalarValue::Float64(Some(0.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

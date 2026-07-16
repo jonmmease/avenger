@@ -315,7 +315,7 @@ impl CompiledGeoUniformRaster2D {
 
         let mut marks = Vec::new();
         let mut source_row_indices = Vec::new();
-        for row in 0..len {
+        for (row, opacity_value) in opacity_values.iter().copied().enumerate() {
             let raster_row =
                 row_for_channel(raster_array, row, len, UNIFORM_RASTER_2D_RASTER_CHANNEL)?;
             let raster = extract_grid_raster_row(raster_array, raster_row)?;
@@ -368,7 +368,7 @@ impl CompiledGeoUniformRaster2D {
                     fill_values: &fill_values_storage,
                     null_color,
                     non_finite_color,
-                    opacity: opacity_values[row],
+                    opacity: opacity_value,
                 }
             };
 

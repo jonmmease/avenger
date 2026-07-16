@@ -37,7 +37,7 @@ async fn run_resize_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn std
     let width = {
         let __avenger_param_name = "width";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(420.0))).into();
+            ScalarValue::Float64(Some(420.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -105,7 +105,7 @@ async fn run_responsive_wrap_scenario(
     let width = {
         let __avenger_param_name = "width";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(420.0))).into();
+            ScalarValue::Float64(Some(420.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -157,7 +157,7 @@ async fn run_pan_zoom_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn s
     let x_min = {
         let __avenger_param_name = "x_min";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(0.0))).into();
+            ScalarValue::Float64(Some(0.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -168,7 +168,7 @@ async fn run_pan_zoom_scenario(ctx: Arc<SessionContext>) -> Result<(), Box<dyn s
     let x_max = {
         let __avenger_param_name = "x_max";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(10.0))).into();
+            ScalarValue::Float64(Some(10.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),

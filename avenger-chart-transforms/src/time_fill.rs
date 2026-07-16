@@ -710,7 +710,7 @@ fn spine_dataframe(
 
     let mut fields = vec![Field::new(SPINE_ORDINAL, DataType::Int32, false)];
     let mut arrays = vec![Arc::new(Int32Array::from(ordinals)) as ArrayRef];
-    for (name, values) in domain_level_names.iter().zip(component_columns.into_iter()) {
+    for (name, values) in domain_level_names.iter().zip(component_columns) {
         fields.push(Field::new(name, DataType::Int32, false));
         arrays.push(Arc::new(Int32Array::from(values)) as ArrayRef);
     }

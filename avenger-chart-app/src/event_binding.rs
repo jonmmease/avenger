@@ -294,10 +294,11 @@ struct CompiledParamAssignment {
 }
 
 #[derive(Clone)]
+#[allow(clippy::enum_variant_names)]
 enum CompiledOrderedAction {
     SetParam(CompiledParamAssignment),
     SetStore(CompiledStoreAssignment),
-    SetSelection(CompiledSelectionAssignment),
+    SetSelection(Box<CompiledSelectionAssignment>),
     SetCursor { value_index: usize },
 }
 
@@ -648,6 +649,7 @@ struct StoreExpressionAssignment {
     update: StoreExpressionUpdate,
 }
 
+#[allow(clippy::enum_variant_names)]
 enum PreparedEventAction {
     SetParam {
         runtime_id: ParamRef,
@@ -661,7 +663,7 @@ enum PreparedEventAction {
         expr: Expr,
     },
     SetStore(StoreExpressionAssignment),
-    SetSelection(SelectionExpressionAssignment),
+    SetSelection(Box<SelectionExpressionAssignment>),
     SetCursor(Expr),
 }
 
@@ -969,7 +971,7 @@ impl CompiledChartEventBinding {
                     let spec = selection_specs
                         .get_by_id(&action.target.id)
                         .expect("resolved selection action validated");
-                    PreparedEventAction::SetSelection(SelectionExpressionAssignment {
+                    PreparedEventAction::SetSelection(Box::new(SelectionExpressionAssignment {
                         runtime_id: action.target.id,
                         selection_id: action.target.source_name,
                         spec: spec.clone(),
@@ -979,7 +981,7 @@ impl CompiledChartEventBinding {
                             ctx,
                             mark_runtime_paths,
                         )?,
-                    })
+                    }))
                 }
                 ChartEventAction::SetCursor(action) => PreparedEventAction::SetCursor(
                     action
@@ -1162,7 +1164,7 @@ impl CompiledChartEventBinding {
                         scope: assignment.scope,
                         update,
                     };
-                    ordered_actions.push(CompiledOrderedAction::SetSelection(assignment));
+                    ordered_actions.push(CompiledOrderedAction::SetSelection(Box::new(assignment)));
                 }
                 PreparedEventAction::SetCursor(expr) => {
                     let value_index = specs.len();
@@ -1791,7 +1793,7 @@ impl CompiledChartParamChangeBinding {
                         &mut specs,
                         filter_count,
                     );
-                    ordered_actions.push(CompiledOrderedAction::SetSelection(
+                    ordered_actions.push(CompiledOrderedAction::SetSelection(Box::new(
                         CompiledSelectionAssignment {
                             runtime_id: assignment.target.id.clone(),
                             selection_id: assignment.target.source_name.clone(),
@@ -1799,7 +1801,7 @@ impl CompiledChartParamChangeBinding {
                             scope: assignment.scope,
                             update,
                         },
-                    ));
+                    )));
                 }
                 ChartEventAction::SetCursor(_) => {
                     return Err(AvengerAppError::InternalError(
@@ -8344,7 +8346,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(640.0))).into();
+                ScalarValue::Float64(Some(640.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -8370,7 +8372,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "width";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(Some(640.0))).into();
+                    ScalarValue::Float64(Some(640.0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -10082,7 +10084,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "frame_x";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(None)).into();
+                    ScalarValue::Float64(None);
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -10093,7 +10095,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "frame_y";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(None)).into();
+                    ScalarValue::Float64(None);
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -10104,7 +10106,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "frame_width";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(None)).into();
+                    ScalarValue::Float64(None);
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -10115,7 +10117,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "frame_height";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(None)).into();
+                    ScalarValue::Float64(None);
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -11634,8 +11636,7 @@ mod tests {
         let ctx = SessionContext::new();
         let root = {
             let __avenger_param_name = "decorated_treemap_root";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12087,8 +12088,7 @@ mod tests {
         let ctx = SessionContext::new();
         let clicked_axis = {
             let __avenger_param_name = "clicked_axis";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12099,7 +12099,7 @@ mod tests {
         let clicked_min = {
             let __avenger_param_name = "clicked_min";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12110,7 +12110,7 @@ mod tests {
         let clicked_max = {
             let __avenger_param_name = "clicked_max";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12684,8 +12684,7 @@ mod tests {
         let ctx = SessionContext::new();
         let drag_dimension = {
             let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12696,7 +12695,7 @@ mod tests {
         let drag_start_x = {
             let __avenger_param_name = "drag_start_x";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12707,7 +12706,7 @@ mod tests {
         let drag_display_x = {
             let __avenger_param_name = "drag_display_x";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12798,8 +12797,7 @@ mod tests {
         let ctx = SessionContext::new();
         let drag_dimension = {
             let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12810,7 +12808,7 @@ mod tests {
         let drag_start_x = {
             let __avenger_param_name = "drag_start_x";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12821,7 +12819,7 @@ mod tests {
         let drag_display_x = {
             let __avenger_param_name = "drag_display_x";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -12997,8 +12995,7 @@ mod tests {
         };
         let drag_dimension = {
             let __avenger_param_name = "drag_dimension";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -13009,7 +13006,7 @@ mod tests {
         let drag_start_x = {
             let __avenger_param_name = "drag_start_x";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -13020,7 +13017,7 @@ mod tests {
         let drag_display_x = {
             let __avenger_param_name = "drag_display_x";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(None)).into();
+                ScalarValue::Float64(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -16755,7 +16752,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "width";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(Some(640.0))).into();
+                    ScalarValue::Float64(Some(640.0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16850,7 +16847,7 @@ mod tests {
             {
                 let __avenger_param_name = "a";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Int64(Some(0))).into();
+                    ScalarValue::Int64(Some(0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16861,7 +16858,7 @@ mod tests {
             {
                 let __avenger_param_name = "b";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Int64(Some(0))).into();
+                    ScalarValue::Int64(Some(0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16872,7 +16869,7 @@ mod tests {
             {
                 let __avenger_param_name = "c";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Int64(Some(0))).into();
+                    ScalarValue::Int64(Some(0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16927,7 +16924,7 @@ mod tests {
             {
                 let __avenger_param_name = "a";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Int64(Some(0))).into();
+                    ScalarValue::Int64(Some(0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16938,7 +16935,7 @@ mod tests {
             {
                 let __avenger_param_name = "b";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Int64(Some(0))).into();
+                    ScalarValue::Int64(Some(0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16949,7 +16946,7 @@ mod tests {
             {
                 let __avenger_param_name = "sink";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Int64(Some(0))).into();
+                    ScalarValue::Int64(Some(0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -16987,7 +16984,7 @@ mod tests {
         let a = {
             let __avenger_param_name = "a";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(0))).into();
+                ScalarValue::Int64(Some(0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -16998,7 +16995,7 @@ mod tests {
         let b = {
             let __avenger_param_name = "b";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(0))).into();
+                ScalarValue::Int64(Some(0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17009,7 +17006,7 @@ mod tests {
         let c = {
             let __avenger_param_name = "c";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(0))).into();
+                ScalarValue::Int64(Some(0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17061,7 +17058,7 @@ mod tests {
         let number = {
             let __avenger_param_name = "number";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Int64(Some(0))).into();
+                ScalarValue::Int64(Some(0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17072,7 +17069,7 @@ mod tests {
         let number_copy = {
             let __avenger_param_name = "number_copy";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(0.0))).into();
+                ScalarValue::Float64(Some(0.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17082,8 +17079,7 @@ mod tests {
         };
         let text = {
             let __avenger_param_name = "text";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17093,8 +17089,7 @@ mod tests {
         };
         let text_copy = {
             let __avenger_param_name = "text_copy";
-            let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Utf8(None)).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Utf8(None);
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17105,7 +17100,7 @@ mod tests {
         let flag = {
             let __avenger_param_name = "flag";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Boolean(Some(false))).into();
+                ScalarValue::Boolean(Some(false));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -17116,7 +17111,7 @@ mod tests {
         let flag_copy = {
             let __avenger_param_name = "flag_copy";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Boolean(Some(false))).into();
+                ScalarValue::Boolean(Some(false));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

@@ -453,10 +453,7 @@ fn apply_time_unit_with_plan(
         .with_column(&payload.end_name, end)
         .map_err(AvengerChartError::DataFusionError)?;
 
-    let mut projection = original_columns
-        .iter()
-        .map(|name| col(name))
-        .collect::<Vec<_>>();
+    let mut projection = original_columns.iter().map(col).collect::<Vec<_>>();
     projection.push(col(&payload.start_name));
     projection.push(col(&payload.end_name));
     dataframe
@@ -468,12 +465,11 @@ fn candidate_start_expr(
     candidate: &TimeUnitCandidate,
     payload: &CompiledTimeUnitTransform,
 ) -> Result<Expr, AvengerChartError> {
-    if let Some(units) = &candidate.explicit_units {
-        if let Some(start) =
+    if let Some(units) = &candidate.explicit_units
+        && let Some(start) =
             cyclic_calendar_start_expr(units, payload.time_context.resolved_week_start())?
-        {
-            return Ok(start);
-        }
+    {
+        return Ok(start);
     }
     Ok(date_bin(
         interval_literal(candidate),

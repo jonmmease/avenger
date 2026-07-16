@@ -4499,7 +4499,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(360.0))).into();
+                ScalarValue::Float64(Some(360.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4525,7 +4525,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(360.0))).into();
+                ScalarValue::Float64(Some(360.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4536,7 +4536,7 @@ mod tests {
         let symbol_size = {
             let __avenger_param_name = "symbol_size";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(20.0))).into();
+                ScalarValue::Float64(Some(20.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4634,7 +4634,7 @@ mod tests {
         let scale_factor = {
             let __avenger_param_name = "scale_factor";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(1.0))).into();
+                ScalarValue::Float64(Some(1.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4664,7 +4664,7 @@ mod tests {
         let x_min = {
             let __avenger_param_name = "x_min";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(0.0))).into();
+                ScalarValue::Float64(Some(0.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -4675,7 +4675,7 @@ mod tests {
         let x_max = {
             let __avenger_param_name = "x_max";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(10.0))).into();
+                ScalarValue::Float64(Some(10.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5103,7 +5103,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(420.0))).into();
+                ScalarValue::Float64(Some(420.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5140,7 +5140,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(520.0))).into();
+                ScalarValue::Float64(Some(520.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5669,7 +5669,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(520.0))).into();
+                ScalarValue::Float64(Some(520.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5711,7 +5711,7 @@ mod tests {
         let scale_factor = {
             let __avenger_param_name = "scale_factor";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(1.0))).into();
+                ScalarValue::Float64(Some(1.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5753,7 +5753,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(420.0))).into();
+                ScalarValue::Float64(Some(420.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5796,7 +5796,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(420.0))).into();
+                ScalarValue::Float64(Some(420.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5807,7 +5807,7 @@ mod tests {
         let scale_factor = {
             let __avenger_param_name = "scale_factor";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(1.0))).into();
+                ScalarValue::Float64(Some(1.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5854,7 +5854,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(420.0))).into();
+                ScalarValue::Float64(Some(420.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5865,7 +5865,7 @@ mod tests {
         let order_factor = {
             let __avenger_param_name = "order_factor";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(1.0))).into();
+                ScalarValue::Float64(Some(1.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5915,7 +5915,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(520.0))).into();
+                ScalarValue::Float64(Some(520.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -5963,7 +5963,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(520.0))).into();
+                ScalarValue::Float64(Some(520.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -6011,7 +6011,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(520.0))).into();
+                ScalarValue::Float64(Some(520.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -6056,7 +6056,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(560.0))).into();
+                ScalarValue::Float64(Some(560.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -6112,7 +6112,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(520.0))).into();
+                ScalarValue::Float64(Some(520.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -9931,7 +9931,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "width";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(Some(640.0))).into();
+                    ScalarValue::Float64(Some(640.0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -9980,7 +9980,7 @@ mod tests {
             .param({
                 let __avenger_param_name = "width";
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (ScalarValue::Float64(Some(1.0))).into();
+                    ScalarValue::Float64(Some(1.0));
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -9992,7 +9992,7 @@ mod tests {
                 {
                     let __avenger_param_name = "width";
                     let __avenger_param_default: datafusion::common::ScalarValue =
-                        (ScalarValue::Float64(Some(2.0))).into();
+                        ScalarValue::Float64(Some(2.0));
                     Param::typed(
                         __avenger_param_name,
                         __avenger_param_default.data_type(),

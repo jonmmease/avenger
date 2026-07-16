@@ -1514,7 +1514,7 @@ impl ChartTool<Cartesian> for BoxZoom {
         let active = {
             let __avenger_param_name = self.active_param_name();
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Boolean(Some(false))).into();
+                ScalarValue::Boolean(Some(false));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

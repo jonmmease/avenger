@@ -147,6 +147,10 @@ name = "taxi_geo_mercator"
 required-features = ["winit-wgpu"]
 
 [[example]]
+name = "taxi_geo_mercator_categories"
+required-features = ["winit-wgpu"]
+
+[[example]]
 name = "climate_grid_equal_earth"
 required-features = ["winit-wgpu"]
 

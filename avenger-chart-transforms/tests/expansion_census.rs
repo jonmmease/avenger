@@ -254,7 +254,7 @@ async fn placeholder_filter_roundtrips() {
     let min = {
         let __avenger_param_name = "min";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(1.0))).into();
+            ScalarValue::Float64(Some(1.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),

@@ -153,7 +153,7 @@ impl Slider {
         let value = {
             let __avenger_param_name = self.value.name.clone();
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(default))).into();
+                ScalarValue::Float64(Some(default));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

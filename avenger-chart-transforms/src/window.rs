@@ -235,12 +235,10 @@ fn configure_window_expr(
             window.params.window_frame = WindowFrame::new(Some(true));
         }
     }
-    if window.params.order_by.is_empty() {
-        if !is_order_independent_aggregate_window(&window) {
-            return Err(AvengerChartError::InvalidArgument(format!(
-                "Window transform output '{name}' requires an explicit order_by(...) for deterministic results"
-            )));
-        }
+    if window.params.order_by.is_empty() && !is_order_independent_aggregate_window(&window) {
+        return Err(AvengerChartError::InvalidArgument(format!(
+            "Window transform output '{name}' requires an explicit order_by(...) for deterministic results"
+        )));
     }
 
     Ok(Expr::from(window).alias(name))

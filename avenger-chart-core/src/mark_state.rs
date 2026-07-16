@@ -96,7 +96,7 @@ pub struct CompiledComponentProvenance {
 }
 
 /// Canonical identity and source metadata for one compiled primitive mark.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CompiledMarkIdentity {
     pub runtime_id: MarkId,
     #[serde(default)]
@@ -109,18 +109,6 @@ pub struct CompiledMarkIdentity {
     pub private_ancestry: Vec<usize>,
     #[serde(default)]
     pub component: Option<CompiledComponentProvenance>,
-}
-
-impl Default for CompiledMarkIdentity {
-    fn default() -> Self {
-        Self {
-            runtime_id: MarkId::default(),
-            source_name: None,
-            public_aliases: Vec::new(),
-            private_ancestry: Vec::new(),
-            component: None,
-        }
-    }
 }
 
 /// State shared by all mark types (compiled version)

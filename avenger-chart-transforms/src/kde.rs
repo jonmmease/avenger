@@ -475,7 +475,7 @@ fn scalars_to_array(
             .and_then(|scalar| scalar.to_array_of_size(0))
             .map_err(AvengerChartError::DataFusionError);
     }
-    ScalarValue::iter_to_array(scalars.into_iter()).map_err(AvengerChartError::DataFusionError)
+    ScalarValue::iter_to_array(scalars).map_err(AvengerChartError::DataFusionError)
 }
 
 async fn eval_steps(

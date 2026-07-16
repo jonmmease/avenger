@@ -233,10 +233,10 @@ impl CompiledDataTransform for CompiledAggregateTransform {
             {
                 let mut names = Vec::new();
                 for group in &self.group_by {
-                    if let Some(alias) = &group.alias {
-                        if !group_alias_is_identity(group, alias, ctx.session_context)? {
-                            names.push(alias.as_str());
-                        }
+                    if let Some(alias) = &group.alias
+                        && !group_alias_is_identity(group, alias, ctx.session_context)?
+                    {
+                        names.push(alias.as_str());
                     }
                 }
                 for measure in &self.measures {

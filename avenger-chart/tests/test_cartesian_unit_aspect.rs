@@ -519,7 +519,7 @@ async fn cartesian_unit_aspect_canvas_refinement_does_not_ratchet_domains() {
     let width = {
         let __avenger_param_name = "canvas_width";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(560.0))).into();
+            ScalarValue::Float64(Some(560.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),

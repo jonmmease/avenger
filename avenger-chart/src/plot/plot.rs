@@ -731,14 +731,16 @@ fn resolve_event_binding_state_targets(
                             assignment.selection_id
                         ))
                     })?;
-                Ok(ChartEventAction::SetSelection(ChartEventSelectionAction {
-                    target: ResolvedStateTarget::new(
-                        spec.runtime_id.clone(),
-                        assignment.selection_id,
-                    ),
-                    update: assignment.update,
-                    scope: assignment.scope,
-                }))
+                Ok(ChartEventAction::SetSelection(Box::new(
+                    ChartEventSelectionAction {
+                        target: ResolvedStateTarget::new(
+                            spec.runtime_id.clone(),
+                            assignment.selection_id,
+                        ),
+                        update: assignment.update,
+                        scope: assignment.scope,
+                    },
+                )))
             }
             ChartActionStep::SetCursor(action) => {
                 Ok(ChartEventAction::SetCursor(ChartEventCursorAction {
@@ -809,14 +811,16 @@ fn resolve_param_change_binding_state_targets(
                 let spec = selection_specs
                     .get(&assignment.selection_id)
                     .expect("parameter-change selection target validated");
-                Ok(ChartEventAction::SetSelection(ChartEventSelectionAction {
-                    target: ResolvedStateTarget::new(
-                        spec.runtime_id.clone(),
-                        assignment.selection_id,
-                    ),
-                    update: assignment.update,
-                    scope: assignment.scope,
-                }))
+                Ok(ChartEventAction::SetSelection(Box::new(
+                    ChartEventSelectionAction {
+                        target: ResolvedStateTarget::new(
+                            spec.runtime_id.clone(),
+                            assignment.selection_id,
+                        ),
+                        update: assignment.update,
+                        scope: assignment.scope,
+                    },
+                )))
             }
             ChartActionStep::SetCursor(_) => {
                 unreachable!("parameter-change binding validation rejects cursor actions")

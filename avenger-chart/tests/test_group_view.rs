@@ -148,7 +148,7 @@ async fn group_view_shared_chain_feeds_both_children() {
     let cutoff = {
         let __avenger_param_name = "cutoff";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(10.0))).into();
+            ScalarValue::Float64(Some(10.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),

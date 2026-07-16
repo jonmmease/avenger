@@ -2,6 +2,7 @@
 
 use avenger_chart::param::Param;
 use avenger_chart::plot::Chart;
+use datafusion::arrow::datatypes::DataType;
 use datafusion::prelude::*;
 use datafusion::scalar::ScalarValue;
 
@@ -11,7 +12,7 @@ async fn test_param_creation() {
     let param = {
         let __avenger_param_name = "threshold";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(50.0))).into();
+            ScalarValue::Float64(Some(50.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -52,7 +53,7 @@ async fn test_plot_with_params() {
     let param1 = {
         let __avenger_param_name = "scale_factor";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(2.0))).into();
+            ScalarValue::Float64(Some(2.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -62,8 +63,7 @@ async fn test_plot_with_params() {
     };
     let param2 = {
         let __avenger_param_name = "offset";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Int32(Some(5))).into();
+        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Int32(Some(5));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -100,10 +100,15 @@ async fn test_plot_with_params() {
 }
 
 #[tokio::test]
-async fn test_param_from_tuple() {
-    // Test creating param from tuple
-    let param: Param = ("my_param".to_string(), ScalarValue::Boolean(Some(true))).into();
+async fn test_param_typed_constructor() {
+    let param = Param::typed(
+        "my_param",
+        DataType::Boolean,
+        ScalarValue::Boolean(Some(true)),
+    )
+    .unwrap();
     assert_eq!(param.name, "my_param");
+    assert_eq!(param.data_type, DataType::Boolean);
     assert_eq!(param.default, ScalarValue::Boolean(Some(true)));
 }
 
@@ -111,8 +116,7 @@ async fn test_param_from_tuple() {
 async fn test_param_into_expr() {
     let param = {
         let __avenger_param_name = "test";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Int64(Some(42))).into();
+        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Int64(Some(42));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
@@ -146,7 +150,7 @@ async fn test_add_params_multiple() {
         {
             let __avenger_param_name = "p1";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float32(Some(1.0))).into();
+                ScalarValue::Float32(Some(1.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -157,7 +161,7 @@ async fn test_add_params_multiple() {
         {
             let __avenger_param_name = "p2";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float32(Some(2.0))).into();
+                ScalarValue::Float32(Some(2.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -168,7 +172,7 @@ async fn test_add_params_multiple() {
         {
             let __avenger_param_name = "p3";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float32(Some(3.0))).into();
+                ScalarValue::Float32(Some(3.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

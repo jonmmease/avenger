@@ -4110,7 +4110,7 @@ mod tests {
         let band_end = {
             let __avenger_param_name = "band_end";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(1.0))).into();
+                ScalarValue::Float64(Some(1.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

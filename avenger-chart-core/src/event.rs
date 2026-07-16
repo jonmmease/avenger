@@ -235,7 +235,7 @@ pub struct ChartEventCursorAction {
 pub enum ChartEventAction {
     SetParam(ChartEventParamAction),
     SetStore(ChartEventStoreAction),
-    SetSelection(ChartEventSelectionAction),
+    SetSelection(Box<ChartEventSelectionAction>),
     SetCursor(ChartEventCursorAction),
 }
 
@@ -493,7 +493,7 @@ pub struct ChartAction {
 pub enum ChartActionStep {
     SetParam(ChartEventParamAssignment),
     SetStore(ChartEventStoreAssignment),
-    SetSelection(ChartEventSelectionAssignment),
+    SetSelection(Box<ChartEventSelectionAssignment>),
     SetCursor(ChartEventCursorAction),
 }
 
@@ -719,7 +719,8 @@ impl ChartAction {
     }
 
     fn push_selection(&mut self, assignment: ChartEventSelectionAssignment) {
-        self.steps.push(ChartActionStep::SetSelection(assignment));
+        self.steps
+            .push(ChartActionStep::SetSelection(Box::new(assignment)));
     }
 
     /// Source-ordered action steps.
@@ -743,7 +744,7 @@ impl ChartAction {
 
     pub fn selection_steps(&self) -> impl Iterator<Item = &ChartEventSelectionAssignment> {
         self.steps.iter().filter_map(|step| match step {
-            ChartActionStep::SetSelection(assignment) => Some(assignment),
+            ChartActionStep::SetSelection(assignment) => Some(assignment.as_ref()),
             _ => None,
         })
     }
@@ -1026,11 +1027,11 @@ impl ChartAction {
                     }))
                 }
                 ChartActionStep::SetSelection(assignment) => Ok(ChartActionStep::SetSelection(
-                    ChartEventSelectionAssignment {
+                    Box::new(ChartEventSelectionAssignment {
                         selection_id: assignment.selection_id,
                         update: assignment.update.map_exprs(f)?,
                         scope: assignment.scope,
-                    },
+                    }),
                 )),
                 ChartActionStep::SetCursor(action) => {
                     Ok(ChartActionStep::SetCursor(ChartEventCursorAction {

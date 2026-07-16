@@ -277,7 +277,7 @@ async fn param_change_updates_scalar_gate() {
     let cutoff = {
         let __avenger_param_name = "cutoff";
         let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Float64(Some(5.0))).into();
+            ScalarValue::Float64(Some(5.0));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),

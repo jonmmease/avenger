@@ -113,8 +113,7 @@ async fn test_time_scale_with_date32_and_expression() -> Result<(), Box<dyn std:
     // Create a parameter and expression (like parameters.md example)
     let threshold = {
         let __avenger_param_name = "price_threshold";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::from(150.0)).into();
+        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::from(150.0);
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),

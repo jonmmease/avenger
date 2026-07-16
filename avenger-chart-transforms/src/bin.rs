@@ -620,7 +620,7 @@ fn bin_divide_refined_dataframe(
     ctx: &datafusion::prelude::SessionContext,
 ) -> Result<DataFrame, AvengerChartError> {
     let mut divide_values = payload.divide.clone();
-    if !divide_values.iter().any(|value| *value == 1.0) {
+    if !divide_values.contains(&1.0) {
         divide_values.push(1.0);
     }
     let divide_df = inline_f64_dataframe(ctx, BIN_DIVIDE, divide_values)?;
@@ -921,10 +921,7 @@ fn apply_bin_with_plan(
         .with_column(&payload.end_name, col(&payload.start_name) + col(BIN_STEP))
         .map_err(AvengerChartError::DataFusionError)?;
 
-    let mut projection = original_columns
-        .iter()
-        .map(|name| col(name))
-        .collect::<Vec<_>>();
+    let mut projection = original_columns.iter().map(col).collect::<Vec<_>>();
     projection.push(col(&payload.start_name));
     projection.push(col(&payload.end_name));
     projection.push(col(&payload.index_name));

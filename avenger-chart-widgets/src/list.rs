@@ -345,7 +345,7 @@ impl RadioButtonList {
             .unwrap_or_else(|| {
                 let __avenger_param_name = self.param_name();
                 let __avenger_param_default: datafusion::common::ScalarValue =
-                    (self.placeholder_default()).into();
+                    self.placeholder_default();
                 Param::typed(
                     __avenger_param_name,
                     __avenger_param_default.data_type(),
@@ -394,7 +394,7 @@ impl RadioButtonList {
         }
         Ok({
             let __avenger_param_name = self.param_name();
-            let __avenger_param_default: datafusion::common::ScalarValue = (default).into();
+            let __avenger_param_default: datafusion::common::ScalarValue = default;
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

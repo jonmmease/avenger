@@ -3077,7 +3077,7 @@ mod tests {
         let target = {
             let __avenger_param_name = "target_width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float32(Some(160.0))).into();
+                ScalarValue::Float32(Some(160.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

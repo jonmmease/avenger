@@ -653,10 +653,7 @@ fn apply_lump(
         .with_column(&payload.order_name, order_output)
         .map_err(AvengerChartError::DataFusionError)?;
 
-    let mut projection = original_columns
-        .iter()
-        .map(|name| col(name))
-        .collect::<Vec<_>>();
+    let mut projection = original_columns.iter().map(col).collect::<Vec<_>>();
     projection.extend([
         col(&payload.value_name),
         col(&payload.rank_name),

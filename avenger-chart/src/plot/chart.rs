@@ -752,7 +752,7 @@ mod tests {
         let width = {
             let __avenger_param_name = "child_width";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(80.0))).into();
+                ScalarValue::Float64(Some(80.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

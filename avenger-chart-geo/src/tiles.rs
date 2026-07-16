@@ -1102,10 +1102,11 @@ impl TileViewScope {
             for j in 0..=2 {
                 let lon = west + (east - west) * f64::from(i) / 2.0;
                 let lat = south + (north - south) * f64::from(j) / 2.0;
-                if let Some((px, py)) = self.projector.project(lon, lat) {
-                    if px.is_finite() && py.is_finite() {
-                        samples.push((px, py));
-                    }
+                if let Some((px, py)) = self.projector.project(lon, lat)
+                    && px.is_finite()
+                    && py.is_finite()
+                {
+                    samples.push((px, py));
                 }
             }
         }

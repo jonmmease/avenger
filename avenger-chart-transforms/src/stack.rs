@@ -483,10 +483,7 @@ fn apply_stack(
         df = df.with_column(value_name, col("__avenger_stack_value"))?;
     }
 
-    let mut projection = original_columns
-        .iter()
-        .map(|name| col(name))
-        .collect::<Vec<_>>();
+    let mut projection = original_columns.iter().map(col).collect::<Vec<_>>();
     projection.push(col(&payload.start_name));
     projection.push(col(&payload.end_name));
     if let Some(value_name) = &payload.value_name {

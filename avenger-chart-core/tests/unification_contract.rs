@@ -82,11 +82,11 @@ fn target_identity_and_action_contracts_are_ordered_and_serializable() {
             replace_scoped_values: false,
             reject_null: false,
         }),
-        ChartEventAction::SetSelection(ChartEventSelectionAction {
+        ChartEventAction::SetSelection(Box::new(ChartEventSelectionAction {
             target: ResolvedStateTarget::new(selection, "picked"),
             update: SelectionUpdate::Clear,
             scope: ChartEventAssignmentScope::Current,
-        }),
+        })),
         ChartEventAction::SetCursor(ChartEventCursorAction {
             value: expr("crosshair"),
         }),

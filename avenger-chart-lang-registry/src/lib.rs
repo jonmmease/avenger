@@ -31,7 +31,7 @@ pub enum ResolvedValue {
     Query(String),
     Array(Vec<ResolvedValue>),
     Object(IndexMap<String, ResolvedValue>),
-    DataFrame(DataFrame),
+    DataFrame(Box<DataFrame>),
     Param(Param),
 }
 

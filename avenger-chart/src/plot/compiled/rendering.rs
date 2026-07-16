@@ -10763,7 +10763,7 @@ mod tests {
         let x0 = {
             let __avenger_param_name = "x0";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(0.0))).into();
+                ScalarValue::Float64(Some(0.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),
@@ -10774,7 +10774,7 @@ mod tests {
         let x1 = {
             let __avenger_param_name = "x1";
             let __avenger_param_default: datafusion::common::ScalarValue =
-                (ScalarValue::Float64(Some(10.0))).into();
+                ScalarValue::Float64(Some(10.0));
             Param::typed(
                 __avenger_param_name,
                 __avenger_param_default.data_type(),

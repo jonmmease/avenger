@@ -335,8 +335,7 @@ async fn test_facet_wrap_columns_accepts_param() {
     let df = create_test_data(&ctx).await;
     let columns = {
         let __avenger_param_name = "wrap_columns";
-        let __avenger_param_default: datafusion::common::ScalarValue =
-            (ScalarValue::Int64(Some(2))).into();
+        let __avenger_param_default: datafusion::common::ScalarValue = ScalarValue::Int64(Some(2));
         Param::typed(
             __avenger_param_name,
             __avenger_param_default.data_type(),
