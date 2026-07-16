@@ -874,8 +874,8 @@ impl ScopedSelectionStore {
         &mut self,
         patch: impl IntoIterator<Item = ResolvedSelectionAssignment>,
     ) -> Result<bool, AvengerChartError> {
-        let mut any_changed = false;
-        for assignment in patch {
+        let patch = patch.into_iter().collect::<Vec<_>>();
+        for assignment in &patch {
             if !self.specs.contains_key(&assignment.runtime_id) {
                 return Err(AvengerChartError::InvalidArgument(format!(
                     "Unknown plot selection '{}'",
@@ -883,6 +883,10 @@ impl ScopedSelectionStore {
                 )));
             }
             validate_selection_update_payload(&assignment.source_name, &assignment.update)?;
+        }
+
+        let mut any_changed = false;
+        for assignment in patch {
             let state =
                 self.states
                     .entry(assignment.runtime_id)
@@ -924,14 +928,46 @@ fn validate_selection_update_payload(
         Ok(())
     }
 
+    fn validate_clauses(
+        selection_name: &str,
+        clauses: &[SelectionClause],
+    ) -> Result<(), AvengerChartError> {
+        let mut seen = HashSet::new();
+        for clause in clauses {
+            validate_ids(selection_name, std::iter::once(clause.id.as_str()))?;
+            let key = selection_clause_state_key(clause);
+            if !seen.insert(key) {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Selection '{selection_name}' update contains duplicate clause ID '{}' in owner scope {:?}",
+                    clause.id, clause.scope.owner_path
+                )));
+            }
+        }
+        Ok(())
+    }
+
     match update {
         SelectionStateUpdate::ReplaceAllClauses { clauses }
-        | SelectionStateUpdate::ReplaceClausesInScope { clauses, .. }
         | SelectionStateUpdate::UpsertClauses { clauses }
-        | SelectionStateUpdate::ToggleClauses { clauses } => validate_ids(
-            selection_name,
-            clauses.iter().map(|clause| clause.id.as_str()),
-        ),
+        | SelectionStateUpdate::ToggleClauses { clauses } => {
+            validate_clauses(selection_name, clauses)
+        }
+        SelectionStateUpdate::ReplaceClausesInScope {
+            scope_owner_path,
+            clauses,
+        } => {
+            validate_clauses(selection_name, clauses)?;
+            if let Some(clause) = clauses
+                .iter()
+                .find(|clause| clause.scope.owner_path != *scope_owner_path)
+            {
+                return Err(AvengerChartError::InvalidArgument(format!(
+                    "Selection '{selection_name}' replacement clause '{}' belongs to owner scope {:?}, not requested scope {:?}",
+                    clause.id, clause.scope.owner_path, scope_owner_path
+                )));
+            }
+            Ok(())
+        }
         SelectionStateUpdate::ToggleEqualityValue { item_id, .. } => {
             validate_ids(selection_name, std::iter::once(item_id.as_str()))
         }
@@ -4082,6 +4118,121 @@ mod tests {
 
         store.set_root_params(next).unwrap();
         assert_eq!(store.revisions, projected);
+    }
+
+    fn resolved_selection_store(name: &str) -> (ScopedSelectionStore, SelectionRef) {
+        let mut spec = Selection::new(name).compile().expect("compile selection");
+        let mut allocator = avenger_chart_core::CompiledIdentityAllocator::new("session-test");
+        spec.runtime_id = allocator.allocate_selection();
+        let runtime_id = spec.runtime_id.clone();
+        (
+            ScopedSelectionStore::new(IndexMap::from([(runtime_id.clone(), spec)])),
+            runtime_id,
+        )
+    }
+
+    #[test]
+    fn selection_patch_prevalidates_duplicates_and_scope_ownership() {
+        let (mut store, runtime_id) = resolved_selection_store("picked");
+        let root_clause = category_equality_selection_clause(
+            "root",
+            CoordinationScope::Shared,
+            ScalarValue::Utf8(Some("root".to_string())),
+            Vec::new(),
+        );
+        let duplicate = category_equality_selection_clause(
+            "duplicate",
+            CoordinationScope::Shared,
+            ScalarValue::Utf8(Some("duplicate".to_string())),
+            Vec::new(),
+        );
+
+        let error = store
+            .apply_resolved_selection_patch([
+                ResolvedSelectionAssignment {
+                    runtime_id: runtime_id.clone(),
+                    source_name: "picked".to_string(),
+                    update: SelectionStateUpdate::UpsertClauses {
+                        clauses: vec![root_clause],
+                    },
+                },
+                ResolvedSelectionAssignment {
+                    runtime_id: runtime_id.clone(),
+                    source_name: "picked".to_string(),
+                    update: SelectionStateUpdate::UpsertClauses {
+                        clauses: vec![duplicate.clone(), duplicate],
+                    },
+                },
+            ])
+            .expect_err("the full patch must be validated before its first mutation");
+        assert!(error.to_string().contains("duplicate clause ID"));
+        assert!(store.states[&runtime_id].clauses.is_empty());
+        assert_eq!(store.states[&runtime_id].revision, 0);
+
+        let requested_owner = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        let wrong_owner = vec![ScalarValue::Utf8(Some("B".to_string()))];
+        let wrong_scope_clause = category_equality_selection_clause(
+            "scoped",
+            CoordinationScope::Free,
+            ScalarValue::Utf8(Some("B".to_string())),
+            wrong_owner,
+        );
+        let error = store
+            .apply_resolved_selection_patch([ResolvedSelectionAssignment {
+                runtime_id: runtime_id.clone(),
+                source_name: "picked".to_string(),
+                update: SelectionStateUpdate::ReplaceClausesInScope {
+                    scope_owner_path: requested_owner,
+                    clauses: vec![wrong_scope_clause],
+                },
+            }])
+            .expect_err("scoped replacement clauses must belong to the requested owner");
+        assert!(error.to_string().contains("not requested scope"));
+        assert!(store.states[&runtime_id].clauses.is_empty());
+        assert_eq!(store.states[&runtime_id].revision, 0);
+    }
+
+    #[test]
+    fn selection_identity_is_owner_scoped_and_noop_does_not_advance_revision() {
+        let (mut store, runtime_id) = resolved_selection_store("picked");
+        let owner_a = vec![ScalarValue::Utf8(Some("A".to_string()))];
+        let owner_b = vec![ScalarValue::Utf8(Some("B".to_string()))];
+        let clauses = vec![
+            category_equality_selection_clause(
+                "same",
+                CoordinationScope::Free,
+                ScalarValue::Utf8(Some("A".to_string())),
+                owner_a,
+            ),
+            category_equality_selection_clause(
+                "same",
+                CoordinationScope::Free,
+                ScalarValue::Utf8(Some("B".to_string())),
+                owner_b,
+            ),
+        ];
+        let assignment = || ResolvedSelectionAssignment {
+            runtime_id: runtime_id.clone(),
+            source_name: "picked".to_string(),
+            update: SelectionStateUpdate::ReplaceAllClauses {
+                clauses: clauses.clone(),
+            },
+        };
+
+        assert!(
+            store
+                .apply_resolved_selection_patch([assignment()])
+                .expect("same clause ID in distinct owner scopes is valid")
+        );
+        assert_eq!(store.states[&runtime_id].clauses.len(), 2);
+        assert_eq!(store.states[&runtime_id].revision, 1);
+
+        assert!(
+            !store
+                .apply_resolved_selection_patch([assignment()])
+                .expect("an identical replacement is a valid no-op")
+        );
+        assert_eq!(store.states[&runtime_id].revision, 1);
     }
 
     #[test]

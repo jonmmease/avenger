@@ -1037,6 +1037,30 @@ mod tests {
     use crate::event;
 
     #[test]
+    fn scene_query_tuple_ids_are_stable_framed_and_type_preserving() {
+        let int_value = ScalarValue::Int64(Some(1));
+        let string_value = ScalarValue::Utf8(Some("1".to_string()));
+        let left_name_value = ScalarValue::Utf8(Some("bc".to_string()));
+        let right_name_value = ScalarValue::Utf8(Some("c".to_string()));
+
+        let int_id = encode_selection_tuple_id([("value", &int_value)]).unwrap();
+        assert_eq!(
+            int_id,
+            encode_selection_tuple_id([("value", &int_value)]).unwrap()
+        );
+        assert_ne!(
+            int_id,
+            encode_selection_tuple_id([("value", &string_value)]).unwrap(),
+            "Arrow scalar types are part of tuple identity"
+        );
+        assert_ne!(
+            encode_selection_tuple_id([("a", &left_name_value)]).unwrap(),
+            encode_selection_tuple_id([("ab", &right_name_value)]).unwrap(),
+            "length framing prevents field/value boundary collisions"
+        );
+    }
+
+    #[test]
     fn selection_predicate_serializes() {
         let expr = Selection::new("brush").predicate();
         LogicalExprNode::from_expr(expr).expect("selection predicate serializes");
