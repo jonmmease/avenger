@@ -4,7 +4,7 @@ define transform centered {
   output centered: "centered";
   transform pipeline as pipeline {
     transform aggregate {
-      value: mean("__avenger_binding_00000000");
+      value: mean($field);
     }
     transform formula {
       as: 'centered';

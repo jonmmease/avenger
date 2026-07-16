@@ -10,7 +10,7 @@ define mark badge {
   }
   slot block as content;
   channel x;
-  output bounds: span(0, "__avenger_binding_00000000");
+  output bounds: span(0, $radius);
   export points as marks;
   private group as implementation {
     public mark symbol as points {

@@ -1129,13 +1129,16 @@ fn expression_value(
             time: binding.time,
         });
     }
-    if let Some(value) = literal_value(expression.ast())? {
+    if let Some(value) = literal_value(expression.ast(), expression.bindings())? {
         return Ok(value);
     }
     Ok(Value::Expr(Box::new(expression)))
 }
 
-fn literal_value(expression: &Expr) -> Result<Option<Value>, AstError> {
+fn literal_value(
+    expression: &Expr,
+    bindings: &[crate::ast::SqlBinding],
+) -> Result<Option<Value>, AstError> {
     match expression {
         Expr::Value(value) => match &value.value {
             SqlValue::Number(value, false) => NumericLiteral::new(value).map(Value::Num).map(Some),
@@ -1144,9 +1147,19 @@ fn literal_value(expression: &Expr) -> Result<Option<Value>, AstError> {
             SqlValue::Null => Ok(Some(Value::Null)),
             _ => Ok(None),
         },
-        Expr::Identifier(identifier) if identifier.quote_style == Some('"') => {
-            Ok(Some(Value::Column(identifier.value.clone())))
-        }
+        Expr::Identifier(identifier) if identifier.quote_style == Some('"') => bindings
+            .iter()
+            .find(|binding| binding.synthetic_identifier == identifier.value)
+            .map_or_else(
+                || Ok(Some(Value::Column(identifier.value.clone()))),
+                |binding| {
+                    Ok(Some(Value::Binding {
+                        kind: binding.kind,
+                        path: binding.path.clone(),
+                        time: binding.time,
+                    }))
+                },
+            ),
         Expr::Identifier(identifier) if identifier.quote_style.is_none() => {
             Name::new(identifier.value.clone())
                 .map(Value::Atom)
@@ -1186,7 +1199,7 @@ fn literal_value(expression: &Expr) -> Result<Option<Value>, AstError> {
                 let FunctionArg::Unnamed(FunctionArgExpr::Expr(expression)) = argument else {
                     return Ok(None);
                 };
-                let Some(value) = literal_value(expression)? else {
+                let Some(value) = literal_value(expression, bindings)? else {
                     return Ok(None);
                 };
                 values.push(value);
@@ -1202,7 +1215,7 @@ fn literal_value(expression: &Expr) -> Result<Option<Value>, AstError> {
         Expr::Struct { values, fields } if fields.is_empty() => {
             let mut args = Vec::with_capacity(values.len());
             for expression in values {
-                let Some(value) = literal_value(expression)? else {
+                let Some(value) = literal_value(expression, bindings)? else {
                     return Ok(None);
                 };
                 args.push(value);

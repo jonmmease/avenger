@@ -284,6 +284,17 @@ fn numeric_and_sql_normalization_boundaries_are_exact() {
             NumericLiteral::new("9007199254740993").unwrap()
         ))
     );
+    let Root::Define(definition) = &parse_file(&loaded(&fixture("define-mark.avenger"), 9))
+        .unwrap()
+        .ast
+        .root
+    else {
+        panic!()
+    };
+    let Value::Call { args, .. } = definition.children[4].props.get("value").unwrap() else {
+        panic!("definition output should normalize as a call")
+    };
+    assert!(matches!(args[1], Value::Binding { .. }));
 
     for query in [
         "SELECT m.x FROM movies AS m",
