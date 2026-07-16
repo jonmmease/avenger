@@ -424,6 +424,18 @@ impl Parser {
             self.expect(Token::SemiColon, "`;` after atom")?;
             return Ok(value);
         }
+        // Generic DSL calls overlap SQL function syntax, but some valid DSL
+        // calls are SQL keywords (`interval(...)`, `struct(...)`) or have an
+        // empty argument list that sqlparser assigns different semantics to or
+        // rejects. Recognize the literal/atom/call subset first and fall back
+        // to the SQL expression island for all richer expressions.
+        let checkpoint = self.index;
+        if let Some(value) = self.try_generic_call()? {
+            if self.is(&Token::SemiColon) || self.is(&Token::LBrace) {
+                return self.terminated(value);
+            }
+            self.index = checkpoint;
+        }
         let kind = if property == "data" {
             BindingKind::Store
         } else {
@@ -658,7 +670,9 @@ impl Parser {
         let keyword = self.name()?;
         let binder = self.name()?;
         self.expect(Token::Colon, "`:` after field name")?;
-        let value = self.expression(BindingKind::Param)?;
+        let value = self
+            .try_generic_call()?
+            .map_or_else(|| self.expression(BindingKind::Param), Ok)?;
         let mut props = PropertyMap::default();
         props.insert(n("type"), value).expect("new property");
         if self.consume_word("nullable") {
@@ -956,6 +970,101 @@ impl Parser {
         Ok(value)
     }
 
+    /// Parse the unambiguous literal/atom subset of a generic DSL call.
+    ///
+    /// Failure is non-consuming so callers can delegate the same token range
+    /// to the SQL expression parser.
+    fn try_generic_call(&mut self) -> Result<Option<Value>, ParseError> {
+        let checkpoint = self.index;
+        let Some(function) = self.try_name() else {
+            return Ok(None);
+        };
+        if !self.consume(Token::LParen) {
+            self.index = checkpoint;
+            return Ok(None);
+        }
+
+        let mut args = Vec::new();
+        if self.consume(Token::RParen) {
+            return Ok(Some(Value::Call { function, args }));
+        }
+        loop {
+            let Some(value) = self.try_generic_call_arg()? else {
+                self.index = checkpoint;
+                return Ok(None);
+            };
+            args.push(value);
+            if self.consume(Token::Comma) {
+                continue;
+            }
+            if self.consume(Token::RParen) {
+                return Ok(Some(Value::Call { function, args }));
+            }
+            self.index = checkpoint;
+            return Ok(None);
+        }
+    }
+
+    fn try_generic_call_arg(&mut self) -> Result<Option<Value>, ParseError> {
+        self.trivia();
+        match self.stream.token(self.index).map(|token| token.token()) {
+            Some(Token::SingleQuotedString(value)) => {
+                let value = value.clone();
+                self.index += 1;
+                Ok(Some(Value::Str(value)))
+            }
+            Some(Token::Number(value, false)) => {
+                let value = NumericLiteral::new(value).map_err(|error| self.ast_error(error))?;
+                self.index += 1;
+                Ok(Some(Value::Num(value)))
+            }
+            Some(Token::Minus) => {
+                let checkpoint = self.index;
+                self.index += 1;
+                let Some(Token::Number(value, false)) =
+                    self.stream.token(self.index).map(|token| token.token())
+                else {
+                    self.index = checkpoint;
+                    return Ok(None);
+                };
+                let value = NumericLiteral::new(&format!("-{value}"))
+                    .map_err(|error| self.ast_error(error))?;
+                self.index += 1;
+                Ok(Some(Value::Num(value)))
+            }
+            Some(Token::Word(word)) if word.quote_style.is_none() => {
+                let word = word.value.clone();
+                if self.nth_is(1, &Token::LParen) {
+                    return self.try_generic_call();
+                }
+                self.index += 1;
+                match word.as_str() {
+                    "true" => Ok(Some(Value::Bool(true))),
+                    "false" => Ok(Some(Value::Bool(false))),
+                    "null" => Ok(Some(Value::Null)),
+                    _ => Name::new(word)
+                        .map(Value::Atom)
+                        .map(Some)
+                        .map_err(|error| self.ast_error(error)),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn try_name(&mut self) -> Option<Name> {
+        self.trivia();
+        let Token::Word(word) = self.stream.token(self.index)?.token() else {
+            return None;
+        };
+        if word.quote_style.is_some() {
+            return None;
+        }
+        let value = Name::new(word.value.clone()).ok()?;
+        self.index += 1;
+        Some(value)
+    }
+
     fn expect_word(&mut self, expected: &str) -> Result<(), ParseError> {
         if self.consume_word(expected) {
             Ok(())
@@ -1232,6 +1341,28 @@ fn literal_value(
             Ok(Some(Value::Call {
                 function: Name::new(identifier.value.clone())?,
                 args: values,
+            }))
+        }
+        // `INTERVAL(...)` is parsed by sqlparser as SQL interval syntax rather
+        // than as a function call because `INTERVAL` is a keyword. With no SQL
+        // interval qualifier, however, this is the DSL's ordinary generic-call
+        // shape (notably `interval(month_day_nano)` in the Arrow type algebra).
+        Expr::Interval(interval)
+            if interval.leading_field.is_none()
+                && interval.leading_precision.is_none()
+                && interval.last_field.is_none()
+                && interval.fractional_seconds_precision.is_none() =>
+        {
+            let expression = match interval.value.as_ref() {
+                Expr::Nested(expression) => expression.as_ref(),
+                expression => expression,
+            };
+            let Some(value) = literal_value(expression, bindings)? else {
+                return Ok(None);
+            };
+            Ok(Some(Value::Call {
+                function: n("interval"),
+                args: vec![value],
             }))
         }
         Expr::Struct { values, fields } if fields.is_empty() => {

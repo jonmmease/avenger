@@ -12,6 +12,7 @@ mod capabilities;
 mod diagnostic;
 pub mod interchange;
 mod loader;
+mod physical_type;
 pub mod print;
 pub mod project;
 mod source;
@@ -28,6 +29,9 @@ pub use diagnostic::{
 };
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
+};
+pub use physical_type::{
+    IntervalUnit, PhysicalField, PhysicalType, PhysicalTypeError, PhysicalValueError, TimeUnit,
 };
 pub use project::{
     AmbientDataDeclaration, DefinitionKind, ImportEdge, ParsedProject, ProjectDependency,
