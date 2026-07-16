@@ -86,7 +86,7 @@ impl fmt::Display for NumericLiteral {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct File {
     pub version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,7 +96,7 @@ pub struct File {
     pub root: Root,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Import {
     #[serde(rename = "import")]
     pub source: String,
@@ -161,7 +161,7 @@ impl Decl {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Visibility {
     #[default]
@@ -262,7 +262,7 @@ pub enum BindingKind {
     Store,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BindingTime {
     #[default]

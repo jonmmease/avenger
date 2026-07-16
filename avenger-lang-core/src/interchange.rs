@@ -9,9 +9,168 @@ use serde::{
 };
 
 use crate::ast::{
-    AstError, BindingKind, BindingTime, Body, Decl, Name, NumericLiteral, PropertyMap, RefKind,
-    Root, SqlExpression, SqlQuery, Value,
+    AstError, BindingKind, BindingTime, Body, Decl, File, Import, Name, NumericLiteral,
+    PropertyMap, RefKind, Root, SqlExpression, SqlQuery, Value, Visibility,
 };
+
+pub const CORE_SCHEMA_V1: &str = include_str!("../schemas/ast-core-1.json");
+
+impl<'de> Deserialize<'de> for File {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Payload {
+            version: u32,
+            #[serde(default)]
+            name: Option<Name>,
+            #[serde(default)]
+            imports: Vec<Import>,
+            root: Root,
+        }
+
+        let payload = Payload::deserialize(deserializer)?;
+        if payload.version != crate::LANGUAGE_MAJOR {
+            return Err(de::Error::custom(format!(
+                "unsupported Avenger language major {}; expected {}",
+                payload.version,
+                crate::LANGUAGE_MAJOR
+            )));
+        }
+        if payload.name.is_some() && matches!(payload.root, Root::Data(_)) {
+            return Err(de::Error::custom(
+                "plural data-catalog roots cannot carry a top-level name",
+            ));
+        }
+        Ok(Self {
+            version: payload.version,
+            name: payload.name,
+            imports: payload.imports,
+            root: payload.root,
+        })
+    }
+}
+
+pub fn decode_json(source: &str) -> Result<File, serde_json::Error> {
+    let mut deserializer = serde_json::Deserializer::from_str(source);
+    let file = File::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(file)
+}
+
+pub fn encode_json(file: &File) -> Result<String, serde_json::Error> {
+    serde_json::to_string(file)
+}
+
+pub fn canonical_json(file: &File) -> Result<String, serde_json::Error> {
+    let value = serde_json::to_value(file)?;
+    let mut output = String::new();
+    write_canonical(&value, &mut output)?;
+    Ok(output)
+}
+
+fn write_canonical(
+    value: &serde_json::Value,
+    output: &mut String,
+) -> Result<(), serde_json::Error> {
+    match value {
+        serde_json::Value::Null => output.push_str("null"),
+        serde_json::Value::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+        serde_json::Value::Number(value) => output.push_str(&value.to_string()),
+        serde_json::Value::String(value) => output.push_str(&serde_json::to_string(value)?),
+        serde_json::Value::Array(values) => {
+            output.push('[');
+            for (index, value) in values.iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                write_canonical(value, output)?;
+            }
+            output.push(']');
+        }
+        serde_json::Value::Object(values) => {
+            output.push('{');
+            let mut entries = values.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.encode_utf16().cmp(right.encode_utf16()));
+            for (index, (key, value)) in entries.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(',');
+                }
+                output.push_str(&serde_json::to_string(key)?);
+                output.push(':');
+                write_canonical(value, output)?;
+            }
+            output.push('}');
+        }
+    }
+    Ok(())
+}
+
+impl<'de> Deserialize<'de> for Import {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Payload {
+            #[serde(rename = "import")]
+            source: String,
+            #[serde(default)]
+            sha256: Option<String>,
+            #[serde(rename = "as", default)]
+            alias: Option<Name>,
+        }
+
+        let payload = Payload::deserialize(deserializer)?;
+        if payload.source.is_empty() {
+            return Err(de::Error::custom("import specifier must not be empty"));
+        }
+        if payload.sha256.as_deref().is_some_and(|hash| {
+            hash.len() != 64
+                || !hash
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        }) {
+            return Err(de::Error::custom(
+                "import sha256 must contain exactly 64 lowercase hexadecimal digits",
+            ));
+        }
+        Ok(Self {
+            source: payload.source,
+            sha256: payload.sha256,
+            alias: payload.alias,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Visibility {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match String::deserialize(deserializer)?.as_str() {
+            "private" => Ok(Self::Private),
+            "public" => Ok(Self::Public),
+            value => Err(de::Error::unknown_variant(value, &["private", "public"])),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BindingTime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        match String::deserialize(deserializer)?.as_str() {
+            "start" => Ok(Self::Start),
+            "previous" => Ok(Self::Previous),
+            value => Err(de::Error::unknown_variant(value, &["start", "previous"])),
+        }
+    }
+}
 
 impl Serialize for Root {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -503,6 +662,8 @@ mod tests {
 
     use crate::ast::{BindingKind, BindingTime, Name, Value};
 
+    use super::{CORE_SCHEMA_V1, canonical_json, decode_json};
+
     #[test]
     fn ast_interchange_uses_exact_tagged_numbers() {
         let value: Value = serde_json::from_value(json!({ "num": "9007199254740993" })).unwrap();
@@ -535,6 +696,43 @@ mod tests {
         assert!(serde_json::from_str::<Value>(r#"{"num":"1","atom":"x"}"#).is_err());
         assert!(
             serde_json::from_str::<crate::ast::PropertyMap>(r#"{"x":true,"x":false}"#).is_err()
+        );
+    }
+
+    #[test]
+    fn ast_interchange_schema_is_frozen_valid_json() {
+        let schema: serde_json::Value = serde_json::from_str(CORE_SCHEMA_V1).unwrap();
+        assert_eq!(schema["$id"], "https://avenger.dev/schemas/ast-core-1.json");
+        assert_eq!(
+            schema["$defs"]["tagged"]["properties"]
+                .as_object()
+                .unwrap()
+                .len(),
+            14
+        );
+    }
+
+    #[test]
+    fn ast_interchange_canonical_json_sorts_every_object() {
+        let file = decode_json(
+            r#"{"root":{"props":{"z":{"num":"2"},"a":{"num":"1"}},"decl":"chart","kind":"cartesian"},"version":1}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            canonical_json(&file).unwrap(),
+            r#"{"root":{"decl":"chart","kind":"cartesian","props":{"a":{"num":"1"},"z":{"num":"2"}}},"version":1}"#
+        );
+    }
+
+    #[test]
+    fn ast_interchange_rejects_invalid_top_level_and_imports() {
+        assert!(decode_json(r#"{"version":2,"root":{"decl":"chart"}}"#).is_err());
+        assert!(decode_json(r#"{"version":1,"name":"data","root":[{"decl":"table"}]}"#).is_err());
+        assert!(
+            decode_json(
+                r#"{"version":1,"imports":[{"import":"","sha256":"ABC"}],"root":{"decl":"chart"}}"#
+            )
+            .is_err()
         );
     }
 }

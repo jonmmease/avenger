@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avenger.dev/schemas/ast-core-1.json",
+  "title": "Avenger AST interchange form, core schema (language major version 1)",
+  "type": "object",
+  "properties": {
+    "version": { "const": 1 },
+    "name": { "$ref": "#/$defs/name" },
+    "imports": { "type": "array", "items": { "$ref": "#/$defs/import" } },
+    "root": {
+      "oneOf": [
+        { "$ref": "#/$defs/decl" },
+        { "type": "array", "items": { "$ref": "#/$defs/decl" }, "minItems": 1 }
+      ]
+    }
+  },
+  "required": ["version", "root"],
+  "additionalProperties": false,
+  "$defs": {
+    "name": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "import": {
+      "type": "object",
+      "properties": {
+        "import": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "as": { "$ref": "#/$defs/name" }
+      },
+      "required": ["import"],
+      "additionalProperties": false
+    },
+    "decl": {
+      "type": "object",
+      "properties": {
+        "decl": { "$ref": "#/$defs/name" },
+        "kind": { "$ref": "#/$defs/name" },
+        "name": { "$ref": "#/$defs/name" },
+        "visibility": { "enum": ["private", "public"] },
+        "doc": { "type": "string" },
+        "props": { "$ref": "#/$defs/props" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/decl" } }
+      },
+      "required": ["decl"],
+      "additionalProperties": false
+    },
+    "props": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/name" },
+      "additionalProperties": { "$ref": "#/$defs/value" }
+    },
+    "body": {
+      "type": "object",
+      "properties": {
+        "head": { "$ref": "#/$defs/value" },
+        "props": { "$ref": "#/$defs/props" },
+        "children": { "type": "array", "items": { "$ref": "#/$defs/decl" } }
+      },
+      "additionalProperties": false
+    },
+    "value": {
+      "oneOf": [
+        { "type": ["string", "boolean", "null"] },
+        { "type": "array", "items": { "$ref": "#/$defs/value" } },
+        { "$ref": "#/$defs/tagged" }
+      ]
+    },
+    "tagged": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "num": { "type": "string", "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$" },
+        "col": { "type": "string", "minLength": 1 },
+        "atom": { "$ref": "#/$defs/name" },
+        "binding": { "$ref": "#/$defs/binding" },
+        "expr": { "type": "string", "minLength": 1 },
+        "query": { "type": "string", "minLength": 1 },
+        "value": { "$ref": "#/$defs/value" },
+        "dim": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$" },
+        "ref": { "$ref": "#/$defs/ref" },
+        "pattern": { "$ref": "#/$defs/value" },
+        "env": { "type": "string", "minLength": 1 },
+        "none": { "const": true },
+        "block": { "$ref": "#/$defs/body" },
+        "call": { "$ref": "#/$defs/call" }
+      },
+      "additionalProperties": false
+    },
+    "call": {
+      "type": "object",
+      "properties": {
+        "fn": { "$ref": "#/$defs/name" },
+        "args": { "type": "array", "items": { "$ref": "#/$defs/value" } }
+      },
+      "required": ["fn"],
+      "additionalProperties": false
+    },
+    "ref": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["mark", "group", "selection", "tool", "widget", "resource"] },
+        "path": { "type": "array", "items": { "$ref": "#/$defs/name" }, "minItems": 1 }
+      },
+      "required": ["kind", "path"],
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["param", "store"] },
+        "path": {
+          "oneOf": [
+            { "$ref": "#/$defs/name" },
+            { "type": "array", "items": { "$ref": "#/$defs/name" }, "minItems": 2 }
+          ]
+        },
+        "time": { "enum": ["start", "previous"] }
+      },
+      "required": ["kind", "path"],
+      "additionalProperties": false
+    }
+  }
+}
