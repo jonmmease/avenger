@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::{fs, path::PathBuf, sync::Arc};
 
 use arrow::datatypes::{DataType, Field, Schema};
-use avenger_chart_lang_registry::{NativeRegistryBuilder, builtins};
+use avenger_chart_lang_registry::{NativeRegistryBuilder, ResolvedDeclaration, builtins};
 use avenger_chart_schema::{KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot};
 use avenger_lang_compiler::{
     AnalyzedDataset, ArtifactCacheKey, Compiler, DatasetProvenance, DatasetSchemaIndex,
@@ -29,10 +29,18 @@ fn bootstrap_schema_round_trips_and_matches_version_snapshot() {
         "version": checked.version,
         "profile_label": checked.profile_label,
     });
-    assert_eq!(
-        serde_json::to_string_pretty(&version_snapshot).unwrap() + "\n",
-        include_str!("baselines/bootstrap-schema-version.json")
-    );
+    let rendered = serde_json::to_string_pretty(&version_snapshot).unwrap() + "\n";
+    if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/baselines/bootstrap-schema-version.json");
+        fs::write(&path, &rendered).unwrap();
+        eprintln!("updated {}", path.display());
+    } else {
+        assert_eq!(
+            rendered,
+            include_str!("baselines/bootstrap-schema-version.json")
+        );
+    }
 }
 
 #[tokio::test]
@@ -60,6 +68,21 @@ async fn registry_profile_is_stable_distinct_and_propagated() {
         .native_registry(left.clone())
         .build()
         .unwrap();
+    assert!(Arc::ptr_eq(
+        compiler.language_host().registry(),
+        &compiler.options().native_registry
+    ));
+    assert_eq!(
+        compiler.language_host().semantic_json_schema().as_value()["x-avenger-native-profile"],
+        left.profile_id().as_str()
+    );
+    compiler
+        .language_host()
+        .validate_native_declaration(
+            &NativeKindKey::new(NativeKindNamespace::Coordinate, "cartesian"),
+            &ResolvedDeclaration::new("cartesian"),
+        )
+        .unwrap();
     let artifact = compiler.compile_phase0_example().await.unwrap();
     let analysis = compiler.analyze_phase0_empty();
     assert_eq!(&artifact.native_registry_profile, left.profile_id());
@@ -72,6 +95,18 @@ async fn registry_profile_is_stable_distinct_and_propagated() {
     assert_eq!(
         cache_key.native_registry_profile,
         left.profile_id().as_str()
+    );
+
+    let extended = Arc::new(extended);
+    let custom_compiler = Compiler::builder()
+        .project_root("/project")
+        .native_registry(extended.clone())
+        .build()
+        .unwrap();
+    let custom_artifact = custom_compiler.compile_phase0_example().await.unwrap();
+    assert_eq!(
+        &custom_artifact.native_registry_profile,
+        extended.profile_id()
     );
 }
 

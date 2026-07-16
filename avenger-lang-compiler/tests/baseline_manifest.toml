@@ -1,0 +1,6 @@
+# Baseline ownership is added as fixtures become executable. A normal test run
+# never updates entries or reviewed artifacts.
+
+[phase0]
+schema_version = "tests/baselines/bootstrap-schema-version.json"
+visual_owner = "../../avenger-chart/tests/baselines/symbol/simple_scatter_plot.png"

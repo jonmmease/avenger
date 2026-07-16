@@ -2,6 +2,7 @@ use avenger_lang_core::{
     Diagnostic, SourceFile, SourceId, SourceLabel, SourceMap, SourceOrigin, SourceSpan,
     render_diagnostics, sort_diagnostics,
 };
+use std::{fs, path::PathBuf};
 
 #[test]
 fn diagnostic_ordering_and_multi_label_rendering_match_baseline() {
@@ -48,6 +49,13 @@ fn diagnostic_ordering_and_multi_label_rendering_match_baseline() {
     assert_eq!(diagnostics[0].code.as_str(), "AV0001");
 
     let rendered = render_diagnostics(&diagnostics, &sources);
+    if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/baselines/diagnostics/multi_label.txt");
+        fs::write(&path, &rendered).unwrap();
+        eprintln!("updated {}", path.display());
+        return;
+    }
     assert_eq!(
         rendered,
         include_str!("baselines/diagnostics/multi_label.txt")
