@@ -12,8 +12,10 @@ mod capabilities;
 mod diagnostic;
 pub mod interchange;
 mod loader;
+pub mod print;
 mod source;
 pub mod sql;
+pub mod syntax;
 
 pub use capabilities::{
     DataCapabilities, EmptyEnvironmentProvider, EnvironmentProvider, ImportCapabilities,
