@@ -1,5 +1,7 @@
+use std::ops::ControlFlow;
+
 use sqlparser::{
-    ast::{Expr, Query, SelectFlavor, SetExpr, Statement},
+    ast::{Expr, Query, Select, SelectFlavor, Statement, Visit, Visitor},
     parser::{Parser, ParserError},
 };
 
@@ -51,7 +53,7 @@ pub fn parse_sql_query(
             "expected SELECT, WITH, VALUES, or FROM",
         ));
     };
-    if contains_from_first_without_select(&query.body) {
+    if contains_from_first_without_select(&query) {
         let span = stream.token(start_token).map_or(
             SourceSpan::empty(stream.source(), stream.text().len()),
             |token| token.span(),
@@ -121,15 +123,22 @@ fn parse_island<T>(
     })
 }
 
-fn contains_from_first_without_select(set: &SetExpr) -> bool {
-    match set {
-        SetExpr::Select(select) => select.flavor == SelectFlavor::FromFirstNoSelect,
-        SetExpr::Query(query) => contains_from_first_without_select(&query.body),
-        SetExpr::SetOperation { left, right, .. } => {
-            contains_from_first_without_select(left) || contains_from_first_without_select(right)
+fn contains_from_first_without_select(query: &Query) -> bool {
+    struct FromFirstNoSelectVisitor;
+
+    impl Visitor for FromFirstNoSelectVisitor {
+        type Break = ();
+
+        fn pre_visit_select(&mut self, select: &Select) -> ControlFlow<Self::Break> {
+            if select.flavor == SelectFlavor::FromFirstNoSelect {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
         }
-        _ => false,
     }
+
+    query.visit(&mut FromFirstNoSelectVisitor).is_break()
 }
 
 #[cfg(test)]
@@ -185,7 +194,11 @@ mod tests {
 
     #[test]
     fn token_query_parser_rejects_from_first_without_select() {
-        let stream = stream("FROM movies;");
+        let root_stream = stream("FROM movies;");
+        let error = parse_sql_query(&root_stream, 0).unwrap_err();
+        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-SQL-009");
+
+        let stream = stream("WITH invalid AS (FROM movies) SELECT * FROM invalid;");
         let error = parse_sql_query(&stream, 0).unwrap_err();
         assert_eq!(error.diagnostic().code.as_str(), "AVENGER-SQL-009");
     }
