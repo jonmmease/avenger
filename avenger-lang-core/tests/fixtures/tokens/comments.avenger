@@ -1,0 +1,10 @@
+-- ordinary line comment
+-- | First documentation line.
+  -- | Second documentation line.
+
+/* block comment */
+/* nested /* inner */ outer */
+amount--1
+amount -- subtraction-looking comment
+// not a comment
+#not_a_comment

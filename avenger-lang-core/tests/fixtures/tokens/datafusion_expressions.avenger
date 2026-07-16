@@ -1,0 +1,11 @@
+"horsepower" / nullif("weight", 0)
+coalesce("category", 'unknown')
+CASE WHEN "value" > 10 THEN 'large' ELSE 'small' END
+CAST("timestamp" AS TIMESTAMP) + INTERVAL '1 day'
+date_trunc('month', "timestamp")
+sqrt(pow("x", 2) + pow("y", 2))
+array_element(["low", "medium", "high"], 2)
+regexp_like("name", '^A') AND "enabled" IS NOT NULL
+sum("value") FILTER (WHERE "visible") OVER (PARTITION BY "group")
+span(min("x"), max("x"))
+span_ordered($brush.left, $brush.right)

@@ -1,0 +1,9 @@
+CAST("rating" AS DOUBLE)
+"rating"::double precision
+$config:theme.color
+[1, 2, coalesce(3, nested(4, 5))]
+{key: 'value', nested: {enabled: true}}
+catalog.schema."table"."column"
+WITH filtered AS (SELECT "x" FROM source WHERE "x" > 0) SELECT * FROM filtered;
+FROM catalog.schema.movies AS m SELECT m."title", CAST(m."rating" AS DOUBLE);
+SELECT ';' AS "semicolon" /* ; */;

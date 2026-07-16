@@ -1,0 +1,11 @@
+avenger 1;
+
+chart cartesian as kernel {
+  param width: float64 = 640;
+  x: $width@start::double + coalesce("offset", 0) {
+    scale: linear;
+  }
+  data: {
+    sql: FROM vega.movies AS m SELECT m."title", CAST(m."rating" AS DOUBLE) WHERE m."rating" > $minimum;
+  }
+}

@@ -5,6 +5,7 @@ workspace=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$workspace"
 
 AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-core --test diagnostics
+AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-core --test token_corpus token_golden_corpus_is_stable
 AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-compiler --test phase0_contracts bootstrap_schema_round_trips_and_matches_version_snapshot
 
 changed=$(git diff --name-only -- \

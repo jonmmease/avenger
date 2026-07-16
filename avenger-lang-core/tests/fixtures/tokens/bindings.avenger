@@ -1,0 +1,7 @@
+$name
+$component.alias
+$component.alias@start
+$component.alias@previous
+$deeper . exported . value@start
+$width@start::double
+$config@previous:theme.color

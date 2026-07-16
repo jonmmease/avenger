@@ -1,0 +1,12 @@
+avenger 1;
+chart cartesian as café {
+  value: "quoted column" + `backtick_name` + 'string' + 12 + 3.5e2;
+  binding: $width + $component.alias@start + $deep.path.value@previous;
+  punctuation: (a + b) * c / d % 2 = 0 AND x <= y OR x <> z;
+  structure: { left: [1, 2, 3], right: struct(a := 1) };
+  casts: CAST(value AS DOUBLE) + value::double;
+  json: $config:theme.color;
+	-- line comment
+  /* outer block /* nested block */ remains */
+  decrement: amount--1;
+}
