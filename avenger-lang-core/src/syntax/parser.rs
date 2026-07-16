@@ -1051,6 +1051,7 @@ impl Parser {
 
     fn leading_doc(&mut self) -> Option<String> {
         let mut lines = Vec::new();
+        let mut last_doc_end = None;
         while let Some(token) = self.stream.token(self.index) {
             if !is_trivia(token.class()) {
                 break;
@@ -1065,11 +1066,22 @@ impl Parser {
                             .trim_end()
                             .to_owned(),
                     );
+                    last_doc_end = Some(token.span().range.end);
                 } else if !raw.trim().is_empty() {
                     lines.clear();
+                    last_doc_end = None;
                 }
             }
             self.index += 1;
+        }
+        if last_doc_end.is_some_and(|end| {
+            let next = self
+                .stream
+                .token(self.index)
+                .map_or(self.stream.text().len(), |token| token.span().range.start);
+            self.stream.text()[end..next].contains('\n')
+        }) {
+            lines.clear();
         }
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
@@ -1382,5 +1394,17 @@ chart cartesian as example {
             "avenger 1; chart cartesian { width: 1; width: 2; }",
         );
         assert!(parse_file(&source).is_err());
+    }
+
+    #[test]
+    fn parse_doc_comments_require_adjacency() {
+        let parsed = parse(
+            "avenger 1; define mark docs { -- | attached\n slot number as first; -- | detached\n\n slot number as second; }",
+        );
+        let Root::Define(definition) = parsed.ast.root else {
+            panic!()
+        };
+        assert_eq!(definition.children[0].doc.as_deref(), Some("attached"));
+        assert_eq!(definition.children[1].doc, None);
     }
 }
