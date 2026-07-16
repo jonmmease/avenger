@@ -105,6 +105,10 @@ fn parse_valid_corpus_has_stable_ast_and_print_baselines() {
         );
         let formatted = format_source(&loaded(&path, index as u32 + 200)).unwrap();
         assert_eq!(
+            formatted, printed,
+            "comment-stripped valid corpus should share semantic layout: {name}"
+        );
+        assert_eq!(
             formatted,
             format_source(&SourceFile::new(
                 SourceId::new(300 + index as u32),
