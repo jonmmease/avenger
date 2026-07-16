@@ -15,6 +15,7 @@ mod loader;
 mod physical_type;
 pub mod print;
 pub mod project;
+pub mod resolve;
 mod source;
 pub mod sql;
 pub mod syntax;
@@ -37,6 +38,14 @@ pub use project::{
     AmbientDataDeclaration, DefinitionKind, ImportEdge, ParsedProject, ProjectDependency,
     ProjectDependencyRole, ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt,
     ProjectLoadFailure, ProjectLoadRequest, ProjectLoader, ProjectRoot,
+};
+pub use resolve::{
+    DeclarationId, DefinitionChannel, DefinitionLocalSeed, DefinitionSchema, DefinitionSlot,
+    EventId, GeneratedStateOrigin, HelperClass, MarkId, ParamId, ResolveAttempt, ResolveFailure,
+    ResolvedBinding, ResolvedDeclaration, ResolvedExpression, ResolvedFile, ResolvedHelper,
+    ResolvedOutputHandle, ResolvedParam, ResolvedPart, ResolvedProject, ResolvedQuery,
+    ResolvedReference, ResolvedSelection, ResolvedStore, ResolvedTarget, ResolvedValue,
+    SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId, WidgetId, resolve_project,
 };
 pub use source::{
     ByteSpan, LineIndex, SourceError, SourceFile, SourceId, SourceLocation, SourceMap,
