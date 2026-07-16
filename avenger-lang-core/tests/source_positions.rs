@@ -28,6 +28,10 @@ fn utf8_crlf_tabs_and_eof_have_stable_positions() {
     let cr = text.find('\r').unwrap();
     assert_eq!(index.location(cr).unwrap().column, 5);
     assert_eq!(index.location(cr + 1).unwrap().column, 5);
+    assert_eq!(index.byte_offset(0, 5).unwrap(), cr);
+    assert_eq!(index.byte_offset(0, 6).unwrap(), cr + 1);
+    assert_eq!(index.byte_offset(1, 1).unwrap(), beta);
+    assert_eq!(index.byte_offset(1, 2).unwrap(), after_beta);
 
     let eof = index.location(text.len()).unwrap();
     assert_eq!((eof.line, eof.column), (2, 4));

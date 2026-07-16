@@ -11,6 +11,7 @@ mod capabilities;
 mod diagnostic;
 mod loader;
 mod source;
+pub mod sql;
 
 pub use capabilities::{
     DataCapabilities, EmptyEnvironmentProvider, EnvironmentProvider, ImportCapabilities,

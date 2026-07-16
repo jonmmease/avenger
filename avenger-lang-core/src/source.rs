@@ -200,16 +200,54 @@ impl LineIndex {
         Some(start..self.line_content_end(line))
     }
 
+    /// Resolve a zero-based physical line and Unicode-scalar column to a byte
+    /// offset. The position at the end of a line is valid.
+    pub fn byte_offset(&self, line: usize, column: usize) -> Result<usize, SourceError> {
+        let start = *self
+            .line_starts
+            .get(line)
+            .ok_or(SourceError::LineOutOfBounds {
+                line,
+                line_count: self.line_starts.len(),
+            })?;
+        let end = self.line_content_end(line);
+        let text = &self.text[start..end];
+        if column == text.chars().count() {
+            return Ok(end);
+        }
+        // sqlparser advances its column over `\r` before `\n` resets the
+        // line. Preserve that otherwise invisible position for exact token
+        // span conversion while keeping `line_text` free of line endings.
+        if column == text.chars().count() + 1 && self.text.as_bytes().get(end) == Some(&b'\r') {
+            return Ok(end + 1);
+        }
+        let relative = text
+            .char_indices()
+            .nth(column)
+            .map(|(offset, _)| offset)
+            .ok_or(SourceError::ColumnOutOfBounds {
+                line,
+                column,
+                column_count: text.chars().count(),
+            })?;
+        Ok(start + relative)
+    }
+
     fn line_content_end(&self, line: usize) -> usize {
+        let start = self
+            .line_starts
+            .get(line)
+            .copied()
+            .unwrap_or(self.text.len());
         let next_start = self
             .line_starts
             .get(line + 1)
             .copied()
             .unwrap_or(self.text.len());
         let mut end = next_start;
-        if end > 0 && self.text.as_bytes()[end - 1] == b'\n' {
+        if end > start && self.text.as_bytes()[end - 1] == b'\n' {
             end -= 1;
-            if end > 0 && self.text.as_bytes()[end - 1] == b'\r' {
+            if end > start && self.text.as_bytes()[end - 1] == b'\r' {
                 end -= 1;
             }
         }
@@ -304,6 +342,14 @@ pub enum SourceError {
     OffsetOutOfBounds { offset: usize, len: usize },
     #[error("byte offset {offset} is not on a UTF-8 character boundary")]
     NotCharBoundary { offset: usize },
+    #[error("line {line} is outside source line count {line_count}")]
+    LineOutOfBounds { line: usize, line_count: usize },
+    #[error("column {column} is outside line {line} column count {column_count}")]
+    ColumnOutOfBounds {
+        line: usize,
+        column: usize,
+        column_count: usize,
+    },
     #[error("tab width must be greater than zero")]
     ZeroTabWidth,
     #[error("duplicate source id {0}")]

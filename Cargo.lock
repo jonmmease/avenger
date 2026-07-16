@@ -1288,6 +1288,7 @@ dependencies = [
  "indexmap 2.14.0",
  "serde",
  "serde_json",
+ "sqlparser",
  "thiserror 2.0.18",
  "tokio",
 ]
