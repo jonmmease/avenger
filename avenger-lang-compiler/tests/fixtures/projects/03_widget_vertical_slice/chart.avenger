@@ -9,11 +9,12 @@ chart cartesian as chart {
   }
 
   widget radio_button_list as choice {
-    id: 'choice';
-    items: [
-      { value: 'A'; label: 'Category A'; },
-      { value: 'B'; label: 'Category B'; }
-    ];
+    data: {
+      values: [
+        { value: 'A'; label: 'Category A'; },
+        { value: 'B'; label: 'Category B'; }
+      ];
+    }
     default: 'A';
     position: right;
   }

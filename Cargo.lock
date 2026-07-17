@@ -1070,7 +1070,9 @@ version = "0.1.0"
 dependencies = [
  "avenger-chart",
  "avenger-chart-core",
+ "avenger-chart-lang-types",
  "avenger-chart-marks",
+ "avenger-chart-schema",
  "avenger-chart-transforms",
  "avenger-color",
  "avenger-common",

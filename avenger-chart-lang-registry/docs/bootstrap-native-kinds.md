@@ -955,21 +955,111 @@ Exports:
 
 - `y_domain` (`param<fixed_size_list(float64,2)>`): The tool-owned current y domain.
 
-## `Widget.radio_button_list`
+## `Widget.button`
 
-A list that selects exactly one scalar value.
+A momentary button with a monotonic activation count.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
-| `default` | property | false | Initial selected scalar value. |
-| `id` | property | true | Widget source id. |
-| `items` | property | true | Static list items. |
-| `position` | property | false | Chart chrome placement edge. |
-| `value_param` | property | false | Optional existing typed parameter bound to the value state slot. |
+| `activation_param` | property | false | Existing UInt64 parameter bound to the activation count. |
+| `label` | property | true | Nonempty visible label. |
+| `position` | property | true | Containing chart guide-slot edge. |
+| `variant` | property | false | Semantic visual treatment; defaults to neutral. |
+
+Exports:
+
+- `activations` (`param<uint64>`): Number of completed activations.
+
+## `Widget.checkbox`
+
+A scalar boolean checkbox control.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `checked_param` | property | false | Existing boolean parameter bound to the checked state. |
+| `default` | property | true | Initial checked state. |
+| `label` | property | true | Nonempty visible label. |
+| `position` | property | true | Containing chart guide-slot edge. |
+
+Exports:
+
+- `checked` (`param<boolean>`): The current checked state.
+
+## `Widget.checkbox_list`
+
+An ordered list of independently toggleable selection values.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `data` | property | true | Ordered widget item relation. |
+| `label` | property | false | Item label expression; defaults to the `label` column. |
+| `order_by` | property | false | Nonempty total order required for non-inline data. |
+| `position` | property | true | Containing chart guide-slot edge. |
+| `selection` | property | false | Existing equality selection managed by the widget. |
+| `value` | property | false | Item value expression; defaults to the `value` column. |
+
+Exports:
+
+- `selection` (`selection`): The equality selection managed by the list.
+
+## `Widget.radio_button_list`
+
+An ordered list that selects exactly one scalar value.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `data` | property | true | Ordered widget item relation. |
+| `default` | property | false | Initial selected scalar; inferred only for compatible inline data. |
+| `label` | property | false | Item label expression; defaults to the `label` column. |
+| `order_by` | property | false | Nonempty total order required for non-inline data. |
+| `position` | property | true | Containing chart guide-slot edge. |
+| `value` | property | false | Item value expression; defaults to the `value` column. |
+| `value_param` | property | false | Existing item-typed parameter bound to the selected value. |
 
 Exports:
 
 - `value` (`param<item_scalar>`): The currently selected item value.
+
+## `Widget.slider`
+
+A bounded Float64 slider control.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `default` | property | false | Initial value; defaults to min. |
+| `format` | property | false | d3-compatible number format. |
+| `max` | property | true | Finite upper bound greater than min. |
+| `min` | property | true | Finite lower bound. |
+| `position` | property | true | Containing chart guide-slot edge. |
+| `step` | property | false | Positive quantization step; defaults to 1. |
+| `throttle_ms` | property | false | Optional drag-update throttle interval. |
+| `title` | property | false | Visible caption above the track. |
+| `value_param` | property | false | Existing Float64 parameter bound to the value. |
+
+Exports:
+
+- `value` (`param<float64>`): The current slider value.
+
+## `Widget.text_input`
+
+A native single-line UTF-8 text input.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `commit` | property | false | Commit policy; defaults to on_change. |
+| `debounce_ms` | property | false | On-change quiet period; defaults to 150 ms. |
+| `default` | property | false | Initial committed value; defaults to empty. |
+| `placeholder` | property | false | Hint shown while the value is empty. |
+| `position` | property | true | Containing chart guide-slot edge. |
+| `value_param` | property | false | Existing UTF-8 parameter bound to the committed value. |
+
+Exports:
+
+- `cursor_position` (`param<uint64>`): Lazy committed-text cursor position in grapheme units.
+
+- `selected_text` (`param<utf8>`): Lazy selected committed text.
+
+- `value` (`param<utf8>`): The committed text value.
 
 ## `Scale.linear`
 

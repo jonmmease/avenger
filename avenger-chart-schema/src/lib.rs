@@ -102,6 +102,11 @@ pub enum ValueShape {
     RasterDimensionChannel,
     ScalarBinding,
     TableBinding,
+    /// A typed selection reference retained as a state handle.
+    SelectionBinding,
+    /// A widget item relation authored as inline `data.values` or another
+    /// ordered data source.
+    WidgetData,
     TypedReference {
         namespaces: BTreeSet<NativeKindNamespace>,
     },
@@ -175,6 +180,10 @@ pub struct PartSchema {
 pub struct ExportSchema {
     pub alias: String,
     pub value_kind: String,
+    /// Allocate and publish this generated export only when source actually
+    /// references it. Existing-state binding exports are never lazy.
+    #[serde(default)]
+    pub lazy: bool,
     /// Optional declaration property that binds this export to existing state
     /// instead of asking the compiler to allocate generated state.
     #[serde(default, skip_serializing_if = "Option::is_none")]

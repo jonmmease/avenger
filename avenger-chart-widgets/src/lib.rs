@@ -8,6 +8,7 @@
 
 pub mod button;
 pub mod checkbox;
+pub mod language;
 pub mod list;
 pub mod prelude;
 pub mod slider;

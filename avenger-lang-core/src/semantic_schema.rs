@@ -345,6 +345,10 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         }),
         ValueShape::ScalarBinding => binding_schema("param"),
         ValueShape::TableBinding => binding_schema("store"),
+        ValueShape::SelectionBinding => tagged_schema("ref"),
+        ValueShape::WidgetData => json!({
+            "oneOf": [tagged_schema("block"), binding_schema("store")]
+        }),
         ValueShape::TypedReference { namespaces } => {
             let kinds = namespaces
                 .iter()

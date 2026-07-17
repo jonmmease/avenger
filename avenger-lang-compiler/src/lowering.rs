@@ -19,7 +19,7 @@ use avenger_chart::{
     layout::LayoutSpec,
     prelude::{
         Auto, ChannelValue, LegendableChannelValue, Param, Scale, ScaleChannelValue, Selection,
-        Store,
+        Store, WidgetItemRow, WidgetItems,
     },
 };
 use avenger_chart_core::{
@@ -36,9 +36,9 @@ use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
     DeclarationId, Diagnostic, IntervalUnit, ParamId, PhysicalField, PhysicalType, ResolvedBinding,
     ResolvedDeclaration, ResolvedExpression, ResolvedOutputHandle, ResolvedOutputShape,
-    ResolvedParam, ResolvedProject, ResolvedQuery, ResolvedSelectionCombine,
+    ResolvedParam, ResolvedProject, ResolvedQuery, ResolvedSelection, ResolvedSelectionCombine,
     ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue,
-    SourceLabel, SourceSpan, StateSharing, StoreId, TimeUnit, ast::BindingTime,
+    SelectionId, SourceLabel, SourceSpan, StateSharing, StoreId, TimeUnit, ast::BindingTime,
 };
 use datafusion::{
     common::{
@@ -83,6 +83,7 @@ struct ProjectLowerer<'a> {
     context: &'a SessionContext,
     params: BTreeMap<ParamId, Param>,
     stores: BTreeMap<StoreId, Store>,
+    selections: BTreeMap<SelectionId, Selection>,
     widget_owned_params: BTreeSet<ParamId>,
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
@@ -100,6 +101,7 @@ impl<'a> ProjectLowerer<'a> {
             context,
             params: BTreeMap::new(),
             stores: BTreeMap::new(),
+            selections: BTreeMap::new(),
             widget_owned_params: widget_owned_params(project),
             transform_outputs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
@@ -156,6 +158,10 @@ impl<'a> ProjectLowerer<'a> {
         }
         for (id, store) in &self.project.stores {
             self.stores.insert(id.clone(), self.lower_store(store)?);
+        }
+        for (id, selection) in &self.project.selections {
+            self.selections
+                .insert(id.clone(), self.lower_selection(selection));
         }
         Ok(())
     }
@@ -308,12 +314,39 @@ impl<'a> ProjectLowerer<'a> {
             return param.source_name.clone();
         };
         if declaration.keyword == "widget"
-            && origin.export_role == "value"
-            && let Some(ResolvedValue::String(id)) = declaration.properties.get("id")
+            && let Some(id) = declaration.name.as_deref()
         {
-            return format!("{id}__value");
+            let role = match origin.export_role.as_str() {
+                "cursor_position" => "cursor",
+                role => role,
+            };
+            return format!("{id}__{role}");
         }
         param.source_name.clone()
+    }
+
+    fn lower_selection(&self, selection: &ResolvedSelection) -> Selection {
+        let runtime_name = selection
+            .generated_by
+            .as_ref()
+            .and_then(|origin| {
+                let declaration = find_declaration(self.project, &origin.declaration)?;
+                if declaration.keyword != "widget" {
+                    return None;
+                }
+                let id = declaration.name.as_deref()?;
+                Some(format!("{id}__{}", origin.export_role))
+            })
+            .unwrap_or_else(|| selection.source_name.clone());
+        let mut lowered = Selection::new(runtime_name);
+        lowered = match selection.empty {
+            ResolvedSelectionEmpty::All => lowered.empty_selects_all(),
+            ResolvedSelectionEmpty::None => lowered.empty_selects_nothing(),
+        };
+        lowered.combine(match selection.combine {
+            ResolvedSelectionCombine::Union => avenger_chart_core::SelectionCombine::Union,
+            ResolvedSelectionCombine::Intersect => avenger_chart_core::SelectionCombine::Intersect,
+        })
     }
 
     fn typed_scalar(
@@ -444,22 +477,13 @@ impl<'a> ProjectLowerer<'a> {
                 plot.furnishings.stores.push(self.stores[id].clone());
             }
         }
-        for selection in self.project.selections.values() {
+        for (id, selection) in &self.project.selections {
             if belongs_to_chart(&selection.owner_ancestry, &chart.id)
                 && selection.generated_by.is_none()
             {
-                let mut lowered = Selection::new(selection.source_name.clone());
-                lowered = match selection.empty {
-                    ResolvedSelectionEmpty::All => lowered.empty_selects_all(),
-                    ResolvedSelectionEmpty::None => lowered.empty_selects_nothing(),
-                };
-                lowered = lowered.combine(match selection.combine {
-                    ResolvedSelectionCombine::Union => avenger_chart_core::SelectionCombine::Union,
-                    ResolvedSelectionCombine::Intersect => {
-                        avenger_chart_core::SelectionCombine::Intersect
-                    }
-                });
-                plot.furnishings.selections.push(lowered);
+                plot.furnishings
+                    .selections
+                    .push(self.selections[id].clone());
             }
         }
 
@@ -547,20 +571,24 @@ impl<'a> ProjectLowerer<'a> {
                         NativeKindNamespace::Tool,
                     )?),
                     "widget" => {
+                        let widget_data = match child.properties.get("data") {
+                            Some(value) => Some(self.lower_widget_items(value, child).await?),
+                            None => None,
+                        };
                         let mut declaration = self.native_declaration(
                             child,
-                            current_data.as_ref(),
+                            widget_data
+                                .as_ref()
+                                .map(|(_, data)| data)
+                                .or(current_data.as_ref()),
                             NativeKindNamespace::Widget,
                         )?;
-                        if !declaration.properties.contains_key("value_param")
-                            && let Some(ResolvedTarget::Param(id)) = child.exports.get("value")
-                            && let Some(param) = self.params.get(id)
-                        {
-                            declaration.properties.insert(
-                                "value_param".to_string(),
-                                NativeValue::Param(param.clone()),
-                            );
+                        if let Some((items, _)) = widget_data {
+                            declaration
+                                .properties
+                                .insert("data".to_string(), NativeValue::WidgetItems(items));
                         }
+                        self.install_native_state_bindings(child, &mut declaration)?;
                         plot.widgets.push(declaration);
                     }
                     "cell" | "plot" => {
@@ -832,8 +860,15 @@ impl<'a> ProjectLowerer<'a> {
         })?;
         let mut native = NativeDeclaration::new(kind.clone());
         native.source_name.clone_from(&declaration.name);
+        native.live_exports = declaration.exports.keys().cloned().collect();
         for (name, value) in &declaration.properties {
             if is_core_property(&declaration.keyword, name) {
+                continue;
+            }
+            let property_shape = schema.properties.get(name).map(|property| &property.shape);
+            // Widget data is lowered asynchronously at the container call
+            // site and installed after this synchronous schema-directed pass.
+            if property_shape == Some(&ValueShape::WidgetData) {
                 continue;
             }
             // A mark declaration contains both encoding channels and ordinary
@@ -870,6 +905,38 @@ impl<'a> ProjectLowerer<'a> {
                 .is_some_and(|property| property.shape == ValueShape::SqlExpression)
             {
                 NativeValue::Expr(self.expression_value(value, data, declaration)?)
+            } else if property_shape == Some(&ValueShape::SelectionBinding) {
+                let ResolvedValue::Reference(reference) = value else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("property `{name}` must reference a selection"),
+                    ));
+                };
+                let ResolvedTarget::Selection(id) = &reference.target else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("property `{name}` must reference a selection"),
+                    ));
+                };
+                NativeValue::Selection(self.selections.get(id).cloned().ok_or_else(|| {
+                    lowerer_error(declaration, "resolved selection is unavailable")
+                })?)
+            } else if property_shape == Some(&ValueShape::ScalarBinding) {
+                let ResolvedValue::Binding(binding) = value else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("property `{name}` must bind a parameter"),
+                    ));
+                };
+                let ResolvedTarget::Param(id) = &binding.target else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("property `{name}` must bind a parameter"),
+                    ));
+                };
+                NativeValue::Param(self.params.get(id).cloned().ok_or_else(|| {
+                    lowerer_error(declaration, "resolved parameter is unavailable")
+                })?)
             } else {
                 self.native_value(value, data, declaration)?
             };
@@ -920,6 +987,47 @@ impl<'a> ProjectLowerer<'a> {
                 "facet_data_scope must be filtered, broadcast, or level(<integer>)",
             )),
         }
+    }
+
+    fn install_native_state_bindings(
+        &self,
+        source: &ResolvedDeclaration,
+        native: &mut NativeDeclaration,
+    ) -> Result<(), Diagnostic> {
+        let kind = source
+            .kind
+            .as_deref()
+            .ok_or_else(|| lowerer_error(source, "native widget kind was not resolved"))?;
+        let key = NativeKindKey::new(NativeKindNamespace::Widget, kind);
+        let schema = &self.registry.snapshot().entries[&key];
+        for export in schema.exports.values() {
+            let Some(property) = &export.binding_property else {
+                continue;
+            };
+            if native.properties.contains_key(property) {
+                continue;
+            }
+            let Some(target) = source.exports.get(&export.alias) else {
+                continue;
+            };
+            let value = match target {
+                ResolvedTarget::Param(id)
+                    if self.project.params[id].generated_by.is_some()
+                        && self.params[id].default.is_null() =>
+                {
+                    None
+                }
+                ResolvedTarget::Param(id) => self.params.get(id).cloned().map(NativeValue::Param),
+                ResolvedTarget::Selection(id) => {
+                    self.selections.get(id).cloned().map(NativeValue::Selection)
+                }
+                _ => None,
+            };
+            if let Some(value) = value {
+                native.properties.insert(property.clone(), value);
+            }
+        }
+        Ok(())
     }
 
     fn native_owner_child(
@@ -1692,6 +1800,71 @@ impl<'a> ProjectLowerer<'a> {
         self.transform_outputs.get(handle)
     }
 
+    async fn lower_widget_items(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<(WidgetItems, DataFrame), Diagnostic> {
+        let data = self.lower_data(value, declaration).await?;
+        if let ResolvedValue::Object { properties, .. } = value
+            && let Some(ResolvedValue::Array(rows)) = properties.get("values")
+        {
+            let mut items = Vec::with_capacity(rows.len());
+            for row in rows {
+                let ResolvedValue::Object { properties, .. } = row else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "widget inline data rows must be anonymous objects",
+                    ));
+                };
+                let values = properties
+                    .iter()
+                    .map(|(name, value)| {
+                        Ok((
+                            name.clone(),
+                            widget_item_scalar(value).map_err(|message| {
+                                lowerer_error(
+                                    declaration,
+                                    format!("widget data field `{name}` {message}"),
+                                )
+                            })?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, Diagnostic>>()?;
+                items.push(WidgetItemRow::new(values));
+            }
+            return Ok((WidgetItems::Static(items), data));
+        }
+
+        let order_key = declaration
+            .properties
+            .get("order_by")
+            .map(|value| match value {
+                ResolvedValue::Array(values) => values
+                    .iter()
+                    .map(|value| self.expression_value(value, Some(&data), declaration))
+                    .collect::<Result<Vec<_>, _>>(),
+                value => self
+                    .expression_value(value, Some(&data), declaration)
+                    .map(|value| vec![value]),
+            })
+            .transpose()?
+            .unwrap_or_default();
+        if order_key.is_empty() {
+            return Err(lowerer_error(
+                declaration,
+                "non-inline widget data requires a nonempty total `order_by` expression list",
+            ));
+        }
+        Ok((
+            WidgetItems::DataFrame {
+                data: data.clone(),
+                order_key,
+            },
+            data,
+        ))
+    }
+
     async fn lower_data(
         &self,
         value: &ResolvedValue,
@@ -1913,10 +2086,7 @@ fn find_declaration_by_target<'a>(
 }
 
 fn widget_source_id(declaration: &ResolvedDeclaration) -> Option<&str> {
-    match declaration.properties.get("id") {
-        Some(ResolvedValue::String(id)) => Some(id),
-        _ => declaration.name.as_deref(),
-    }
+    declaration.name.as_deref()
 }
 
 fn public_path_belongs_to_chart(path: &str, chart_path: Option<&str>) -> bool {
@@ -2219,6 +2389,22 @@ fn inline_literal_sql(value: &ResolvedValue) -> Result<String, Diagnostic> {
             "inline data contains a non-literal value",
             format!("found {value:?}"),
         )),
+    }
+}
+
+fn widget_item_scalar(value: &ResolvedValue) -> Result<ScalarValue, &'static str> {
+    match value {
+        ResolvedValue::String(value) => Ok(ScalarValue::Utf8(Some(value.clone()))),
+        ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
+            Ok(ScalarValue::Int64(Some(value.parse::<i64>().unwrap())))
+        }
+        ResolvedValue::Number(value) => value
+            .parse::<f64>()
+            .map(|value| ScalarValue::Float64(Some(value)))
+            .map_err(|_| "must be a scalar literal"),
+        ResolvedValue::Boolean(value) => Ok(ScalarValue::Boolean(Some(*value))),
+        ResolvedValue::Null => Ok(ScalarValue::Null),
+        _ => Err("must be a scalar literal"),
     }
 }
 

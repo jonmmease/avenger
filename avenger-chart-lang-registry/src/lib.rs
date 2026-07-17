@@ -1042,6 +1042,8 @@ fn validate_value_shape(
             ValueShape::String | ValueShape::Identifier | ValueShape::ScalarBinding,
         ) => true,
         (ResolvedValue::Param(_), ValueShape::ScalarBinding) => true,
+        (ResolvedValue::Selection(_), ValueShape::SelectionBinding) => true,
+        (ResolvedValue::WidgetItems(_), ValueShape::WidgetData) => true,
         (ResolvedValue::String(value), ValueShape::Atom { values }) => {
             values.iter().any(|candidate| candidate.value == *value)
         }
@@ -1172,19 +1174,6 @@ pub enum RegistryError {
     },
 }
 
-pub(crate) fn string_property(
-    declaration: &ResolvedDeclaration,
-    name: &str,
-) -> Result<String, RegistryError> {
-    match declaration.get(name)? {
-        ResolvedValue::String(value) | ResolvedValue::Query(value) => Ok(value.clone()),
-        _ => Err(RegistryError::InvalidPropertyType {
-            property: name.to_string(),
-            expected: "string".to_string(),
-        }),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -1197,7 +1186,7 @@ mod tests {
 
     use avenger_chart::prelude::{
         Cartesian, CompiledWidget, CoordinationScope, FacetColumn, FacetColumnSubplotChannels,
-        IntoPlotMark, PanScrollZoom, Subplot, Symbol, ToolExportTarget,
+        IntoPlotMark, PanScrollZoom, Subplot, Symbol, ToolExportTarget, WidgetItemRow, WidgetItems,
     };
     use avenger_chart_core::ParamRef;
     use avenger_chart_external_test::{
@@ -1206,7 +1195,10 @@ mod tests {
         external_mark::HexBin,
     };
     use avenger_chart_schema::ChannelSchema;
-    use datafusion::logical_expr::{col, lit};
+    use datafusion::{
+        common::ScalarValue,
+        logical_expr::{col, lit},
+    };
     use indexmap::IndexMap;
 
     use super::*;
@@ -1228,19 +1220,31 @@ mod tests {
 
     fn radio_widget() -> ResolvedDeclaration {
         ResolvedDeclaration::new("radio_button_list")
-            .property("id", ResolvedValue::String("region".to_string()))
+            .source_name("region")
             .property(
-                "items",
-                ResolvedValue::Array(vec![
-                    object([
-                        ("value", ResolvedValue::String("north".to_string())),
-                        ("label", ResolvedValue::String("North".to_string())),
+                "data",
+                ResolvedValue::WidgetItems(WidgetItems::Static(vec![
+                    WidgetItemRow::new([
+                        (
+                            "value".to_string(),
+                            ScalarValue::Utf8(Some("north".to_string())),
+                        ),
+                        (
+                            "label".to_string(),
+                            ScalarValue::Utf8(Some("North".to_string())),
+                        ),
                     ]),
-                    object([
-                        ("value", ResolvedValue::String("south".to_string())),
-                        ("label", ResolvedValue::String("South".to_string())),
+                    WidgetItemRow::new([
+                        (
+                            "value".to_string(),
+                            ScalarValue::Utf8(Some("south".to_string())),
+                        ),
+                        (
+                            "label".to_string(),
+                            ScalarValue::Utf8(Some("South".to_string())),
+                        ),
                     ]),
-                ]),
+                ])),
             )
             .property("position", ResolvedValue::String("left".to_string()))
     }

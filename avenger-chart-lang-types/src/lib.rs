@@ -11,7 +11,7 @@ use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 use avenger_chart_core::{
     ChannelExpr, ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem,
     DataTransformCompileContext, DataTransformStage, Param, PatternChannelValue, PlotMark,
-    RasterDim, WidgetAttachment,
+    RasterDim, Selection, WidgetAttachment, WidgetItems,
 };
 use avenger_chart_schema::KindSchema;
 use datafusion::{
@@ -36,6 +36,8 @@ pub enum ResolvedValue {
     Object(IndexMap<String, ResolvedValue>),
     DataFrame(Box<DataFrame>),
     Param(Param),
+    Selection(Selection),
+    WidgetItems(WidgetItems),
     Pattern(PatternChannelValue),
     RasterDimensionChannel {
         dimension: RasterDim,
@@ -59,6 +61,8 @@ impl fmt::Debug for ResolvedValue {
             Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
             Self::DataFrame(_) => f.write_str("DataFrame(..)"),
             Self::Param(value) => f.debug_tuple("Param").field(&value.name).finish(),
+            Self::Selection(value) => f.debug_tuple("Selection").field(&value.id).finish(),
+            Self::WidgetItems(_) => f.write_str("WidgetItems(..)"),
             Self::Pattern(value) => f.debug_tuple("Pattern").field(value).finish(),
             Self::RasterDimensionChannel { dimension, .. } => f
                 .debug_tuple("RasterDimensionChannel")
@@ -81,6 +85,9 @@ pub struct ResolvedDeclaration {
     /// compiler IR; native owners receive only children declared by their
     /// `KindSchema` child rules.
     pub children: Vec<ResolvedDeclaration>,
+    /// Schema exports retained after semantic liveness analysis. Native
+    /// owners use this for opt-in runtime state such as TextInput cursor data.
+    pub live_exports: std::collections::BTreeSet<String>,
 }
 
 impl ResolvedDeclaration {
@@ -90,6 +97,7 @@ impl ResolvedDeclaration {
             source_name: None,
             properties: IndexMap::new(),
             children: Vec::new(),
+            live_exports: std::collections::BTreeSet::new(),
         }
     }
 

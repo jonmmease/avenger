@@ -635,6 +635,7 @@ impl<'a> Resolver<'a> {
             );
         }
 
+        self.prune_unused_lazy_exports(&mut files);
         let param_default_order = self.check_param_dag();
         let table_order = self.check_table_dag();
         let definition_import_order = self.definition_import_order();
@@ -687,6 +688,71 @@ impl<'a> Resolver<'a> {
                 table_order,
                 definition_import_order,
             }),
+        }
+    }
+
+    fn prune_unused_lazy_exports(&mut self, files: &mut BTreeMap<ProjectFileId, ResolvedFile>) {
+        let mut used = BTreeSet::new();
+        for file in files.values() {
+            for root in &file.roots {
+                collect_referenced_targets(root, &mut used);
+            }
+        }
+        for file in files.values_mut() {
+            for root in &mut file.roots {
+                self.prune_declaration_lazy_exports(root, &used);
+            }
+        }
+    }
+
+    fn prune_declaration_lazy_exports(
+        &mut self,
+        declaration: &mut ResolvedDeclaration,
+        used: &BTreeSet<ResolvedTarget>,
+    ) {
+        if declaration.keyword == "widget"
+            && let Some(kind) = declaration.kind.as_deref()
+        {
+            let key = NativeKindKey::new(NativeKindNamespace::Widget, kind);
+            let lazy = self
+                .registry
+                .entries
+                .get(&key)
+                .map(|schema| {
+                    schema
+                        .exports
+                        .values()
+                        .filter(|export| export.lazy)
+                        .map(|export| export.alias.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            for alias in lazy {
+                let Some(target) = declaration.exports.get(&alias).cloned() else {
+                    continue;
+                };
+                if used.contains(&target) {
+                    continue;
+                }
+                declaration.exports.remove(&alias);
+                match target {
+                    ResolvedTarget::Param(id) => {
+                        self.params.remove(&id);
+                        self.param_types.remove(&id);
+                        self.param_dependencies.remove(&id);
+                    }
+                    ResolvedTarget::Store(id) => {
+                        self.stores.remove(&id);
+                    }
+                    ResolvedTarget::Selection(id) => {
+                        self.selections.remove(&id);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for child in &mut declaration.children {
+            self.prune_declaration_lazy_exports(child, used);
         }
     }
 
@@ -6603,6 +6669,17 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 })
             )
         }
+        ValueShape::SelectionBinding => matches!(
+            value,
+            ResolvedValue::Reference(ResolvedReference {
+                target: ResolvedTarget::Selection(_) | ResolvedTarget::DefinitionSelection { .. },
+                ..
+            })
+        ),
+        ValueShape::WidgetData => {
+            matches!(value, ResolvedValue::Object { .. })
+                || value_matches_shape(value, &ValueShape::TableBinding)
+        }
         ValueShape::TypedReference { namespaces } => match value {
             ResolvedValue::Reference(reference) => namespaces
                 .iter()
@@ -6785,6 +6862,95 @@ fn is_literal_value(value: &ResolvedValue) -> bool {
     )
 }
 
+fn collect_referenced_targets(
+    declaration: &ResolvedDeclaration,
+    targets: &mut BTreeSet<ResolvedTarget>,
+) {
+    for value in declaration.properties.values() {
+        collect_value_targets(value, targets);
+    }
+    if let Some(binding) = &declaration.event_binding {
+        targets.extend(binding.targets.iter().cloned());
+    }
+    if let Some(lvalue) = &declaration.state_lvalue {
+        targets.insert(lvalue.target.clone());
+    }
+    for child in &declaration.children {
+        collect_referenced_targets(child, targets);
+    }
+}
+
+fn collect_value_targets(value: &ResolvedValue, targets: &mut BTreeSet<ResolvedTarget>) {
+    match value {
+        ResolvedValue::Binding(binding) => {
+            targets.insert(binding.target.clone());
+        }
+        ResolvedValue::Reference(reference) => {
+            targets.insert(reference.target.clone());
+        }
+        ResolvedValue::Expression(expression) => {
+            targets.extend(
+                expression
+                    .bindings
+                    .iter()
+                    .map(|binding| binding.target.clone()),
+            );
+            targets.extend(
+                expression
+                    .references
+                    .iter()
+                    .map(|reference| reference.target.clone()),
+            );
+        }
+        ResolvedValue::Query(query) => {
+            targets.extend(query.bindings.iter().map(|binding| binding.target.clone()));
+            targets.extend(
+                query
+                    .references
+                    .iter()
+                    .map(|reference| reference.target.clone()),
+            );
+        }
+        ResolvedValue::Visual(value) | ResolvedValue::Pattern(value) => {
+            collect_value_targets(value, targets);
+        }
+        ResolvedValue::Array(values) | ResolvedValue::Call { args: values, .. } => {
+            for value in values {
+                collect_value_targets(value, targets);
+            }
+        }
+        ResolvedValue::Object {
+            head,
+            properties,
+            children,
+            ..
+        } => {
+            if let Some(head) = head {
+                collect_value_targets(head, targets);
+            }
+            for value in properties.values() {
+                collect_value_targets(value, targets);
+            }
+            for child in children {
+                collect_referenced_targets(child, targets);
+            }
+        }
+        ResolvedValue::DefinitionArgument(target) => {
+            targets.insert(target.clone());
+        }
+        ResolvedValue::String(_)
+        | ResolvedValue::Number(_)
+        | ResolvedValue::Boolean(_)
+        | ResolvedValue::Null
+        | ResolvedValue::Atom(_)
+        | ResolvedValue::Column(_)
+        | ResolvedValue::Dimension(_)
+        | ResolvedValue::Environment(_)
+        | ResolvedValue::None
+        | ResolvedValue::Invalid => {}
+    }
+}
+
 fn ast_value_is_literal(value: &Value) -> bool {
     match value {
         Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null => true,
@@ -6818,6 +6984,8 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::RasterDimensionChannel => "configured raster dimension",
         ValueShape::ScalarBinding => "param binding",
         ValueShape::TableBinding => "store binding",
+        ValueShape::SelectionBinding => "selection reference",
+        ValueShape::WidgetData => "widget data source",
         ValueShape::TypedReference { .. } => "typed reference",
         ValueShape::Union(_) => "one of the allowed shapes",
         ValueShape::OneOrMany(_) => "value or array",
@@ -7687,7 +7855,10 @@ fn collect_definition_slot_dependencies(
 }
 
 fn infer_widget_item_type(declaration: &Decl) -> Option<PhysicalType> {
-    let Value::Array(items) = declaration.props.get("items")? else {
+    let Value::Block { body: data, .. } = declaration.props.get("data")? else {
+        return None;
+    };
+    let Value::Array(items) = data.props.get("values")? else {
         return None;
     };
     let first = items.first()?;

@@ -7,27 +7,18 @@ use std::sync::Arc;
 
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::{
-        Auto, Cartesian, CartesianAxis, ChartWidgetPlacementExt, ChromePosition, Legend, Linear,
-        Ordinal, PanScrollZoom, Scale, WidgetAttachment, WidgetItemRow, WidgetItems,
-    },
+    prelude::{Auto, Cartesian, CartesianAxis, Legend, Linear, Ordinal, PanScrollZoom, Scale},
 };
 use avenger_chart_core::Axis;
 use avenger_chart_schema::{
-    EnumValueSchema, ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace, PartSchema,
-    PropertySchema, ValueShape,
+    ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
-use avenger_chart_widgets::RadioButtonList;
 use datafusion::{
     common::ScalarValue,
     logical_expr::{Expr, lit},
 };
-use indexmap::IndexMap;
 
-use crate::{
-    CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue,
-    string_property,
-};
+use crate::{CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue};
 
 pub const BOOTSTRAP_PROFILE_LABEL: &str = "bootstrap-vertical-slice";
 
@@ -65,7 +56,7 @@ pub fn register_bootstrap_noncoordinate_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
     register_transforms(builder)?;
-    register_radio_button_list(builder)?;
+    register_widgets(builder)?;
     register_objects(builder)
 }
 
@@ -85,6 +76,7 @@ fn pan_scroll_zoom_schema() -> KindSchema {
     .export(ExportSchema {
         alias: "x_domain".to_string(),
         value_kind: "param<fixed_size_list(float64,2)>".to_string(),
+        lazy: false,
         binding_property: None,
         default_property: None,
         docs: "The tool-owned current x domain.".to_string(),
@@ -92,6 +84,7 @@ fn pan_scroll_zoom_schema() -> KindSchema {
     .export(ExportSchema {
         alias: "y_domain".to_string(),
         value_kind: "param<fixed_size_list(float64,2)>".to_string(),
+        lazy: false,
         binding_property: None,
         default_property: None,
         docs: "The tool-owned current y domain.".to_string(),
@@ -120,139 +113,11 @@ fn register_transforms(builder: &mut NativeRegistryBuilder) -> Result<(), Regist
     Ok(())
 }
 
-fn register_radio_button_list(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
-    let item = ValueShape::Object(
-        [
-            (
-                "value".to_string(),
-                PropertySchema::required(ValueShape::Any, "The selected scalar value."),
-            ),
-            (
-                "label".to_string(),
-                PropertySchema::required(ValueShape::String, "The displayed item label."),
-            ),
-        ]
-        .into_iter()
-        .collect(),
-    );
-    let position = ValueShape::Atom {
-        values: ["top", "right", "bottom", "left"]
-            .into_iter()
-            .map(|value| EnumValueSchema {
-                value: value.to_string(),
-                docs: format!("Place the widget on the {value} chart edge."),
-            })
-            .collect(),
-    };
-    let schema = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Widget, "radio_button_list"),
-        "A list that selects exactly one scalar value.",
-    )
-    .allowed_parent("chart")
-    .runtime_kind("radio-button-list")
-    .property(
-        "id",
-        PropertySchema::required(ValueShape::String, "Widget source id."),
-    )
-    .property(
-        "items",
-        PropertySchema::required(ValueShape::Array(Box::new(item)), "Static list items."),
-    )
-    .property(
-        "default",
-        PropertySchema::optional(ValueShape::Any, "Initial selected scalar value."),
-    )
-    .property(
-        "value_param",
-        PropertySchema::optional(
-            ValueShape::ScalarBinding,
-            "Optional existing typed parameter bound to the value state slot.",
-        ),
-    )
-    .property(
-        "position",
-        PropertySchema::optional(position, "Chart chrome placement edge."),
-    )
-    .export(ExportSchema {
-        alias: "value".to_string(),
-        value_kind: "param<item_scalar>".to_string(),
-        binding_property: Some("value_param".to_string()),
-        default_property: Some("default".to_string()),
-        docs: "The currently selected item value.".to_string(),
-    })
-    .part(PartSchema {
-        alias: "control".to_string(),
-        runtime_kind: "radio-button-list".to_string(),
-        runtime_alias: Some("control".to_string()),
-        targetable: true,
-        docs: "The outer radio control.".to_string(),
-    })
-    .part(PartSchema {
-        alias: "center".to_string(),
-        runtime_kind: "radio-button-list".to_string(),
-        runtime_alias: Some("center".to_string()),
-        targetable: true,
-        docs: "The selected radio center.".to_string(),
-    })
-    .part(PartSchema {
-        alias: "label".to_string(),
-        runtime_kind: "radio-button-list".to_string(),
-        runtime_alias: Some("label".to_string()),
-        targetable: true,
-        docs: "The row label.".to_string(),
-    })
-    .part(PartSchema {
-        alias: "focus_ring".to_string(),
-        runtime_kind: "radio-button-list".to_string(),
-        runtime_alias: Some("focus-ring".to_string()),
-        targetable: false,
-        docs: "The keyboard focus indicator.".to_string(),
-    });
-
-    builder.register_widget(
-        schema,
-        Arc::new(|declaration| {
-            let id = string_property(declaration, "id")?;
-            let ResolvedValue::Array(items) = declaration.get("items")? else {
-                unreachable!("schema validation checks widget items")
-            };
-            let mut rows = Vec::with_capacity(items.len());
-            for item in items {
-                let ResolvedValue::Object(fields) = item else {
-                    unreachable!("schema validation checks widget item objects")
-                };
-                rows.push(WidgetItemRow::new([
-                    ("value".to_string(), object_scalar(fields, "value")?),
-                    (
-                        "label".to_string(),
-                        ScalarValue::Utf8(Some(object_string(fields, "label")?)),
-                    ),
-                ]));
-            }
-            let mut widget = RadioButtonList::new(id, WidgetItems::Static(rows));
-            if let Some(default) = declaration.properties.get("default") {
-                widget = widget.default(resolved_scalar(default, "default")?);
-            }
-            if let Some(value) = declaration.properties.get("value_param") {
-                let ResolvedValue::Param(param) = value else {
-                    return Err(RegistryError::InvalidPropertyType {
-                        property: "value_param".to_string(),
-                        expected: "typed scalar parameter".to_string(),
-                    });
-                };
-                widget = widget.value_param(param.clone());
-            }
-            let position = match declaration.properties.get("position") {
-                None => ChromePosition::Right,
-                Some(ResolvedValue::String(value)) if value == "right" => ChromePosition::Right,
-                Some(ResolvedValue::String(value)) if value == "top" => ChromePosition::Top,
-                Some(ResolvedValue::String(value)) if value == "bottom" => ChromePosition::Bottom,
-                Some(ResolvedValue::String(value)) if value == "left" => ChromePosition::Left,
-                _ => ChromePosition::Right,
-            };
-            Ok(WidgetAttachment::composed(widget.position(position)))
-        }),
-    )
+fn register_widgets(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    for definition in avenger_chart_widgets::language::definitions() {
+        builder.register_widget_definition(definition)?;
+    }
+    Ok(())
 }
 
 fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
@@ -558,32 +423,6 @@ fn native_expr(value: &ResolvedValue, name: &str) -> Result<Expr, RegistryError>
             expected: "scalar SQL expression".to_string(),
         }),
     }
-}
-
-fn object_string(
-    fields: &IndexMap<String, ResolvedValue>,
-    name: &str,
-) -> Result<String, RegistryError> {
-    match fields.get(name) {
-        Some(ResolvedValue::String(value)) => Ok(value.clone()),
-        _ => Err(RegistryError::InvalidPropertyType {
-            property: name.to_string(),
-            expected: "string".to_string(),
-        }),
-    }
-}
-
-fn object_scalar(
-    fields: &IndexMap<String, ResolvedValue>,
-    name: &str,
-) -> Result<ScalarValue, RegistryError> {
-    fields
-        .get(name)
-        .ok_or_else(|| RegistryError::MissingProperty {
-            kind: "object".to_string(),
-            property: name.to_string(),
-        })
-        .and_then(|value| resolved_scalar(value, name))
 }
 
 fn resolved_scalar(value: &ResolvedValue, name: &str) -> Result<ScalarValue, RegistryError> {

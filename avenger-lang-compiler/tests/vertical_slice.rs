@@ -378,6 +378,115 @@ async fn vertical_slice_widget_is_opaque_and_exported_state_drives_the_mark() {
 }
 
 #[tokio::test]
+async fn native_surface_all_six_builtin_widgets_lower_through_one_schema_contract() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          widget checkbox as enabled {
+            position: right;
+            label: 'Enabled';
+            default: true;
+          }
+          widget button as refresh {
+            position: right;
+            label: 'Refresh';
+            variant: accent;
+          }
+          widget checkbox_list as regions {
+            position: right;
+            data: { values: [
+              { value: 'east'; label: 'East'; },
+              { value: 'west'; label: 'West'; }
+            ]; }
+          }
+          widget radio_button_list as choice {
+            position: right;
+            data: { values: [
+              { value: 'a'; label: 'A'; },
+              { value: 'b'; label: 'B'; }
+            ]; }
+          }
+          widget slider as threshold {
+            position: bottom;
+            min: 0.0;
+            max: 10.0;
+            step: 0.5;
+          }
+          widget text_input as query {
+            position: top;
+            placeholder: 'Search';
+            commit: on_enter_or_blur;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert_eq!(artifact.compiled_plot().widgets().len(), 6);
+    let kinds = artifact
+        .compiled_plot()
+        .widgets()
+        .iter()
+        .map(|attachment| attachment.widget.kind())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kinds,
+        [
+            "checkbox",
+            "button",
+            "checkbox-list",
+            "radio-button-list",
+            "slider",
+            "text-input"
+        ]
+    );
+}
+
+#[tokio::test]
+async fn native_surface_text_input_editing_exports_are_reference_driven() {
+    let unused = r#"avenger 1;
+        chart zerod as chart {
+          widget text_input as query {
+            position: top;
+          }
+        }"#;
+    let unused = source_compiler(unused, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert!(unused.interface.params.contains_key("query__value"));
+    assert!(!unused.interface.params.contains_key("query__cursor"));
+    assert!(!unused.interface.params.contains_key("query__selected_text"));
+
+    let referenced = r#"avenger 1;
+        chart zerod as chart {
+          widget text_input as query {
+            position: top;
+          }
+          mark text as cursor_label {
+            text: $query.cursor_position;
+          }
+        }"#;
+    let referenced = source_compiler(referenced, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert!(referenced.interface.params.contains_key("query__value"));
+    assert!(referenced.interface.params.contains_key("query__cursor"));
+    assert!(
+        !referenced
+            .interface
+            .params
+            .contains_key("query__selected_text")
+    );
+    assert!(
+        referenced
+            .interface
+            .widget_exports
+            .contains_key("chart.query.cursor_position")
+    );
+}
+
+#[tokio::test]
 async fn vertical_slice_lowering_diagnostics_keep_the_source_label() {
     let cases = [
         (
