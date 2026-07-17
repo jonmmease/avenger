@@ -1037,7 +1037,10 @@ fn validate_value_shape(
         (ResolvedValue::Boolean(_), ValueShape::Boolean) => true,
         (ResolvedValue::Integer(_), ValueShape::Integer) => true,
         (ResolvedValue::Number(_), ValueShape::Number) => true,
-        (ResolvedValue::String(_), ValueShape::String | ValueShape::ScalarBinding) => true,
+        (
+            ResolvedValue::String(_),
+            ValueShape::String | ValueShape::Identifier | ValueShape::ScalarBinding,
+        ) => true,
         (ResolvedValue::Param(_), ValueShape::ScalarBinding) => true,
         (ResolvedValue::String(value), ValueShape::Atom { values }) => {
             values.iter().any(|candidate| candidate.value == *value)
@@ -1057,10 +1060,13 @@ fn validate_value_shape(
             ValueShape::SqlExpression,
         ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
+        (ResolvedValue::Channel(_), ValueShape::ChannelConfig) => true,
+        (ResolvedValue::Pattern(_), ValueShape::PatternChannel) => true,
         (ResolvedValue::String(_), ValueShape::CoordinationScope) => true,
         (ResolvedValue::Output(NativeOutputValue::RasterDim(_)), ValueShape::RasterDimension) => {
             true
         }
+        (ResolvedValue::RasterDimensionChannel { .. }, ValueShape::RasterDimensionChannel) => true,
         (ResolvedValue::DataFrame(_), ValueShape::TableBinding) => true,
         (value, ValueShape::Union(shapes)) => shapes
             .iter()
@@ -1077,6 +1083,9 @@ fn validate_value_shape(
         (ResolvedValue::Object(values), ValueShape::Map(inner)) => values
             .values()
             .all(|value| validate_value_shape(value, inner, property).is_ok()),
+        (ResolvedValue::Object(values), ValueShape::ChannelMap) => values
+            .values()
+            .all(|value| validate_value_shape(value, &ValueShape::SqlExpression, property).is_ok()),
         (ResolvedValue::Object(values), ValueShape::Object(fields)) => {
             values.iter().all(|(name, value)| {
                 fields

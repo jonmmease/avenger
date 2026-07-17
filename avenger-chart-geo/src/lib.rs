@@ -16,6 +16,7 @@ pub mod crs;
 pub mod data;
 pub mod expr;
 pub mod guide;
+pub mod language;
 pub mod marks;
 pub mod tiles;
 pub mod tools;

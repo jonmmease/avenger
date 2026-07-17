@@ -16,6 +16,7 @@
 mod coord;
 pub mod event;
 mod guide;
+pub mod language;
 mod layout;
 mod mark;
 

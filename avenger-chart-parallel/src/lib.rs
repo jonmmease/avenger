@@ -11,6 +11,7 @@ mod coord;
 pub mod event;
 mod frame;
 mod guide;
+pub mod language;
 mod line;
 mod symbol;
 

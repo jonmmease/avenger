@@ -78,14 +78,25 @@ pub enum ValueShape {
     Integer,
     Number,
     String,
+    /// A stable source identifier authored as a bare atom or string.
+    Identifier,
     Atom {
         values: Vec<EnumValueSchema>,
     },
     SqlExpression,
     SqlQuery,
+    /// A channel configuration block with no authored data head. Native
+    /// runtime values supply the data while scale/axis/legend metadata is
+    /// authored normally.
+    ChannelConfig,
+    /// A literal `pattern { ... }` or a configured expression whose scale
+    /// range contains pattern values.
+    PatternChannel,
     /// `shared`, `free`, or `level(<non-negative integer>)` transform scope.
     CoordinationScope,
     RasterDimension,
+    /// A raster dimension handle with ordinary channel configuration.
+    RasterDimensionChannel,
     ScalarBinding,
     TableBinding,
     TypedReference {
@@ -98,6 +109,8 @@ pub enum ValueShape {
     Array(Box<ValueShape>),
     /// An object with arbitrary keys and values of one shared shape.
     Map(Box<ValueShape>),
+    /// An object whose user-named entries are configured encoding channels.
+    ChannelMap,
     Object(BTreeMap<String, PropertySchema>),
     Any,
 }

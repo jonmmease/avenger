@@ -9,6 +9,7 @@ pub mod compiled_data_context;
 pub mod data_context;
 pub mod facet_data_scope;
 pub mod image;
+pub mod language;
 pub mod line;
 pub mod path;
 pub mod pixel_frame;

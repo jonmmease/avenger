@@ -302,6 +302,12 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         ValueShape::Integer => integer_schema(),
         ValueShape::Number => number_schema(),
         ValueShape::String => json!({ "type": "string" }),
+        ValueShape::Identifier => json!({
+            "oneOf": [
+                { "type": "string" },
+                tagged_schema("atom")
+            ]
+        }),
         ValueShape::Atom { values } => enum_atom_schema(
             &values
                 .iter()
@@ -321,8 +327,21 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
             ]
         }),
         ValueShape::SqlQuery => tagged_schema("query"),
+        ValueShape::ChannelConfig => tagged_schema("block"),
+        ValueShape::PatternChannel => json!({
+            "oneOf": [
+                tagged_schema("pattern"),
+                value_shape_schema(&ValueShape::SqlExpression)
+            ]
+        }),
         ValueShape::CoordinationScope => sharing_schema(),
         ValueShape::RasterDimension => tagged_schema("dim"),
+        ValueShape::RasterDimensionChannel => json!({
+            "oneOf": [
+                tagged_schema("dim"),
+                tagged_schema("block")
+            ]
+        }),
         ValueShape::ScalarBinding => binding_schema("param"),
         ValueShape::TableBinding => binding_schema("store"),
         ValueShape::TypedReference { namespaces } => {
@@ -359,6 +378,10 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         ValueShape::Map(inner) => json!({
             "type": "object",
             "additionalProperties": value_shape_schema(inner)
+        }),
+        ValueShape::ChannelMap => json!({
+            "type": "object",
+            "additionalProperties": value_shape_schema(&ValueShape::SqlExpression)
         }),
         ValueShape::Object(fields) => object_value_schema(fields),
         ValueShape::Any => value_ref(),

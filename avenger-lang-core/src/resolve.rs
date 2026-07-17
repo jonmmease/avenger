@@ -3332,6 +3332,16 @@ impl<'a> Resolver<'a> {
                         self.validate_value_shape(value, inner, property, span);
                     }
                 }
+                (ResolvedValue::Object { properties, .. }, ValueShape::ChannelMap) => {
+                    for value in properties.values() {
+                        self.validate_value_shape(
+                            value,
+                            &ValueShape::SqlExpression,
+                            property,
+                            span,
+                        );
+                    }
+                }
                 (value, ValueShape::Union(shapes)) => {
                     if let Some(shape) = shapes
                         .iter()
@@ -3435,6 +3445,25 @@ impl<'a> Resolver<'a> {
                         if let Some(value) = properties.get_mut(name.as_str()) {
                             self.normalize_definition_arguments(
                                 scope, source, value, inner, span, in_event, owner,
+                            );
+                        }
+                    }
+                }
+            }
+            ValueShape::ChannelMap => {
+                if let (Value::Block { body, .. }, ResolvedValue::Object { properties, .. }) =
+                    (source, resolved)
+                {
+                    for (name, source) in body.props.iter() {
+                        if let Some(value) = properties.get_mut(name.as_str()) {
+                            self.normalize_definition_arguments(
+                                scope,
+                                source,
+                                value,
+                                &ValueShape::SqlExpression,
+                                span,
+                                in_event,
+                                owner,
                             );
                         }
                     }
@@ -6494,6 +6523,9 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
         }
         ValueShape::Number => matches!(value, ResolvedValue::Number(_)),
         ValueShape::String => matches!(value, ResolvedValue::String(_)),
+        ValueShape::Identifier => {
+            matches!(value, ResolvedValue::String(_) | ResolvedValue::Atom(_))
+        }
         ValueShape::Atom { values } => {
             matches!(value, ResolvedValue::Atom(value) if values.iter().any(|candidate| candidate.value == *value))
         }
@@ -6509,6 +6541,18 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 )
         }
         ValueShape::SqlQuery => matches!(value, ResolvedValue::Query(_)),
+        ValueShape::ChannelConfig => matches!(
+            value,
+            ResolvedValue::Object {
+                head: None,
+                kind: None,
+                ..
+            }
+        ),
+        ValueShape::PatternChannel => {
+            matches!(value, ResolvedValue::Pattern(_))
+                || value_matches_shape(value, &ValueShape::SqlExpression)
+        }
         ValueShape::CoordinationScope => match value {
             ResolvedValue::Atom(value) => matches!(value.as_str(), "shared" | "free"),
             ResolvedValue::Call { function, args } => {
@@ -6521,6 +6565,15 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             _ => false,
         },
         ValueShape::RasterDimension => matches!(value, ResolvedValue::Dimension(_)),
+        ValueShape::RasterDimensionChannel => match value {
+            ResolvedValue::Dimension(_) => true,
+            ResolvedValue::Object {
+                head: Some(head),
+                kind: None,
+                ..
+            } => matches!(head.as_ref(), ResolvedValue::Dimension(_)),
+            _ => false,
+        },
         ValueShape::ScalarBinding => {
             matches!(
                 value,
@@ -6559,6 +6612,12 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             ResolvedValue::Object { properties, .. } => properties
                 .values()
                 .all(|value| value_matches_shape(value, inner)),
+            _ => false,
+        },
+        ValueShape::ChannelMap => match value {
+            ResolvedValue::Object { properties, .. } => properties
+                .values()
+                .all(|value| value_matches_shape(value, &ValueShape::SqlExpression)),
             _ => false,
         },
         ValueShape::Object(_) => matches!(value, ResolvedValue::Object { .. }),
@@ -6736,11 +6795,15 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::Integer => "integer",
         ValueShape::Number => "number",
         ValueShape::String => "string",
+        ValueShape::Identifier => "identifier",
         ValueShape::Atom { .. } => "enum atom",
         ValueShape::SqlExpression => "SQL expression",
         ValueShape::SqlQuery => "SQL query",
+        ValueShape::ChannelConfig => "configuration-only channel block",
+        ValueShape::PatternChannel => "pattern literal or configured pattern channel",
         ValueShape::CoordinationScope => "coordination scope",
         ValueShape::RasterDimension => "raster dimension",
+        ValueShape::RasterDimensionChannel => "configured raster dimension",
         ValueShape::ScalarBinding => "param binding",
         ValueShape::TableBinding => "store binding",
         ValueShape::TypedReference { .. } => "typed reference",
@@ -6748,6 +6811,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::OneOrMany(_) => "value or array",
         ValueShape::Array(_) => "array",
         ValueShape::Map(_) => "property map",
+        ValueShape::ChannelMap => "configured channel map",
         ValueShape::Object(_) => "object",
         ValueShape::Any => "value",
     }
@@ -6833,6 +6897,20 @@ fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> Res
                 .collect(),
             children: Vec::new(),
         },
+        (serde_json::Value::Object(values), ValueShape::ChannelMap) => ResolvedValue::Object {
+            head: None,
+            kind: None,
+            properties: values
+                .iter()
+                .map(|(name, value)| {
+                    (
+                        name.clone(),
+                        resolved_schema_default(value, &ValueShape::SqlExpression),
+                    )
+                })
+                .collect(),
+            children: Vec::new(),
+        },
         (serde_json::Value::Object(values), ValueShape::Object(fields)) => ResolvedValue::Object {
             head: None,
             kind: None,
@@ -6858,7 +6936,10 @@ fn json_matches_shape(value: &serde_json::Value, shape: &ValueShape) -> bool {
         (serde_json::Value::Bool(_), ValueShape::Boolean) => true,
         (serde_json::Value::Number(value), ValueShape::Integer) => value.is_i64() || value.is_u64(),
         (serde_json::Value::Number(_), ValueShape::Number) => true,
-        (serde_json::Value::String(_), ValueShape::String | ValueShape::Atom { .. }) => true,
+        (
+            serde_json::Value::String(_),
+            ValueShape::String | ValueShape::Identifier | ValueShape::Atom { .. },
+        ) => true,
         (serde_json::Value::Array(values), ValueShape::Array(inner)) => {
             values.iter().all(|value| json_matches_shape(value, inner))
         }
@@ -6866,7 +6947,10 @@ fn json_matches_shape(value: &serde_json::Value, shape: &ValueShape) -> bool {
             values.iter().all(|value| json_matches_shape(value, inner))
         }
         (value, ValueShape::OneOrMany(inner)) => json_matches_shape(value, inner),
-        (serde_json::Value::Object(_), ValueShape::Map(_) | ValueShape::Object(_)) => true,
+        (
+            serde_json::Value::Object(_),
+            ValueShape::Map(_) | ValueShape::ChannelMap | ValueShape::Object(_),
+        ) => true,
         (value, ValueShape::Union(shapes)) => {
             shapes.iter().any(|shape| json_matches_shape(value, shape))
         }

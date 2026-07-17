@@ -491,7 +491,12 @@ impl From<Expr> for PatternChannelValue {
 
 impl From<ChannelExpr> for PatternChannelValue {
     fn from(value: ChannelExpr) -> Self {
-        let channel_value = value.into_channel_value();
+        Self::from(value.into_channel_value())
+    }
+}
+
+impl From<crate::ChannelValue> for PatternChannelValue {
+    fn from(channel_value: crate::ChannelValue) -> Self {
         match channel_value {
             crate::ChannelValue::Scaled {
                 expr,

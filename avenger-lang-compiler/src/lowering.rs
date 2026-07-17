@@ -23,14 +23,16 @@ use avenger_chart::{
     },
 };
 use avenger_chart_core::{
-    DataTransformExecutionContext, DataTransformStage, Param as ChartParam, TimeContext,
+    DataTransformExecutionContext, DataTransformStage, Param as ChartParam, PatternAnchor,
+    PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, StripeDash,
+    StripePatternLayer, TimeContext,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
     ResolvedDeclaration as NativeDeclaration, ResolvedMark, ResolvedMarkGroup, ResolvedPlot,
     ResolvedTransformStage, ResolvedValue as NativeValue,
 };
-use avenger_chart_schema::{NativeKindKey, NativeKindNamespace};
+use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
     DeclarationId, Diagnostic, IntervalUnit, ParamId, PhysicalField, PhysicalType, ResolvedBinding,
     ResolvedDeclaration, ResolvedExpression, ResolvedOutputHandle, ResolvedOutputShape,
@@ -816,32 +818,310 @@ impl<'a> ProjectLowerer<'a> {
         let kind = declaration.kind.clone().ok_or_else(|| {
             lowerer_error(declaration, "native declaration kind was not resolved")
         })?;
+        let key = match namespace {
+            NativeKindNamespace::Mark => {
+                NativeKindKey::mark(declaration.coordinate.as_deref().unwrap_or(""), &kind)
+            }
+            _ => NativeKindKey::new(namespace, &kind),
+        };
+        let schema = self.registry.snapshot().entries.get(&key).ok_or_else(|| {
+            lowerer_error(
+                declaration,
+                format!("native registry has no schema/lowerer pair for {key:?}"),
+            )
+        })?;
         let mut native = NativeDeclaration::new(kind.clone());
         native.source_name.clone_from(&declaration.name);
         for (name, value) in &declaration.properties {
             if is_core_property(&declaration.keyword, name) {
                 continue;
             }
-            let lowered = if namespace == NativeKindNamespace::Mark {
-                self.channel_value(value, data, declaration)?
+            // A mark declaration contains both encoding channels and ordinary
+            // native properties (for example Text.syntax and raster
+            // dimensions). The registry schema, not the `mark` keyword,
+            // decides which lowering path applies.
+            let lowered = if let Some(channel) = schema.channels.get(name) {
+                if channel.shape == ValueShape::PatternChannel {
+                    self.pattern_channel_value(value, data, declaration)?
+                } else {
+                    self.channel_value(value, data, declaration)?
+                }
+            } else if schema
+                .properties
+                .get(name)
+                .is_some_and(|property| property.shape == ValueShape::ChannelMap)
+            {
+                self.channel_map_value(value, data, declaration)?
+            } else if schema
+                .properties
+                .get(name)
+                .is_some_and(|property| property.shape == ValueShape::RasterDimensionChannel)
+            {
+                self.raster_dimension_channel_value(name, value, data, declaration)?
             } else {
                 self.native_value(value, data, declaration)?
             };
             native.properties.insert(name.clone(), lowered);
         }
-        let key = match namespace {
-            NativeKindNamespace::Mark => {
-                NativeKindKey::mark(declaration.coordinate.as_deref().unwrap_or(""), kind)
+        for child in &declaration.children {
+            // Coordinate-owned structural children (for example parallel
+            // dimensions) are consumed directly by the coordinate lowerer.
+            // Transform pipeline children have a dedicated ordered lowering
+            // path below: forwarding them here would resolve output handles
+            // before the preceding child stages have installed those outputs.
+            if namespace == NativeKindNamespace::Coordinate
+                && schema
+                    .child_rules
+                    .iter()
+                    .any(|rule| rule.role == child.keyword)
+            {
+                native.children.push(self.native_owner_child(child, data)?);
             }
-            _ => NativeKindKey::new(namespace, kind),
-        };
-        if !self.registry.snapshot().entries.contains_key(&key) {
-            return Err(lowerer_error(
-                declaration,
-                format!("native registry has no schema/lowerer pair for {key:?}"),
-            ));
         }
         Ok(native)
+    }
+
+    fn native_owner_child(
+        &self,
+        declaration: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+    ) -> Result<NativeDeclaration, Diagnostic> {
+        let mut native = NativeDeclaration::new(declaration.keyword.clone());
+        native.source_name.clone_from(&declaration.name);
+        for (name, value) in &declaration.properties {
+            native
+                .properties
+                .insert(name.clone(), self.native_value(value, data, declaration)?);
+        }
+        native.children = declaration
+            .children
+            .iter()
+            .map(|child| self.native_owner_child(child, data))
+            .collect::<Result<_, _>>()?;
+        Ok(native)
+    }
+
+    fn channel_map_value(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<NativeValue, Diagnostic> {
+        let ResolvedValue::Object { properties, .. } = value else {
+            return Err(lowerer_error(
+                declaration,
+                "configured channel map did not resolve to an object",
+            ));
+        };
+        Ok(NativeValue::Object(
+            properties
+                .iter()
+                .map(|(name, value)| {
+                    Ok((name.clone(), self.channel_value(value, data, declaration)?))
+                })
+                .collect::<Result<_, Diagnostic>>()?,
+        ))
+    }
+
+    fn raster_dimension_channel_value(
+        &self,
+        property: &str,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<NativeValue, Diagnostic> {
+        let (dimension_value, configs) = match value {
+            ResolvedValue::Object {
+                head: Some(head),
+                properties,
+                ..
+            } => (head.as_ref(), Some(properties)),
+            _ => (value, None),
+        };
+        let NativeValue::Output(NativeOutputValue::RasterDim(dimension)) =
+            self.native_value(dimension_value, data, declaration)?
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "configured raster channel requires a raster dimension handle",
+            ));
+        };
+        // Categorical overlay dimensions use an explicitly typed null seed so
+        // scale inference chooses ordinal without adding a placeholder domain
+        // value. Position dimensions use the same numeric seed as the native
+        // RasterPositionConfig builder.
+        let mut channel = if property == "fill_by" {
+            ChannelValue::from(lit(ScalarValue::Utf8(None)))
+        } else {
+            ChannelValue::from(lit(0.0_f64)).with_scale_name(property)
+        };
+        if let Some(configs) = configs {
+            channel = self.apply_channel_configs(channel, configs, data, declaration)?;
+        }
+        Ok(NativeValue::RasterDimensionChannel {
+            dimension,
+            channel: Box::new(channel),
+        })
+    }
+
+    fn pattern_channel_value(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<NativeValue, Diagnostic> {
+        if let ResolvedValue::Pattern(value) = value {
+            return Ok(NativeValue::Pattern(PatternChannelValue::value(Some(
+                self.pattern_fill(value, declaration)?,
+            ))));
+        }
+        let NativeValue::Channel(channel) = self.channel_value(value, data, declaration)? else {
+            unreachable!("channel lowering always returns a channel")
+        };
+        Ok(NativeValue::Pattern((*channel).into()))
+    }
+
+    fn pattern_fill(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<PatternFill, Diagnostic> {
+        let ResolvedValue::Object {
+            properties,
+            children,
+            ..
+        } = value
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "pattern literal requires a property block",
+            ));
+        };
+        let anchor = match properties.get("anchor").and_then(resolved_atom) {
+            None | Some("plot") => PatternAnchor::Plot,
+            Some("mark") => PatternAnchor::Mark,
+            Some("chart") => PatternAnchor::Chart,
+            Some(value) => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("unsupported pattern anchor `{value}`"),
+                ));
+            }
+        };
+        let ink = match properties.get("ink") {
+            None => PatternInk::default(),
+            Some(ResolvedValue::Object {
+                kind: Some(kind),
+                properties,
+                ..
+            }) if kind == "auto_contrast" => PatternInk::AutoContrast {
+                opacity: resolved_f32(properties.get("opacity"), 0.18, declaration, "ink.opacity")?,
+            },
+            Some(ResolvedValue::Object {
+                kind: Some(kind),
+                properties,
+                ..
+            }) if kind == "solid" => {
+                let color = properties
+                    .get("color")
+                    .and_then(resolved_string)
+                    .ok_or_else(|| {
+                        lowerer_error(declaration, "solid pattern ink requires `color`")
+                    })?;
+                PatternInk::Solid {
+                    color: avenger_color::parse_color_string_strict(color).map_err(|error| {
+                        lowerer_error(declaration, format!("invalid pattern ink color: {error}"))
+                    })?,
+                    opacity: resolved_f32(
+                        properties.get("opacity"),
+                        0.18,
+                        declaration,
+                        "ink.opacity",
+                    )?,
+                }
+            }
+            Some(_) => {
+                return Err(lowerer_error(
+                    declaration,
+                    "pattern ink must be `auto_contrast { ... }` or `solid { ... }`",
+                ));
+            }
+        };
+        let mut layers = Vec::new();
+        for layer in children {
+            if layer.keyword != "layer" {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("unsupported pattern child `{}`", layer.keyword),
+                ));
+            }
+            match layer.kind.as_deref() {
+                Some("stripe") => {
+                    let angle = required_resolved_f32(layer, "angle", declaration)?;
+                    let spacing =
+                        required_resolved_f32_alias(layer, "spacing_px", "spacing", declaration)?;
+                    let stroke_width = optional_resolved_f32_alias(
+                        layer,
+                        "stroke_width_px",
+                        "stroke_width",
+                        1.0,
+                        declaration,
+                    )?;
+                    let mut stripe = StripePatternLayer::new(angle, spacing, stroke_width);
+                    stripe.phase =
+                        optional_resolved_f32_alias(layer, "phase_px", "phase", 0.0, declaration)?;
+                    stripe.operation =
+                        pattern_operation(layer.properties.get("operation"), declaration)?;
+                    if let Some(ResolvedValue::Object { properties, .. }) =
+                        layer.properties.get("dash")
+                    {
+                        stripe.dash = Some(StripeDash {
+                            length: resolved_f32(
+                                properties
+                                    .get("length_px")
+                                    .or_else(|| properties.get("length")),
+                                f32::NAN,
+                                declaration,
+                                "dash.length_px",
+                            )?,
+                            gap: resolved_f32(
+                                properties.get("gap_px").or_else(|| properties.get("gap")),
+                                f32::NAN,
+                                declaration,
+                                "dash.gap_px",
+                            )?,
+                            phase: resolved_f32(
+                                properties
+                                    .get("phase_px")
+                                    .or_else(|| properties.get("phase")),
+                                0.0,
+                                declaration,
+                                "dash.phase_px",
+                            )?,
+                        });
+                    }
+                    layers.push(PatternLayer::Stripe(stripe));
+                }
+                Some(kind) => {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("unsupported pattern layer `{kind}`"),
+                    ));
+                }
+                None => {
+                    return Err(lowerer_error(declaration, "pattern layer requires a kind"));
+                }
+            }
+        }
+        let pattern = PatternFill {
+            anchor,
+            ink,
+            layers,
+        };
+        pattern
+            .validate()
+            .map_err(|error| lowerer_error(declaration, format!("{error:?}")))?;
+        Ok(pattern)
     }
 
     fn native_value(
@@ -944,25 +1224,17 @@ impl<'a> ProjectLowerer<'a> {
     ) -> Result<NativeValue, Diagnostic> {
         let mut channel = match value {
             ResolvedValue::Object {
-                head: Some(head),
-                properties,
-                ..
+                head, properties, ..
             } => {
-                let mut channel = self.raw_channel_value(head, data, declaration)?;
-                for (name, config) in properties {
-                    channel = match name.as_str() {
-                        "scale" => self.apply_scale(channel, config, data, declaration)?,
-                        "axis" => self.apply_axis(channel, config, data, declaration)?,
-                        "legend" => self.apply_legend(channel, config, data, declaration)?,
-                        other => {
-                            return Err(lowerer_error(
-                                declaration,
-                                format!("unsupported channel configuration `{other}`"),
-                            ));
-                        }
-                    };
-                }
-                channel
+                // Configuration-only channels (for example a raster's
+                // opacity-by-total scale) intentionally omit a data head. A
+                // scaled numeric seed asks the native owner/runtime to supply
+                // the real values while retaining ordinary scale metadata.
+                let channel = match head {
+                    Some(head) => self.raw_channel_value(head, data, declaration)?,
+                    None => ChannelValue::from(lit(1.0_f64)),
+                };
+                self.apply_channel_configs(channel, properties, data, declaration)?
             }
             _ => self.raw_channel_value(value, data, declaration)?,
         };
@@ -970,6 +1242,29 @@ impl<'a> ProjectLowerer<'a> {
             channel = channel.no_scale();
         }
         Ok(NativeValue::Channel(Box::new(channel)))
+    }
+
+    fn apply_channel_configs(
+        &self,
+        mut channel: ChannelValue,
+        properties: &std::collections::BTreeMap<String, ResolvedValue>,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ChannelValue, Diagnostic> {
+        for (name, config) in properties {
+            channel = match name.as_str() {
+                "scale" => self.apply_scale(channel, config, data, declaration)?,
+                "axis" => self.apply_axis(channel, config, data, declaration)?,
+                "legend" => self.apply_legend(channel, config, data, declaration)?,
+                other => {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("unsupported channel configuration `{other}`"),
+                    ));
+                }
+            };
+        }
+        Ok(channel)
     }
 
     fn raw_channel_value(
@@ -1638,6 +1933,108 @@ fn compiled_widget_part_id(
 
 fn belongs_to_chart(ancestry: &[DeclarationId], chart: &DeclarationId) -> bool {
     ancestry.iter().any(|ancestor| ancestor == chart)
+}
+
+fn resolved_atom(value: &ResolvedValue) -> Option<&str> {
+    match value {
+        ResolvedValue::Atom(value) | ResolvedValue::String(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn resolved_string(value: &ResolvedValue) -> Option<&str> {
+    match value {
+        ResolvedValue::String(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn resolved_f32(
+    value: Option<&ResolvedValue>,
+    default: f32,
+    declaration: &ResolvedDeclaration,
+    property: &str,
+) -> Result<f32, Diagnostic> {
+    match value {
+        Some(ResolvedValue::Number(value)) => value.parse::<f32>().map_err(|_| {
+            lowerer_error(
+                declaration,
+                format!("pattern property `{property}` must be a finite number"),
+            )
+        }),
+        None if !default.is_nan() => Ok(default),
+        None => Err(lowerer_error(
+            declaration,
+            format!("pattern property `{property}` is required"),
+        )),
+        Some(_) => Err(lowerer_error(
+            declaration,
+            format!("pattern property `{property}` must be a number"),
+        )),
+    }
+}
+
+fn required_resolved_f32(
+    declaration_value: &ResolvedDeclaration,
+    property: &str,
+    owner: &ResolvedDeclaration,
+) -> Result<f32, Diagnostic> {
+    resolved_f32(
+        declaration_value.properties.get(property),
+        f32::NAN,
+        owner,
+        property,
+    )
+}
+
+fn required_resolved_f32_alias(
+    declaration_value: &ResolvedDeclaration,
+    preferred: &str,
+    fallback: &str,
+    owner: &ResolvedDeclaration,
+) -> Result<f32, Diagnostic> {
+    resolved_f32(
+        declaration_value
+            .properties
+            .get(preferred)
+            .or_else(|| declaration_value.properties.get(fallback)),
+        f32::NAN,
+        owner,
+        preferred,
+    )
+}
+
+fn optional_resolved_f32_alias(
+    declaration_value: &ResolvedDeclaration,
+    preferred: &str,
+    fallback: &str,
+    default: f32,
+    owner: &ResolvedDeclaration,
+) -> Result<f32, Diagnostic> {
+    resolved_f32(
+        declaration_value
+            .properties
+            .get(preferred)
+            .or_else(|| declaration_value.properties.get(fallback)),
+        default,
+        owner,
+        preferred,
+    )
+}
+
+fn pattern_operation(
+    value: Option<&ResolvedValue>,
+    declaration: &ResolvedDeclaration,
+) -> Result<PatternLayerOperation, Diagnostic> {
+    match value.and_then(resolved_atom) {
+        None | Some("add") => Ok(PatternLayerOperation::Add),
+        Some("subtract") => Ok(PatternLayerOperation::Subtract),
+        Some("xor") => Ok(PatternLayerOperation::Xor),
+        Some(value) => Err(lowerer_error(
+            declaration,
+            format!("unsupported pattern operation `{value}`"),
+        )),
+    }
 }
 
 fn is_core_property(keyword: &str, name: &str) -> bool {

@@ -9,6 +9,7 @@ description = "Chart-aware compiler for the Avenger chart language"
 async-trait = { workspace = true }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-color = { path = "../avenger-color" }
 avenger-chart-lang-registry = { path = "../avenger-chart-lang-registry" }
 avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-lang-core = { path = "../avenger-lang-core" }

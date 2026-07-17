@@ -10,7 +10,8 @@ use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart_core::{
     ChannelExpr, ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem,
-    DataTransformCompileContext, DataTransformStage, Param, PlotMark, RasterDim, WidgetAttachment,
+    DataTransformCompileContext, DataTransformStage, Param, PatternChannelValue, PlotMark,
+    RasterDim, WidgetAttachment,
 };
 use avenger_chart_schema::KindSchema;
 use datafusion::{
@@ -35,6 +36,11 @@ pub enum ResolvedValue {
     Object(IndexMap<String, ResolvedValue>),
     DataFrame(Box<DataFrame>),
     Param(Param),
+    Pattern(PatternChannelValue),
+    RasterDimensionChannel {
+        dimension: RasterDim,
+        channel: Box<ChannelValue>,
+    },
     Output(NativeOutputValue),
 }
 
@@ -53,6 +59,11 @@ impl fmt::Debug for ResolvedValue {
             Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
             Self::DataFrame(_) => f.write_str("DataFrame(..)"),
             Self::Param(value) => f.debug_tuple("Param").field(&value.name).finish(),
+            Self::Pattern(value) => f.debug_tuple("Pattern").field(value).finish(),
+            Self::RasterDimensionChannel { dimension, .. } => f
+                .debug_tuple("RasterDimensionChannel")
+                .field(dimension)
+                .finish(),
             Self::Output(value) => f.debug_tuple("Output").field(value).finish(),
         }
     }
@@ -66,6 +77,10 @@ pub struct ResolvedDeclaration {
     /// can preserve identity without inventing a kind-specific `id` field.
     pub source_name: Option<String>,
     pub properties: IndexMap<String, ResolvedValue>,
+    /// Ordered schema-owned child declarations. Core containers remain in the
+    /// compiler IR; native owners receive only children declared by their
+    /// `KindSchema` child rules.
+    pub children: Vec<ResolvedDeclaration>,
 }
 
 impl ResolvedDeclaration {
@@ -74,6 +89,7 @@ impl ResolvedDeclaration {
             kind: kind.into(),
             source_name: None,
             properties: IndexMap::new(),
+            children: Vec::new(),
         }
     }
 
@@ -84,6 +100,11 @@ impl ResolvedDeclaration {
 
     pub fn property(mut self, name: impl Into<String>, value: ResolvedValue) -> Self {
         self.properties.insert(name.into(), value);
+        self
+    }
+
+    pub fn child(mut self, child: ResolvedDeclaration) -> Self {
+        self.children.push(child);
         self
     }
 

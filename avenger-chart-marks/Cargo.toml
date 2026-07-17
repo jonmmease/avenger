@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-lang-types = { path = "../avenger-chart-lang-types" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-image = { path = "../avenger-image", default-features = false }

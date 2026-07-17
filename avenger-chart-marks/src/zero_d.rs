@@ -20,7 +20,11 @@ use avenger_scenegraph::marks::{
 use datafusion::{arrow::array::RecordBatch, common::ScalarValue, prelude::SessionContext};
 use serde::{Deserialize, Serialize};
 
-use crate::symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
+use crate::{
+    compiled::CompiledText,
+    symbol::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind},
+    text::Text,
+};
 
 // Implement Mark trait for ZeroDCoord Symbol
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -36,6 +40,24 @@ impl Mark<ZeroDCoord> for Symbol<ZeroDCoord> {
         Ok(Arc::new(CompiledZeroDSymbol {
             state: compiled_state,
         }))
+    }
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl Mark<ZeroDCoord> for Text<ZeroDCoord> {
+    impl_mark_trait_common!(Text);
+
+    async fn compile(
+        &self,
+        compiled_state: CompiledMarkState,
+        _session_context: &SessionContext,
+    ) -> Result<Arc<dyn CompiledMark>, AvengerChartError> {
+        Ok(Arc::new(CompiledText::new(
+            compiled_state,
+            self.mark_effects().clone(),
+            self.text_syntax_mode(),
+        )))
     }
 }
 

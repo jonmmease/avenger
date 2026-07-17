@@ -3458,7 +3458,7 @@ chart geo as taxi_density {
       legend: { title: 'Passengers'; }
     }
 
-    opacity_by_total: pixels.total {
+    opacity_by_total: {
       scale: linear { range: [0.15, 1.0]; }
     }
   }

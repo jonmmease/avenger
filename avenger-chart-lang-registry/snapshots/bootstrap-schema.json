@@ -31,20 +31,276 @@
     },
     {
       "key": {
+        "namespace": "coordinate",
+        "kind": "geo"
+      },
+      "docs": "A geographic map projection with an optional authored viewport.",
+      "properties": {
+        "center_lon_lat": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "number"
+            }
+          },
+          "required": false,
+          "docs": "Viewport center as `[longitude, latitude]` in degrees."
+        },
+        "precision": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Adaptive projection resampling precision in pixels; zero disables it."
+        },
+        "projection": {
+          "shape": {
+            "shape": "union",
+            "detail": [
+              {
+                "shape": "atom",
+                "detail": {
+                  "values": [
+                    {
+                      "value": "equal_earth",
+                      "docs": "Equal Earth projection."
+                    },
+                    {
+                      "value": "natural_earth",
+                      "docs": "Natural Earth I projection."
+                    },
+                    {
+                      "value": "winkel_tripel",
+                      "docs": "Winkel Tripel projection."
+                    },
+                    {
+                      "value": "equirectangular",
+                      "docs": "Equirectangular projection."
+                    },
+                    {
+                      "value": "mercator",
+                      "docs": "Web Mercator-compatible projection."
+                    },
+                    {
+                      "value": "albers",
+                      "docs": "CONUS Albers equal-area projection."
+                    }
+                  ]
+                }
+              },
+              {
+                "shape": "object",
+                "detail": {
+                  "kind": {
+                    "shape": {
+                      "shape": "atom",
+                      "detail": {
+                        "values": [
+                          {
+                            "value": "conic_equal_area",
+                            "docs": "Conic equal-area projection."
+                          },
+                          {
+                            "value": "conic_conformal",
+                            "docs": "Conic conformal projection."
+                          },
+                          {
+                            "value": "identity",
+                            "docs": "Planar identity projection."
+                          }
+                        ]
+                      }
+                    },
+                    "required": true,
+                    "docs": "Structured projection kind."
+                  },
+                  "parallels": {
+                    "shape": {
+                      "shape": "array",
+                      "detail": {
+                        "shape": "number"
+                      }
+                    },
+                    "required": false,
+                    "docs": "Two standard parallels in degrees for conic projections."
+                  },
+                  "reflect_y": {
+                    "shape": {
+                      "shape": "boolean"
+                    },
+                    "required": false,
+                    "docs": "Flip planar y for identity-projected GIS coordinates."
+                  }
+                }
+              }
+            ]
+          },
+          "required": false,
+          "docs": "Map projection; defaults to Equal Earth."
+        },
+        "rotate": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "number"
+            }
+          },
+          "required": false,
+          "docs": "Three-axis spherical rotation in degrees."
+        },
+        "viewport_id": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Runtime viewport state id prefix."
+        },
+        "zoom": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Initial slippy-style zoom level."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "parallel"
+      },
+      "docs": "A wide-form parallel-coordinate frame with user-named dimensions.",
+      "properties": {
+        "order": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Static left-to-right dimension order; undeclared dimensions follow declaration order."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "dimension",
+          "min": 1,
+          "docs": "A stable frame dimension id with optional axis configuration."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "polar"
+      },
+      "docs": "A radial and angular two-dimensional coordinate system.",
+      "properties": {},
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "treemap"
+      },
+      "docs": "A hierarchical treemap layout coordinate system.",
+      "properties": {
+        "display_levels": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Maximum number of hierarchy levels displayed below the current root."
+        },
+        "path": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": true,
+          "docs": "Ordered hierarchy-level expressions from root to leaf."
+        },
+        "root_path_id": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Initial visible hierarchy root path id."
+        },
+        "value": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Non-negative leaf weight expression used for area allocation."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "zerod"
+      },
+      "docs": "A zero-dimensional coordinate system that places marks at the plot center.",
+      "properties": {},
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
         "namespace": "mark",
-        "kind": "symbol",
+        "kind": "area",
         "coordinate": "cartesian"
       },
-      "docs": "A point symbol positioned in Cartesian coordinates.",
+      "docs": "A filled Cartesian area mark.",
       "properties": {},
       "channels": {
-        "angle": {
-          "name": "angle",
+        "defined": {
+          "name": "defined",
           "required": false,
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `angle` encoding expression."
+          "docs": "The `defined` encoding channel."
         },
         "fill": {
           "name": "fill",
@@ -52,15 +308,15 @@
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `fill` encoding expression."
+          "docs": "The `fill` encoding channel."
         },
         "fill_pattern": {
           "name": "fill_pattern",
           "required": false,
           "shape": {
-            "shape": "sql_expression"
+            "shape": "pattern_channel"
           },
-          "docs": "The symbol `fill_pattern` encoding expression."
+          "docs": "The `fill_pattern` encoding channel."
         },
         "opacity": {
           "name": "opacity",
@@ -68,23 +324,23 @@
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `opacity` encoding expression."
+          "docs": "The `opacity` encoding channel."
         },
-        "shape": {
-          "name": "shape",
+        "order": {
+          "name": "order",
           "required": false,
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `shape` encoding expression."
+          "docs": "The `order` encoding channel."
         },
-        "size": {
-          "name": "size",
+        "orientation": {
+          "name": "orientation",
           "required": false,
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `size` encoding expression."
+          "docs": "The `orientation` encoding channel."
         },
         "stroke": {
           "name": "stroke",
@@ -92,7 +348,31 @@
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `stroke` encoding expression."
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_dash` encoding channel."
+        },
+        "stroke_join": {
+          "name": "stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_join` encoding channel."
         },
         "stroke_width": {
           "name": "stroke_width",
@@ -100,23 +380,39 @@
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `stroke_width` encoding expression."
+          "docs": "The `stroke_width` encoding channel."
         },
         "x": {
           "name": "x",
-          "required": true,
+          "required": false,
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `x` encoding expression."
+          "docs": "The `x` encoding channel."
+        },
+        "x2": {
+          "name": "x2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x2` encoding channel."
         },
         "y": {
           "name": "y",
-          "required": true,
+          "required": false,
           "shape": {
             "shape": "sql_expression"
           },
-          "docs": "The symbol `y` encoding expression."
+          "docs": "The `y` encoding channel."
+        },
+        "y2": {
+          "name": "y2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y2` encoding channel."
         }
       },
       "parts": {},
@@ -130,7 +426,2932 @@
           "role": "view",
           "min": 0,
           "max": 1,
-          "docs": "Optional inline view scope owned by this mark."
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "geo_shape",
+        "coordinate": "geo"
+      },
+      "docs": "A GeoJSON or WKB geometry projected through the geo coordinate system.",
+      "properties": {},
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "geometry": {
+          "name": "geometry",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `geometry` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "x2": {
+          "name": "x2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x2` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        },
+        "y2": {
+          "name": "y2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y2` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "image",
+        "coordinate": "cartesian"
+      },
+      "docs": "An image positioned in Cartesian coordinates.",
+      "properties": {},
+      "channels": {
+        "align": {
+          "name": "align",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `align` encoding channel."
+        },
+        "aspect": {
+          "name": "aspect",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `aspect` encoding channel."
+        },
+        "baseline": {
+          "name": "baseline",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `baseline` encoding channel."
+        },
+        "height": {
+          "name": "height",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `height` encoding channel."
+        },
+        "image": {
+          "name": "image",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `image` encoding channel."
+        },
+        "smooth": {
+          "name": "smooth",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `smooth` encoding channel."
+        },
+        "width": {
+          "name": "width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "line",
+        "coordinate": "cartesian"
+      },
+      "docs": "A Cartesian line mark.",
+      "properties": {},
+      "channels": {
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "order": {
+          "name": "order",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `order` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_dash` encoding channel."
+        },
+        "stroke_join": {
+          "name": "stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_join` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "line",
+        "coordinate": "geo"
+      },
+      "docs": "A projected line with planar or longitude/latitude positions.",
+      "properties": {},
+      "channels": {
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "lat": {
+          "name": "lat",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `lat` encoding channel."
+        },
+        "lon": {
+          "name": "lon",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `lon` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "order": {
+          "name": "order",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `order` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_dash` encoding channel."
+        },
+        "stroke_join": {
+          "name": "stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_join` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "line",
+        "coordinate": "polar"
+      },
+      "docs": "A line in radial and angular coordinates.",
+      "properties": {},
+      "channels": {
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "order": {
+          "name": "order",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `order` encoding channel."
+        },
+        "r": {
+          "name": "r",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `r` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_dash` encoding channel."
+        },
+        "stroke_join": {
+          "name": "stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_join` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "theta": {
+          "name": "theta",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `theta` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "parallel_line",
+        "coordinate": "parallel"
+      },
+      "docs": "A wide-form polyline spanning the declared parallel dimensions.",
+      "properties": {
+        "dimensions": {
+          "shape": {
+            "shape": "channel_map"
+          },
+          "required": true,
+          "docs": "User-named dimension ids mapped to configured encoding channels."
+        }
+      },
+      "channels": {
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_dash` encoding channel."
+        },
+        "stroke_join": {
+          "name": "stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_join` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "parallel_symbol",
+        "coordinate": "parallel"
+      },
+      "docs": "A symbol at every row and parallel-dimension intersection.",
+      "properties": {
+        "dimensions": {
+          "shape": {
+            "shape": "channel_map"
+          },
+          "required": true,
+          "docs": "User-named dimension ids mapped to configured encoding channels."
+        }
+      },
+      "channels": {
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "shape": {
+          "name": "shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `shape` encoding channel."
+        },
+        "size": {
+          "name": "size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `size` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "path",
+        "coordinate": "cartesian"
+      },
+      "docs": "An arbitrary Cartesian path mark.",
+      "properties": {},
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "fill_pattern": {
+          "name": "fill_pattern",
+          "required": false,
+          "shape": {
+            "shape": "pattern_channel"
+          },
+          "docs": "The `fill_pattern` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "path": {
+          "name": "path",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `path` encoding channel."
+        },
+        "path_transform": {
+          "name": "path_transform",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `path_transform` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_join": {
+          "name": "stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_join` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "rect",
+        "coordinate": "cartesian"
+      },
+      "docs": "A Cartesian rectangle mark.",
+      "properties": {},
+      "channels": {
+        "corner_radius": {
+          "name": "corner_radius",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `corner_radius` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "fill_pattern": {
+          "name": "fill_pattern",
+          "required": false,
+          "shape": {
+            "shape": "pattern_channel"
+          },
+          "docs": "The `fill_pattern` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "x2": {
+          "name": "x2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x2` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        },
+        "y2": {
+          "name": "y2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y2` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "rect",
+        "coordinate": "geo"
+      },
+      "docs": "A rectangle in projected geo plot coordinates.",
+      "properties": {},
+      "channels": {
+        "corner_radius": {
+          "name": "corner_radius",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `corner_radius` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "fill_pattern": {
+          "name": "fill_pattern",
+          "required": false,
+          "shape": {
+            "shape": "pattern_channel"
+          },
+          "docs": "The `fill_pattern` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "x2": {
+          "name": "x2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x2` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        },
+        "y2": {
+          "name": "y2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y2` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "rule",
+        "coordinate": "cartesian"
+      },
+      "docs": "A Cartesian rule mark.",
+      "properties": {},
+      "channels": {
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_cap": {
+          "name": "stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_cap` encoding channel."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_dash` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "x2": {
+          "name": "x2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x2` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        },
+        "y2": {
+          "name": "y2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y2` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "symbol",
+        "coordinate": "cartesian"
+      },
+      "docs": "A point symbol in Cartesian coordinates.",
+      "properties": {},
+      "channels": {
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "fill_pattern": {
+          "name": "fill_pattern",
+          "required": false,
+          "shape": {
+            "shape": "pattern_channel"
+          },
+          "docs": "The `fill_pattern` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "shape": {
+          "name": "shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `shape` encoding channel."
+        },
+        "size": {
+          "name": "size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `size` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "symbol",
+        "coordinate": "geo"
+      },
+      "docs": "A symbol positioned by projected x/y or geographic lon/lat channels.",
+      "properties": {
+        "lon_lat": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Convenience pair `[longitude, latitude]`; do not also author `lon` or `lat`."
+        }
+      },
+      "channels": {
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "fill_pattern": {
+          "name": "fill_pattern",
+          "required": false,
+          "shape": {
+            "shape": "pattern_channel"
+          },
+          "docs": "The `fill_pattern` encoding channel."
+        },
+        "lat": {
+          "name": "lat",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `lat` encoding channel."
+        },
+        "lon": {
+          "name": "lon",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `lon` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "shape": {
+          "name": "shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `shape` encoding channel."
+        },
+        "size": {
+          "name": "size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `size` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "symbol",
+        "coordinate": "polar"
+      },
+      "docs": "A point symbol in radial and angular coordinates.",
+      "properties": {},
+      "channels": {
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "r": {
+          "name": "r",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `r` encoding channel."
+        },
+        "shape": {
+          "name": "shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `shape` encoding channel."
+        },
+        "size": {
+          "name": "size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `size` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "theta": {
+          "name": "theta",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `theta` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "symbol",
+        "coordinate": "zerod"
+      },
+      "docs": "A non-spatial symbol placed at the plot center.",
+      "properties": {},
+      "channels": {
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "shape": {
+          "name": "shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `shape` encoding channel."
+        },
+        "size": {
+          "name": "size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `size` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "text",
+        "coordinate": "cartesian"
+      },
+      "docs": "Text positioned in Cartesian coordinates.",
+      "properties": {
+        "syntax": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "plain",
+                  "docs": "Render the text literally."
+                },
+                {
+                  "value": "typst",
+                  "docs": "Render the text as Typst markup."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Text syntax mode; defaults to `plain`."
+        }
+      },
+      "channels": {
+        "align": {
+          "name": "align",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `align` encoding channel."
+        },
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "baseline": {
+          "name": "baseline",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `baseline` encoding channel."
+        },
+        "color": {
+          "name": "color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `color` encoding channel."
+        },
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "font": {
+          "name": "font",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font` encoding channel."
+        },
+        "font_size": {
+          "name": "font_size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_size` encoding channel."
+        },
+        "font_style": {
+          "name": "font_style",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_style` encoding channel."
+        },
+        "font_weight": {
+          "name": "font_weight",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_weight` encoding channel."
+        },
+        "leader": {
+          "name": "leader",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader` encoding channel."
+        },
+        "leader_arrow": {
+          "name": "leader_arrow",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_arrow` encoding channel."
+        },
+        "leader_arrow_length": {
+          "name": "leader_arrow_length",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_arrow_length` encoding channel."
+        },
+        "leader_arrow_width": {
+          "name": "leader_arrow_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_arrow_width` encoding channel."
+        },
+        "leader_label_padding": {
+          "name": "leader_label_padding",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_label_padding` encoding channel."
+        },
+        "leader_min_length": {
+          "name": "leader_min_length",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_min_length` encoding channel."
+        },
+        "leader_offset_x": {
+          "name": "leader_offset_x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_offset_x` encoding channel."
+        },
+        "leader_offset_y": {
+          "name": "leader_offset_y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_offset_y` encoding channel."
+        },
+        "leader_shape": {
+          "name": "leader_shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_shape` encoding channel."
+        },
+        "leader_stroke": {
+          "name": "leader_stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke` encoding channel."
+        },
+        "leader_stroke_cap": {
+          "name": "leader_stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_cap` encoding channel."
+        },
+        "leader_stroke_dash": {
+          "name": "leader_stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_dash` encoding channel."
+        },
+        "leader_stroke_join": {
+          "name": "leader_stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_join` encoding channel."
+        },
+        "leader_stroke_width": {
+          "name": "leader_stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_width` encoding channel."
+        },
+        "leader_target_radius": {
+          "name": "leader_target_radius",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_target_radius` encoding channel."
+        },
+        "limit": {
+          "name": "limit",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `limit` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "text": {
+          "name": "text",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `text` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "text",
+        "coordinate": "polar"
+      },
+      "docs": "Text positioned in radial and angular coordinates.",
+      "properties": {
+        "syntax": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "plain",
+                  "docs": "Render the text literally."
+                },
+                {
+                  "value": "typst",
+                  "docs": "Render the text as Typst markup."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Text syntax mode; defaults to `plain`."
+        }
+      },
+      "channels": {
+        "align": {
+          "name": "align",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `align` encoding channel."
+        },
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "baseline": {
+          "name": "baseline",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `baseline` encoding channel."
+        },
+        "color": {
+          "name": "color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `color` encoding channel."
+        },
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "font": {
+          "name": "font",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font` encoding channel."
+        },
+        "font_size": {
+          "name": "font_size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_size` encoding channel."
+        },
+        "font_style": {
+          "name": "font_style",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_style` encoding channel."
+        },
+        "font_weight": {
+          "name": "font_weight",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_weight` encoding channel."
+        },
+        "leader": {
+          "name": "leader",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader` encoding channel."
+        },
+        "leader_arrow": {
+          "name": "leader_arrow",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_arrow` encoding channel."
+        },
+        "leader_arrow_length": {
+          "name": "leader_arrow_length",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_arrow_length` encoding channel."
+        },
+        "leader_arrow_width": {
+          "name": "leader_arrow_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_arrow_width` encoding channel."
+        },
+        "leader_label_padding": {
+          "name": "leader_label_padding",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_label_padding` encoding channel."
+        },
+        "leader_min_length": {
+          "name": "leader_min_length",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_min_length` encoding channel."
+        },
+        "leader_offset_x": {
+          "name": "leader_offset_x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_offset_x` encoding channel."
+        },
+        "leader_offset_y": {
+          "name": "leader_offset_y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_offset_y` encoding channel."
+        },
+        "leader_shape": {
+          "name": "leader_shape",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_shape` encoding channel."
+        },
+        "leader_stroke": {
+          "name": "leader_stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke` encoding channel."
+        },
+        "leader_stroke_cap": {
+          "name": "leader_stroke_cap",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_cap` encoding channel."
+        },
+        "leader_stroke_dash": {
+          "name": "leader_stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_dash` encoding channel."
+        },
+        "leader_stroke_join": {
+          "name": "leader_stroke_join",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_join` encoding channel."
+        },
+        "leader_stroke_width": {
+          "name": "leader_stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_stroke_width` encoding channel."
+        },
+        "leader_target_radius": {
+          "name": "leader_target_radius",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `leader_target_radius` encoding channel."
+        },
+        "limit": {
+          "name": "limit",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `limit` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "r": {
+          "name": "r",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `r` encoding channel."
+        },
+        "text": {
+          "name": "text",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `text` encoding channel."
+        },
+        "theta": {
+          "name": "theta",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `theta` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "text",
+        "coordinate": "zerod"
+      },
+      "docs": "Text placed at the plot center.",
+      "properties": {
+        "syntax": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "plain",
+                  "docs": "Render the text literally."
+                },
+                {
+                  "value": "typst",
+                  "docs": "Render the text as Typst markup."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Text syntax mode; defaults to `plain`."
+        }
+      },
+      "channels": {
+        "align": {
+          "name": "align",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `align` encoding channel."
+        },
+        "angle": {
+          "name": "angle",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `angle` encoding channel."
+        },
+        "baseline": {
+          "name": "baseline",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `baseline` encoding channel."
+        },
+        "color": {
+          "name": "color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `color` encoding channel."
+        },
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "font": {
+          "name": "font",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font` encoding channel."
+        },
+        "font_size": {
+          "name": "font_size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_size` encoding channel."
+        },
+        "font_style": {
+          "name": "font_style",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_style` encoding channel."
+        },
+        "font_weight": {
+          "name": "font_weight",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_weight` encoding channel."
+        },
+        "limit": {
+          "name": "limit",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `limit` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "text": {
+          "name": "text",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `text` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "trail",
+        "coordinate": "cartesian"
+      },
+      "docs": "A variable-width Cartesian trail mark.",
+      "properties": {},
+      "channels": {
+        "defined": {
+          "name": "defined",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `defined` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "order": {
+          "name": "order",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `order` encoding channel."
+        },
+        "size": {
+          "name": "size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `size` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "tree_header",
+        "coordinate": "treemap"
+      },
+      "docs": "Header bars for visible non-leaf treemap nodes.",
+      "properties": {
+        "max_depth": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Maximum relative hierarchy depth."
+        },
+        "min_depth": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Minimum relative hierarchy depth."
+        },
+        "padding_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Header text padding in pixels."
+        }
+      },
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "font": {
+          "name": "font",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font` encoding channel."
+        },
+        "font_size": {
+          "name": "font_size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_size` encoding channel."
+        },
+        "font_style": {
+          "name": "font_style",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_style` encoding channel."
+        },
+        "font_weight": {
+          "name": "font_weight",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_weight` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "text": {
+          "name": "text",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `text` encoding channel."
+        },
+        "text_color": {
+          "name": "text_color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `text_color` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "tree_label",
+        "coordinate": "treemap"
+      },
+      "docs": "Labels fitted inside visible treemap nodes.",
+      "properties": {
+        "fit": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ellipsis",
+                  "docs": "Truncate overflowing labels with an ellipsis."
+                },
+                {
+                  "value": "hide",
+                  "docs": "Hide labels that do not fit."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Overflow behavior for labels."
+        },
+        "min_height_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum node height for a label."
+        },
+        "min_width_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum node width for a label."
+        },
+        "node_mode": {
+          "shape": {
+            "shape": "union",
+            "detail": [
+              {
+                "shape": "atom",
+                "detail": {
+                  "values": [
+                    {
+                      "value": "leaves",
+                      "docs": "Render visible terminal nodes."
+                    },
+                    {
+                      "value": "all_visible",
+                      "docs": "Render every visible hierarchy node."
+                    }
+                  ]
+                }
+              },
+              {
+                "shape": "integer"
+              }
+            ]
+          },
+          "required": false,
+          "docs": "Node set to render; an integer selects one relative depth."
+        },
+        "padding_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Inner label padding in pixels."
+        }
+      },
+      "channels": {
+        "align": {
+          "name": "align",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `align` encoding channel."
+        },
+        "baseline": {
+          "name": "baseline",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `baseline` encoding channel."
+        },
+        "color": {
+          "name": "color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `color` encoding channel."
+        },
+        "font": {
+          "name": "font",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font` encoding channel."
+        },
+        "font_size": {
+          "name": "font_size",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_size` encoding channel."
+        },
+        "font_style": {
+          "name": "font_style",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_style` encoding channel."
+        },
+        "font_weight": {
+          "name": "font_weight",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `font_weight` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "text": {
+          "name": "text",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `text` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "tree_rect",
+        "coordinate": "treemap"
+      },
+      "docs": "Rectangles for visible treemap nodes.",
+      "properties": {
+        "node_mode": {
+          "shape": {
+            "shape": "union",
+            "detail": [
+              {
+                "shape": "atom",
+                "detail": {
+                  "values": [
+                    {
+                      "value": "leaves",
+                      "docs": "Render visible terminal nodes."
+                    },
+                    {
+                      "value": "all_visible",
+                      "docs": "Render every visible hierarchy node."
+                    }
+                  ]
+                }
+              },
+              {
+                "shape": "integer"
+              }
+            ]
+          },
+          "required": false,
+          "docs": "Node set to render; an integer selects one relative depth."
+        }
+      },
+      "channels": {
+        "corner_radius": {
+          "name": "corner_radius",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `corner_radius` encoding channel."
+        },
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke` encoding channel."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `stroke_width` encoding channel."
+        },
+        "u": {
+          "name": "u",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `u` encoding channel."
+        },
+        "u2": {
+          "name": "u2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `u2` encoding channel."
+        },
+        "v": {
+          "name": "v",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `v` encoding channel."
+        },
+        "v2": {
+          "name": "v2",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `v2` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "uniform_raster_2d",
+        "coordinate": "cartesian"
+      },
+      "docs": "A uniformly binned two-dimensional raster image.",
+      "properties": {
+        "fill_by": {
+          "shape": {
+            "shape": "raster_dimension_channel"
+          },
+          "required": false,
+          "docs": "Categorical raster plane dimension that drives the fill scale."
+        },
+        "raster": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Raster struct expression, usually a rasterize_2d output handle."
+        },
+        "smooth": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Enable smooth image sampling."
+        },
+        "x": {
+          "shape": {
+            "shape": "raster_dimension_channel"
+          },
+          "required": false,
+          "docs": "Configured raster x-dimension handle."
+        },
+        "y": {
+          "shape": {
+            "shape": "raster_dimension_channel"
+          },
+          "required": false,
+          "docs": "Configured raster y-dimension handle."
+        }
+      },
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "non_finite_color": {
+          "name": "non_finite_color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `non_finite_color` encoding channel."
+        },
+        "null_color": {
+          "name": "null_color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `null_color` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "opacity_by_total": {
+          "name": "opacity_by_total",
+          "required": false,
+          "shape": {
+            "shape": "channel_config"
+          },
+          "docs": "Configuration for the internal per-pixel total-to-opacity channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "uniform_raster_2d",
+        "coordinate": "geo"
+      },
+      "docs": "A uniformly binned two-dimensional raster image.",
+      "properties": {
+        "fill_by": {
+          "shape": {
+            "shape": "raster_dimension_channel"
+          },
+          "required": false,
+          "docs": "Categorical raster plane dimension that drives the fill scale."
+        },
+        "raster": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Raster struct expression, usually a rasterize_2d output handle."
+        },
+        "smooth": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Enable smooth image sampling."
+        },
+        "x": {
+          "shape": {
+            "shape": "raster_dimension_channel"
+          },
+          "required": false,
+          "docs": "Configured raster x-dimension handle."
+        },
+        "y": {
+          "shape": {
+            "shape": "raster_dimension_channel"
+          },
+          "required": false,
+          "docs": "Configured raster y-dimension handle."
+        }
+      },
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `fill` encoding channel."
+        },
+        "non_finite_color": {
+          "name": "non_finite_color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `non_finite_color` encoding channel."
+        },
+        "null_color": {
+          "name": "null_color",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `null_color` encoding channel."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `opacity` encoding channel."
+        },
+        "opacity_by_total": {
+          "name": "opacity_by_total",
+          "required": false,
+          "shape": {
+            "shape": "channel_config"
+          },
+          "docs": "Configuration for the internal per-pixel total-to-opacity channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
         }
       ]
     },

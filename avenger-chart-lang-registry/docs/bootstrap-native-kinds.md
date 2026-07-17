@@ -10,22 +10,516 @@ A two-dimensional Cartesian coordinate system.
 |---|---|---:|---|
 | `unit_aspect` | property | false | Optional positive ratio between x and y data units. |
 
-## `Mark.cartesian.symbol`
+## `Coordinate.geo`
 
-A point symbol positioned in Cartesian coordinates.
+A geographic map projection with an optional authored viewport.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
-| `angle` | channel | false | The symbol `angle` encoding expression. |
-| `fill` | channel | false | The symbol `fill` encoding expression. |
-| `fill_pattern` | channel | false | The symbol `fill_pattern` encoding expression. |
-| `opacity` | channel | false | The symbol `opacity` encoding expression. |
-| `shape` | channel | false | The symbol `shape` encoding expression. |
-| `size` | channel | false | The symbol `size` encoding expression. |
-| `stroke` | channel | false | The symbol `stroke` encoding expression. |
-| `stroke_width` | channel | false | The symbol `stroke_width` encoding expression. |
-| `x` | channel | true | The symbol `x` encoding expression. |
-| `y` | channel | true | The symbol `y` encoding expression. |
+| `center_lon_lat` | property | false | Viewport center as `[longitude, latitude]` in degrees. |
+| `precision` | property | false | Adaptive projection resampling precision in pixels; zero disables it. |
+| `projection` | property | false | Map projection; defaults to Equal Earth. |
+| `rotate` | property | false | Three-axis spherical rotation in degrees. |
+| `viewport_id` | property | false | Runtime viewport state id prefix. |
+| `zoom` | property | false | Initial slippy-style zoom level. |
+
+## `Coordinate.parallel`
+
+A wide-form parallel-coordinate frame with user-named dimensions.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `order` | property | false | Static left-to-right dimension order; undeclared dimensions follow declaration order. |
+
+## `Coordinate.polar`
+
+A radial and angular two-dimensional coordinate system.
+
+## `Coordinate.treemap`
+
+A hierarchical treemap layout coordinate system.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `display_levels` | property | false | Maximum number of hierarchy levels displayed below the current root. |
+| `path` | property | true | Ordered hierarchy-level expressions from root to leaf. |
+| `root_path_id` | property | false | Initial visible hierarchy root path id. |
+| `value` | property | true | Non-negative leaf weight expression used for area allocation. |
+
+## `Coordinate.zerod`
+
+A zero-dimensional coordinate system that places marks at the plot center.
+
+## `Mark.cartesian.area`
+
+A filled Cartesian area mark.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `defined` | channel | false | The `defined` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `order` | channel | false | The `order` encoding channel. |
+| `orientation` | channel | false | The `orientation` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_dash` | channel | false | The `stroke_dash` encoding channel. |
+| `stroke_join` | channel | false | The `stroke_join` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `x2` | channel | false | The `x2` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+| `y2` | channel | false | The `y2` encoding channel. |
+
+## `Mark.geo.geo_shape`
+
+A GeoJSON or WKB geometry projected through the geo coordinate system.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `fill` | channel | false | The `fill` encoding channel. |
+| `geometry` | channel | false | The `geometry` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `x2` | channel | false | The `x2` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+| `y2` | channel | false | The `y2` encoding channel. |
+
+## `Mark.cartesian.image`
+
+An image positioned in Cartesian coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `align` | channel | false | The `align` encoding channel. |
+| `aspect` | channel | false | The `aspect` encoding channel. |
+| `baseline` | channel | false | The `baseline` encoding channel. |
+| `height` | channel | false | The `height` encoding channel. |
+| `image` | channel | false | The `image` encoding channel. |
+| `smooth` | channel | false | The `smooth` encoding channel. |
+| `width` | channel | false | The `width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.cartesian.line`
+
+A Cartesian line mark.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `defined` | channel | false | The `defined` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `order` | channel | false | The `order` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_dash` | channel | false | The `stroke_dash` encoding channel. |
+| `stroke_join` | channel | false | The `stroke_join` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.geo.line`
+
+A projected line with planar or longitude/latitude positions.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `defined` | channel | false | The `defined` encoding channel. |
+| `lat` | channel | false | The `lat` encoding channel. |
+| `lon` | channel | false | The `lon` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `order` | channel | false | The `order` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_dash` | channel | false | The `stroke_dash` encoding channel. |
+| `stroke_join` | channel | false | The `stroke_join` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.polar.line`
+
+A line in radial and angular coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `defined` | channel | false | The `defined` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `order` | channel | false | The `order` encoding channel. |
+| `r` | channel | false | The `r` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_dash` | channel | false | The `stroke_dash` encoding channel. |
+| `stroke_join` | channel | false | The `stroke_join` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `theta` | channel | false | The `theta` encoding channel. |
+
+## `Mark.parallel.parallel_line`
+
+A wide-form polyline spanning the declared parallel dimensions.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `dimensions` | property | true | User-named dimension ids mapped to configured encoding channels. |
+| `defined` | channel | false | The `defined` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_dash` | channel | false | The `stroke_dash` encoding channel. |
+| `stroke_join` | channel | false | The `stroke_join` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+
+## `Mark.parallel.parallel_symbol`
+
+A symbol at every row and parallel-dimension intersection.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `dimensions` | property | true | User-named dimension ids mapped to configured encoding channels. |
+| `angle` | channel | false | The `angle` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `shape` | channel | false | The `shape` encoding channel. |
+| `size` | channel | false | The `size` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+
+## `Mark.cartesian.path`
+
+An arbitrary Cartesian path mark.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `fill` | channel | false | The `fill` encoding channel. |
+| `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `path` | channel | false | The `path` encoding channel. |
+| `path_transform` | channel | false | The `path_transform` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_join` | channel | false | The `stroke_join` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.cartesian.rect`
+
+A Cartesian rectangle mark.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `corner_radius` | channel | false | The `corner_radius` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `x2` | channel | false | The `x2` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+| `y2` | channel | false | The `y2` encoding channel. |
+
+## `Mark.geo.rect`
+
+A rectangle in projected geo plot coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `corner_radius` | channel | false | The `corner_radius` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `x2` | channel | false | The `x2` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+| `y2` | channel | false | The `y2` encoding channel. |
+
+## `Mark.cartesian.rule`
+
+A Cartesian rule mark.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
+| `stroke_dash` | channel | false | The `stroke_dash` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `x2` | channel | false | The `x2` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+| `y2` | channel | false | The `y2` encoding channel. |
+
+## `Mark.cartesian.symbol`
+
+A point symbol in Cartesian coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `angle` | channel | false | The `angle` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `shape` | channel | false | The `shape` encoding channel. |
+| `size` | channel | false | The `size` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.geo.symbol`
+
+A symbol positioned by projected x/y or geographic lon/lat channels.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `lon_lat` | property | false | Convenience pair `[longitude, latitude]`; do not also author `lon` or `lat`. |
+| `angle` | channel | false | The `angle` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
+| `lat` | channel | false | The `lat` encoding channel. |
+| `lon` | channel | false | The `lon` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `shape` | channel | false | The `shape` encoding channel. |
+| `size` | channel | false | The `size` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.polar.symbol`
+
+A point symbol in radial and angular coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `angle` | channel | false | The `angle` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `r` | channel | false | The `r` encoding channel. |
+| `shape` | channel | false | The `shape` encoding channel. |
+| `size` | channel | false | The `size` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `theta` | channel | false | The `theta` encoding channel. |
+
+## `Mark.zerod.symbol`
+
+A non-spatial symbol placed at the plot center.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `angle` | channel | false | The `angle` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `shape` | channel | false | The `shape` encoding channel. |
+| `size` | channel | false | The `size` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+
+## `Mark.cartesian.text`
+
+Text positioned in Cartesian coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `syntax` | property | false | Text syntax mode; defaults to `plain`. |
+| `align` | channel | false | The `align` encoding channel. |
+| `angle` | channel | false | The `angle` encoding channel. |
+| `baseline` | channel | false | The `baseline` encoding channel. |
+| `color` | channel | false | The `color` encoding channel. |
+| `defined` | channel | false | The `defined` encoding channel. |
+| `font` | channel | false | The `font` encoding channel. |
+| `font_size` | channel | false | The `font_size` encoding channel. |
+| `font_style` | channel | false | The `font_style` encoding channel. |
+| `font_weight` | channel | false | The `font_weight` encoding channel. |
+| `leader` | channel | false | The `leader` encoding channel. |
+| `leader_arrow` | channel | false | The `leader_arrow` encoding channel. |
+| `leader_arrow_length` | channel | false | The `leader_arrow_length` encoding channel. |
+| `leader_arrow_width` | channel | false | The `leader_arrow_width` encoding channel. |
+| `leader_label_padding` | channel | false | The `leader_label_padding` encoding channel. |
+| `leader_min_length` | channel | false | The `leader_min_length` encoding channel. |
+| `leader_offset_x` | channel | false | The `leader_offset_x` encoding channel. |
+| `leader_offset_y` | channel | false | The `leader_offset_y` encoding channel. |
+| `leader_shape` | channel | false | The `leader_shape` encoding channel. |
+| `leader_stroke` | channel | false | The `leader_stroke` encoding channel. |
+| `leader_stroke_cap` | channel | false | The `leader_stroke_cap` encoding channel. |
+| `leader_stroke_dash` | channel | false | The `leader_stroke_dash` encoding channel. |
+| `leader_stroke_join` | channel | false | The `leader_stroke_join` encoding channel. |
+| `leader_stroke_width` | channel | false | The `leader_stroke_width` encoding channel. |
+| `leader_target_radius` | channel | false | The `leader_target_radius` encoding channel. |
+| `limit` | channel | false | The `limit` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `text` | channel | false | The `text` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.polar.text`
+
+Text positioned in radial and angular coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `syntax` | property | false | Text syntax mode; defaults to `plain`. |
+| `align` | channel | false | The `align` encoding channel. |
+| `angle` | channel | false | The `angle` encoding channel. |
+| `baseline` | channel | false | The `baseline` encoding channel. |
+| `color` | channel | false | The `color` encoding channel. |
+| `defined` | channel | false | The `defined` encoding channel. |
+| `font` | channel | false | The `font` encoding channel. |
+| `font_size` | channel | false | The `font_size` encoding channel. |
+| `font_style` | channel | false | The `font_style` encoding channel. |
+| `font_weight` | channel | false | The `font_weight` encoding channel. |
+| `leader` | channel | false | The `leader` encoding channel. |
+| `leader_arrow` | channel | false | The `leader_arrow` encoding channel. |
+| `leader_arrow_length` | channel | false | The `leader_arrow_length` encoding channel. |
+| `leader_arrow_width` | channel | false | The `leader_arrow_width` encoding channel. |
+| `leader_label_padding` | channel | false | The `leader_label_padding` encoding channel. |
+| `leader_min_length` | channel | false | The `leader_min_length` encoding channel. |
+| `leader_offset_x` | channel | false | The `leader_offset_x` encoding channel. |
+| `leader_offset_y` | channel | false | The `leader_offset_y` encoding channel. |
+| `leader_shape` | channel | false | The `leader_shape` encoding channel. |
+| `leader_stroke` | channel | false | The `leader_stroke` encoding channel. |
+| `leader_stroke_cap` | channel | false | The `leader_stroke_cap` encoding channel. |
+| `leader_stroke_dash` | channel | false | The `leader_stroke_dash` encoding channel. |
+| `leader_stroke_join` | channel | false | The `leader_stroke_join` encoding channel. |
+| `leader_stroke_width` | channel | false | The `leader_stroke_width` encoding channel. |
+| `leader_target_radius` | channel | false | The `leader_target_radius` encoding channel. |
+| `limit` | channel | false | The `limit` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `r` | channel | false | The `r` encoding channel. |
+| `text` | channel | false | The `text` encoding channel. |
+| `theta` | channel | false | The `theta` encoding channel. |
+
+## `Mark.zerod.text`
+
+Text placed at the plot center.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `syntax` | property | false | Text syntax mode; defaults to `plain`. |
+| `align` | channel | false | The `align` encoding channel. |
+| `angle` | channel | false | The `angle` encoding channel. |
+| `baseline` | channel | false | The `baseline` encoding channel. |
+| `color` | channel | false | The `color` encoding channel. |
+| `defined` | channel | false | The `defined` encoding channel. |
+| `font` | channel | false | The `font` encoding channel. |
+| `font_size` | channel | false | The `font_size` encoding channel. |
+| `font_style` | channel | false | The `font_style` encoding channel. |
+| `font_weight` | channel | false | The `font_weight` encoding channel. |
+| `limit` | channel | false | The `limit` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `text` | channel | false | The `text` encoding channel. |
+
+## `Mark.cartesian.trail`
+
+A variable-width Cartesian trail mark.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `defined` | channel | false | The `defined` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `order` | channel | false | The `order` encoding channel. |
+| `size` | channel | false | The `size` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.treemap.tree_header`
+
+Header bars for visible non-leaf treemap nodes.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `max_depth` | property | false | Maximum relative hierarchy depth. |
+| `min_depth` | property | false | Minimum relative hierarchy depth. |
+| `padding_px` | property | false | Header text padding in pixels. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `font` | channel | false | The `font` encoding channel. |
+| `font_size` | channel | false | The `font_size` encoding channel. |
+| `font_style` | channel | false | The `font_style` encoding channel. |
+| `font_weight` | channel | false | The `font_weight` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `text` | channel | false | The `text` encoding channel. |
+| `text_color` | channel | false | The `text_color` encoding channel. |
+
+## `Mark.treemap.tree_label`
+
+Labels fitted inside visible treemap nodes.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `fit` | property | false | Overflow behavior for labels. |
+| `min_height_px` | property | false | Minimum node height for a label. |
+| `min_width_px` | property | false | Minimum node width for a label. |
+| `node_mode` | property | false | Node set to render; an integer selects one relative depth. |
+| `padding_px` | property | false | Inner label padding in pixels. |
+| `align` | channel | false | The `align` encoding channel. |
+| `baseline` | channel | false | The `baseline` encoding channel. |
+| `color` | channel | false | The `color` encoding channel. |
+| `font` | channel | false | The `font` encoding channel. |
+| `font_size` | channel | false | The `font_size` encoding channel. |
+| `font_style` | channel | false | The `font_style` encoding channel. |
+| `font_weight` | channel | false | The `font_weight` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `text` | channel | false | The `text` encoding channel. |
+
+## `Mark.treemap.tree_rect`
+
+Rectangles for visible treemap nodes.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `node_mode` | property | false | Node set to render; an integer selects one relative depth. |
+| `corner_radius` | channel | false | The `corner_radius` encoding channel. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `stroke` | channel | false | The `stroke` encoding channel. |
+| `stroke_width` | channel | false | The `stroke_width` encoding channel. |
+| `u` | channel | false | The `u` encoding channel. |
+| `u2` | channel | false | The `u2` encoding channel. |
+| `v` | channel | false | The `v` encoding channel. |
+| `v2` | channel | false | The `v2` encoding channel. |
+
+## `Mark.cartesian.uniform_raster_2d`
+
+A uniformly binned two-dimensional raster image.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `fill_by` | property | false | Categorical raster plane dimension that drives the fill scale. |
+| `raster` | property | true | Raster struct expression, usually a rasterize_2d output handle. |
+| `smooth` | property | false | Enable smooth image sampling. |
+| `x` | property | false | Configured raster x-dimension handle. |
+| `y` | property | false | Configured raster y-dimension handle. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `non_finite_color` | channel | false | The `non_finite_color` encoding channel. |
+| `null_color` | channel | false | The `null_color` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `opacity_by_total` | channel | false | Configuration for the internal per-pixel total-to-opacity channel. |
+
+## `Mark.geo.uniform_raster_2d`
+
+A uniformly binned two-dimensional raster image.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `fill_by` | property | false | Categorical raster plane dimension that drives the fill scale. |
+| `raster` | property | true | Raster struct expression, usually a rasterize_2d output handle. |
+| `smooth` | property | false | Enable smooth image sampling. |
+| `x` | property | false | Configured raster x-dimension handle. |
+| `y` | property | false | Configured raster y-dimension handle. |
+| `fill` | channel | false | The `fill` encoding channel. |
+| `non_finite_color` | channel | false | The `non_finite_color` encoding channel. |
+| `null_color` | channel | false | The `null_color` encoding channel. |
+| `opacity` | channel | false | The `opacity` encoding channel. |
+| `opacity_by_total` | channel | false | Configuration for the internal per-pixel total-to-opacity channel. |
 
 ## `Transform.aggregate`
 

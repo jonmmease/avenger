@@ -2,6 +2,7 @@ pub mod axis;
 pub mod channels;
 pub mod coord;
 pub mod guide;
+pub mod language;
 pub mod marks;
 
 pub use axis::{PolarAxis, PolarAxisEvaluateExt, PolarAxisType, PolarDirection};

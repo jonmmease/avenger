@@ -8,15 +8,14 @@ use std::sync::Arc;
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
     prelude::{
-        Auto, Cartesian, CartesianAxis, CartesianSymbolPositionChannels, ChartWidgetPlacementExt,
-        ChromePosition, IntoPlotMark, Legend, Linear, Ordinal, PanScrollZoom, Scale, Symbol,
-        WidgetAttachment, WidgetItemRow, WidgetItems,
+        Auto, Cartesian, CartesianAxis, ChartWidgetPlacementExt, ChromePosition, Legend, Linear,
+        Ordinal, PanScrollZoom, Scale, WidgetAttachment, WidgetItemRow, WidgetItems,
     },
 };
 use avenger_chart_core::Axis;
 use avenger_chart_schema::{
-    BodyMode, ChannelSchema, EnumValueSchema, ExportSchema, KindSchema, NativeKindKey,
-    NativeKindNamespace, PartSchema, PropertySchema, ValueShape,
+    EnumValueSchema, ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace, PartSchema,
+    PropertySchema, ValueShape,
 };
 use avenger_chart_widgets::RadioButtonList;
 use datafusion::{
@@ -41,14 +40,22 @@ pub fn bootstrap_registry() -> Result<NativeRegistry, RegistryError> {
 pub fn register_bootstrap_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
-    builder.register_coordinate_pack(cartesian_base_pack())?;
-    builder.register_mark::<Cartesian>("cartesian", "symbol", symbol_schema(), lower_symbol)?;
-    builder.register_tool::<Cartesian>(
-        "cartesian",
-        "pan_scroll_zoom",
-        pan_scroll_zoom_schema(),
-        lower_pan_scroll_zoom,
-    )?;
+    builder.register_coordinate_pack(cartesian_pack())?;
+    builder.register_coordinate_pack(CoordinatePack::from_language_definition(
+        avenger_chart_polar::language::definition(),
+    ))?;
+    builder.register_coordinate_pack(CoordinatePack::from_language_definition(
+        avenger_chart_parallel::language::definition(),
+    ))?;
+    builder.register_coordinate_pack(CoordinatePack::from_language_definition(
+        avenger_chart_geo::language::definition(),
+    ))?;
+    builder.register_coordinate_pack(CoordinatePack::from_language_definition(
+        avenger_chart_treemap::language::definition(),
+    ))?;
+    builder.register_coordinate_pack(CoordinatePack::from_language_definition(
+        avenger_chart_marks::language::zero_d_definition(),
+    ))?;
     register_bootstrap_noncoordinate_builtins(builder)
 }
 
@@ -63,36 +70,11 @@ pub fn register_bootstrap_noncoordinate_builtins(
 }
 
 pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
-    cartesian_base_pack()
-        .mark("symbol", symbol_schema(), lower_symbol)
-        .tool(
-            "pan_scroll_zoom",
-            pan_scroll_zoom_schema(),
-            lower_pan_scroll_zoom,
-        )
-}
-
-fn cartesian_base_pack() -> CoordinatePack<Cartesian> {
-    let coordinate = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Coordinate, "cartesian"),
-        "A two-dimensional Cartesian coordinate system.",
+    CoordinatePack::from_language_definition(avenger_chart_cartesian::language::definition()).tool(
+        "pan_scroll_zoom",
+        pan_scroll_zoom_schema(),
+        lower_pan_scroll_zoom,
     )
-    .body_mode(BodyMode::Mixed)
-    .property(
-        "unit_aspect",
-        PropertySchema::optional(
-            ValueShape::Number,
-            "Optional positive ratio between x and y data units.",
-        ),
-    );
-
-    CoordinatePack::new("cartesian", coordinate, |declaration| {
-        let mut coordinate = Cartesian::new();
-        if let Some(ResolvedValue::Number(ratio)) = declaration.properties.get("unit_aspect") {
-            coordinate = coordinate.unit_aspect(*ratio);
-        }
-        Ok(coordinate)
-    })
 }
 
 fn pan_scroll_zoom_schema() -> KindSchema {
@@ -118,43 +100,6 @@ fn pan_scroll_zoom_schema() -> KindSchema {
     tool
 }
 
-fn lower_symbol(
-    declaration: &crate::ResolvedDeclaration,
-) -> Result<Vec<avenger_chart::prelude::PlotMark<Cartesian>>, RegistryError> {
-    let mut mark = Symbol::<Cartesian>::new();
-    if let Some(source_name) = &declaration.source_name {
-        mark = mark.id(source_name.clone());
-    }
-    for (name, value) in &declaration.properties {
-        let channel_value = match value {
-            ResolvedValue::Expr(expr) => expr.clone().into(),
-            ResolvedValue::Channel(value) => value.as_ref().clone(),
-            _ => {
-                return Err(RegistryError::InvalidPropertyType {
-                    property: name.clone(),
-                    expected: "resolved channel value".to_string(),
-                });
-            }
-        };
-        mark = match name.as_str() {
-            "x" => mark.x(channel_value),
-            "y" => mark.y(channel_value),
-            "fill_pattern" => match value {
-                ResolvedValue::Expr(expr) => mark.fill_pattern(expr.clone()),
-                ResolvedValue::Channel(_) => {
-                    return Err(RegistryError::InvalidPropertyType {
-                        property: name.clone(),
-                        expected: "pattern channel value".to_string(),
-                    });
-                }
-                _ => unreachable!(),
-            },
-            channel => mark.with_channel_value(channel, channel_value),
-        };
-    }
-    Ok(mark.into_plot_marks())
-}
-
 fn lower_pan_scroll_zoom(
     declaration: &crate::ResolvedDeclaration,
 ) -> Result<Arc<dyn avenger_chart::prelude::ChartTool<Cartesian>>, RegistryError> {
@@ -163,40 +108,6 @@ fn lower_pan_scroll_zoom(
         tool = tool.id(source_name.clone());
     }
     Ok(Arc::new(tool))
-}
-
-pub fn symbol_schema() -> KindSchema {
-    let mut schema = KindSchema::new(
-        NativeKindKey::mark("cartesian", "symbol"),
-        "A point symbol positioned in Cartesian coordinates.",
-    )
-    .body_mode(BodyMode::Mixed)
-    .child_rule(avenger_chart_schema::ChildRule {
-        role: "view".to_string(),
-        min: 0,
-        max: Some(1),
-        docs: "Optional inline view scope owned by this mark.".to_string(),
-    });
-    for name in [
-        "x",
-        "y",
-        "size",
-        "fill",
-        "fill_pattern",
-        "stroke",
-        "stroke_width",
-        "shape",
-        "angle",
-        "opacity",
-    ] {
-        schema = schema.channel(ChannelSchema {
-            name: name.to_string(),
-            required: matches!(name, "x" | "y"),
-            shape: ValueShape::SqlExpression,
-            docs: format!("The symbol `{name}` encoding expression."),
-        });
-    }
-    schema
 }
 
 fn register_transforms(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
