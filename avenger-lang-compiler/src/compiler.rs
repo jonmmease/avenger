@@ -348,7 +348,8 @@ impl Compiler {
         plot.marks.push(
             ResolvedDeclaration::new("symbol")
                 .property("x", ResolvedValue::Expr(col("x")))
-                .property("y", ResolvedValue::Expr(col("y"))),
+                .property("y", ResolvedValue::Expr(col("y")))
+                .into(),
         );
         let compiled = self
             .options

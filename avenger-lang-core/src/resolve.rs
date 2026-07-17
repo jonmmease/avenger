@@ -6281,7 +6281,17 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
         ValueShape::Atom { values } => {
             matches!(value, ResolvedValue::Atom(value) if values.iter().any(|candidate| candidate.value == *value))
         }
-        ValueShape::SqlExpression => is_expression_value(value),
+        ValueShape::SqlExpression => {
+            is_expression_value(value)
+                || matches!(
+                    value,
+                    ResolvedValue::Object {
+                        head: Some(head),
+                        kind: None,
+                        ..
+                    } if is_expression_value(head)
+                )
+        }
         ValueShape::SqlQuery => matches!(value, ResolvedValue::Query(_)),
         ValueShape::ScalarBinding => {
             matches!(

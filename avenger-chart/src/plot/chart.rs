@@ -291,6 +291,16 @@ impl<C: CoordinateSystem> Chart<C> {
         &self.layout_spec
     }
 
+    /// Replace the complete root layout specification.
+    ///
+    /// This is the registry/compiler integration seam for declarative layout
+    /// objects. Ordinary Rust authors can continue to use the focused sizing
+    /// and margin methods above.
+    pub fn layout_spec(mut self, layout_spec: LayoutSpec) -> Self {
+        self.layout_spec = layout_spec;
+        self
+    }
+
     /// Set an explicit chart theme.
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = Some(Arc::new(theme));

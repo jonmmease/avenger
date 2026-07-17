@@ -121,17 +121,30 @@ fn lower_symbol(
 ) -> Result<Vec<avenger_chart::prelude::PlotMark<Cartesian>>, RegistryError> {
     let mut mark = Symbol::<Cartesian>::new();
     for (name, value) in &declaration.properties {
-        let ResolvedValue::Expr(expr) = value else {
-            return Err(RegistryError::InvalidPropertyType {
-                property: name.clone(),
-                expected: "SQL expression".to_string(),
-            });
+        let channel_value = match value {
+            ResolvedValue::Expr(expr) => expr.clone().into(),
+            ResolvedValue::Channel(value) => value.clone(),
+            _ => {
+                return Err(RegistryError::InvalidPropertyType {
+                    property: name.clone(),
+                    expected: "resolved channel value".to_string(),
+                });
+            }
         };
         mark = match name.as_str() {
-            "x" => mark.x(expr.clone()),
-            "y" => mark.y(expr.clone()),
-            "fill_pattern" => mark.fill_pattern(expr.clone()),
-            channel => mark.with_channel_value(channel, expr.clone().into()),
+            "x" => mark.x(channel_value),
+            "y" => mark.y(channel_value),
+            "fill_pattern" => match value {
+                ResolvedValue::Expr(expr) => mark.fill_pattern(expr.clone()),
+                ResolvedValue::Channel(_) => {
+                    return Err(RegistryError::InvalidPropertyType {
+                        property: name.clone(),
+                        expected: "pattern channel value".to_string(),
+                    });
+                }
+                _ => unreachable!(),
+            },
+            channel => mark.with_channel_value(channel, channel_value),
         };
     }
     Ok(mark.into_plot_marks())

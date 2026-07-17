@@ -117,17 +117,9 @@ chart cartesian {
         "configured_channel.avenger",
     )
     .await;
-    let mut schema = bootstrap_schema();
-    schema
-        .entries
-        .get_mut(&NativeKindKey::mark("cartesian", "symbol"))
-        .unwrap()
-        .channels
-        .get_mut("x")
-        .unwrap()
-        .shape = avenger_chart_schema::ValueShape::Any;
-
-    let resolved = resolve_project(&valid_project, &schema).result.unwrap();
+    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+        .result
+        .unwrap();
     let chart = resolved
         .files
         .values()

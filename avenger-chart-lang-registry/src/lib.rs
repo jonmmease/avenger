@@ -3,9 +3,10 @@
 use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
-use avenger_chart::{plot::CompiledPlot, prelude::*};
+use avenger_chart::{layout::LayoutSpec, plot::CompiledPlot, prelude::*};
 use avenger_chart_core::{
-    CompiledDataTransform, CoordinateSystem, DataTransformCompileContext, SubplotChildPlotSpec,
+    CompiledDataTransform, CoordinateSystem, DataContext, DataTransformCompileContext,
+    MarkDataMode, SubplotChildPlotSpec,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
@@ -28,6 +29,7 @@ pub enum ResolvedValue {
     String(String),
     Scalar(ScalarValue),
     Expr(Expr),
+    Channel(ChannelValue),
     Query(String),
     Array(Vec<ResolvedValue>),
     Object(IndexMap<String, ResolvedValue>),
@@ -44,6 +46,7 @@ impl fmt::Debug for ResolvedValue {
             Self::String(value) => f.debug_tuple("String").field(value).finish(),
             Self::Scalar(value) => f.debug_tuple("Scalar").field(value).finish(),
             Self::Expr(_) => f.write_str("Expr(..)"),
+            Self::Channel(value) => f.debug_tuple("Channel").field(value).finish(),
             Self::Query(value) => f.debug_tuple("Query").field(value).finish(),
             Self::Array(value) => f.debug_tuple("Array").field(value).finish(),
             Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
@@ -88,14 +91,78 @@ pub struct ResolvedChildPlot {
     pub placement: ResolvedDeclaration,
 }
 
+#[derive(Clone)]
+pub struct ResolvedTransformStage {
+    pub scope: CoordinationScope,
+    pub transform: Box<dyn CompiledDataTransform>,
+}
+
+impl fmt::Debug for ResolvedTransformStage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ResolvedTransformStage")
+            .field("scope", &self.scope)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedMarkGroup {
+    pub id: Option<String>,
+    pub component_kind: Option<String>,
+    pub data: Option<DataFrame>,
+    pub transforms: Vec<ResolvedTransformStage>,
+    pub marks: Vec<ResolvedMark>,
+}
+
+impl ResolvedMarkGroup {
+    pub fn new() -> Self {
+        Self {
+            id: None,
+            component_kind: None,
+            data: None,
+            transforms: Vec::new(),
+            marks: Vec::new(),
+        }
+    }
+}
+
+impl Default for ResolvedMarkGroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum ResolvedMark {
+    Native(ResolvedDeclaration),
+    Group(ResolvedMarkGroup),
+}
+
+impl From<ResolvedDeclaration> for ResolvedMark {
+    fn from(value: ResolvedDeclaration) -> Self {
+        Self::Native(value)
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ResolvedRootFurnishings {
+    pub title: Option<Expr>,
+    pub subtitle: Option<Expr>,
+    pub layout: Option<LayoutSpec>,
+    pub params: Vec<(Param, CoordinationScope)>,
+    pub selections: Vec<Selection>,
+    pub stores: Vec<Store>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ResolvedPlot {
     pub coordinate: ResolvedDeclaration,
     pub data: Option<DataFrame>,
-    pub marks: Vec<ResolvedDeclaration>,
+    pub marks: Vec<ResolvedMark>,
     pub tools: Vec<ResolvedDeclaration>,
     pub widgets: Vec<ResolvedDeclaration>,
     pub children: Vec<ResolvedChildPlot>,
+    pub furnishings: ResolvedRootFurnishings,
 }
 
 impl ResolvedPlot {
@@ -107,6 +174,7 @@ impl ResolvedPlot {
             tools: Vec::new(),
             widgets: Vec::new(),
             children: Vec::new(),
+            furnishings: ResolvedRootFurnishings::default(),
         }
     }
 }
@@ -287,6 +355,49 @@ trait ErasedCoordinatePack: Send + Sync {
 }
 
 impl<C: CoordinateSystem> CoordinatePack<C> {
+    fn lower_mark(
+        &self,
+        registry: &NativeRegistry,
+        resolved: &ResolvedMark,
+    ) -> Result<Vec<PlotMark<C>>, RegistryError> {
+        match resolved {
+            ResolvedMark::Native(declaration) => {
+                let entry = self.marks.get(&declaration.kind).ok_or_else(|| {
+                    RegistryError::UnknownMarkPair {
+                        coordinate: self.kind.clone(),
+                        mark: declaration.kind.clone(),
+                    }
+                })?;
+                registry.validate(&entry.schema.key, declaration)?;
+                (entry.lowerer)(declaration)
+            }
+            ResolvedMark::Group(resolved) => {
+                let mut data = resolved
+                    .data
+                    .clone()
+                    .map(DataContext::new)
+                    .unwrap_or_default();
+                for stage in &resolved.transforms {
+                    data = data.with_transform_stage(stage.scope, stage.transform.clone());
+                }
+                let mut group =
+                    MarkGroup::<C>::new().with_data_context(data, MarkDataMode::Inherit);
+                if let Some(id) = &resolved.id {
+                    group = group.id(id.clone());
+                }
+                if let Some(component_kind) = &resolved.component_kind {
+                    group = group.component_kind(component_kind.clone());
+                }
+                for child in &resolved.marks {
+                    for mark in self.lower_mark(registry, child)? {
+                        group = group.mark(mark);
+                    }
+                }
+                Ok(vec![PlotMark::from_group(group)])
+            }
+        }
+    }
+
     fn lower_typed(
         &self,
         registry: &NativeRegistry,
@@ -302,14 +413,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             plot = plot.data(data.clone());
         }
         for declaration in &resolved.marks {
-            let entry = self.marks.get(&declaration.kind).ok_or_else(|| {
-                RegistryError::UnknownMarkPair {
-                    coordinate: self.kind.clone(),
-                    mark: declaration.kind.clone(),
-                }
-            })?;
-            registry.validate(&entry.schema.key, declaration)?;
-            for mark in (entry.lowerer)(declaration)? {
+            for mark in self.lower_mark(registry, declaration)? {
                 plot = plot.mark(mark);
             }
         }
@@ -405,9 +509,26 @@ impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
         plot: &ResolvedPlot,
         session_context: &SessionContext,
     ) -> Result<CompiledPlot, RegistryError> {
-        Ok(Chart::from_plot(self.lower_typed(registry, plot)?)
-            .compile(session_context)
-            .await?)
+        let mut chart = Chart::from_plot(self.lower_typed(registry, plot)?);
+        if let Some(title) = &plot.furnishings.title {
+            chart = chart.title(title.clone());
+        }
+        if let Some(subtitle) = &plot.furnishings.subtitle {
+            chart = chart.subtitle(subtitle.clone());
+        }
+        if let Some(layout) = &plot.furnishings.layout {
+            chart = chart.layout_spec(layout.clone());
+        }
+        for (param, sharing) in &plot.furnishings.params {
+            chart = chart.param_with_sharing(param.clone(), *sharing);
+        }
+        for selection in &plot.furnishings.selections {
+            chart = chart.selection(selection.clone());
+        }
+        for store in &plot.furnishings.stores {
+            chart = chart.store(store.clone());
+        }
+        Ok(chart.compile(session_context).await?)
     }
 }
 
@@ -825,7 +946,7 @@ fn validate_value_shape(
         (ResolvedValue::String(value), ValueShape::Atom { values }) => {
             values.iter().any(|candidate| candidate.value == *value)
         }
-        (ResolvedValue::Expr(_), ValueShape::SqlExpression) => true,
+        (ResolvedValue::Expr(_) | ResolvedValue::Channel(_), ValueShape::SqlExpression) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::DataFrame(_), ValueShape::TableBinding) => true,
         (ResolvedValue::Array(values), ValueShape::Array(inner)) => values
@@ -1036,7 +1157,7 @@ mod tests {
         let context = SessionContext::new();
         let mut plot = ResolvedPlot::new("cartesian");
         plot.data = Some(context.sql("SELECT 10.0 AS x, 20.0 AS y").await.unwrap());
-        plot.marks.push(symbol());
+        plot.marks.push(symbol().into());
         plot.tools.push(ResolvedDeclaration::new("pan_scroll_zoom"));
         plot.widgets.push(radio_widget());
         let compiled = registry.compile_root(&plot, &context).await.unwrap();
@@ -1097,8 +1218,11 @@ mod tests {
         builder.register_coordinate_pack(pack).unwrap();
         let registry = builder.build().unwrap();
         let mut plot = ResolvedPlot::new("cartesian");
-        plot.marks
-            .push(ResolvedDeclaration::new("strict").property("x", ResolvedValue::Number(1.0)));
+        plot.marks.push(
+            ResolvedDeclaration::new("strict")
+                .property("x", ResolvedValue::Number(1.0))
+                .into(),
+        );
         assert!(matches!(
             registry.lower_child_plot(&plot),
             Err(RegistryError::InvalidPropertyType { .. })
@@ -1253,10 +1377,11 @@ mod tests {
                 &ResolvedPlot {
                     coordinate: ResolvedDeclaration::new("cartesian"),
                     data: None,
-                    marks: vec![symbol()],
+                    marks: vec![symbol().into()],
                     tools: Vec::new(),
                     widgets: Vec::new(),
                     children: Vec::new(),
+                    furnishings: ResolvedRootFurnishings::default(),
                 },
                 &context,
             )
@@ -1448,10 +1573,10 @@ mod tests {
         let mut augmented = ResolvedPlot::new("cartesian");
         augmented
             .marks
-            .push(ResolvedDeclaration::new("external_hexbin"));
+            .push(ResolvedDeclaration::new("external_hexbin").into());
         augmented
             .marks
-            .push(ResolvedDeclaration::new("external_mean_point"));
+            .push(ResolvedDeclaration::new("external_mean_point").into());
         let compiled = registry.compile_root(&augmented, &context).await.unwrap();
         assert_eq!(compiled.marks().len(), 2);
         assert_eq!(compiled.marks()[0].mark_type(), "hexbin");
@@ -1462,7 +1587,7 @@ mod tests {
         let mut external = ResolvedPlot::new("external_isometric");
         external
             .marks
-            .push(ResolvedDeclaration::new("external_cube"));
+            .push(ResolvedDeclaration::new("external_cube").into());
         let compiled = registry.compile_root(&external, &context).await.unwrap();
         assert_eq!(compiled.marks().len(), 1);
         assert_eq!(compiled.marks()[0].mark_type(), "cube");
@@ -1473,7 +1598,7 @@ mod tests {
         let mut built_in_child = ResolvedPlot::new("cartesian");
         built_in_child
             .marks
-            .push(ResolvedDeclaration::new("external_hexbin"));
+            .push(ResolvedDeclaration::new("external_hexbin").into());
         let mut parent = ResolvedPlot::new("external_facet_column");
         parent.children.push(ResolvedChildPlot {
             plot: Box::new(built_in_child),
