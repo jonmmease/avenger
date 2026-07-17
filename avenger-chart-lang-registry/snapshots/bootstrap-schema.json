@@ -980,6 +980,362 @@
     {
       "key": {
         "namespace": "transform",
+        "kind": "rasterize_2d"
+      },
+      "docs": "Bin two quantitative expressions into a dense two-dimensional raster.",
+      "properties": {
+        "agg": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "count",
+                  "docs": "Use the `count` mode."
+                },
+                {
+                  "value": "sum",
+                  "docs": "Use the `sum` mode."
+                },
+                {
+                  "value": "min",
+                  "docs": "Use the `min` mode."
+                },
+                {
+                  "value": "max",
+                  "docs": "Use the `max` mode."
+                },
+                {
+                  "value": "mean",
+                  "docs": "Use the `mean` mode."
+                },
+                {
+                  "value": "var_pop",
+                  "docs": "Use the `var_pop` mode."
+                },
+                {
+                  "value": "stddev_pop",
+                  "docs": "Use the `stddev_pop` mode."
+                },
+                {
+                  "value": "var_samp",
+                  "docs": "Use the `var_samp` mode."
+                },
+                {
+                  "value": "stddev_samp",
+                  "docs": "Use the `stddev_samp` mode."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Cell reducer applied to the optional value expression."
+        },
+        "by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Categorical expression producing an additional raster plane dimension."
+        },
+        "frame": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Coordinate reference system asserted for input extents and output geometry."
+        },
+        "name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Physical raster output column name."
+        },
+        "partition_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions producing independent raster rows."
+        },
+        "value": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Value expression reduced into each cell; required except for count."
+        },
+        "x": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Horizontal input expression."
+        },
+        "x_dim": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "bins": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression yielding the number of bins along this dimension."
+              },
+              "extent": {
+                "shape": {
+                  "shape": "array",
+                  "detail": {
+                    "shape": "sql_expression"
+                  }
+                },
+                "required": false,
+                "docs": "Two expressions defining the visible dimension extent."
+              },
+              "sampling": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "linear",
+                        "docs": "Use the `linear` mode."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Coordinate sampling represented by the raster dimension."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Horizontal raster dimension settings."
+        },
+        "y": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Vertical input expression."
+        },
+        "y_dim": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "bins": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression yielding the number of bins along this dimension."
+              },
+              "extent": {
+                "shape": {
+                  "shape": "array",
+                  "detail": {
+                    "shape": "sql_expression"
+                  }
+                },
+                "required": false,
+                "docs": "Two expressions defining the visible dimension extent."
+              },
+              "sampling": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "linear",
+                        "docs": "Use the `linear` mode."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Coordinate sampling represented by the raster dimension."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Vertical raster dimension settings."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "by_dim": {
+          "name": "by_dim",
+          "shape": {
+            "shape": "raster_dimension"
+          },
+          "condition_property": "by",
+          "docs": "Typed categorical plane dimension when `by` is configured."
+        },
+        "raster": {
+          "name": "raster",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Dense raster struct column."
+        },
+        "x_dim": {
+          "name": "x_dim",
+          "shape": {
+            "shape": "raster_dimension"
+          },
+          "docs": "Typed horizontal raster dimension."
+        },
+        "y_dim": {
+          "name": "y_dim",
+          "shape": {
+            "shape": "raster_dimension"
+          },
+          "docs": "Typed vertical raster dimension."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "scalar_aggregate"
+      },
+      "docs": "Publish whole-input aggregate measures as derived scalar expressions without changing rows.",
+      "properties": {
+        "evaluation": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "eager",
+                  "docs": "Use the `eager` mode."
+                },
+                {
+                  "value": "lazy",
+                  "docs": "Use the `lazy` mode."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Whether to materialize literal scalars eagerly or publish scalar subqueries lazily."
+        },
+        "measures": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "object",
+              "detail": {
+                "expr": {
+                  "shape": {
+                    "shape": "sql_expression"
+                  },
+                  "required": false,
+                  "docs": "Input expression; omitted for count."
+                },
+                "name": {
+                  "shape": {
+                    "shape": "string"
+                  },
+                  "required": true,
+                  "docs": "Output column name."
+                },
+                "op": {
+                  "shape": {
+                    "shape": "atom",
+                    "detail": {
+                      "values": [
+                        {
+                          "value": "sum",
+                          "docs": "The `sum` aggregation operation."
+                        },
+                        {
+                          "value": "count",
+                          "docs": "The `count` aggregation operation."
+                        },
+                        {
+                          "value": "mean",
+                          "docs": "The `mean` aggregation operation."
+                        },
+                        {
+                          "value": "min",
+                          "docs": "The `min` aggregation operation."
+                        },
+                        {
+                          "value": "max",
+                          "docs": "The `max` aggregation operation."
+                        },
+                        {
+                          "value": "median",
+                          "docs": "The `median` aggregation operation."
+                        }
+                      ]
+                    }
+                  },
+                  "required": true,
+                  "docs": "Aggregation operation."
+                }
+              }
+            }
+          },
+          "required": false,
+          "docs": "Legacy structured named measures; user-named expression properties are preferred."
+        }
+      },
+      "additional_properties": {
+        "shape": {
+          "shape": "sql_expression"
+        },
+        "required": false,
+        "docs": "A user-named aggregate expression whose property name becomes the output handle."
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "dynamic_outputs": [
+        {
+          "source": {
+            "source": "property_names",
+            "exclude": [
+              "evaluation",
+              "measures"
+            ]
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each user-named aggregate expression exposes a same-named derived scalar handle."
+        },
+        {
+          "source": {
+            "source": "array_object_field",
+            "property": "measures",
+            "field": "name"
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each structured measure exposes the derived scalar named by its `name` member."
+        }
+      ],
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
         "kind": "select"
       },
       "docs": "Project an ordered set of source columns and explicitly aliased expressions.",
@@ -1658,6 +2014,64 @@
           "docs": "Scaled interval start with temporal axis defaults."
         }
       },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "window"
+      },
+      "docs": "Append user-named SQL window expressions over optional partitions and ordering.",
+      "properties": {
+        "order_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions defining ascending nulls-last order."
+        },
+        "partition_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions defining independent window partitions."
+        }
+      },
+      "additional_properties": {
+        "shape": {
+          "shape": "sql_expression"
+        },
+        "required": false,
+        "docs": "A user-named SQL window expression whose property name becomes the output handle."
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "dynamic_outputs": [
+        {
+          "source": {
+            "source": "property_names",
+            "exclude": [
+              "order_by",
+              "partition_by"
+            ]
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each user-named window expression exposes a same-named field handle."
+        }
+      ],
       "compatible_coordinates": [],
       "stateless": false,
       "child_rules": []

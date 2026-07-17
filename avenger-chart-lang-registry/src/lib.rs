@@ -956,6 +956,9 @@ fn validate_value_shape(
             ValueShape::SqlExpression,
         ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
+        (ResolvedValue::Output(NativeOutputValue::RasterDim(_)), ValueShape::RasterDimension) => {
+            true
+        }
         (ResolvedValue::DataFrame(_), ValueShape::TableBinding) => true,
         (value, ValueShape::Union(shapes)) => shapes
             .iter()

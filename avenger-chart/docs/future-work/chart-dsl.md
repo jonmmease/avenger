@@ -3339,7 +3339,7 @@ mark uniform_raster_2d as density {
     legend: { title: 'Passengers'; }
   }
 
-  opacity_by_total: pixels.total {
+  opacity_by_total: {
     scale: linear { range: [0.15, 1.0]; }
   }
 
@@ -3348,7 +3348,9 @@ mark uniform_raster_2d as density {
 ```
 
 The `rasterize_2d` output handle exposes `pixels.raster`, `pixels.x_dim`,
-`pixels.y_dim`, `pixels.by_dim`, and `pixels.total`.
+`pixels.y_dim`, and, when `by` is configured, `pixels.by_dim`. Per-pixel plane
+totals are an internal input to the raster mark's `opacity_by_total` channel;
+they are not added as a user-visible table column or transform output.
 
 ## Geo Coordinates And Resources
 

@@ -83,6 +83,7 @@ pub enum ValueShape {
     },
     SqlExpression,
     SqlQuery,
+    RasterDimension,
     ScalarBinding,
     TableBinding,
     TypedReference {

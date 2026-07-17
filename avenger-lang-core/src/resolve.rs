@@ -6424,6 +6424,7 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 )
         }
         ValueShape::SqlQuery => matches!(value, ResolvedValue::Query(_)),
+        ValueShape::RasterDimension => matches!(value, ResolvedValue::Dimension(_)),
         ValueShape::ScalarBinding => {
             matches!(
                 value,
@@ -6642,6 +6643,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::Atom { .. } => "enum atom",
         ValueShape::SqlExpression => "SQL expression",
         ValueShape::SqlQuery => "SQL query",
+        ValueShape::RasterDimension => "raster dimension",
         ValueShape::ScalarBinding => "param binding",
         ValueShape::TableBinding => "store binding",
         ValueShape::TypedReference { .. } => "typed reference",

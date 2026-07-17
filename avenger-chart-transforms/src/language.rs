@@ -18,9 +18,10 @@ use datafusion::{
 use indexmap::IndexMap;
 
 use crate::{
-    Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Kde, KdeResolve, Lump, Select,
-    Sql, Stack, StackOffset, TimeFill, TimeLevel, TimeLevelKeys, TimeLevelLabel, TimeLevels,
-    TimeUnit, TimeUnitPart,
+    Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Kde, KdeResolve, Lump,
+    Rasterize2D, Rasterize2DDimension, ScalarAggregate, ScalarAggregateEvaluation, Select, Sql,
+    Stack, StackOffset, TimeFill, TimeLevel, TimeLevelKeys, TimeLevelLabel, TimeLevels, TimeUnit,
+    TimeUnitPart, Window,
 };
 
 /// The transform definitions currently available to the native registry.
@@ -41,6 +42,9 @@ pub fn definitions() -> Vec<TransformLanguageDefinition> {
         time_unit_definition(),
         time_levels_definition(),
         time_fill_definition(),
+        scalar_aggregate_definition(),
+        window_definition(),
+        rasterize_2d_definition(),
         bin_definition(),
         stack_definition(),
         sql_definition(),
@@ -1051,6 +1055,344 @@ fn lower_time_fill(
     Ok(LoweredTransform { transform, outputs })
 }
 
+fn scalar_aggregate_definition() -> TransformLanguageDefinition {
+    let mut definition = aggregate_definition();
+    definition.schema.key.kind = "scalar_aggregate".to_string();
+    definition.schema.docs =
+        "Publish whole-input aggregate measures as derived scalar expressions without changing rows."
+            .to_string();
+    definition.schema.properties.remove("group_by");
+    definition.schema.properties.insert(
+        "evaluation".to_string(),
+        PropertySchema::optional(
+            atom(&["eager", "lazy"]),
+            "Whether to materialize literal scalars eagerly or publish scalar subqueries lazily.",
+        ),
+    );
+    for output in &mut definition.schema.dynamic_outputs {
+        if let DynamicOutputSource::PropertyNames { exclude } = &mut output.source {
+            exclude.remove("group_by");
+            exclude.insert("evaluation".to_string());
+        }
+        output.docs = output.docs.replace("field", "derived scalar");
+    }
+    definition.lowerer = lower_scalar_aggregate;
+    definition
+}
+
+fn lower_scalar_aggregate(
+    declaration: &ResolvedDeclaration,
+    context: avenger_chart_core::DataTransformCompileContext,
+) -> Result<LoweredTransform, NativeLoweringError> {
+    let mut aggregate = ScalarAggregate::new();
+    if let Some(evaluation) = optional_string(declaration, "evaluation")? {
+        aggregate = aggregate.evaluation(match evaluation.as_str() {
+            "eager" => ScalarAggregateEvaluation::Eager,
+            "lazy" => ScalarAggregateEvaluation::Lazy,
+            _ => unreachable!("schema validation checks scalar evaluation"),
+        });
+    }
+    let mut names = Vec::new();
+    if let Some(ResolvedValue::Array(measures)) = declaration.properties.get("measures") {
+        for measure in measures {
+            let ResolvedValue::Object(fields) = measure else {
+                unreachable!("schema validation checks scalar aggregate measures")
+            };
+            let name = object_string(fields, "name")?;
+            aggregate = apply_structured_measure(
+                aggregate,
+                &name,
+                &object_string(fields, "op")?,
+                optional_object_expr(fields, "expr")?,
+                "scalar_aggregate",
+            )?;
+            names.push(name);
+        }
+    }
+    for (name, value) in declaration
+        .properties
+        .iter()
+        .filter(|(name, _)| !matches!(name.as_str(), "evaluation" | "measures"))
+    {
+        let ResolvedValue::Expr(expr) = value else {
+            unreachable!("schema validation checks scalar aggregate expressions")
+        };
+        aggregate = apply_aggregate_expr(aggregate, name, expr.clone(), "scalar_aggregate")?;
+        names.push(name.clone());
+    }
+    let (transform, output) = aggregate.into_compiled_and_output(context)?;
+    Ok(LoweredTransform {
+        transform,
+        outputs: names
+            .into_iter()
+            .map(|name| (name.clone(), output.scalar(&name).into()))
+            .collect(),
+    })
+}
+
+fn window_definition() -> TransformLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "window"),
+        "Append user-named SQL window expressions over optional partitions and ordering.",
+    )
+    .property(
+        "partition_by",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
+            "Expressions defining independent window partitions.",
+        ),
+    )
+    .property(
+        "order_by",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
+            "Expressions defining ascending nulls-last order.",
+        ),
+    )
+    .additional_properties(PropertySchema::optional(
+        ValueShape::SqlExpression,
+        "A user-named SQL window expression whose property name becomes the output handle.",
+    ))
+    .dynamic_output(DynamicTransformOutputSchema {
+        source: DynamicOutputSource::PropertyNames {
+            exclude: ["partition_by".to_string(), "order_by".to_string()]
+                .into_iter()
+                .collect(),
+        },
+        shape: ValueShape::SqlExpression,
+        docs: "Each user-named window expression exposes a same-named field handle.".to_string(),
+    });
+    TransformLanguageDefinition {
+        schema,
+        lowerer: |declaration, context| {
+            let mut window = Window::new()
+                .partition_by(resolved_exprs(declaration.properties.get("partition_by"))?)
+                .order_by(
+                    resolved_exprs(declaration.properties.get("order_by"))?
+                        .into_iter()
+                        .map(|expr| expr.sort(true, false)),
+                );
+            let mut outputs = BTreeMap::new();
+            for (name, value) in declaration
+                .properties
+                .iter()
+                .filter(|(name, _)| !matches!(name.as_str(), "partition_by" | "order_by"))
+            {
+                let Some(expr) = resolved_expr(value) else {
+                    unreachable!("schema validation checks window expressions")
+                };
+                window = window.expr(name, expr);
+                outputs.insert(name.clone(), col(name).into());
+            }
+            let (transform, ()) = window.into_compiled_and_output(context)?;
+            Ok(LoweredTransform { transform, outputs })
+        },
+    }
+}
+
+fn rasterize_2d_definition() -> TransformLanguageDefinition {
+    let dimension = ValueShape::Object(
+        [
+            (
+                "extent".to_string(),
+                PropertySchema::optional(
+                    ValueShape::Array(Box::new(ValueShape::SqlExpression)),
+                    "Two expressions defining the visible dimension extent.",
+                ),
+            ),
+            (
+                "bins".to_string(),
+                PropertySchema::optional(
+                    ValueShape::SqlExpression,
+                    "Expression yielding the number of bins along this dimension.",
+                ),
+            ),
+            (
+                "sampling".to_string(),
+                PropertySchema::optional(
+                    atom(&["linear"]),
+                    "Coordinate sampling represented by the raster dimension.",
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "rasterize_2d"),
+        "Bin two quantitative expressions into a dense two-dimensional raster.",
+    )
+    .property(
+        "x",
+        PropertySchema::required(ValueShape::SqlExpression, "Horizontal input expression."),
+    )
+    .property(
+        "y",
+        PropertySchema::required(ValueShape::SqlExpression, "Vertical input expression."),
+    )
+    .property(
+        "x_dim",
+        PropertySchema::optional(dimension.clone(), "Horizontal raster dimension settings."),
+    )
+    .property(
+        "y_dim",
+        PropertySchema::optional(dimension, "Vertical raster dimension settings."),
+    )
+    .property(
+        "value",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Value expression reduced into each cell; required except for count.",
+        ),
+    )
+    .property(
+        "agg",
+        PropertySchema::optional(
+            atom(&[
+                "count",
+                "sum",
+                "min",
+                "max",
+                "mean",
+                "var_pop",
+                "stddev_pop",
+                "var_samp",
+                "stddev_samp",
+            ]),
+            "Cell reducer applied to the optional value expression.",
+        ),
+    )
+    .property(
+        "partition_by",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
+            "Expressions producing independent raster rows.",
+        ),
+    )
+    .property(
+        "name",
+        PropertySchema::optional(ValueShape::String, "Physical raster output column name."),
+    )
+    .property(
+        "frame",
+        PropertySchema::optional(
+            ValueShape::String,
+            "Coordinate reference system asserted for input extents and output geometry.",
+        ),
+    )
+    .property(
+        "by",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Categorical expression producing an additional raster plane dimension.",
+        ),
+    )
+    .output(transform_output("raster", "Dense raster struct column."))
+    .output(TransformOutputSchema {
+        name: "x_dim".to_string(),
+        shape: ValueShape::RasterDimension,
+        condition_property: None,
+        docs: "Typed horizontal raster dimension.".to_string(),
+    })
+    .output(TransformOutputSchema {
+        name: "y_dim".to_string(),
+        shape: ValueShape::RasterDimension,
+        condition_property: None,
+        docs: "Typed vertical raster dimension.".to_string(),
+    })
+    .output(TransformOutputSchema {
+        name: "by_dim".to_string(),
+        shape: ValueShape::RasterDimension,
+        condition_property: Some("by".to_string()),
+        docs: "Typed categorical plane dimension when `by` is configured.".to_string(),
+    });
+    TransformLanguageDefinition {
+        schema,
+        lowerer: lower_rasterize_2d,
+    }
+}
+
+fn lower_rasterize_2d(
+    declaration: &ResolvedDeclaration,
+    context: avenger_chart_core::DataTransformCompileContext,
+) -> Result<LoweredTransform, NativeLoweringError> {
+    let mut raster = Rasterize2D::new(
+        expr_property(declaration, "x")?,
+        expr_property(declaration, "y")?,
+    );
+    if let Some(value) = declaration.properties.get("x_dim") {
+        let dimension = raster_dimension(value, "x_dim")?;
+        raster = raster.x(move |_| dimension);
+    }
+    if let Some(value) = declaration.properties.get("y_dim") {
+        let dimension = raster_dimension(value, "y_dim")?;
+        raster = raster.y(move |_| dimension);
+    }
+    if let Some(value) = optional_expr(declaration, "value")? {
+        raster = raster.value(value);
+    }
+    if let Some(agg) = optional_string(declaration, "agg")? {
+        raster = raster.agg(agg);
+    }
+    raster = raster.partition_by(resolved_exprs(declaration.properties.get("partition_by"))?);
+    if let Some(name) = optional_string(declaration, "name")? {
+        raster = raster.name(name);
+    }
+    if let Some(frame) = optional_string(declaration, "frame")? {
+        raster = raster.frame(frame);
+    }
+    let has_by = declaration.properties.contains_key("by");
+    if let Some(by) = optional_expr(declaration, "by")? {
+        raster = raster.by(by);
+    }
+    let (transform, output) = raster.into_compiled_and_output(context)?;
+    let mut outputs = BTreeMap::from([
+        ("raster".to_string(), output.raster().into()),
+        ("x_dim".to_string(), output.x_dim().into()),
+        ("y_dim".to_string(), output.y_dim().into()),
+    ]);
+    if has_by {
+        outputs.insert("by_dim".to_string(), output.by_dim().into());
+    }
+    Ok(LoweredTransform { transform, outputs })
+}
+
+fn raster_dimension(
+    value: &ResolvedValue,
+    property: &str,
+) -> Result<Rasterize2DDimension, NativeLoweringError> {
+    let ResolvedValue::Object(fields) = value else {
+        return Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "raster dimension object".to_string(),
+        });
+    };
+    let mut dimension = Rasterize2DDimension::default();
+    if let Some(value) = fields.get("extent") {
+        let values = resolved_exprs(Some(value))?;
+        let [start, stop]: [Expr; 2] =
+            values
+                .try_into()
+                .map_err(|_| NativeLoweringError::Lowering {
+                    kind: "rasterize_2d".to_string(),
+                    message: format!("{property}.extent requires exactly two expressions"),
+                })?;
+        dimension = dimension.extent(start, stop);
+    }
+    if let Some(value) = fields.get("bins") {
+        dimension = dimension.bins(resolved_expr(value).ok_or_else(|| {
+            NativeLoweringError::InvalidPropertyType {
+                property: format!("{property}.bins"),
+                expected: "SQL expression".to_string(),
+            }
+        })?);
+    }
+    if let Some(ResolvedValue::String(sampling)) = fields.get("sampling") {
+        dimension = dimension.sampling(sampling);
+    }
+    Ok(dimension)
+}
+
 fn bin_definition() -> TransformLanguageDefinition {
     let schema = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Transform, "bin"),
@@ -1369,6 +1711,7 @@ macro_rules! aggregate_measure_builder {
 
 aggregate_measure_builder!(Aggregate);
 aggregate_measure_builder!(JoinAggregate);
+aggregate_measure_builder!(ScalarAggregate);
 
 fn apply_structured_measure<B: AggregateMeasureBuilder>(
     builder: B,
@@ -1873,6 +2216,7 @@ mod tests {
     use avenger_chart_lang_types::NativeOutputValue;
     use avenger_chart_schema::{NativeSchemaSnapshot, SchemaVersion};
     use datafusion::functions_aggregate::expr_fn::sum;
+    use datafusion::functions_window::expr_fn::row_number;
     use datafusion::logical_expr::lit;
 
     #[test]
@@ -1896,6 +2240,9 @@ mod tests {
                 "time_unit",
                 "time_levels",
                 "time_fill",
+                "scalar_aggregate",
+                "window",
+                "rasterize_2d",
                 "bin",
                 "stack",
                 "sql"
@@ -2012,5 +2359,64 @@ mod tests {
             lowered_fill.outputs.get("value"),
             Some(NativeOutputValue::Expr(_))
         ));
+    }
+
+    #[test]
+    fn materializing_and_analytic_outputs_keep_their_native_types() {
+        let context = DataTransformCompileContext::new(CoordinationScope::Free);
+        let definitions = definitions();
+
+        let scalar = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "scalar_aggregate")
+            .unwrap();
+        let lowered_scalar = (scalar.lowerer)(
+            &ResolvedDeclaration::new("scalar_aggregate")
+                .property("total", ResolvedValue::Expr(sum(col("value")))),
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            lowered_scalar.outputs.get("total"),
+            Some(NativeOutputValue::Expr(_))
+        ));
+
+        let window = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "window")
+            .unwrap();
+        let lowered_window = (window.lowerer)(
+            &ResolvedDeclaration::new("window")
+                .property("row_number", ResolvedValue::Expr(row_number())),
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            lowered_window.outputs.get("row_number"),
+            Some(NativeOutputValue::Expr(_))
+        ));
+
+        let raster = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "rasterize_2d")
+            .unwrap();
+        let lowered_raster = (raster.lowerer)(
+            &ResolvedDeclaration::new("rasterize_2d")
+                .property("x", ResolvedValue::Expr(col("x")))
+                .property("y", ResolvedValue::Expr(col("y")))
+                .property("by", ResolvedValue::Expr(col("category"))),
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            lowered_raster.outputs.get("raster"),
+            Some(NativeOutputValue::Expr(_))
+        ));
+        for name in ["x_dim", "y_dim", "by_dim"] {
+            assert!(matches!(
+                lowered_raster.outputs.get(name),
+                Some(NativeOutputValue::RasterDim(_))
+            ));
+        }
     }
 }

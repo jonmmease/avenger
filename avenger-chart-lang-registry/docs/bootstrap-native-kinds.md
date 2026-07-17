@@ -155,6 +155,39 @@ Keep the highest-ranked categories and combine or drop the remainder.
 | `top_n` | property | true | Scalar number of categories to retain. |
 | `window` | property | false | Window ranking expression. |
 
+## `Transform.rasterize_2d`
+
+Bin two quantitative expressions into a dense two-dimensional raster.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `agg` | property | false | Cell reducer applied to the optional value expression. |
+| `by` | property | false | Categorical expression producing an additional raster plane dimension. |
+| `frame` | property | false | Coordinate reference system asserted for input extents and output geometry. |
+| `name` | property | false | Physical raster output column name. |
+| `partition_by` | property | false | Expressions producing independent raster rows. |
+| `value` | property | false | Value expression reduced into each cell; required except for count. |
+| `x` | property | true | Horizontal input expression. |
+| `x_dim` | property | false | Horizontal raster dimension settings. |
+| `y` | property | true | Vertical input expression. |
+| `y_dim` | property | false | Vertical raster dimension settings. |
+
+## `Transform.scalar_aggregate`
+
+Publish whole-input aggregate measures as derived scalar expressions without changing rows.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `evaluation` | property | false | Whether to materialize literal scalars eagerly or publish scalar subqueries lazily. |
+| `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
+
+Dynamic transform outputs:
+
+- PropertyNames { exclude: {"evaluation", "measures"} }: Each user-named aggregate expression exposes a same-named derived scalar handle.
+
+- ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the derived scalar named by its `name` member.
+
 ## `Transform.select`
 
 Project an ordered set of source columns and explicitly aliased expressions.
@@ -227,6 +260,20 @@ Discretize timestamps into calendar-aware interval boundaries.
 | `name` | property | false | Base name for generated columns and state. |
 | `time_context` | property | false | Timezone and week-start overrides. |
 | `units` | property | false | One calendar unit or an ordered array of units; overrides `maxbins`. |
+
+## `Transform.window`
+
+Append user-named SQL window expressions over optional partitions and ordering.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `order_by` | property | false | Expressions defining ascending nulls-last order. |
+| `partition_by` | property | false | Expressions defining independent window partitions. |
+| `*` | user-named property | false | A user-named SQL window expression whose property name becomes the output handle. |
+
+Dynamic transform outputs:
+
+- PropertyNames { exclude: {"order_by", "partition_by"} }: Each user-named window expression exposes a same-named field handle.
 
 ## `Tool.pan_scroll_zoom`
 
