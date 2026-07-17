@@ -88,6 +88,8 @@ pub enum ValueShape {
     TypedReference {
         namespaces: BTreeSet<NativeKindNamespace>,
     },
+    /// Accept either one value of `detail` or an array of those values.
+    OneOrMany(Box<ValueShape>),
     Array(Box<ValueShape>),
     Object(BTreeMap<String, PropertySchema>),
     Any,
@@ -186,6 +188,27 @@ pub struct TransformOutputSchema {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum DynamicOutputSource {
+    /// Every user-named property except the listed configuration properties
+    /// contributes an output handle with the same name.
+    PropertyNames {
+        #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+        exclude: BTreeSet<String>,
+    },
+    /// Each object in an array property contributes the string stored in the
+    /// configured field as an output handle.
+    ArrayObjectField { property: String, field: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DynamicTransformOutputSchema {
+    pub source: DynamicOutputSource,
+    pub shape: ValueShape,
+    pub docs: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct KindSchema {
     pub key: NativeKindKey,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -206,6 +229,8 @@ pub struct KindSchema {
     pub exports: BTreeMap<String, ExportSchema>,
     #[serde(default)]
     pub outputs: BTreeMap<String, TransformOutputSchema>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dynamic_outputs: Vec<DynamicTransformOutputSchema>,
     #[serde(default)]
     pub compatible_coordinates: BTreeSet<String>,
     /// Empty means the core language placement table applies without an
@@ -232,6 +257,7 @@ impl KindSchema {
             parts: BTreeMap::new(),
             exports: BTreeMap::new(),
             outputs: BTreeMap::new(),
+            dynamic_outputs: Vec::new(),
             compatible_coordinates: BTreeSet::new(),
             allowed_parents: BTreeSet::new(),
             body_mode: BodyMode::Properties,
@@ -272,6 +298,11 @@ impl KindSchema {
 
     pub fn output(mut self, output: TransformOutputSchema) -> Self {
         self.outputs.insert(output.name.clone(), output);
+        self
+    }
+
+    pub fn dynamic_output(mut self, output: DynamicTransformOutputSchema) -> Self {
+        self.dynamic_outputs.push(output);
         self
     }
 
@@ -383,6 +414,10 @@ impl NativeSchemaSnapshot {
                 require_docs(&output.docs, format!("{key:?} output '{name}'"))?;
                 validate_shape_docs(&output.shape, format!("{key:?} output '{name}'"))?;
             }
+            for output in &schema.dynamic_outputs {
+                require_docs(&output.docs, format!("{key:?} dynamic outputs"))?;
+                validate_shape_docs(&output.shape, format!("{key:?} dynamic outputs"))?;
+            }
             for child in &schema.child_rules {
                 require_docs(&child.docs, format!("{key:?} child role '{}'", child.role))?;
             }
@@ -441,6 +476,12 @@ impl NativeSchemaSnapshot {
                     ));
                 }
             }
+            if !schema.dynamic_outputs.is_empty() {
+                output.push_str("\nDynamic transform outputs:\n");
+                for dynamic in &schema.dynamic_outputs {
+                    output.push_str(&format!("\n- {:?}: {}\n", dynamic.source, dynamic.docs));
+                }
+            }
         }
         output
     }
@@ -453,7 +494,9 @@ fn validate_shape_docs(shape: &ValueShape, context: String) -> Result<(), Schema
                 require_docs(&value.docs, format!("{context} enum '{}'", value.value))?;
             }
         }
-        ValueShape::Array(inner) => validate_shape_docs(inner, context)?,
+        ValueShape::OneOrMany(inner) | ValueShape::Array(inner) => {
+            validate_shape_docs(inner, context)?
+        }
         ValueShape::Object(properties) => {
             for (name, property) in properties {
                 require_docs(&property.docs, format!("{context} field '{name}'"))?;

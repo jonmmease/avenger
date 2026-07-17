@@ -9,8 +9,9 @@ use avenger_chart_core::{
     MarkDataMode, SubplotChildPlotSpec,
 };
 pub use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, LoweredTransform, NativeLoweringError, ObjectLanguageDefinition,
-    ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition, WidgetLanguageDefinition,
+    CoordinateLanguageDefinition, LoweredTransform, NativeLoweringError, NativeOutputValue,
+    ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition,
+    WidgetLanguageDefinition,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
@@ -952,6 +953,12 @@ fn validate_value_shape(
         ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::DataFrame(_), ValueShape::TableBinding) => true,
+        (ResolvedValue::Array(values), ValueShape::OneOrMany(inner)) => values
+            .iter()
+            .all(|value| validate_value_shape(value, inner, property).is_ok()),
+        (value, ValueShape::OneOrMany(inner)) => {
+            validate_value_shape(value, inner, property).is_ok()
+        }
         (ResolvedValue::Array(values), ValueShape::Array(inner)) => values
             .iter()
             .all(|value| validate_value_shape(value, inner, property).is_ok()),

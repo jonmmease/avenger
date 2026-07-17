@@ -143,13 +143,13 @@
       "properties": {
         "group_by": {
           "shape": {
-            "shape": "array",
+            "shape": "one_or_many",
             "detail": {
               "shape": "sql_expression"
             }
           },
           "required": false,
-          "docs": "Grouping expressions."
+          "docs": "One grouping expression or an array of grouping expressions."
         },
         "measures": {
           "shape": {
@@ -209,23 +209,211 @@
               }
             }
           },
+          "required": false,
+          "docs": "Legacy structured named measures; user-named expression properties are preferred."
+        }
+      },
+      "additional_properties": {
+        "shape": {
+          "shape": "sql_expression"
+        },
+        "required": false,
+        "docs": "A user-named aggregate expression whose property name becomes the output handle."
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "dynamic_outputs": [
+        {
+          "source": {
+            "source": "property_names",
+            "exclude": [
+              "group_by",
+              "measures"
+            ]
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each user-named aggregate expression exposes a same-named field handle."
+        },
+        {
+          "source": {
+            "source": "array_object_field",
+            "property": "measures",
+            "field": "name"
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each structured measure exposes the field named by its `name` member."
+        }
+      ],
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "bin"
+      },
+      "docs": "Discretize a quantitative field into stable interval columns.",
+      "properties": {
+        "anchor": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Optional boundary anchor."
+        },
+        "base": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Radix used to choose candidate steps."
+        },
+        "divide": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "integer"
+            }
+          },
+          "required": false,
+          "docs": "Positive divisors used to refine candidate steps."
+        },
+        "extent": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Two expressions defining the input extent."
+        },
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
           "required": true,
-          "docs": "Named aggregate measures."
+          "docs": "The quantitative input expression."
+        },
+        "maxbins": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Requested maximum bin count."
+        },
+        "minstep": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Minimum allowed step."
+        },
+        "name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Base name for generated columns and state."
+        },
+        "nice": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Whether to choose pleasant boundaries."
+        },
+        "span": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Optional extent span override."
+        },
+        "step": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Exact requested step."
+        },
+        "steps": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "number"
+            }
+          },
+          "required": false,
+          "docs": "Explicit positive candidate steps."
         }
       },
       "channels": {},
       "parts": {},
       "exports": {},
       "outputs": {
-        "fields": {
-          "name": "fields",
+        "end": {
+          "name": "end",
           "shape": {
-            "shape": "object",
-            "detail": {}
+            "shape": "sql_expression"
           },
-          "docs": "Named output fields declared by group keys and measures."
+          "docs": "Scaled upper interval boundary."
+        },
+        "index": {
+          "name": "index",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Zero-based interval index."
+        },
+        "start": {
+          "name": "start",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled lower interval boundary."
         }
       },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "calculate"
+      },
+      "docs": "Append user-named columns computed from row expressions.",
+      "properties": {},
+      "additional_properties": {
+        "shape": {
+          "shape": "sql_expression"
+        },
+        "required": false,
+        "docs": "A user-named row expression whose property name becomes the output column and handle."
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "dynamic_outputs": [
+        {
+          "source": {
+            "source": "property_names"
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each expression exposes a same-named output field handle."
+        }
+      ],
       "compatible_coordinates": [],
       "stateless": false,
       "child_rules": []
@@ -243,6 +431,152 @@
           },
           "required": true,
           "docs": "Boolean row predicate."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "join_aggregate"
+      },
+      "docs": "Compute grouped aggregate measures and join them back onto every input row.",
+      "properties": {
+        "group_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "One grouping expression or an array of grouping expressions."
+        },
+        "measures": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "object",
+              "detail": {
+                "expr": {
+                  "shape": {
+                    "shape": "sql_expression"
+                  },
+                  "required": false,
+                  "docs": "Input expression; omitted for count."
+                },
+                "name": {
+                  "shape": {
+                    "shape": "string"
+                  },
+                  "required": true,
+                  "docs": "Output column name."
+                },
+                "op": {
+                  "shape": {
+                    "shape": "atom",
+                    "detail": {
+                      "values": [
+                        {
+                          "value": "sum",
+                          "docs": "The `sum` aggregation operation."
+                        },
+                        {
+                          "value": "count",
+                          "docs": "The `count` aggregation operation."
+                        },
+                        {
+                          "value": "mean",
+                          "docs": "The `mean` aggregation operation."
+                        },
+                        {
+                          "value": "min",
+                          "docs": "The `min` aggregation operation."
+                        },
+                        {
+                          "value": "max",
+                          "docs": "The `max` aggregation operation."
+                        },
+                        {
+                          "value": "median",
+                          "docs": "The `median` aggregation operation."
+                        }
+                      ]
+                    }
+                  },
+                  "required": true,
+                  "docs": "Aggregation operation."
+                }
+              }
+            }
+          },
+          "required": false,
+          "docs": "Legacy structured named measures; user-named expression properties are preferred."
+        }
+      },
+      "additional_properties": {
+        "shape": {
+          "shape": "sql_expression"
+        },
+        "required": false,
+        "docs": "A user-named aggregate expression whose property name becomes the output handle."
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "dynamic_outputs": [
+        {
+          "source": {
+            "source": "property_names",
+            "exclude": [
+              "group_by",
+              "measures"
+            ]
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each user-named aggregate expression exposes a same-named field handle."
+        },
+        {
+          "source": {
+            "source": "array_object_field",
+            "property": "measures",
+            "field": "name"
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each structured measure exposes the field named by its `name` member."
+        }
+      ],
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "select"
+      },
+      "docs": "Project an ordered set of source columns and explicitly aliased expressions.",
+      "properties": {
+        "expressions": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": true,
+          "docs": "One projection expression or an ordered array of projection expressions."
         }
       },
       "channels": {},
@@ -279,6 +613,115 @@
             "detail": {}
           },
           "docs": "Fields projected by the SQL query."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "stack"
+      },
+      "docs": "Compute stacked start and end positions for a quantitative field.",
+      "properties": {
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The quantitative value to stack."
+        },
+        "group_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions that partition independent stacks."
+        },
+        "name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Base name for generated boundary columns."
+        },
+        "offset": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "zero",
+                  "docs": "Use the `zero` mode."
+                },
+                {
+                  "value": "normalize",
+                  "docs": "Use the `normalize` mode."
+                },
+                {
+                  "value": "center",
+                  "docs": "Use the `center` mode."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Stack baseline and normalization mode."
+        },
+        "sort_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions that order rows within each stack."
+        },
+        "value_name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Optional copied value output column name."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "end": {
+          "name": "end",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled upper stacked position."
+        },
+        "mid": {
+          "name": "mid",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled midpoint of the stacked interval."
+        },
+        "start": {
+          "name": "start",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled lower stacked position."
+        },
+        "value": {
+          "name": "value",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The configured value output or upper boundary."
         }
       },
       "compatible_coordinates": [],

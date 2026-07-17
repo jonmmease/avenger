@@ -1197,7 +1197,7 @@ async fn resolve_transform_outputs_are_sequential_typed_handles() {
 avenger 1;
 chart cartesian as pipeline {
   transform aggregate as stats {
-    measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+    total: sum("amount");
   }
   mark symbol as points { x: stats.total; y: "y"; }
 }
@@ -1232,7 +1232,7 @@ avenger 1;
 chart cartesian as future {
   mark symbol { x: stats.total; y: "y"; }
   transform aggregate as stats {
-    measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+    total: sum("amount");
   }
 }
 "#,

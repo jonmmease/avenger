@@ -33,8 +33,46 @@ Group rows and compute named aggregate measures.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
-| `group_by` | property | false | Grouping expressions. |
-| `measures` | property | true | Named aggregate measures. |
+| `group_by` | property | false | One grouping expression or an array of grouping expressions. |
+| `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
+
+Dynamic transform outputs:
+
+- PropertyNames { exclude: {"group_by", "measures"} }: Each user-named aggregate expression exposes a same-named field handle.
+
+- ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
+
+## `Transform.bin`
+
+Discretize a quantitative field into stable interval columns.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `anchor` | property | false | Optional boundary anchor. |
+| `base` | property | false | Radix used to choose candidate steps. |
+| `divide` | property | false | Positive divisors used to refine candidate steps. |
+| `extent` | property | false | Two expressions defining the input extent. |
+| `field` | property | true | The quantitative input expression. |
+| `maxbins` | property | false | Requested maximum bin count. |
+| `minstep` | property | false | Minimum allowed step. |
+| `name` | property | false | Base name for generated columns and state. |
+| `nice` | property | false | Whether to choose pleasant boundaries. |
+| `span` | property | false | Optional extent span override. |
+| `step` | property | false | Exact requested step. |
+| `steps` | property | false | Explicit positive candidate steps. |
+
+## `Transform.calculate`
+
+Append user-named columns computed from row expressions.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `*` | user-named property | false | A user-named row expression whose property name becomes the output column and handle. |
+
+Dynamic transform outputs:
+
+- PropertyNames { exclude: {} }: Each expression exposes a same-named output field handle.
 
 ## `Transform.filter`
 
@@ -44,6 +82,30 @@ Retain rows for which a predicate is true.
 |---|---|---:|---|
 | `predicate` | property | true | Boolean row predicate. |
 
+## `Transform.join_aggregate`
+
+Compute grouped aggregate measures and join them back onto every input row.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `group_by` | property | false | One grouping expression or an array of grouping expressions. |
+| `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
+
+Dynamic transform outputs:
+
+- PropertyNames { exclude: {"group_by", "measures"} }: Each user-named aggregate expression exposes a same-named field handle.
+
+- ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
+
+## `Transform.select`
+
+Project an ordered set of source columns and explicitly aliased expressions.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `expressions` | property | true | One projection expression or an ordered array of projection expressions. |
+
 ## `Transform.sql`
 
 Run one DataFusion SQL query against the reserved `input` relation.
@@ -51,6 +113,19 @@ Run one DataFusion SQL query against the reserved `input` relation.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `query` | property | true | The SQL query. |
+
+## `Transform.stack`
+
+Compute stacked start and end positions for a quantitative field.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `field` | property | true | The quantitative value to stack. |
+| `group_by` | property | false | Expressions that partition independent stacks. |
+| `name` | property | false | Base name for generated boundary columns. |
+| `offset` | property | false | Stack baseline and normalization mode. |
+| `sort_by` | property | false | Expressions that order rows within each stack. |
+| `value_name` | property | false | Optional copied value output column name. |
 
 ## `Tool.pan_scroll_zoom`
 

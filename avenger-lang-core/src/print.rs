@@ -8,6 +8,15 @@ pub fn print_file(file: &File) -> String {
     printer.output
 }
 
+/// Render one semantic value using the same canonical spelling as file
+/// printing. Resolution uses this to reinterpret call-shaped values in slots
+/// whose native schema declares SQL-expression semantics.
+pub(crate) fn print_value(value: &Value) -> String {
+    let mut printer = Printer::default();
+    printer.value(value);
+    printer.output
+}
+
 #[derive(Default)]
 struct Printer {
     output: String,

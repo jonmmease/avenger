@@ -342,6 +342,12 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
                 "additionalProperties": false
             })
         }
+        ValueShape::OneOrMany(inner) => json!({
+            "oneOf": [
+                value_shape_schema(inner),
+                { "type": "array", "items": value_shape_schema(inner) }
+            ]
+        }),
         ValueShape::Array(inner) => {
             json!({ "type": "array", "items": value_shape_schema(inner) })
         }

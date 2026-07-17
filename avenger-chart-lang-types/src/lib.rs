@@ -9,8 +9,8 @@
 use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart_core::{
-    ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem, DataTransformCompileContext,
-    Param, PlotMark, WidgetAttachment,
+    ChannelExpr, ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem,
+    DataTransformCompileContext, Param, PlotMark, RasterDim, WidgetAttachment,
 };
 use avenger_chart_schema::KindSchema;
 use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::Expr};
@@ -94,7 +94,58 @@ impl ResolvedDeclaration {
 /// Coordinate-independent result from a native transform lowerer.
 pub struct LoweredTransform {
     pub transform: Box<dyn CompiledDataTransform>,
-    pub outputs: BTreeMap<String, Expr>,
+    pub outputs: BTreeMap<String, NativeOutputValue>,
+}
+
+/// A typed native output handle preserved until its authoring use site.
+#[derive(Clone)]
+pub enum NativeOutputValue {
+    Expr(Expr),
+    Channel(ChannelExpr),
+    RasterDim(RasterDim),
+    Opaque(Arc<dyn Any + Send + Sync>),
+}
+
+impl fmt::Debug for NativeOutputValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Expr(expr) => f.debug_tuple("Expr").field(expr).finish(),
+            Self::Channel(channel) => f.debug_tuple("Channel").field(channel).finish(),
+            Self::RasterDim(dimension) => f.debug_tuple("RasterDim").field(dimension).finish(),
+            Self::Opaque(_) => f.write_str("Opaque(..)"),
+        }
+    }
+}
+
+impl From<Expr> for NativeOutputValue {
+    fn from(value: Expr) -> Self {
+        Self::Expr(value)
+    }
+}
+
+impl From<ChannelExpr> for NativeOutputValue {
+    fn from(value: ChannelExpr) -> Self {
+        Self::Channel(value)
+    }
+}
+
+impl From<RasterDim> for NativeOutputValue {
+    fn from(value: RasterDim) -> Self {
+        Self::RasterDim(value)
+    }
+}
+
+impl NativeOutputValue {
+    pub fn opaque<T: Any + Send + Sync>(value: T) -> Self {
+        Self::Opaque(Arc::new(value))
+    }
+
+    pub fn downcast_ref<T: Any>(&self) -> Option<&T> {
+        match self {
+            Self::Opaque(value) => value.downcast_ref(),
+            _ => None,
+        }
+    }
 }
 
 /// Errors produced inside an owner crate after registry schema validation.

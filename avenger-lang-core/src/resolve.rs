@@ -2608,6 +2608,8 @@ impl<'a> Resolver<'a> {
                     &mut resolved,
                     &shape,
                     info.span,
+                    event_context,
+                    declaration,
                 );
                 self.validate_value_shape(&resolved, &shape, name.as_str(), info.span);
             } else if let Some(slot) = definition_schema
@@ -3300,10 +3302,19 @@ impl<'a> Resolver<'a> {
             return;
         }
         if value_matches_shape(value, shape) {
-            if let (ResolvedValue::Object { properties, .. }, ValueShape::Object(fields)) =
-                (value, shape)
-            {
-                self.validate_object_fields(properties, fields, property, span);
+            match (value, shape) {
+                (ResolvedValue::Object { properties, .. }, ValueShape::Object(fields)) => {
+                    self.validate_object_fields(properties, fields, property, span);
+                }
+                (ResolvedValue::Array(values), ValueShape::OneOrMany(inner)) => {
+                    for value in values {
+                        self.validate_value_shape(value, inner, property, span);
+                    }
+                }
+                (value, ValueShape::OneOrMany(inner)) => {
+                    self.validate_value_shape(value, inner, property, span);
+                }
+                _ => {}
             }
             return;
         }
@@ -3326,16 +3337,47 @@ impl<'a> Resolver<'a> {
         resolved: &mut ResolvedValue,
         shape: &ValueShape,
         span: SourceSpan,
+        in_event: bool,
+        owner: &Decl,
     ) {
         match shape {
             ValueShape::SqlExpression => {
+                if matches!(source, Value::Call { .. })
+                    && let Ok(expression) =
+                        crate::ast::SqlExpression::parse(&crate::print::print_value(source))
+                {
+                    *resolved = self.resolve_value(
+                        scope,
+                        &Value::Expr(Box::new(expression)),
+                        span,
+                        in_event,
+                        owner,
+                    );
+                }
                 self.normalize_expression_argument(scope, resolved, span);
             }
             ValueShape::Array(inner) => {
                 if let (Value::Array(sources), ResolvedValue::Array(values)) = (source, resolved) {
                     for (source, value) in sources.iter().zip(values) {
-                        self.normalize_definition_arguments(scope, source, value, inner, span);
+                        self.normalize_definition_arguments(
+                            scope, source, value, inner, span, in_event, owner,
+                        );
                     }
+                }
+            }
+            ValueShape::OneOrMany(inner) => {
+                if let (Value::Array(sources), ResolvedValue::Array(values)) =
+                    (source, &mut *resolved)
+                {
+                    for (source, value) in sources.iter().zip(values) {
+                        self.normalize_definition_arguments(
+                            scope, source, value, inner, span, in_event, owner,
+                        );
+                    }
+                } else {
+                    self.normalize_definition_arguments(
+                        scope, source, resolved, inner, span, in_event, owner,
+                    );
                 }
             }
             ValueShape::Object(fields) => {
@@ -3352,6 +3394,8 @@ impl<'a> Resolver<'a> {
                                 value,
                                 &field.shape,
                                 span,
+                                in_event,
+                                owner,
                             );
                         }
                     }
@@ -4509,22 +4553,42 @@ impl<'a> Resolver<'a> {
         if let Some(definition) = definition {
             output_names.extend(definition.outputs.keys().cloned());
         }
-        if declaration
-            .kind
-            .as_ref()
-            .is_some_and(|kind| kind.as_str() == "aggregate")
-            && let Some(Value::Array(measures)) = declaration.props.get("measures")
-        {
-            output_names.extend(measures.iter().filter_map(|measure| {
-                let Value::Block { body, .. } = measure else {
-                    return None;
-                };
-                match body.props.get("name") {
-                    Some(Value::Str(name)) => Some(name.clone()),
-                    Some(Value::Atom(name)) => Some(name.to_string()),
-                    _ => None,
+        if let Some(schema) = declaration.kind.as_ref().and_then(|kind| {
+            self.registry.entries.get(&NativeKindKey::new(
+                NativeKindNamespace::Transform,
+                kind.to_string(),
+            ))
+        }) {
+            for dynamic in &schema.dynamic_outputs {
+                match &dynamic.source {
+                    avenger_chart_schema::DynamicOutputSource::PropertyNames { exclude } => {
+                        output_names.extend(
+                            declaration
+                                .props
+                                .iter()
+                                .map(|(name, _)| name.to_string())
+                                .filter(|name| !exclude.contains(name)),
+                        );
+                    }
+                    avenger_chart_schema::DynamicOutputSource::ArrayObjectField {
+                        property,
+                        field,
+                    } => {
+                        if let Some(Value::Array(values)) = declaration.props.get(property) {
+                            output_names.extend(values.iter().filter_map(|value| {
+                                let Value::Block { body, .. } = value else {
+                                    return None;
+                                };
+                                match body.props.get(field) {
+                                    Some(Value::Str(name)) => Some(name.clone()),
+                                    Some(Value::Atom(name)) => Some(name.to_string()),
+                                    _ => None,
+                                }
+                            }));
+                        }
+                    }
                 }
-            }));
+            }
         }
         if declaration
             .kind
@@ -5997,6 +6061,9 @@ fn merge_definition_mark_schemas(mut schemas: Vec<KindSchema>) -> Option<KindSch
         merged
             .outputs
             .retain(|name, value| schema.outputs.get(name) == Some(value));
+        merged
+            .dynamic_outputs
+            .retain(|value| schema.dynamic_outputs.contains(value));
     }
     Some(merged)
 }
@@ -6330,6 +6397,12 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 .any(|namespace| namespace_matches_target(*namespace, &reference.target)),
             _ => false,
         },
+        ValueShape::OneOrMany(inner) => match value {
+            ResolvedValue::Array(values) => {
+                values.iter().all(|value| value_matches_shape(value, inner))
+            }
+            value => value_matches_shape(value, inner),
+        },
         ValueShape::Array(inner) => {
             matches!(value, ResolvedValue::Array(values) if values.iter().all(|value| value_matches_shape(value, inner)))
         }
@@ -6514,6 +6587,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::ScalarBinding => "param binding",
         ValueShape::TableBinding => "store binding",
         ValueShape::TypedReference { .. } => "typed reference",
+        ValueShape::OneOrMany(_) => "value or array",
         ValueShape::Array(_) => "array",
         ValueShape::Object(_) => "object",
         ValueShape::Any => "value",
@@ -6577,6 +6651,13 @@ fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> Res
                 .map(|value| resolved_schema_default(value, inner))
                 .collect(),
         ),
+        (serde_json::Value::Array(values), ValueShape::OneOrMany(inner)) => ResolvedValue::Array(
+            values
+                .iter()
+                .map(|value| resolved_schema_default(value, inner))
+                .collect(),
+        ),
+        (_, ValueShape::OneOrMany(inner)) => resolved_schema_default(value, inner),
         (serde_json::Value::Object(values), ValueShape::Object(fields)) => ResolvedValue::Object {
             head: None,
             kind: None,
