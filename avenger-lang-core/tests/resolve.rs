@@ -458,7 +458,9 @@ chart cartesian as contracts {
     assert!(codes.contains(&"AVENGER-RESOLVE-038"));
     assert!(codes.contains(&"AVENGER-RESOLVE-024"));
     assert!(codes.contains(&"AVENGER-RESOLVE-044"));
-    assert!(codes.contains(&"AVENGER-RESOLVE-050"));
+    // Function calls are syntactically valid SQL expressions at this phase;
+    // DataFusion resolves the function name against the active session during
+    // planning rather than treating the call as a schema-shape mismatch.
 
     let polar = project(
         &[(

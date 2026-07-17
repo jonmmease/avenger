@@ -208,6 +208,48 @@ async fn vertical_slice_sql_aggregate_pipeline_propagates_schema_and_evaluates()
 }
 
 #[tokio::test]
+async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outputs() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: {
+            values: [
+              { category: 'A'; amount: 2.0; },
+              { category: 'A'; amount: 3.0; }
+            ];
+          }
+          transform pipeline as summarized {
+            scope: level(2);
+            output total: totals.total;
+            transform aggregate as totals {
+              total: sum("amount");
+            }
+          }
+          mark symbol as point {
+            x: summarized.total;
+            y: summarized.total;
+            size: value 80.0;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert_eq!(
+        json.matches("\"type\":\"pipeline\"").count(),
+        1,
+        "the DSL pipeline must remain one compiled parent stage"
+    );
+    assert!(json.contains("\"stages\":["));
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

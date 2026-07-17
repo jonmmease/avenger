@@ -211,6 +211,13 @@
           },
           "required": false,
           "docs": "Legacy structured named measures; user-named expression properties are preferred."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "additional_properties": {
@@ -230,7 +237,8 @@
             "source": "property_names",
             "exclude": [
               "group_by",
-              "measures"
+              "measures",
+              "scope"
             ]
           },
           "shape": {
@@ -330,6 +338,13 @@
           "required": false,
           "docs": "Whether to choose pleasant boundaries."
         },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
+        },
         "span": {
           "shape": {
             "shape": "sql_expression"
@@ -391,7 +406,15 @@
         "kind": "calculate"
       },
       "docs": "Append user-named columns computed from row expressions.",
-      "properties": {},
+      "properties": {
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
+        }
+      },
       "additional_properties": {
         "shape": {
           "shape": "sql_expression"
@@ -406,7 +429,10 @@
       "dynamic_outputs": [
         {
           "source": {
-            "source": "property_names"
+            "source": "property_names",
+            "exclude": [
+              "scope"
+            ]
           },
           "shape": {
             "shape": "sql_expression"
@@ -431,6 +457,13 @@
           },
           "required": true,
           "docs": "Boolean row predicate."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "channels": {},
@@ -478,6 +511,13 @@
           },
           "required": false,
           "docs": "Optional generated source-order column."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "channels": {},
@@ -589,6 +629,13 @@
           },
           "required": true,
           "docs": "The fill strategy."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "channels": {},
@@ -692,6 +739,13 @@
           },
           "required": false,
           "docs": "Legacy structured named measures; user-named expression properties are preferred."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "additional_properties": {
@@ -711,7 +765,8 @@
             "source": "property_names",
             "exclude": [
               "group_by",
-              "measures"
+              "measures",
+              "scope"
             ]
           },
           "shape": {
@@ -819,6 +874,13 @@
           "required": false,
           "docs": "Whether groups use independent or shared evaluation domains."
         },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
+        },
         "steps": {
           "shape": {
             "shape": "sql_expression"
@@ -918,6 +980,13 @@
           "required": false,
           "docs": "Replacement value for combined categories."
         },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
+        },
         "top_n": {
           "shape": {
             "shape": "sql_expression"
@@ -976,6 +1045,41 @@
       "compatible_coordinates": [],
       "stateless": false,
       "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "pipeline"
+      },
+      "docs": "Run ordered child transforms behind one native parent stage and expose only declared public outputs.",
+      "properties": {
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "transform",
+          "min": 1,
+          "docs": "Ordered native child transform stage."
+        },
+        {
+          "role": "output",
+          "min": 0,
+          "docs": "Public final-relation expression exposed through the pipeline binder."
+        }
+      ]
     },
     {
       "key": {
@@ -1061,6 +1165,13 @@
           },
           "required": false,
           "docs": "Expressions producing independent raster rows."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         },
         "value": {
           "shape": {
@@ -1290,6 +1401,13 @@
           },
           "required": false,
           "docs": "Legacy structured named measures; user-named expression properties are preferred."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "additional_properties": {
@@ -1309,7 +1427,8 @@
             "source": "property_names",
             "exclude": [
               "evaluation",
-              "measures"
+              "measures",
+              "scope"
             ]
           },
           "shape": {
@@ -1349,6 +1468,13 @@
           },
           "required": true,
           "docs": "One projection expression or an ordered array of projection expressions."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "channels": {},
@@ -1372,6 +1498,13 @@
           },
           "required": true,
           "docs": "The SQL query."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "channels": {},
@@ -1444,6 +1577,13 @@
           },
           "required": false,
           "docs": "Stack baseline and normalization mode."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         },
         "sort_by": {
           "shape": {
@@ -1580,6 +1720,13 @@
           },
           "required": true,
           "docs": "A `time_levels.levels` metadata handle."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "channels": {},
@@ -1756,6 +1903,13 @@
           "required": false,
           "docs": "Base name for generated key columns."
         },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
+        },
         "time_context": {
           "shape": {
             "shape": "object",
@@ -1892,6 +2046,13 @@
           },
           "required": false,
           "docs": "Base name for generated columns and state."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         },
         "time_context": {
           "shape": {
@@ -2044,6 +2205,13 @@
           },
           "required": false,
           "docs": "Expressions defining independent window partitions."
+        },
+        "scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Coordination scope for this transform stage."
         }
       },
       "additional_properties": {
@@ -2063,7 +2231,8 @@
             "source": "property_names",
             "exclude": [
               "order_by",
-              "partition_by"
+              "partition_by",
+              "scope"
             ]
           },
           "shape": {

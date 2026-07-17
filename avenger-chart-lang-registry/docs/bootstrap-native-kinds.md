@@ -35,11 +35,12 @@ Group rows and compute named aggregate measures.
 |---|---|---:|---|
 | `group_by` | property | false | One grouping expression or an array of grouping expressions. |
 | `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"group_by", "measures"} }: Each user-named aggregate expression exposes a same-named field handle.
+- PropertyNames { exclude: {"group_by", "measures", "scope"} }: Each user-named aggregate expression exposes a same-named field handle.
 
 - ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
 
@@ -58,6 +59,7 @@ Discretize a quantitative field into stable interval columns.
 | `minstep` | property | false | Minimum allowed step. |
 | `name` | property | false | Base name for generated columns and state. |
 | `nice` | property | false | Whether to choose pleasant boundaries. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `span` | property | false | Optional extent span override. |
 | `step` | property | false | Exact requested step. |
 | `steps` | property | false | Explicit positive candidate steps. |
@@ -68,11 +70,12 @@ Append user-named columns computed from row expressions.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `*` | user-named property | false | A user-named row expression whose property name becomes the output column and handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {} }: Each expression exposes a same-named output field handle.
+- PropertyNames { exclude: {"scope"} }: Each expression exposes a same-named output field handle.
 
 ## `Transform.filter`
 
@@ -81,6 +84,7 @@ Retain rows for which a predicate is true.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `predicate` | property | true | Boolean row predicate. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.fold`
 
@@ -92,6 +96,7 @@ Turn a named set of source expressions into key/value rows.
 | `as_value` | property | false | Generated value column name. |
 | `fields` | property | true | A map from emitted key labels to source expressions. |
 | `index` | property | false | Optional generated source-order column. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.impute`
 
@@ -106,6 +111,7 @@ Insert missing key rows and fill a value expression within groups.
 | `group_by` | property | false | Expressions defining independent imputation groups. |
 | `key` | property | true | The key expression whose domain is completed. |
 | `method` | property | true | The fill strategy. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.join_aggregate`
 
@@ -115,11 +121,12 @@ Compute grouped aggregate measures and join them back onto every input row.
 |---|---|---:|---|
 | `group_by` | property | false | One grouping expression or an array of grouping expressions. |
 | `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"group_by", "measures"} }: Each user-named aggregate expression exposes a same-named field handle.
+- PropertyNames { exclude: {"group_by", "measures", "scope"} }: Each user-named aggregate expression exposes a same-named field handle.
 
 - ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
 
@@ -137,6 +144,7 @@ Estimate a one-dimensional kernel density, optionally by group.
 | `field` | property | true | The quantitative sample expression. |
 | `group_by` | property | false | Simple columns defining independent density groups. |
 | `resolve` | property | false | Whether groups use independent or shared evaluation domains. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `steps` | property | false | Number of evaluation samples. |
 
 ## `Transform.lump`
@@ -152,8 +160,17 @@ Keep the highest-ranked categories and combine or drop the remainder.
 | `order` | property | false | Ranking direction. |
 | `order_by` | property | false | Aggregate ranking expression. |
 | `other` | property | false | Replacement value for combined categories. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `top_n` | property | true | Scalar number of categories to retain. |
 | `window` | property | false | Window ranking expression. |
+
+## `Transform.pipeline`
+
+Run ordered child transforms behind one native parent stage and expose only declared public outputs.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.rasterize_2d`
 
@@ -166,6 +183,7 @@ Bin two quantitative expressions into a dense two-dimensional raster.
 | `frame` | property | false | Coordinate reference system asserted for input extents and output geometry. |
 | `name` | property | false | Physical raster output column name. |
 | `partition_by` | property | false | Expressions producing independent raster rows. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `value` | property | false | Value expression reduced into each cell; required except for count. |
 | `x` | property | true | Horizontal input expression. |
 | `x_dim` | property | false | Horizontal raster dimension settings. |
@@ -180,11 +198,12 @@ Publish whole-input aggregate measures as derived scalar expressions without cha
 |---|---|---:|---|
 | `evaluation` | property | false | Whether to materialize literal scalars eagerly or publish scalar subqueries lazily. |
 | `measures` | property | false | Legacy structured named measures; user-named expression properties are preferred. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `*` | user-named property | false | A user-named aggregate expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"evaluation", "measures"} }: Each user-named aggregate expression exposes a same-named derived scalar handle.
+- PropertyNames { exclude: {"evaluation", "measures", "scope"} }: Each user-named aggregate expression exposes a same-named derived scalar handle.
 
 - ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the derived scalar named by its `name` member.
 
@@ -195,6 +214,7 @@ Project an ordered set of source columns and explicitly aliased expressions.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `expressions` | property | true | One projection expression or an ordered array of projection expressions. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.sql`
 
@@ -203,6 +223,7 @@ Run one DataFusion SQL query against the reserved `input` relation.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `query` | property | true | The SQL query. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.stack`
 
@@ -214,6 +235,7 @@ Compute stacked start and end positions for a quantitative field.
 | `group_by` | property | false | Expressions that partition independent stacks. |
 | `name` | property | false | Base name for generated boundary columns. |
 | `offset` | property | false | Stack baseline and normalization mode. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `sort_by` | property | false | Expressions that order rows within each stack. |
 | `value_name` | property | false | Optional copied value output column name. |
 
@@ -230,6 +252,7 @@ Complete missing calendar hierarchy rows and fill their values.
 | `flag` | property | false | Optional generated-row flag column. |
 | `group_by` | property | false | Expressions defining independent completion groups. |
 | `levels` | property | true | A `time_levels.levels` metadata handle. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 
 ## `Transform.time_levels`
 
@@ -240,6 +263,7 @@ Derive an ordered categorical calendar hierarchy from timestamps.
 | `field` | property | true | The temporal input expression. |
 | `levels` | property | true | Ordered calendar levels, either atoms or configured level objects. |
 | `name` | property | false | Base name for generated key columns. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `time_context` | property | false | Timezone and week-start overrides. |
 
 Dynamic transform outputs:
@@ -258,6 +282,7 @@ Discretize timestamps into calendar-aware interval boundaries.
 | `interval` | property | false | Whether to emit interval end boundaries. |
 | `maxbins` | property | false | Requested maximum interval count. |
 | `name` | property | false | Base name for generated columns and state. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `time_context` | property | false | Timezone and week-start overrides. |
 | `units` | property | false | One calendar unit or an ordered array of units; overrides `maxbins`. |
 
@@ -269,11 +294,12 @@ Append user-named SQL window expressions over optional partitions and ordering.
 |---|---|---:|---|
 | `order_by` | property | false | Expressions defining ascending nulls-last order. |
 | `partition_by` | property | false | Expressions defining independent window partitions. |
+| `scope` | property | false | Coordination scope for this transform stage. |
 | `*` | user-named property | false | A user-named SQL window expression whose property name becomes the output handle. |
 
 Dynamic transform outputs:
 
-- PropertyNames { exclude: {"order_by", "partition_by"} }: Each user-named window expression exposes a same-named field handle.
+- PropertyNames { exclude: {"order_by", "partition_by", "scope"} }: Each user-named window expression exposes a same-named field handle.
 
 ## `Tool.pan_scroll_zoom`
 

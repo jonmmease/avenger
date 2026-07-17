@@ -306,6 +306,21 @@ pub struct ResolvedOutputHandle {
     pub producer: DeclarationId,
     pub name: String,
     pub ordinal: usize,
+    pub shape: ResolvedOutputShape,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolvedOutputShape {
+    Expression,
+    RasterDimension,
+    Opaque,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedDimension {
+    pub target: ResolvedOutputHandle,
+    pub authored_path: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -373,7 +388,7 @@ pub enum ResolvedValue {
     Binding(ResolvedBinding),
     Reference(ResolvedReference),
     Visual(Box<ResolvedValue>),
-    Dimension(Vec<String>),
+    Dimension(ResolvedDimension),
     Pattern(Box<ResolvedValue>),
     Environment(String),
     None,
@@ -2793,9 +2808,7 @@ impl<'a> Resolver<'a> {
                     return None;
                 }
             }
-            "transform" if kind != "pipeline" => {
-                NativeKindKey::new(NativeKindNamespace::Transform, kind)
-            }
+            "transform" => NativeKindKey::new(NativeKindNamespace::Transform, kind),
             "tool" if kind != "behavior" => NativeKindKey::new(NativeKindNamespace::Tool, kind),
             "widget" => NativeKindKey::new(NativeKindNamespace::Widget, kind),
             _ => return None,
@@ -3745,9 +3758,10 @@ impl<'a> Resolver<'a> {
             Value::Visual(value) => ResolvedValue::Visual(Box::new(
                 self.resolve_value(scope, value, span, in_event, owner),
             )),
-            Value::Dim(path) => {
-                ResolvedValue::Dimension(path.iter().map(ToString::to_string).collect())
-            }
+            Value::Dim(path) => self
+                .resolve_dimension(scope, path, span)
+                .map(ResolvedValue::Dimension)
+                .unwrap_or(ResolvedValue::Invalid),
             Value::Pattern(value) => ResolvedValue::Pattern(Box::new(
                 self.resolve_value(scope, value, span, in_event, owner),
             )),
@@ -4040,6 +4054,52 @@ impl<'a> Resolver<'a> {
             kind,
             authored_path,
         })
+    }
+
+    fn resolve_dimension(
+        &mut self,
+        scope: ScopeId,
+        path: &[Name],
+        span: SourceSpan,
+    ) -> Option<ResolvedDimension> {
+        let authored_path = path.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let target = self.resolve_any_path(scope, &authored_path, span, true)?;
+        match target {
+            ResolvedTarget::Output(target)
+                if target.shape == ResolvedOutputShape::RasterDimension =>
+            {
+                Some(ResolvedDimension {
+                    target,
+                    authored_path,
+                })
+            }
+            ResolvedTarget::Output(target) => {
+                self.error(
+                    "AVENGER-RESOLVE-151",
+                    "dimension path does not resolve to a raster dimension",
+                    span,
+                    format!(
+                        "`dim {}` resolves to output `{}` with shape {:?}",
+                        authored_path.join("."),
+                        target.name,
+                        target.shape
+                    ),
+                );
+                None
+            }
+            _ => {
+                self.error(
+                    "AVENGER-RESOLVE-151",
+                    "dimension path does not resolve to a raster dimension",
+                    span,
+                    format!(
+                        "`dim {}` must name a registered raster-dimension transform output",
+                        authored_path.join(".")
+                    ),
+                );
+                None
+            }
+        }
     }
 
     fn resolve_typed_reference_path(
@@ -4589,11 +4649,17 @@ impl<'a> Resolver<'a> {
                     .condition_property
                     .as_ref()
                     .is_none_or(|property| declaration.props.get(property).is_some())
-                    .then(|| output.name.clone())
+                    .then(|| (output.name.clone(), resolved_output_shape(&output.shape)))
             }));
         }
         if let Some(definition) = definition {
-            output_names.extend(definition.outputs.keys().cloned());
+            output_names.extend(
+                definition
+                    .outputs
+                    .keys()
+                    .cloned()
+                    .map(|name| (name, ResolvedOutputShape::Expression)),
+            );
         }
         if let Some(schema) = declaration.kind.as_ref().and_then(|kind| {
             self.registry.entries.get(&NativeKindKey::new(
@@ -4609,7 +4675,8 @@ impl<'a> Resolver<'a> {
                                 .props
                                 .iter()
                                 .map(|(name, _)| name.to_string())
-                                .filter(|name| !exclude.contains(name)),
+                                .filter(|name| !exclude.contains(name))
+                                .map(|name| (name, resolved_output_shape(&dynamic.shape))),
                         );
                     }
                     avenger_chart_schema::DynamicOutputSource::ArrayObjectField {
@@ -4622,8 +4689,13 @@ impl<'a> Resolver<'a> {
                                     return None;
                                 };
                                 match body.props.get(field) {
-                                    Some(Value::Str(name)) => Some(name.clone()),
-                                    Some(Value::Atom(name)) => Some(name.to_string()),
+                                    Some(Value::Str(name)) => {
+                                        Some((name.clone(), resolved_output_shape(&dynamic.shape)))
+                                    }
+                                    Some(Value::Atom(name)) => Some((
+                                        name.to_string(),
+                                        resolved_output_shape(&dynamic.shape),
+                                    )),
                                     _ => None,
                                 }
                             }));
@@ -4632,8 +4704,12 @@ impl<'a> Resolver<'a> {
                     avenger_chart_schema::DynamicOutputSource::ArrayValueNames { property } => {
                         if let Some(Value::Array(values)) = declaration.props.get(property) {
                             output_names.extend(values.iter().filter_map(|value| match value {
-                                Value::Str(name) => Some(name.clone()),
-                                Value::Atom(name) => Some(name.to_string()),
+                                Value::Str(name) => {
+                                    Some((name.clone(), resolved_output_shape(&dynamic.shape)))
+                                }
+                                Value::Atom(name) => {
+                                    Some((name.to_string(), resolved_output_shape(&dynamic.shape)))
+                                }
                                 _ => None,
                             }));
                         }
@@ -4664,7 +4740,7 @@ impl<'a> Resolver<'a> {
                 .filter(|child| child.keyword.as_str() == "output")
             {
                 if let Some(name) = child.name.as_ref() {
-                    output_names.push(name.to_string());
+                    output_names.push((name.to_string(), ResolvedOutputShape::Expression));
                 }
             }
             if !output_names.is_empty() && declaration.name.is_none() {
@@ -4683,9 +4759,9 @@ impl<'a> Resolver<'a> {
             .map_or_else(|| info.id.clone(), |child| child.id.clone());
         let mut unique_names = Vec::new();
         let mut seen = BTreeSet::new();
-        for name in output_names {
+        for (name, shape) in output_names {
             if seen.insert(name.clone()) {
-                unique_names.push(name);
+                unique_names.push((name, shape));
             } else {
                 self.error(
                     "AVENGER-RESOLVE-150",
@@ -4698,13 +4774,14 @@ impl<'a> Resolver<'a> {
         unique_names
             .into_iter()
             .enumerate()
-            .map(|(ordinal, name)| {
+            .map(|(ordinal, (name, shape))| {
                 (
                     name.clone(),
                     ResolvedOutputHandle {
                         producer: producer.clone(),
                         name,
                         ordinal,
+                        shape,
                     },
                 )
             })
@@ -6282,7 +6359,7 @@ fn requires_registered_kind(declaration: &Decl) -> bool {
             declaration.keyword.as_str(),
             declaration.kind.as_ref().map(Name::as_str)
         ),
-        ("transform", Some("pipeline")) | ("tool", Some("behavior"))
+        ("tool", Some("behavior"))
     )
 }
 
@@ -6372,6 +6449,14 @@ fn schema_property<'a>(schema: &'a KindSchema, name: &str) -> Option<&'a ValueSh
         })
 }
 
+fn resolved_output_shape(shape: &ValueShape) -> ResolvedOutputShape {
+    match shape {
+        ValueShape::SqlExpression => ResolvedOutputShape::Expression,
+        ValueShape::RasterDimension => ResolvedOutputShape::RasterDimension,
+        _ => ResolvedOutputShape::Opaque,
+    }
+}
+
 fn declaration_public_path(
     declaration: &Decl,
     parent: Option<&str>,
@@ -6424,6 +6509,17 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 )
         }
         ValueShape::SqlQuery => matches!(value, ResolvedValue::Query(_)),
+        ValueShape::CoordinationScope => match value {
+            ResolvedValue::Atom(value) => matches!(value.as_str(), "shared" | "free"),
+            ResolvedValue::Call { function, args } => {
+                function == "level"
+                    && matches!(
+                        args.as_slice(),
+                        [ResolvedValue::Number(value)] if value.parse::<u8>().is_ok()
+                    )
+            }
+            _ => false,
+        },
         ValueShape::RasterDimension => matches!(value, ResolvedValue::Dimension(_)),
         ValueShape::ScalarBinding => {
             matches!(
@@ -6643,6 +6739,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::Atom { .. } => "enum atom",
         ValueShape::SqlExpression => "SQL expression",
         ValueShape::SqlQuery => "SQL query",
+        ValueShape::CoordinationScope => "coordination scope",
         ValueShape::RasterDimension => "raster dimension",
         ValueShape::ScalarBinding => "param binding",
         ValueShape::TableBinding => "store binding",
@@ -7085,9 +7182,15 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
             authored_path: path.iter().map(ToString::to_string).collect(),
         }),
         Value::Visual(value) => ResolvedValue::Visual(Box::new(unresolved_value(value))),
-        Value::Dim(path) => {
-            ResolvedValue::Dimension(path.iter().map(ToString::to_string).collect())
-        }
+        Value::Dim(path) => ResolvedValue::Dimension(ResolvedDimension {
+            target: ResolvedOutputHandle {
+                producer: DeclarationId("unresolved".to_owned()),
+                name: path.last().map(ToString::to_string).unwrap_or_default(),
+                ordinal: 0,
+                shape: ResolvedOutputShape::RasterDimension,
+            },
+            authored_path: path.iter().map(ToString::to_string).collect(),
+        }),
         Value::Pattern(value) => ResolvedValue::Pattern(Box::new(unresolved_value(value))),
         Value::Env(value) => ResolvedValue::Environment(value.clone()),
         Value::None => ResolvedValue::None,

@@ -10,7 +10,7 @@ use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart_core::{
     ChannelExpr, ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem,
-    DataTransformCompileContext, Param, PlotMark, RasterDim, WidgetAttachment,
+    DataTransformCompileContext, DataTransformStage, Param, PlotMark, RasterDim, WidgetAttachment,
 };
 use avenger_chart_schema::KindSchema;
 use datafusion::{
@@ -173,6 +173,12 @@ pub type TransformLowerer = fn(
     &ResolvedDeclaration,
     DataTransformCompileContext,
 ) -> Result<LoweredTransform, NativeLoweringError>;
+pub type TransformPipelineLowerer = fn(
+    &ResolvedDeclaration,
+    Vec<DataTransformStage>,
+    BTreeMap<String, Expr>,
+    DataTransformCompileContext,
+) -> Result<LoweredTransform, NativeLoweringError>;
 pub type WidgetLowerer = fn(&ResolvedDeclaration) -> Result<WidgetAttachment, NativeLoweringError>;
 pub type ObjectLowerer =
     fn(&ResolvedDeclaration) -> Result<Box<dyn Any + Send + Sync>, NativeLoweringError>;
@@ -233,6 +239,15 @@ impl<C: CoordinateSystem> CoordinateLanguageDefinition<C> {
 pub struct TransformLanguageDefinition {
     pub schema: KindSchema,
     pub lowerer: TransformLowerer,
+}
+
+/// Owner-provided mixed-body transform container and its native assembler.
+///
+/// The compiler lowers child stages and public output expressions generically;
+/// this paired lowerer preserves the owner's native parent-stage boundary.
+pub struct TransformPipelineLanguageDefinition {
+    pub schema: KindSchema,
+    pub lowerer: TransformPipelineLowerer,
 }
 
 pub struct WidgetLanguageDefinition {

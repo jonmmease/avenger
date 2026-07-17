@@ -4169,8 +4169,10 @@ may be a final-result column or an internal alias field whose lineage survives
 in the final result. Every declared output is validated against the final
 schema. A pipeline containing outputs must have an `as` binder, output names
 must be unique, and downstream expressions use `<binder>.<output>` exactly as
-they do for a transform definition. Outputs do not project or rename the
-relation by themselves; they name fields already present in the final result.
+they do for a transform definition. At the pipeline boundary, surviving input
+columns plus the declared output expressions form the relation visible to the
+next parent stage. Declared outputs may rename final-result expressions;
+undeclared columns introduced inside the pipeline remain private.
 An instantiation-level `scope:` is retained on the pipeline and supplies the
 default scope for child stages that do not set their own.
 

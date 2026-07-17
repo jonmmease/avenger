@@ -22,18 +22,21 @@ use avenger_chart::{
         Store,
     },
 };
-use avenger_chart_core::{DataTransformExecutionContext, Param as ChartParam, TimeContext};
+use avenger_chart_core::{
+    DataTransformExecutionContext, DataTransformStage, Param as ChartParam, TimeContext,
+};
 use avenger_chart_lang_registry::{
-    NativeRegistry, ResolvedChildPlot, ResolvedDeclaration as NativeDeclaration, ResolvedMark,
-    ResolvedMarkGroup, ResolvedPlot, ResolvedTransformStage, ResolvedValue as NativeValue,
+    NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
+    ResolvedDeclaration as NativeDeclaration, ResolvedMark, ResolvedMarkGroup, ResolvedPlot,
+    ResolvedTransformStage, ResolvedValue as NativeValue,
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace};
 use avenger_lang_core::{
     DeclarationId, Diagnostic, IntervalUnit, ParamId, PhysicalField, PhysicalType, ResolvedBinding,
-    ResolvedDeclaration, ResolvedExpression, ResolvedParam, ResolvedProject, ResolvedQuery,
-    ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
-    ResolvedTarget, ResolvedValue, SourceLabel, SourceSpan, StateSharing, StoreId, TimeUnit,
-    ast::BindingTime,
+    ResolvedDeclaration, ResolvedExpression, ResolvedOutputHandle, ResolvedOutputShape,
+    ResolvedParam, ResolvedProject, ResolvedQuery, ResolvedSelectionCombine,
+    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue,
+    SourceLabel, SourceSpan, StateSharing, StoreId, TimeUnit, ast::BindingTime,
 };
 use datafusion::{
     common::{
@@ -79,6 +82,7 @@ struct ProjectLowerer<'a> {
     params: BTreeMap<ParamId, Param>,
     stores: BTreeMap<StoreId, Store>,
     widget_owned_params: BTreeSet<ParamId>,
+    transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
 }
 
@@ -95,6 +99,7 @@ impl<'a> ProjectLowerer<'a> {
             params: BTreeMap::new(),
             stores: BTreeMap::new(),
             widget_owned_params: widget_owned_params(project),
+            transform_outputs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
         }
     }
@@ -500,39 +505,11 @@ impl<'a> ProjectLowerer<'a> {
                                 "transform has no inherited or explicit data source",
                             )
                         })?;
-                        let declaration = self.native_declaration(
-                            child,
-                            Some(input),
-                            NativeKindNamespace::Transform,
-                        )?;
-                        let lowered = self
-                            .registry
-                            .lower_transform(
-                                &declaration,
-                                avenger_chart_core::DataTransformCompileContext::new(
-                                    avenger_chart_core::CoordinationScope::Free,
-                                ),
-                            )
-                            .map_err(|error| lowerer_error(child, error.to_string()))?;
-                        let params = IndexMap::new();
-                        let execution = DataTransformExecutionContext {
-                            session_context: self.context,
-                            params: &params,
-                            time_context: TimeContext::default(),
-                            facet_context: None,
-                        };
-                        let result = lowered
-                            .transform
-                            .apply(input.clone(), &execution)
-                            .await
-                            .map_err(|error| lowerer_error(child, error.to_string()))?;
-                        current_data = Some(result.dataframe);
-                        if let Some(data) = &current_data {
-                            self.record_schema(child, data);
-                        }
+                        let (data, stage) = self.lower_transform_stage(child, input, None).await?;
+                        current_data = Some(data);
                         group.transforms.push(ResolvedTransformStage {
-                            scope: avenger_chart_core::CoordinationScope::Free,
-                            transform: lowered.transform,
+                            scope: stage.scope,
+                            transform: stage.transform,
                         });
                     }
                     "group" => {
@@ -641,6 +618,172 @@ impl<'a> ProjectLowerer<'a> {
         })
     }
 
+    fn lower_transform_stage<'b>(
+        &'b mut self,
+        declaration: &'b ResolvedDeclaration,
+        input: &'b DataFrame,
+        inherited_scope: Option<avenger_chart_core::CoordinationScope>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<(DataFrame, DataTransformStage), Diagnostic>>
+                + 'b,
+        >,
+    > {
+        Box::pin(async move {
+            let kind = declaration.kind.as_deref().ok_or_else(|| {
+                lowerer_error(declaration, "native transform kind was not resolved")
+            })?;
+            let scope = self.transform_scope(declaration, inherited_scope)?;
+            let native =
+                self.native_declaration(declaration, Some(input), NativeKindNamespace::Transform)?;
+            let context = avenger_chart_core::DataTransformCompileContext::new(scope);
+            let lowered = match self
+                .registry
+                .transform_mode(kind)
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?
+            {
+                NativeTransformMode::Leaf => self
+                    .registry
+                    .lower_transform(&native, context)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?,
+                NativeTransformMode::Pipeline => {
+                    let mut child_data = input.clone();
+                    let mut stages = Vec::new();
+                    for child in declaration
+                        .children
+                        .iter()
+                        .filter(|child| child.keyword == "transform")
+                    {
+                        let (next_data, stage) = self
+                            .lower_transform_stage(child, &child_data, Some(scope))
+                            .await?;
+                        child_data = next_data;
+                        stages.push(stage);
+                    }
+                    let mut outputs = BTreeMap::new();
+                    for output in declaration
+                        .children
+                        .iter()
+                        .filter(|child| child.keyword == "output")
+                    {
+                        let name = output.name.clone().ok_or_else(|| {
+                            lowerer_error(output, "pipeline output has no resolved name")
+                        })?;
+                        let expr = match output.properties.get("value") {
+                            Some(value) => {
+                                self.expression_value(value, Some(&child_data), output)?
+                            }
+                            None => {
+                                child_data
+                                    .schema()
+                                    .field_with_unqualified_name(&name)
+                                    .map_err(|error| lowerer_error(output, error.to_string()))?;
+                                col(&name)
+                            }
+                        };
+                        outputs.insert(name, expr);
+                    }
+                    self.registry
+                        .lower_transform_pipeline(&native, stages, outputs, context)
+                        .map_err(|error| lowerer_error(declaration, error.to_string()))?
+                }
+            };
+
+            let params = self
+                .params
+                .values()
+                .map(|param| (param.name.clone(), param.default.clone()))
+                .collect::<IndexMap<_, _>>();
+            let execution = DataTransformExecutionContext {
+                session_context: self.context,
+                params: &params,
+                time_context: TimeContext::default(),
+                facet_context: None,
+            };
+            let result = lowered
+                .transform
+                .apply(input.clone(), &execution)
+                .await
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            self.install_transform_outputs(declaration, &lowered.outputs)?;
+            self.record_schema(declaration, &result.dataframe);
+            Ok((
+                result.dataframe,
+                DataTransformStage::new(scope, lowered.transform),
+            ))
+        })
+    }
+
+    fn transform_scope(
+        &self,
+        declaration: &ResolvedDeclaration,
+        inherited: Option<avenger_chart_core::CoordinationScope>,
+    ) -> Result<avenger_chart_core::CoordinationScope, Diagnostic> {
+        let Some(value) = declaration.properties.get("scope") else {
+            return Ok(inherited.unwrap_or(avenger_chart_core::CoordinationScope::Free));
+        };
+        match value {
+            ResolvedValue::Atom(value) if value == "shared" => {
+                Ok(avenger_chart_core::CoordinationScope::Shared)
+            }
+            ResolvedValue::Atom(value) if value == "free" => {
+                Ok(avenger_chart_core::CoordinationScope::Free)
+            }
+            ResolvedValue::Call { function, args } if function == "level" => {
+                let [ResolvedValue::Number(level)] = args.as_slice() else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "level(...) transform scope requires one integer",
+                    ));
+                };
+                let level = level.parse::<u8>().map_err(|_| {
+                    lowerer_error(
+                        declaration,
+                        "transform scope level must be an integer from 0 through 255",
+                    )
+                })?;
+                Ok(avenger_chart_core::CoordinationScope::Level(level))
+            }
+            _ => Err(lowerer_error(
+                declaration,
+                "transform scope must be shared, free, or level(<integer>)",
+            )),
+        }
+    }
+
+    fn install_transform_outputs(
+        &mut self,
+        declaration: &ResolvedDeclaration,
+        outputs: &BTreeMap<String, NativeOutputValue>,
+    ) -> Result<(), Diagnostic> {
+        for (name, handle) in &declaration.transform_outputs {
+            let Some(value) = outputs.get(name) else {
+                continue;
+            };
+            let matches = matches!(
+                (&handle.shape, value),
+                (
+                    ResolvedOutputShape::Expression,
+                    NativeOutputValue::Expr(_) | NativeOutputValue::Channel(_)
+                ) | (
+                    ResolvedOutputShape::RasterDimension,
+                    NativeOutputValue::RasterDim(_)
+                ) | (ResolvedOutputShape::Opaque, NativeOutputValue::Opaque(_))
+            );
+            if !matches {
+                return Err(lowerer_error(
+                    declaration,
+                    format!(
+                        "registered output `{name}` has native type incompatible with {:?}",
+                        handle.shape
+                    ),
+                ));
+            }
+            self.transform_outputs.insert(handle.clone(), value.clone());
+        }
+        Ok(())
+    }
+
     fn child_placement(
         &self,
         declaration: &ResolvedDeclaration,
@@ -707,6 +850,11 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<NativeValue, Diagnostic> {
+        if let ResolvedValue::Expression(expression) = value
+            && let Some(output) = self.direct_output(expression)
+        {
+            return Ok(NativeValue::Output(output.clone()));
+        }
         Ok(match value {
             ResolvedValue::Boolean(value) => NativeValue::Boolean(*value),
             ResolvedValue::Number(value) => value
@@ -741,9 +889,40 @@ impl<'a> ProjectLowerer<'a> {
                     })
                     .collect::<Result<_, Diagnostic>>()?,
             ),
+            ResolvedValue::Dimension(dimension) => NativeValue::Output(
+                self.transform_outputs
+                    .get(&dimension.target)
+                    .cloned()
+                    .ok_or_else(|| {
+                        lowerer_error(
+                            declaration,
+                            format!(
+                                "raster dimension `{}` is unavailable at this dataflow position",
+                                dimension.authored_path.join(".")
+                            ),
+                        )
+                    })?,
+            ),
+            ResolvedValue::Reference(reference)
+                if matches!(reference.target, ResolvedTarget::Output(_)) =>
+            {
+                let ResolvedTarget::Output(handle) = &reference.target else {
+                    unreachable!()
+                };
+                NativeValue::Output(self.transform_outputs.get(handle).cloned().ok_or_else(
+                    || {
+                        lowerer_error(
+                            declaration,
+                            format!(
+                                "transform output `{}` is unavailable at this dataflow position",
+                                reference.authored_path.join(".")
+                            ),
+                        )
+                    },
+                )?)
+            }
             ResolvedValue::Call { .. }
             | ResolvedValue::Reference(_)
-            | ResolvedValue::Dimension(_)
             | ResolvedValue::Pattern(_)
             | ResolvedValue::Environment(_)
             | ResolvedValue::None
@@ -799,6 +978,17 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<ChannelValue, Diagnostic> {
+        if let ResolvedValue::Expression(expression) = value
+            && let Some(output) = self.direct_output(expression)
+        {
+            return match output {
+                NativeOutputValue::Expr(expr) => Ok(ChannelValue::from(expr.clone())),
+                NativeOutputValue::Channel(channel) => Ok(channel.channel_value().clone()),
+                NativeOutputValue::RasterDim(_) | NativeOutputValue::Opaque(_) => Err(
+                    lowerer_error(declaration, "this transform output is not a channel value"),
+                ),
+            };
+        }
         Ok(match value {
             ResolvedValue::String(value) => ChannelValue::from(value.as_str()),
             ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
@@ -936,6 +1126,17 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<Expr, Diagnostic> {
+        if let ResolvedValue::Expression(expression) = value
+            && let Some(output) = self.direct_output(expression)
+        {
+            return match output {
+                NativeOutputValue::Expr(expr) => Ok(expr.clone()),
+                NativeOutputValue::Channel(channel) => Ok(channel.data_expr().clone()),
+                NativeOutputValue::RasterDim(_) | NativeOutputValue::Opaque(_) => Err(
+                    lowerer_error(declaration, "this transform output is not a SQL expression"),
+                ),
+            };
+        }
         match value {
             ResolvedValue::String(value) | ResolvedValue::Atom(value) => Ok(lit(value.clone())),
             ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
@@ -1009,11 +1210,41 @@ impl<'a> ProjectLowerer<'a> {
             lowerer_error(declaration, "SQL expression has no data schema in scope")
         })?;
         let mut sql = expression.sql.clone();
-        for reference in &expression.references {
-            sql = rewrite_reference_sql(sql, reference);
-        }
         let mut parse_data = data.clone();
         let mut replacements = BTreeMap::new();
+        for (index, reference) in expression.references.iter().enumerate() {
+            let ResolvedTarget::Output(handle) = &reference.target else {
+                continue;
+            };
+            let output = self.transform_outputs.get(handle).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    format!(
+                        "transform output `{}` is unavailable at this dataflow position",
+                        reference.authored_path.join(".")
+                    ),
+                )
+            })?;
+            let expr = match output {
+                NativeOutputValue::Expr(expr) => expr.clone(),
+                NativeOutputValue::Channel(channel) => channel.data_expr().clone(),
+                NativeOutputValue::RasterDim(_) | NativeOutputValue::Opaque(_) => {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!(
+                            "transform output `{}` cannot be used in a SQL expression",
+                            reference.authored_path.join(".")
+                        ),
+                    ));
+                }
+            };
+            let synthetic = format!("__avenger_output_{index:08}");
+            sql = rewrite_reference_sql(sql, reference, &synthetic);
+            parse_data = parse_data
+                .with_column(&synthetic, expr.clone())
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            replacements.insert(synthetic, expr);
+        }
         for (index, binding) in expression.bindings.iter().enumerate() {
             let synthetic = format!("__avenger_binding_{index:08}");
             let authored = binding_spelling(binding);
@@ -1047,13 +1278,82 @@ impl<'a> ProjectLowerer<'a> {
         query: &ResolvedQuery,
         declaration: &ResolvedDeclaration,
     ) -> Result<String, Diagnostic> {
-        if !query.bindings.is_empty() || !query.helpers.is_empty() || !query.references.is_empty() {
+        if !query.helpers.is_empty() {
             return Err(lowerer_error(
                 declaration,
-                "bound/helper SQL queries are not yet supported by the Phase 5 query planner",
+                "reserved helper calls are not valid in SQL transform queries",
             ));
         }
-        Ok(query.sql.clone())
+        let mut sql = query.sql.clone();
+        for reference in &query.references {
+            let ResolvedTarget::Output(handle) = &reference.target else {
+                return Err(lowerer_error(
+                    declaration,
+                    format!(
+                        "reference `{}` is not a relation-column output",
+                        reference.authored_path.join(".")
+                    ),
+                ));
+            };
+            let output = self.transform_outputs.get(handle).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    format!(
+                        "transform output `{}` is unavailable at this dataflow position",
+                        reference.authored_path.join(".")
+                    ),
+                )
+            })?;
+            if !matches!(
+                output,
+                NativeOutputValue::Expr(_) | NativeOutputValue::Channel(_)
+            ) {
+                return Err(lowerer_error(
+                    declaration,
+                    format!(
+                        "transform output `{}` is not a SQL column",
+                        reference.authored_path.join(".")
+                    ),
+                ));
+            }
+            sql = rewrite_reference_sql(sql, reference, &handle.name);
+        }
+        for binding in &query.bindings {
+            if binding.time != BindingTime::Current {
+                return Err(lowerer_error(
+                    declaration,
+                    "temporal parameter reads are only valid in event expressions",
+                ));
+            }
+            let ResolvedTarget::Param(id) = &binding.target else {
+                return Err(lowerer_error(
+                    declaration,
+                    "SQL query bindings must reference scalar parameters",
+                ));
+            };
+            let param = self.params.get(id).ok_or_else(|| {
+                lowerer_error(declaration, "resolved SQL parameter is unavailable")
+            })?;
+            sql = sql.replace(&binding_spelling(binding), &format!("${}", param.name));
+        }
+        Ok(sql)
+    }
+
+    fn direct_output(&self, expression: &ResolvedExpression) -> Option<&NativeOutputValue> {
+        if !expression.bindings.is_empty()
+            || !expression.helpers.is_empty()
+            || expression.references.len() != 1
+        {
+            return None;
+        }
+        let reference = expression.references.first()?;
+        if !is_direct_reference_sql(&expression.sql, &reference.authored_path) {
+            return None;
+        }
+        let ResolvedTarget::Output(handle) = &reference.target else {
+            return None;
+        };
+        self.transform_outputs.get(handle)
     }
 
     async fn lower_data(
@@ -1349,6 +1649,7 @@ fn is_core_property(keyword: &str, name: &str) -> bool {
         ) | ("cell", "at" | "data" | "label")
             | ("group", "data" | "component_kind" | "label")
             | ("mark", "data")
+            | ("transform", "scope")
             | ("tool", "id")
     )
 }
@@ -1492,14 +1793,32 @@ fn binding_spelling(binding: &ResolvedBinding) -> String {
     format!("${}{suffix}", binding.authored_path.join("."))
 }
 
-fn rewrite_reference_sql(mut sql: String, reference: &ResolvedSqlReference) -> String {
-    if let ResolvedTarget::Output(output) = &reference.target {
-        sql = sql.replace(
-            &reference.authored_path.join("."),
-            &format!("\"{}\"", output.name.replace('"', "\"\"")),
-        );
-    }
-    sql
+fn rewrite_reference_sql(
+    mut sql: String,
+    reference: &ResolvedSqlReference,
+    replacement: &str,
+) -> String {
+    let quoted_replacement = format!("\"{}\"", replacement.replace('"', "\"\""));
+    let bare = reference.authored_path.join(".");
+    let quoted = reference
+        .authored_path
+        .iter()
+        .map(|segment| format!("\"{}\"", segment.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(".");
+    sql = sql.replace(&quoted, &quoted_replacement);
+    sql.replace(&bare, &quoted_replacement)
+}
+
+fn is_direct_reference_sql(sql: &str, path: &[String]) -> bool {
+    let candidate = sql.trim().trim_end_matches(';').trim();
+    let bare = path.join(".");
+    let quoted = path
+        .iter()
+        .map(|segment| format!("\"{}\"", segment.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(".");
+    candidate == bare || candidate == quoted
 }
 
 fn lowerer_error(declaration: &ResolvedDeclaration, message: impl Into<String>) -> Diagnostic {

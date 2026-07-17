@@ -203,6 +203,9 @@ fn register_transforms(builder: &mut NativeRegistryBuilder) -> Result<(), Regist
     for definition in avenger_chart_transforms::language::definitions() {
         builder.register_transform_definition(definition)?;
     }
+    builder.register_transform_pipeline_definition(
+        avenger_chart_transforms::language::pipeline_definition(),
+    )?;
     Ok(())
 }
 

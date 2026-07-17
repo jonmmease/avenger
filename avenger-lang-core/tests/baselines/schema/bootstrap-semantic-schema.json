@@ -2004,6 +2004,35 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -2487,6 +2516,35 @@
                   "nice": {
                     "type": "boolean"
                   },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
                   "span": {
                     "oneOf": [
                       {
@@ -2781,7 +2839,37 @@
                     }
                   ]
                 },
-                "properties": {},
+                "properties": {
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
                 "type": "object"
               }
             }
@@ -2888,6 +2976,35 @@
                         },
                         "required": [
                           "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
                         ],
                         "type": "object"
                       }
@@ -3019,6 +3136,35 @@
                   },
                   "index": {
                     "type": "string"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -3496,6 +3642,35 @@
                       "atom"
                     ],
                     "type": "object"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -3927,6 +4102,35 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -4409,6 +4613,35 @@
                     ],
                     "type": "object"
                   },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
                   "steps": {
                     "oneOf": [
                       {
@@ -4877,6 +5110,35 @@
                       }
                     ]
                   },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
                   "top_n": {
                     "oneOf": [
                       {
@@ -5051,6 +5313,109 @@
                 "type": "object"
               }
             }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "transform"
+              },
+              "kind": {
+                "const": "pipeline"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "transform"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
+                    "minContains": 1
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "output"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
+                    "minContains": 0
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "x-avenger-child-rules": [
+              {
+                "docs": "Ordered native child transform stage.",
+                "min": 1,
+                "role": "transform"
+              },
+              {
+                "docs": "Public final-relation expression exposed through the pipeline binder.",
+                "min": 0,
+                "role": "output"
+              }
+            ]
           }
         },
         {
@@ -5357,6 +5722,35 @@
                           ]
                         },
                         "type": "array"
+                      }
+                    ]
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
                       }
                     ]
                   },
@@ -6306,6 +6700,35 @@
                       "type": "object"
                     },
                     "type": "array"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -6508,6 +6931,35 @@
                         "type": "array"
                       }
                     ]
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -6550,6 +7002,35 @@
                       "query"
                     ],
                     "type": "object"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -6857,6 +7338,35 @@
                       "atom"
                     ],
                     "type": "object"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   },
                   "sort_by": {
                     "oneOf": [
@@ -7619,6 +8129,35 @@
                   },
                   "levels": {
                     "$ref": "#/$defs/value"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -7840,6 +8379,35 @@
                   },
                   "name": {
                     "type": "string"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   },
                   "time_context": {
                     "additionalProperties": false,
@@ -8098,6 +8666,35 @@
                   },
                   "name": {
                     "type": "string"
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   },
                   "time_context": {
                     "additionalProperties": false,
@@ -8660,6 +9257,35 @@
                         "type": "array"
                       }
                     ]
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -9199,7 +9825,8 @@
             "source": {
               "exclude": [
                 "group_by",
-                "measures"
+                "measures",
+                "scope"
               ],
               "source": "property_names"
             }
@@ -9293,6 +9920,13 @@
                 "shape": "object"
               },
               "shape": "array"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -9402,6 +10036,13 @@
               "shape": "boolean"
             }
           },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
+            }
+          },
           "span": {
             "docs": "Optional extent span override.",
             "required": false,
@@ -9448,6 +10089,9 @@
               "shape": "sql_expression"
             },
             "source": {
+              "exclude": [
+                "scope"
+              ],
               "source": "property_names"
             }
           }
@@ -9459,7 +10103,15 @@
         },
         "outputs": {},
         "parts": {},
-        "properties": {},
+        "properties": {
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
+            }
+          }
+        },
         "stateless": false
       },
       {
@@ -9480,6 +10132,13 @@
             "required": true,
             "shape": {
               "shape": "sql_expression"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -9550,6 +10209,13 @@
             "required": false,
             "shape": {
               "shape": "string"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -9655,6 +10321,13 @@
               },
               "shape": "atom"
             }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
+            }
           }
         },
         "stateless": false
@@ -9680,7 +10353,8 @@
             "source": {
               "exclude": [
                 "group_by",
-                "measures"
+                "measures",
+                "scope"
               ],
               "source": "property_names"
             }
@@ -9774,6 +10448,13 @@
                 "shape": "object"
               },
               "shape": "array"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -9882,6 +10563,13 @@
                 ]
               },
               "shape": "atom"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           },
           "steps": {
@@ -10004,6 +10692,13 @@
               "shape": "sql_expression"
             }
           },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
+            }
+          },
           "top_n": {
             "docs": "Scalar number of categories to retain.",
             "required": true,
@@ -10016,6 +10711,41 @@
             "required": false,
             "shape": {
               "shape": "sql_expression"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "body_mode": "mixed",
+        "channels": {},
+        "child_rules": [
+          {
+            "docs": "Ordered native child transform stage.",
+            "min": 1,
+            "role": "transform"
+          },
+          {
+            "docs": "Public final-relation expression exposed through the pipeline binder.",
+            "min": 0,
+            "role": "output"
+          }
+        ],
+        "compatible_coordinates": [],
+        "docs": "Run ordered child transforms behind one native parent stage and expose only declared public outputs.",
+        "exports": {},
+        "key": {
+          "kind": "pipeline",
+          "namespace": "transform"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -10140,6 +10870,13 @@
                 "shape": "sql_expression"
               },
               "shape": "one_or_many"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           },
           "value": {
@@ -10269,7 +11006,8 @@
             "source": {
               "exclude": [
                 "evaluation",
-                "measures"
+                "measures",
+                "scope"
               ],
               "source": "property_names"
             }
@@ -10373,6 +11111,13 @@
               },
               "shape": "array"
             }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
+            }
           }
         },
         "stateless": false
@@ -10398,6 +11143,13 @@
                 "shape": "sql_expression"
               },
               "shape": "one_or_many"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -10430,6 +11182,13 @@
             "required": true,
             "shape": {
               "shape": "sql_query"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -10522,6 +11281,13 @@
                 ]
               },
               "shape": "atom"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           },
           "sort_by": {
@@ -10645,6 +11411,13 @@
             "required": true,
             "shape": {
               "shape": "any"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },
@@ -10844,6 +11617,13 @@
               "shape": "string"
             }
           },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
+            }
+          },
           "time_context": {
             "docs": "Timezone and week-start overrides.",
             "required": false,
@@ -10956,6 +11736,13 @@
             "required": false,
             "shape": {
               "shape": "string"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           },
           "time_context": {
@@ -11083,7 +11870,8 @@
             "source": {
               "exclude": [
                 "order_by",
-                "partition_by"
+                "partition_by",
+                "scope"
               ],
               "source": "property_names"
             }
@@ -11115,6 +11903,13 @@
                 "shape": "sql_expression"
               },
               "shape": "one_or_many"
+            }
+          },
+          "scope": {
+            "docs": "Coordination scope for this transform stage.",
+            "required": false,
+            "shape": {
+              "shape": "coordination_scope"
             }
           }
         },

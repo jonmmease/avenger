@@ -44,12 +44,13 @@ pub use resolve::{
     DeclarationId, DefinitionChannel, DefinitionExport, DefinitionExportKind, DefinitionLocalSeed,
     DefinitionPart, DefinitionSchema, DefinitionSlot, EventId, GeneratedStateOrigin, HelperClass,
     MarkId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBinding,
-    ResolvedDeclaration, ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface,
-    ResolvedExpression, ResolvedFile, ResolvedHelper, ResolvedHelperArgument, ResolvedOutputHandle,
-    ResolvedParam, ResolvedPart, ResolvedProject, ResolvedQuery, ResolvedReference,
-    ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference,
-    ResolvedStateLValue, ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId,
-    StateMigrationKey, StateSharing, StoreId, ToolId, WidgetId, resolve_project,
+    ResolvedDeclaration, ResolvedDimension, ResolvedEventBinding, ResolvedEventScope,
+    ResolvedEventSurface, ResolvedExpression, ResolvedFile, ResolvedHelper, ResolvedHelperArgument,
+    ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedPart, ResolvedProject,
+    ResolvedQuery, ResolvedReference, ResolvedSelection, ResolvedSelectionCombine,
+    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStateLValue, ResolvedStore,
+    ResolvedTarget, ResolvedValue, SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId,
+    WidgetId, resolve_project,
 };
 pub use semantic_schema::semantic_json_schema;
 pub use source::{

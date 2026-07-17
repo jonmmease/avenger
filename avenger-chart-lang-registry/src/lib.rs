@@ -6,12 +6,12 @@ use async_trait::async_trait;
 use avenger_chart::{layout::LayoutSpec, plot::CompiledPlot, prelude::*};
 use avenger_chart_core::{
     CompiledDataTransform, CoordinateSystem, DataContext, DataTransformCompileContext,
-    MarkDataMode, SubplotChildPlotSpec,
+    DataTransformStage, MarkDataMode, SubplotChildPlotSpec,
 };
 pub use avenger_chart_lang_types::{
     CoordinateLanguageDefinition, LoweredTransform, NativeLoweringError, NativeOutputValue,
     ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition,
-    WidgetLanguageDefinition,
+    TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
@@ -124,6 +124,22 @@ pub type NativeTransformLowerer = Arc<
         + Send
         + Sync,
 >;
+pub type NativeTransformPipelineLowerer = Arc<
+    dyn Fn(
+            &ResolvedDeclaration,
+            Vec<DataTransformStage>,
+            BTreeMap<String, Expr>,
+            DataTransformCompileContext,
+        ) -> Result<LoweredTransform, RegistryError>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NativeTransformMode {
+    Leaf,
+    Pipeline,
+}
 pub type NativeWidgetLowerer =
     Arc<dyn Fn(&ResolvedDeclaration) -> Result<WidgetAttachment, RegistryError> + Send + Sync>;
 pub type NativeObjectLowerer = Arc<
@@ -490,7 +506,12 @@ impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
 
 struct TransformEntry {
     schema: KindSchema,
-    lowerer: NativeTransformLowerer,
+    lowerer: TransformEntryLowerer,
+}
+
+enum TransformEntryLowerer {
+    Leaf(NativeTransformLowerer),
+    Pipeline(NativeTransformPipelineLowerer),
 }
 
 struct WidgetEntry {
@@ -626,8 +647,13 @@ impl NativeRegistryBuilder {
                 kind,
             });
         }
-        self.transforms
-            .insert(kind, TransformEntry { schema, lowerer });
+        self.transforms.insert(
+            kind,
+            TransformEntry {
+                schema,
+                lowerer: TransformEntryLowerer::Leaf(lowerer),
+            },
+        );
         Ok(())
     }
 
@@ -642,6 +668,35 @@ impl NativeRegistryBuilder {
                 lowerer(declaration, context).map_err(RegistryError::from)
             }),
         )
+    }
+
+    pub fn register_transform_pipeline_definition(
+        &mut self,
+        definition: TransformPipelineLanguageDefinition,
+    ) -> Result<(), RegistryError> {
+        let kind = definition.schema.key.kind.clone();
+        if definition.schema.key.namespace != NativeKindNamespace::Transform {
+            return Err(RegistryError::SchemaLowererMismatch(definition.schema.key));
+        }
+        if self.transforms.contains_key(&kind) {
+            return Err(RegistryError::DuplicateKind {
+                namespace: NativeKindNamespace::Transform,
+                kind,
+            });
+        }
+        let lowerer = definition.lowerer;
+        self.transforms.insert(
+            kind,
+            TransformEntry {
+                schema: definition.schema,
+                lowerer: TransformEntryLowerer::Pipeline(Arc::new(
+                    move |declaration, stages, outputs, context| {
+                        lowerer(declaration, stages, outputs, context).map_err(RegistryError::from)
+                    },
+                )),
+            },
+        );
+        Ok(())
     }
 
     pub fn register_widget(
@@ -833,7 +888,53 @@ impl NativeRegistry {
                     kind: declaration.kind.clone(),
                 })?;
         self.validate(&entry.schema.key, declaration)?;
-        (entry.lowerer)(declaration, context)
+        match &entry.lowerer {
+            TransformEntryLowerer::Leaf(lowerer) => lowerer(declaration, context),
+            TransformEntryLowerer::Pipeline(_) => Err(RegistryError::WrongTransformMode {
+                kind: declaration.kind.clone(),
+                expected: NativeTransformMode::Leaf,
+            }),
+        }
+    }
+
+    pub fn transform_mode(&self, kind: &str) -> Result<NativeTransformMode, RegistryError> {
+        let entry = self
+            .transforms
+            .get(kind)
+            .ok_or_else(|| RegistryError::UnknownKind {
+                namespace: NativeKindNamespace::Transform,
+                kind: kind.to_string(),
+            })?;
+        Ok(match entry.lowerer {
+            TransformEntryLowerer::Leaf(_) => NativeTransformMode::Leaf,
+            TransformEntryLowerer::Pipeline(_) => NativeTransformMode::Pipeline,
+        })
+    }
+
+    pub fn lower_transform_pipeline(
+        &self,
+        declaration: &ResolvedDeclaration,
+        stages: Vec<DataTransformStage>,
+        outputs: BTreeMap<String, Expr>,
+        context: DataTransformCompileContext,
+    ) -> Result<LoweredTransform, RegistryError> {
+        let entry =
+            self.transforms
+                .get(&declaration.kind)
+                .ok_or_else(|| RegistryError::UnknownKind {
+                    namespace: NativeKindNamespace::Transform,
+                    kind: declaration.kind.clone(),
+                })?;
+        self.validate(&entry.schema.key, declaration)?;
+        match &entry.lowerer {
+            TransformEntryLowerer::Pipeline(lowerer) => {
+                lowerer(declaration, stages, outputs, context)
+            }
+            TransformEntryLowerer::Leaf(_) => Err(RegistryError::WrongTransformMode {
+                kind: declaration.kind.clone(),
+                expected: NativeTransformMode::Pipeline,
+            }),
+        }
     }
 
     pub fn lower_widget(
@@ -956,6 +1057,7 @@ fn validate_value_shape(
             ValueShape::SqlExpression,
         ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
+        (ResolvedValue::String(_), ValueShape::CoordinationScope) => true,
         (ResolvedValue::Output(NativeOutputValue::RasterDim(_)), ValueShape::RasterDimension) => {
             true
         }
@@ -1053,6 +1155,11 @@ pub enum RegistryError {
     InvalidPropertyType { property: String, expected: String },
     #[error("failed to lower '{kind}': {message}")]
     Lowering { kind: String, message: String },
+    #[error("transform '{kind}' does not use the expected {expected:?} lowering mode")]
+    WrongTransformMode {
+        kind: String,
+        expected: NativeTransformMode,
+    },
 }
 
 pub(crate) fn string_property(

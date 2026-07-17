@@ -83,6 +83,8 @@ pub enum ValueShape {
     },
     SqlExpression,
     SqlQuery,
+    /// `shared`, `free`, or `level(<non-negative integer>)` transform scope.
+    CoordinationScope,
     RasterDimension,
     ScalarBinding,
     TableBinding,

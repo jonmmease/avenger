@@ -5,11 +5,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use avenger_chart_core::{DataTransform, TimeContext, WeekStart};
 use avenger_chart_lang_types::{
     LoweredTransform, NativeLoweringError, NativeOutputValue, ResolvedDeclaration, ResolvedValue,
-    TransformLanguageDefinition, expr_property, resolved_expr, string_property,
+    TransformLanguageDefinition, TransformPipelineLanguageDefinition, expr_property, resolved_expr,
+    string_property,
 };
 use avenger_chart_schema::{
-    DynamicOutputSource, DynamicTransformOutputSchema, EnumValueSchema, KindSchema, NativeKindKey,
-    NativeKindNamespace, PropertySchema, TransformOutputSchema, ValueShape,
+    BodyMode, ChildRule, DynamicOutputSource, DynamicTransformOutputSchema, EnumValueSchema,
+    KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, TransformOutputSchema,
+    ValueShape,
 };
 use datafusion::{
     common::ScalarValue,
@@ -19,9 +21,9 @@ use indexmap::IndexMap;
 
 use crate::{
     Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Kde, KdeResolve, Lump,
-    Rasterize2D, Rasterize2DDimension, ScalarAggregate, ScalarAggregateEvaluation, Select, Sql,
-    Stack, StackOffset, TimeFill, TimeLevel, TimeLevelKeys, TimeLevelLabel, TimeLevels, TimeUnit,
-    TimeUnitPart, Window,
+    Pipeline, Rasterize2D, Rasterize2DDimension, ScalarAggregate, ScalarAggregateEvaluation,
+    Select, Sql, Stack, StackOffset, TimeFill, TimeLevel, TimeLevelKeys, TimeLevelLabel,
+    TimeLevels, TimeUnit, TimeUnitPart, Window,
 };
 
 /// The transform definitions currently available to the native registry.
@@ -29,7 +31,7 @@ use crate::{
 /// Phase 6 extends this inventory in this owner crate rather than introducing
 /// transform-kind branches in the registry or compiler.
 pub fn definitions() -> Vec<TransformLanguageDefinition> {
-    vec![
+    let mut definitions = vec![
         filter_definition(),
         aggregate_definition(),
         join_aggregate_definition(),
@@ -48,7 +50,73 @@ pub fn definitions() -> Vec<TransformLanguageDefinition> {
         bin_definition(),
         stack_definition(),
         sql_definition(),
-    ]
+    ];
+    for definition in &mut definitions {
+        definition.schema = with_transform_scope(definition.schema.clone());
+    }
+    definitions
+}
+
+/// The native mixed-body pipeline definition. Child transforms are lowered by
+/// the compiler through the same registry before this owner assembles them.
+pub fn pipeline_definition() -> TransformPipelineLanguageDefinition {
+    let schema = with_transform_scope(
+        KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Transform, "pipeline"),
+            "Run ordered child transforms behind one native parent stage and expose only declared public outputs.",
+        )
+        .body_mode(BodyMode::Mixed)
+        .child_rule(ChildRule {
+            role: "transform".to_string(),
+            min: 1,
+            max: None,
+            docs: "Ordered native child transform stage.".to_string(),
+        })
+        .child_rule(ChildRule {
+            role: "output".to_string(),
+            min: 0,
+            max: None,
+            docs: "Public final-relation expression exposed through the pipeline binder."
+                .to_string(),
+        }),
+    );
+    TransformPipelineLanguageDefinition {
+        schema,
+        lowerer: |_declaration, stages, outputs, context| {
+            let mut pipeline = Pipeline::new();
+            for stage in stages {
+                pipeline = pipeline.compiled_stage(stage);
+            }
+            let names = outputs.keys().cloned().collect::<Vec<_>>();
+            for (name, expr) in outputs {
+                pipeline = pipeline.output(name, expr);
+            }
+            let (transform, output) = pipeline.into_compiled_and_output(context)?;
+            Ok(LoweredTransform {
+                transform,
+                outputs: names
+                    .into_iter()
+                    .map(|name| (name.clone(), output.field(&name).into()))
+                    .collect(),
+            })
+        },
+    }
+}
+
+fn with_transform_scope(mut schema: KindSchema) -> KindSchema {
+    schema.properties.insert(
+        "scope".to_string(),
+        PropertySchema::optional(
+            ValueShape::CoordinationScope,
+            "Coordination scope for this transform stage.",
+        ),
+    );
+    for output in &mut schema.dynamic_outputs {
+        if let DynamicOutputSource::PropertyNames { exclude } = &mut output.source {
+            exclude.insert("scope".to_string());
+        }
+    }
+    schema
 }
 
 fn filter_definition() -> TransformLanguageDefinition {
@@ -2248,10 +2316,19 @@ mod tests {
                 "sql"
             ]
         );
-        let entries = definitions
+        assert!(
+            definitions
+                .iter()
+                .all(|definition| definition.schema.properties.contains_key("scope"))
+        );
+        let mut entries = definitions
             .into_iter()
             .map(|definition| (definition.schema.key.clone(), definition.schema))
-            .collect();
+            .collect::<BTreeMap<_, _>>();
+        let pipeline = pipeline_definition();
+        assert_eq!(pipeline.schema.body_mode, BodyMode::Mixed);
+        assert!(pipeline.schema.properties.contains_key("scope"));
+        entries.insert(pipeline.schema.key.clone(), pipeline.schema);
         NativeSchemaSnapshot {
             version: SchemaVersion::V1,
             profile_label: "transform-owner-test".to_string(),

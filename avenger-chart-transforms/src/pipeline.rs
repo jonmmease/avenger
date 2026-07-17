@@ -11,6 +11,7 @@ use datafusion_proto::protobuf::LogicalExprNode;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use serde_with::{FromInto, serde_as};
+use std::collections::BTreeSet;
 
 /// One public relation column exported by a compiled pipeline.
 #[serde_as]
@@ -109,18 +110,42 @@ impl CompiledDataTransform for CompiledPipelineTransform {
         dataframe: DataFrame,
         ctx: &DataTransformExecutionContext<'_>,
     ) -> Result<DataTransformResult, AvengerChartError> {
+        let input_names = dataframe
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().clone())
+            .collect::<Vec<_>>();
         let result = apply_compiled_data_transforms(dataframe, &self.stages, ctx).await?;
-        let projection = self
+        if self.outputs.is_empty() {
+            return Ok(result);
+        }
+        let output_names = self
             .outputs
             .iter()
-            .map(|output| {
-                validate_generated_name(&output.name)?;
-                let expr = output.expr.to_default_expr(ctx.session_context)?;
-                // DataFusion's select validation provides the authoritative
-                // final-relation schema check, including nested expressions.
-                Ok(expr.alias(&output.name))
+            .map(|output| output.name.as_str())
+            .collect::<BTreeSet<_>>();
+        let final_schema = result.dataframe.schema();
+        let mut projection = input_names
+            .into_iter()
+            .filter(|name| {
+                !output_names.contains(name.as_str())
+                    && final_schema.field_with_unqualified_name(name).is_ok()
             })
-            .collect::<Result<Vec<_>, AvengerChartError>>()?;
+            .map(col)
+            .collect::<Vec<_>>();
+        projection.extend(
+            self.outputs
+                .iter()
+                .map(|output| {
+                    validate_generated_name(&output.name)?;
+                    let expr = output.expr.to_default_expr(ctx.session_context)?;
+                    // DataFusion's select validation provides the authoritative
+                    // final-relation schema check, including nested expressions.
+                    Ok(expr.alias(&output.name))
+                })
+                .collect::<Result<Vec<_>, AvengerChartError>>()?,
+        );
         let dataframe = result.dataframe.select(projection).map_err(|err| {
             AvengerChartError::InvalidArgument(format!(
                 "pipeline output expression is not valid for the final relation: {err}"
@@ -146,6 +171,16 @@ pub struct Pipeline {
 impl Pipeline {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Append an already-compiled child stage while preserving the pipeline
+    /// as one parent transform. Language registries use this after dispatching
+    /// each child through its owning native lowerer.
+    #[doc(hidden)]
+    pub fn compiled_stage(mut self, stage: DataTransformStage) -> Self {
+        self.stages.push(stage);
+        self.stage_aliases.push(None);
+        self
     }
 
     pub fn transform<T, F>(self, transform: T, f: F) -> Self
@@ -236,11 +271,6 @@ impl DataTransform for Pipeline {
         if self.stages.is_empty() {
             return Err(AvengerChartError::InvalidArgument(
                 "pipeline must contain at least one child transform".to_string(),
-            ));
-        }
-        if self.outputs.is_empty() {
-            return Err(AvengerChartError::InvalidArgument(
-                "pipeline must declare at least one public output".to_string(),
             ));
         }
         for name in self.outputs.keys() {
@@ -389,6 +419,61 @@ mod tests {
             .err()
             .expect("missing final output must fail");
         assert!(error.to_string().contains("final relation"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn output_free_pipeline_preserves_the_final_child_relation() {
+        let ctx = SessionContext::new();
+        let (compiled, _) = Pipeline::new()
+            .transform(
+                Sql::new("SELECT category, value * 2 AS doubled FROM input"),
+                |pipeline, _| pipeline,
+            )
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+            .unwrap();
+        let result = compiled
+            .apply(sample(&ctx), &execution_context(&ctx))
+            .await
+            .unwrap();
+        assert!(
+            result
+                .dataframe
+                .schema()
+                .field_with_name(None, "category")
+                .is_ok()
+        );
+        assert!(
+            result
+                .dataframe
+                .schema()
+                .field_with_name(None, "doubled")
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn declared_outputs_retain_surviving_inputs_and_hide_other_generated_columns() {
+        let ctx = SessionContext::new();
+        let (compiled, _) = Pipeline::new()
+            .transform(
+                Sql::new("SELECT *, value * 2 AS doubled, value * 3 AS internal FROM input"),
+                |pipeline, _| pipeline,
+            )
+            .output("doubled", col("doubled"))
+            .into_compiled_and_output(DataTransformCompileContext::new(CoordinationScope::Free))
+            .unwrap();
+        let result = compiled
+            .apply(sample(&ctx), &execution_context(&ctx))
+            .await
+            .unwrap();
+        let names = result
+            .dataframe
+            .schema()
+            .fields()
+            .iter()
+            .map(|field| field.name().as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["category", "value", "doubled"]);
     }
 
     #[test]
