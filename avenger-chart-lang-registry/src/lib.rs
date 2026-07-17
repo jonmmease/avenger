@@ -1187,8 +1187,9 @@ mod tests {
     };
 
     use avenger_chart::prelude::{
-        Cartesian, CompiledWidget, CoordinationScope, FacetColumn, FacetColumnSubplotChannels,
-        IntoPlotMark, PanScrollZoom, Subplot, Symbol, ToolExportTarget, WidgetItemRow, WidgetItems,
+        Auto, Cartesian, CompiledWidget, CoordinationScope, FacetColumn,
+        FacetColumnSubplotChannels, IntoPlotMark, PanScrollZoom, Scale, Subplot, Symbol,
+        ToolExportTarget, WidgetItemRow, WidgetItems,
     };
     use avenger_chart_core::ParamRef;
     use avenger_chart_external_test::{
@@ -1314,6 +1315,47 @@ mod tests {
                 .cloned()
                 .collect::<std::collections::BTreeSet<_>>()
         );
+    }
+
+    #[test]
+    fn native_surface_all_stock_scales_have_owner_lowerers() {
+        let registry = builtins::bootstrap_registry().unwrap();
+        let kinds = [
+            "linear",
+            "log",
+            "pow",
+            "sqrt",
+            "symlog",
+            "time",
+            "band",
+            "nested_band",
+            "point",
+            "ordinal",
+            "threshold",
+            "quantile",
+            "quantize",
+        ];
+        for kind in kinds {
+            let key = NativeKindKey::new(NativeKindNamespace::Scale, kind);
+            let declaration = ResolvedDeclaration::new(kind);
+            let lowered = registry
+                .lower_object(&key, &declaration)
+                .unwrap_or_else(|error| panic!("failed to lower {kind}: {error}"));
+            assert!(lowered.downcast::<Scale<Auto>>().is_ok(), "{kind}");
+        }
+
+        let key = NativeKindKey::new(NativeKindNamespace::Scale, "linear");
+        let declaration = ResolvedDeclaration::new("linear")
+            .property(
+                "domain",
+                ResolvedValue::Array(vec![
+                    ResolvedValue::Number(0.0),
+                    ResolvedValue::Number(10.0),
+                ]),
+            )
+            .property("nice", ResolvedValue::Boolean(true))
+            .property("clamp", ResolvedValue::Boolean(true));
+        registry.lower_object(&key, &declaration).unwrap();
     }
 
     #[test]

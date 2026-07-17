@@ -8,6 +8,7 @@ pub mod domain;
 pub mod domain_extent;
 mod domain_inference;
 pub mod extensions;
+pub mod language;
 pub mod mark_scale_builder;
 pub mod range;
 pub mod scale;

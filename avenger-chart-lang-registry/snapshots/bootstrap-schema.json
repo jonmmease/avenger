@@ -8077,10 +8077,114 @@
     {
       "key": {
         "namespace": "scale",
+        "kind": "band"
+      },
+      "docs": "A discrete band-position scale.",
+      "properties": {
+        "align": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Band alignment within the range, from zero through one."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "padding_inner": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Fractional padding between adjacent bands."
+        },
+        "padding_outer": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Fractional padding outside the first and last bands."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        },
+        "round": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round band positions and widths to whole pixels."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
         "kind": "linear"
       },
       "docs": "A continuous linear scale.",
       "properties": {
+        "clamp": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clamp outputs to the configured range."
+        },
         "domain": {
           "shape": {
             "shape": "array",
@@ -8098,6 +8202,39 @@
           "required": false,
           "docs": "Round the domain to pleasant values."
         },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "padding": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Add pixel padding around the inferred domain."
+        },
         "range": {
           "shape": {
             "shape": "array",
@@ -8106,7 +8243,14 @@
             }
           },
           "required": false,
-          "docs": "Explicit scale range values."
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
         },
         "zero": {
           "shape": {
@@ -8114,6 +8258,165 @@
           },
           "required": false,
           "docs": "Include zero in the inferred domain."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "log"
+      },
+      "docs": "A logarithmic continuous scale.",
+      "properties": {
+        "base": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Positive logarithm base."
+        },
+        "clamp": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clamp outputs to the configured range."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "nice": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round the domain to pleasant powers."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "nested_band"
+      },
+      "docs": "A hierarchical discrete band-position scale.",
+      "properties": {
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
         }
       },
       "channels": {},
@@ -8141,6 +8444,32 @@
           "required": false,
           "docs": "Explicit scale domain values."
         },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
         "range": {
           "shape": {
             "shape": "array",
@@ -8149,7 +8478,678 @@
             }
           },
           "required": false,
-          "docs": "Explicit scale range values."
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        },
+        "unknown": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Output value used for inputs absent from the domain."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "point"
+      },
+      "docs": "A discrete point-position scale.",
+      "properties": {
+        "align": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Point alignment within the range, from zero through one."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "padding": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Fractional outer padding."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        },
+        "round": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round point positions to whole pixels."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "pow"
+      },
+      "docs": "A power-transformed continuous scale.",
+      "properties": {
+        "clamp": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clamp outputs to the configured range."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "exponent": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Power exponent."
+        },
+        "nice": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round the domain to pleasant values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        },
+        "zero": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Include zero in the inferred domain."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "quantile"
+      },
+      "docs": "A quantile scale derived from a sample domain.",
+      "properties": {
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "quantize"
+      },
+      "docs": "A uniformly quantized continuous-domain scale.",
+      "properties": {
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "sqrt"
+      },
+      "docs": "A square-root continuous scale.",
+      "properties": {
+        "clamp": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clamp outputs to the configured range."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "nice": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round the domain to pleasant values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        },
+        "zero": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Include zero in the inferred domain."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "symlog"
+      },
+      "docs": "A symmetric-log continuous scale.",
+      "properties": {
+        "clamp": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clamp outputs to the configured range."
+        },
+        "constant": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Positive linear-region constant around zero."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "nice": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round the domain to pleasant values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "threshold"
+      },
+      "docs": "A discrete threshold scale.",
+      "properties": {
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "scale",
+        "kind": "time"
+      },
+      "docs": "A temporal continuous scale.",
+      "properties": {
+        "clamp": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clamp outputs to the configured range."
+        },
+        "domain": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scale domain values."
+        },
+        "nice": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Round the temporal domain to pleasant boundaries."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "ascending",
+                  "docs": "Sort the inferred categorical domain ascending."
+                },
+                {
+                  "value": "descending",
+                  "docs": "Sort the inferred categorical domain descending."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Direction for inferred categorical-domain ordering."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression used to order an inferred categorical domain."
+        },
+        "range": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Explicit scalar scale range values."
+        },
+        "raw_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Runtime interval-domain override, with the regular domain retained as fallback."
         }
       },
       "channels": {},

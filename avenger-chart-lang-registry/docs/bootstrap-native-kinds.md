@@ -1098,16 +1098,64 @@ Exports:
 
 - `value` (`param<utf8>`): The committed text value.
 
+## `Scale.band`
+
+A discrete band-position scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `align` | property | false | Band alignment within the range, from zero through one. |
+| `domain` | property | false | Explicit scale domain values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `padding_inner` | property | false | Fractional padding between adjacent bands. |
+| `padding_outer` | property | false | Fractional padding outside the first and last bands. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+| `round` | property | false | Round band positions and widths to whole pixels. |
+
 ## `Scale.linear`
 
 A continuous linear scale.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `clamp` | property | false | Clamp outputs to the configured range. |
 | `domain` | property | false | Explicit scale domain values. |
 | `nice` | property | false | Round the domain to pleasant values. |
-| `range` | property | false | Explicit scale range values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `padding` | property | false | Add pixel padding around the inferred domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
 | `zero` | property | false | Include zero in the inferred domain. |
+
+## `Scale.log`
+
+A logarithmic continuous scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `base` | property | false | Positive logarithm base. |
+| `clamp` | property | false | Clamp outputs to the configured range. |
+| `domain` | property | false | Explicit scale domain values. |
+| `nice` | property | false | Round the domain to pleasant powers. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+
+## `Scale.nested_band`
+
+A hierarchical discrete band-position scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain` | property | false | Explicit scale domain values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
 
 ## `Scale.ordinal`
 
@@ -1116,7 +1164,122 @@ A discrete ordinal scale.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `domain` | property | false | Explicit scale domain values. |
-| `range` | property | false | Explicit scale range values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+| `unknown` | property | false | Output value used for inputs absent from the domain. |
+
+## `Scale.point`
+
+A discrete point-position scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `align` | property | false | Point alignment within the range, from zero through one. |
+| `domain` | property | false | Explicit scale domain values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `padding` | property | false | Fractional outer padding. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+| `round` | property | false | Round point positions to whole pixels. |
+
+## `Scale.pow`
+
+A power-transformed continuous scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `clamp` | property | false | Clamp outputs to the configured range. |
+| `domain` | property | false | Explicit scale domain values. |
+| `exponent` | property | false | Power exponent. |
+| `nice` | property | false | Round the domain to pleasant values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+| `zero` | property | false | Include zero in the inferred domain. |
+
+## `Scale.quantile`
+
+A quantile scale derived from a sample domain.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain` | property | false | Explicit scale domain values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+
+## `Scale.quantize`
+
+A uniformly quantized continuous-domain scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain` | property | false | Explicit scale domain values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+
+## `Scale.sqrt`
+
+A square-root continuous scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `clamp` | property | false | Clamp outputs to the configured range. |
+| `domain` | property | false | Explicit scale domain values. |
+| `nice` | property | false | Round the domain to pleasant values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+| `zero` | property | false | Include zero in the inferred domain. |
+
+## `Scale.symlog`
+
+A symmetric-log continuous scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `clamp` | property | false | Clamp outputs to the configured range. |
+| `constant` | property | false | Positive linear-region constant around zero. |
+| `domain` | property | false | Explicit scale domain values. |
+| `nice` | property | false | Round the domain to pleasant values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+
+## `Scale.threshold`
+
+A discrete threshold scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain` | property | false | Explicit scale domain values. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
+
+## `Scale.time`
+
+A temporal continuous scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `clamp` | property | false | Clamp outputs to the configured range. |
+| `domain` | property | false | Explicit scale domain values. |
+| `nice` | property | false | Round the temporal domain to pleasant boundaries. |
+| `order` | property | false | Direction for inferred categorical-domain ordering. |
+| `order_by` | property | false | Expression used to order an inferred categorical domain. |
+| `range` | property | false | Explicit scalar scale range values. |
+| `raw_domain` | property | false | Runtime interval-domain override, with the regular domain retained as fallback. |
 
 ## `Axis.cartesian`
 

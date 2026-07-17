@@ -975,6 +975,8 @@ dependencies = [
  "arrow",
  "async-trait",
  "avenger-chart-core",
+ "avenger-chart-lang-types",
+ "avenger-chart-schema",
  "avenger-common",
  "avenger-format-number",
  "avenger-scales",

@@ -7,16 +7,13 @@ use std::sync::Arc;
 
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::{Auto, Cartesian, CartesianAxis, Legend, Linear, Ordinal, PanScrollZoom, Scale},
+    prelude::{Cartesian, CartesianAxis, Legend, PanScrollZoom},
 };
 use avenger_chart_core::Axis;
 use avenger_chart_schema::{
     ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
-use datafusion::{
-    common::ScalarValue,
-    logical_expr::{Expr, lit},
-};
+use datafusion::logical_expr::{Expr, lit};
 
 use crate::{CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue};
 
@@ -133,67 +130,9 @@ fn register_widgets(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
 }
 
 fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
-    let common_scale_properties = |schema: KindSchema| {
-        schema
-            .property(
-                "domain",
-                PropertySchema::optional(
-                    ValueShape::Array(Box::new(ValueShape::Any)),
-                    "Explicit scale domain values.",
-                ),
-            )
-            .property(
-                "range",
-                PropertySchema::optional(
-                    ValueShape::Array(Box::new(ValueShape::Any)),
-                    "Explicit scale range values.",
-                ),
-            )
-    };
-
-    let linear = common_scale_properties(
-        KindSchema::new(
-            NativeKindKey::new(NativeKindNamespace::Scale, "linear"),
-            "A continuous linear scale.",
-        )
-        .property(
-            "nice",
-            PropertySchema::optional(ValueShape::Boolean, "Round the domain to pleasant values."),
-        )
-        .property(
-            "zero",
-            PropertySchema::optional(ValueShape::Boolean, "Include zero in the inferred domain."),
-        ),
-    );
-    builder.register_object(
-        linear,
-        Arc::new(|declaration| {
-            let mut scale = Scale::<Linear>::new().into_type::<Auto>();
-            scale = lower_scale(scale, declaration, true)?;
-            if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("nice") {
-                scale = scale._option("nice", lit(*value));
-            }
-            if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("zero") {
-                scale = scale._option("zero", lit(*value));
-            }
-            Ok(Box::new(scale))
-        }),
-    )?;
-
-    let ordinal = common_scale_properties(KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Scale, "ordinal"),
-        "A discrete ordinal scale.",
-    ));
-    builder.register_object(
-        ordinal,
-        Arc::new(|declaration| {
-            Ok(Box::new(lower_scale(
-                Scale::<Ordinal>::new().into_type::<Auto>(),
-                declaration,
-                false,
-            )?))
-        }),
-    )?;
+    for definition in avenger_chart_scales::language::definitions() {
+        builder.register_object_definition(definition)?;
+    }
 
     let axis = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Axis, "cartesian"),
@@ -308,41 +247,6 @@ fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
     Ok(())
 }
 
-fn lower_scale(
-    mut scale: Scale<Auto>,
-    declaration: &crate::ResolvedDeclaration,
-    continuous: bool,
-) -> Result<Scale<Auto>, RegistryError> {
-    if let Some(ResolvedValue::Array(domain)) = declaration.properties.get("domain") {
-        let expressions = domain
-            .iter()
-            .enumerate()
-            .map(|(index, value)| native_expr(value, &format!("domain[{index}]")))
-            .collect::<Result<Vec<_>, _>>()?;
-        if continuous {
-            let [min, max] = expressions.as_slice() else {
-                return Err(RegistryError::InvalidPropertyType {
-                    property: "domain".to_string(),
-                    expected: "exactly two values for a continuous scale".to_string(),
-                });
-            };
-            scale = scale.domain_interval(min.clone(), max.clone());
-        } else {
-            scale = scale.domain_discrete(expressions);
-        }
-    }
-    if let Some(ResolvedValue::Array(range)) = declaration.properties.get("range") {
-        scale = scale.range_discrete(
-            range
-                .iter()
-                .enumerate()
-                .map(|(index, value)| resolved_scalar(value, &format!("range[{index}]")))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
-    }
-    Ok(scale)
-}
-
 fn lower_layout(
     declaration: &crate::ResolvedDeclaration,
 ) -> Result<Box<dyn std::any::Any + Send + Sync>, RegistryError> {
@@ -433,20 +337,6 @@ fn native_expr(value: &ResolvedValue, name: &str) -> Result<Expr, RegistryError>
         _ => Err(RegistryError::InvalidPropertyType {
             property: name.to_string(),
             expected: "scalar SQL expression".to_string(),
-        }),
-    }
-}
-
-fn resolved_scalar(value: &ResolvedValue, name: &str) -> Result<ScalarValue, RegistryError> {
-    match value {
-        ResolvedValue::Boolean(value) => Ok(ScalarValue::Boolean(Some(*value))),
-        ResolvedValue::Integer(value) => Ok(ScalarValue::Int64(Some(*value))),
-        ResolvedValue::Number(value) => Ok(ScalarValue::Float64(Some(*value))),
-        ResolvedValue::String(value) => Ok(ScalarValue::Utf8(Some(value.clone()))),
-        ResolvedValue::Scalar(value) => Ok(value.clone()),
-        _ => Err(RegistryError::InvalidPropertyType {
-            property: name.to_string(),
-            expected: "scalar value".to_string(),
         }),
     }
 }
