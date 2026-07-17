@@ -6,6 +6,8 @@ edition = "2024"
 [dependencies]
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-lang-types = { path = "../avenger-chart-lang-types" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-common = { path = "../avenger-common" }
 async-trait = { workspace = true }
 chrono = { workspace = true }

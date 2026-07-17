@@ -1,0 +1,12 @@
+[package]
+name = "avenger-chart-lang-types"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+
+[dependencies]
+avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
+datafusion = { workspace = true }
+indexmap = { workspace = true }
+thiserror = { workspace = true }

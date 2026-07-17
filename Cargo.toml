@@ -23,6 +23,7 @@ members = [
     "avenger-winit-wgpu",
     "avenger-chart-core",
     "avenger-chart-schema",
+    "avenger-chart-lang-types",
     "avenger-chart-lang-registry",
     "avenger-lang-core",
     "avenger-lang-compiler",

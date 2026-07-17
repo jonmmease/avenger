@@ -3,7 +3,7 @@
 //! This is intentionally not the complete Avenger v1 inventory. The language
 //! compiler plan owns the family-by-family expansion from this slice.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
@@ -13,22 +13,21 @@ use avenger_chart::{
         WidgetAttachment, WidgetItemRow, WidgetItems,
     },
 };
-use avenger_chart_core::{Axis, DataTransform};
+use avenger_chart_core::Axis;
 use avenger_chart_schema::{
     BodyMode, ChannelSchema, EnumValueSchema, ExportSchema, KindSchema, NativeKindKey,
-    NativeKindNamespace, PartSchema, PropertySchema, TransformOutputSchema, ValueShape,
+    NativeKindNamespace, PartSchema, PropertySchema, ValueShape,
 };
-use avenger_chart_transforms::{Aggregate, Filter, Sql};
 use avenger_chart_widgets::RadioButtonList;
 use datafusion::{
     common::ScalarValue,
-    logical_expr::{Expr, col, lit},
+    logical_expr::{Expr, lit},
 };
 use indexmap::IndexMap;
 
 use crate::{
-    CoordinatePack, LoweredTransform, NativeRegistry, NativeRegistryBuilder, RegistryError,
-    ResolvedValue, expr_property, string_property,
+    CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue,
+    string_property,
 };
 
 pub const BOOTSTRAP_PROFILE_LABEL: &str = "bootstrap-vertical-slice";
@@ -201,162 +200,9 @@ pub fn symbol_schema() -> KindSchema {
 }
 
 fn register_transforms(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
-    let filter = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Transform, "filter"),
-        "Retain rows for which a predicate is true.",
-    )
-    .property(
-        "predicate",
-        PropertySchema::required(ValueShape::SqlExpression, "Boolean row predicate."),
-    );
-    builder.register_transform(
-        filter,
-        Arc::new(|declaration, context| {
-            let (transform, ()) = Filter::new(expr_property(declaration, "predicate")?)
-                .into_compiled_and_output(context)?;
-            Ok(LoweredTransform {
-                transform,
-                outputs: BTreeMap::new(),
-            })
-        }),
-    )?;
-
-    let operation = ValueShape::Atom {
-        values: ["sum", "count", "mean", "min", "max", "median"]
-            .into_iter()
-            .map(|value| EnumValueSchema {
-                value: value.to_string(),
-                docs: format!("The `{value}` aggregation operation."),
-            })
-            .collect(),
-    };
-    let measure = ValueShape::Object(
-        [
-            (
-                "name".to_string(),
-                PropertySchema::required(ValueShape::String, "Output column name."),
-            ),
-            (
-                "op".to_string(),
-                PropertySchema::required(operation, "Aggregation operation."),
-            ),
-            (
-                "expr".to_string(),
-                PropertySchema::optional(
-                    ValueShape::SqlExpression,
-                    "Input expression; omitted for count.",
-                ),
-            ),
-        ]
-        .into_iter()
-        .collect(),
-    );
-    let aggregate = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Transform, "aggregate"),
-        "Group rows and compute named aggregate measures.",
-    )
-    .property(
-        "group_by",
-        PropertySchema::optional(
-            ValueShape::Array(Box::new(ValueShape::SqlExpression)),
-            "Grouping expressions.",
-        ),
-    )
-    .property(
-        "measures",
-        PropertySchema::required(
-            ValueShape::Array(Box::new(measure)),
-            "Named aggregate measures.",
-        ),
-    )
-    .output(TransformOutputSchema {
-        name: "fields".to_string(),
-        shape: ValueShape::Object(BTreeMap::new()),
-        docs: "Named output fields declared by group keys and measures.".to_string(),
-    });
-    builder.register_transform(
-        aggregate,
-        Arc::new(|declaration, context| {
-            let mut aggregate = Aggregate::new();
-            if let Some(ResolvedValue::Array(groups)) = declaration.properties.get("group_by") {
-                for group in groups {
-                    let ResolvedValue::Expr(expr) = group else {
-                        unreachable!("schema validation checks group expressions")
-                    };
-                    aggregate = aggregate.group_by([expr.clone()]);
-                }
-            }
-            let ResolvedValue::Array(measures) = declaration.get("measures")? else {
-                unreachable!("schema validation checks aggregate measures")
-            };
-            let mut names = Vec::new();
-            for measure in measures {
-                let ResolvedValue::Object(fields) = measure else {
-                    unreachable!("schema validation checks aggregate measure objects")
-                };
-                let name = object_string(fields, "name")?;
-                let op = object_string(fields, "op")?;
-                let expr = fields
-                    .get("expr")
-                    .map(|value| match value {
-                        ResolvedValue::Expr(expr) => Ok(expr.clone()),
-                        _ => Err(RegistryError::InvalidPropertyType {
-                            property: "expr".to_string(),
-                            expected: "SQL expression".to_string(),
-                        }),
-                    })
-                    .transpose()?;
-                aggregate = match (op.as_str(), expr) {
-                    ("count", None) => aggregate.count(&name),
-                    ("sum", Some(expr)) => aggregate.sum(&name, expr),
-                    ("mean", Some(expr)) => aggregate.mean(&name, expr),
-                    ("min", Some(expr)) => aggregate.min(&name, expr),
-                    ("max", Some(expr)) => aggregate.max(&name, expr),
-                    ("median", Some(expr)) => aggregate.median(&name, expr),
-                    _ => {
-                        return Err(RegistryError::Lowering {
-                            kind: "aggregate".to_string(),
-                            message: format!("operation '{op}' has an invalid expression shape"),
-                        });
-                    }
-                };
-                names.push(name);
-            }
-            let (transform, _output) = aggregate.into_compiled_and_output(context)?;
-            Ok(LoweredTransform {
-                transform,
-                outputs: names
-                    .into_iter()
-                    .map(|name| (name.clone(), col(name)))
-                    .collect(),
-            })
-        }),
-    )?;
-
-    let sql = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Transform, "sql"),
-        "Run one DataFusion SQL query against the reserved `input` relation.",
-    )
-    .property(
-        "query",
-        PropertySchema::required(ValueShape::SqlQuery, "The SQL query."),
-    )
-    .output(TransformOutputSchema {
-        name: "fields".to_string(),
-        shape: ValueShape::Object(BTreeMap::new()),
-        docs: "Fields projected by the SQL query.".to_string(),
-    });
-    builder.register_transform(
-        sql,
-        Arc::new(|declaration, context| {
-            let (transform, _output) = Sql::new(string_property(declaration, "query")?)
-                .into_compiled_and_output(context)?;
-            Ok(LoweredTransform {
-                transform,
-                outputs: BTreeMap::new(),
-            })
-        }),
-    )?;
+    for definition in avenger_chart_transforms::language::definitions() {
+        builder.register_transform_definition(definition)?;
+    }
     Ok(())
 }
 

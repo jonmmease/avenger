@@ -801,6 +801,7 @@ dependencies = [
  "avenger-chart-cartesian",
  "avenger-chart-core",
  "avenger-chart-external-test",
+ "avenger-chart-lang-types",
  "avenger-chart-marks",
  "avenger-chart-scales",
  "avenger-chart-schema",
@@ -815,6 +816,17 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "avenger-chart-lang-types"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart-core",
+ "avenger-chart-schema",
+ "datafusion",
+ "indexmap 2.14.0",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -992,6 +1004,8 @@ dependencies = [
  "async-trait",
  "avenger-chart-cartesian",
  "avenger-chart-core",
+ "avenger-chart-lang-types",
+ "avenger-chart-schema",
  "avenger-common",
  "bincode",
  "chrono",

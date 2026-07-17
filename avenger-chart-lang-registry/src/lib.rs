@@ -8,92 +8,18 @@ use avenger_chart_core::{
     CompiledDataTransform, CoordinateSystem, DataContext, DataTransformCompileContext,
     MarkDataMode, SubplotChildPlotSpec,
 };
+pub use avenger_chart_lang_types::{
+    CoordinateLanguageDefinition, LoweredTransform, NativeLoweringError, ObjectLanguageDefinition,
+    ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition, WidgetLanguageDefinition,
+};
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
 };
-use datafusion::{
-    common::ScalarValue, dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext,
-};
-use indexmap::IndexMap;
+use datafusion::{dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub mod builtins;
-
-/// Schema-validated value independent of parser AST types.
-#[derive(Clone)]
-pub enum ResolvedValue {
-    Boolean(bool),
-    Integer(i64),
-    Number(f64),
-    String(String),
-    Scalar(ScalarValue),
-    Expr(Expr),
-    Channel(Box<ChannelValue>),
-    Query(String),
-    Array(Vec<ResolvedValue>),
-    Object(IndexMap<String, ResolvedValue>),
-    DataFrame(Box<DataFrame>),
-    Param(Param),
-}
-
-impl fmt::Debug for ResolvedValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Boolean(value) => f.debug_tuple("Boolean").field(value).finish(),
-            Self::Integer(value) => f.debug_tuple("Integer").field(value).finish(),
-            Self::Number(value) => f.debug_tuple("Number").field(value).finish(),
-            Self::String(value) => f.debug_tuple("String").field(value).finish(),
-            Self::Scalar(value) => f.debug_tuple("Scalar").field(value).finish(),
-            Self::Expr(_) => f.write_str("Expr(..)"),
-            Self::Channel(value) => f.debug_tuple("Channel").field(value).finish(),
-            Self::Query(value) => f.debug_tuple("Query").field(value).finish(),
-            Self::Array(value) => f.debug_tuple("Array").field(value).finish(),
-            Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
-            Self::DataFrame(_) => f.write_str("DataFrame(..)"),
-            Self::Param(value) => f.debug_tuple("Param").field(&value.name).finish(),
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct ResolvedDeclaration {
-    pub kind: String,
-    /// Stable source-level declaration name, kept outside schema properties so
-    /// paired lowerers can preserve structural identity without inventing a
-    /// kind-specific `id` property.
-    pub source_name: Option<String>,
-    pub properties: IndexMap<String, ResolvedValue>,
-}
-
-impl ResolvedDeclaration {
-    pub fn new(kind: impl Into<String>) -> Self {
-        Self {
-            kind: kind.into(),
-            source_name: None,
-            properties: IndexMap::new(),
-        }
-    }
-
-    pub fn source_name(mut self, source_name: impl Into<String>) -> Self {
-        self.source_name = Some(source_name.into());
-        self
-    }
-
-    pub fn property(mut self, name: impl Into<String>, value: ResolvedValue) -> Self {
-        self.properties.insert(name.into(), value);
-        self
-    }
-
-    pub fn get(&self, name: &str) -> Result<&ResolvedValue, RegistryError> {
-        self.properties
-            .get(name)
-            .ok_or_else(|| RegistryError::Lowering {
-                kind: self.kind.clone(),
-                message: format!("missing resolved property '{name}'"),
-            })
-    }
-}
 
 #[derive(Clone, Debug)]
 pub struct ResolvedChildPlot {
@@ -189,11 +115,6 @@ impl ResolvedPlot {
     }
 }
 
-pub struct LoweredTransform {
-    pub transform: Box<dyn CompiledDataTransform>,
-    pub outputs: BTreeMap<String, Expr>,
-}
-
 pub type NativeTransformLowerer = Arc<
     dyn Fn(
             &ResolvedDeclaration,
@@ -250,6 +171,30 @@ pub struct CoordinatePack<C: CoordinateSystem> {
 }
 
 impl<C: CoordinateSystem> CoordinatePack<C> {
+    pub fn from_language_definition(definition: CoordinateLanguageDefinition<C>) -> Self {
+        let CoordinateLanguageDefinition {
+            kind,
+            schema,
+            lowerer,
+            marks,
+            tools,
+        } = definition;
+        let mut pack = Self::new(kind, schema, move |declaration| {
+            lowerer(declaration).map_err(RegistryError::from)
+        });
+        for mark in marks {
+            pack = pack.mark(mark.kind, mark.schema, move |declaration| {
+                (mark.lowerer)(declaration).map_err(RegistryError::from)
+            });
+        }
+        for tool in tools {
+            pack = pack.tool(tool.kind, tool.schema, move |declaration| {
+                (tool.lowerer)(declaration).map_err(RegistryError::from)
+            });
+        }
+        pack
+    }
+
     pub fn new(
         kind: impl Into<String>,
         schema: KindSchema,
@@ -685,6 +630,19 @@ impl NativeRegistryBuilder {
         Ok(())
     }
 
+    pub fn register_transform_definition(
+        &mut self,
+        definition: TransformLanguageDefinition,
+    ) -> Result<(), RegistryError> {
+        let lowerer = definition.lowerer;
+        self.register_transform(
+            definition.schema,
+            Arc::new(move |declaration, context| {
+                lowerer(declaration, context).map_err(RegistryError::from)
+            }),
+        )
+    }
+
     pub fn register_widget(
         &mut self,
         schema: KindSchema,
@@ -702,6 +660,17 @@ impl NativeRegistryBuilder {
         }
         self.widgets.insert(kind, WidgetEntry { schema, lowerer });
         Ok(())
+    }
+
+    pub fn register_widget_definition(
+        &mut self,
+        definition: WidgetLanguageDefinition,
+    ) -> Result<(), RegistryError> {
+        let lowerer = definition.lowerer;
+        self.register_widget(
+            definition.schema,
+            Arc::new(move |declaration| lowerer(declaration).map_err(RegistryError::from)),
+        )
     }
 
     pub fn register_object(
@@ -727,6 +696,17 @@ impl NativeRegistryBuilder {
         }
         self.objects.insert(key, ObjectEntry { schema, lowerer });
         Ok(())
+    }
+
+    pub fn register_object_definition(
+        &mut self,
+        definition: ObjectLanguageDefinition,
+    ) -> Result<(), RegistryError> {
+        let lowerer = definition.lowerer;
+        self.register_object(
+            definition.schema,
+            Arc::new(move |declaration| lowerer(declaration).map_err(RegistryError::from)),
+        )
     }
 
     pub fn build(self) -> Result<NativeRegistry, RegistryError> {
@@ -1012,6 +992,8 @@ pub enum RegistryError {
     Chart(#[from] AvengerChartError),
     #[error(transparent)]
     Schema(#[from] avenger_chart_schema::SchemaError),
+    #[error(transparent)]
+    NativeLowering(#[from] NativeLoweringError),
     #[error("duplicate coordinate '{0}'")]
     DuplicateCoordinate(String),
     #[error("duplicate {namespace:?} kind '{kind}'")]
@@ -1049,19 +1031,6 @@ pub enum RegistryError {
     Lowering { kind: String, message: String },
 }
 
-pub(crate) fn expr_property(
-    declaration: &ResolvedDeclaration,
-    name: &str,
-) -> Result<Expr, RegistryError> {
-    match declaration.get(name)? {
-        ResolvedValue::Expr(expr) => Ok(expr.clone()),
-        _ => Err(RegistryError::InvalidPropertyType {
-            property: name.to_string(),
-            expected: "SQL expression".to_string(),
-        }),
-    }
-}
-
 pub(crate) fn string_property(
     declaration: &ResolvedDeclaration,
     name: &str,
@@ -1097,6 +1066,7 @@ mod tests {
     };
     use avenger_chart_schema::ChannelSchema;
     use datafusion::logical_expr::{col, lit};
+    use indexmap::IndexMap;
 
     use super::*;
 

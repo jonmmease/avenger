@@ -8,6 +8,7 @@ mod fold;
 mod impute;
 mod join_aggregate;
 mod kde;
+pub mod language;
 pub mod lump;
 mod pipeline;
 mod rasterize_2d;
