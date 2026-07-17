@@ -16,7 +16,8 @@ the public `avenger-lang` facade depends on both.
   filesystem and redirect origins, rejects symlink escapes, serves versioned
   bundled `std:` definitions, and bounds capability-gated HTTP reads.
 - `compile_file_attempt()` and `compile_project_attempt()` use the same Phase 3
-  graph, then intentionally stop at the Phase 4 semantic-validation boundary.
+  graph, pass through Phase 4 semantic resolution, and asynchronously lower
+  real DSL charts through the injected schema-paired native registry.
 - Project fingerprints include verified language-source content, the AST
   schema/native-registry versions, and discovered local resource versions.
 
@@ -33,6 +34,7 @@ The earlier bootstrap API remains in place:
 - Compiled Rust params retain an explicit physical Arrow type derived from
   their `ScalarValue` default. The future DSL still declares its type and
   default separately.
-- `compile_phase0_example()` and `analyze_phase0_empty()` are temporary hidden
-  harnesses. Phase 5 replaces them with real DSL input without changing the
-  artifact and analysis contracts.
+- `compile_phase0_example()` and `analyze_phase0_empty()` remain hidden
+  compatibility harnesses. Phase 5's real `compile_file()` and
+  `compile_project()` paths now produce the same artifact and analysis
+  contracts from DSL input.

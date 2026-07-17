@@ -43,6 +43,7 @@ async fn compiler_phase_four_resolves_projects_and_preserves_dependency_attempts
         root.join("chart.avenger"),
         r#"avenger 1; chart cartesian as chart {
             param as size { type: float64; default: 4; }
+            data: { values: [{ x: 1.0; y: 2.0; }]; }
             mark symbol as points { x: "x"; y: "y"; }
         }"#,
     );
@@ -54,11 +55,9 @@ async fn compiler_phase_four_resolves_projects_and_preserves_dependency_attempts
     assert_eq!(resolved.params.len(), 1);
     assert!(compiler.check_project(&root).await.is_ok());
 
-    let compile_failure = compiler
-        .compile_file("chart.avenger")
-        .await
-        .expect_err("native chart construction begins in Phase 5");
-    assert_eq!(compile_failure.diagnostics[0].code.as_str(), "AV0005");
+    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    assert_eq!(artifact.name.as_deref(), Some("chart"));
+    assert!(artifact.interface.params.contains_key("size"));
 
     write(
         root.join("chart.avenger"),

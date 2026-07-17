@@ -401,8 +401,8 @@ impl Compiler {
         }
     }
 
-    /// Temporary Phase 0 vertical slice. Phase 5 replaces this with a real DSL
-    /// fixture while retaining the same artifact wrapper.
+    /// Legacy programmatic Phase 0 harness retained as a small registry and
+    /// artifact regression fixture. Production callers compile real DSL files.
     #[doc(hidden)]
     pub async fn compile_phase0_example(&self) -> Result<CompiledChartArtifact, CompileFailure> {
         let request = CompileEnvironmentRequest {

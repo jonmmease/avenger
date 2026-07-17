@@ -1,5 +1,9 @@
 # Example projects
 
-Real `.avenger` example projects begin in Phase 5. The Phase 0
-`compile_file.rs` example is explicitly programmatic and is replaced once the
-first strict DSL chart compiles.
+`hello_scatter/chart.avenger` is the first complete language/compiler vertical
+slice. Run it through the real file compiler with:
+
+```sh
+cargo run --release -p avenger-lang --example compile_file -- \
+  avenger-lang/examples/projects/hello_scatter/chart.avenger
+```
