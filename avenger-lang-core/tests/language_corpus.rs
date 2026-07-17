@@ -22,6 +22,7 @@ const VALID_FIXTURES: &[&str] = &[
     "define-transform.avenger",
     "catalog.data.avenger",
     "dedicated-shapes.avenger",
+    "query-entry.avenger",
 ];
 
 const INVALID_FIXTURES: &[&str] = &[
@@ -30,6 +31,7 @@ const INVALID_FIXTURES: &[&str] = &[
     "multiple-roots.avenger",
     "malformed-action.avenger",
     "illegal-visibility.avenger",
+    "define-widget.avenger",
     "invalid-slot-shape.avenger",
     "late-interface.avenger",
     "wrong-root.avenger",

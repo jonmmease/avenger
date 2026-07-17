@@ -400,7 +400,7 @@ impl Parser {
             }
             self.index = checkpoint;
         }
-        if property == "sql" {
+        if matches!(property, "sql" | "query") {
             let start = self.sig();
             let parsed = parse_sql_query(&self.stream, start)?;
             self.index = parsed.next_token;

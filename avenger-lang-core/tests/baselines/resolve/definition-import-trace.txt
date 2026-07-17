@@ -1,0 +1,21 @@
+error[AVENGER-RESOLVE-009]: enum slot default is not a declared value
+ --> memory:broken.mark.avenger:3:1
+   3 | define mark broken {
+     | ^ slot `mode` must default to one of its `values:` atoms
+  = via memory:chart.avenger: imported through binding `broken`
+
+error[AVENGER-RESOLVE-053]: definition slot has the wrong shape
+ --> memory:broken.mark.avenger:3:1
+   3 | define mark broken {
+     | ^ `default` expects slot shape `enum`
+  = via memory:chart.avenger: imported through binding `broken`
+
+error[AVENGER-RESOLVE-026]: unknown definition argument
+ --> memory:chart.avenger:4:28
+   4 | chart cartesian as chart { mark broken { value: "x"; } }
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ definition has no slot or channel `value`
+
+error[AVENGER-RESOLVE-027]: missing required definition slot
+ --> memory:chart.avenger:4:28
+   4 | chart cartesian as chart { mark broken { value: "x"; } }
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ definition requires `later:`

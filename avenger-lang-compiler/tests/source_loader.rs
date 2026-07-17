@@ -37,6 +37,49 @@ fn project_fixture(name: &str) -> PathBuf {
 }
 
 #[tokio::test]
+async fn compiler_phase_four_resolves_projects_and_preserves_dependency_attempts() {
+    let root = fixture_dir("phase-four");
+    write(
+        root.join("chart.avenger"),
+        r#"avenger 1; chart cartesian as chart {
+            param as size { type: float64; default: 4; }
+            mark symbol as points { x: "x"; y: "y"; }
+        }"#,
+    );
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let attempt = compiler.resolve_file_project_attempt("chart.avenger").await;
+    assert_eq!(attempt.dependencies.iter().count(), 1);
+    let resolved = attempt.result.unwrap();
+    assert_eq!(resolved.charts.len(), 1);
+    assert_eq!(resolved.params.len(), 1);
+    assert!(compiler.check_project(&root).await.is_ok());
+
+    let compile_failure = compiler
+        .compile_file("chart.avenger")
+        .await
+        .expect_err("native chart construction begins in Phase 5");
+    assert_eq!(compile_failure.diagnostics[0].code.as_str(), "AV0005");
+
+    write(
+        root.join("chart.avenger"),
+        r#"avenger 1; chart cartesian as chart {
+            mark symbol as points { x: "x"; }
+        }"#,
+    );
+    let invalid = compiler.resolve_file_project_attempt("chart.avenger").await;
+    assert_eq!(invalid.dependencies.iter().count(), 1);
+    assert!(
+        invalid
+            .result
+            .unwrap_err()
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.code.as_str() == "AVENGER-RESOLVE-022" })
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn source_loader_discovers_project_and_relative_imports_deterministically() {
     let root = project_fixture("relative-import");
 

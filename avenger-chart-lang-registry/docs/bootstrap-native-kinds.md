@@ -58,9 +58,9 @@ Pointer-drag panning and wheel zoom for Cartesian domains.
 
 Exports:
 
-- `x_domain` (`param<fixed_size_list<float64, 2>>`): The tool-owned current x domain.
+- `x_domain` (`param<fixed_size_list(float64,2)>`): The tool-owned current x domain.
 
-- `y_domain` (`param<fixed_size_list<float64, 2>>`): The tool-owned current y domain.
+- `y_domain` (`param<fixed_size_list(float64,2)>`): The tool-owned current y domain.
 
 ## `Widget.radio_button_list`
 

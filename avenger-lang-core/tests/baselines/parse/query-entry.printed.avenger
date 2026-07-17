@@ -1,0 +1,13 @@
+avenger 1;
+chart cartesian as query_entry {
+  param as minimum {
+    default: 1;
+    type: int64;
+  }
+  store as rows {
+    field id: int64;
+  }
+  transform sql as filtered {
+    query: SELECT * FROM $rows WHERE "id" >= $minimum;
+  }
+}

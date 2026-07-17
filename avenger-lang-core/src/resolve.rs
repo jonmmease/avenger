@@ -5,7 +5,7 @@
 //! placeholders, typed references, state l-values, structural paths, and
 //! definition imports are all bound to opaque semantic identities.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 
 use avenger_chart_schema::{
     BodyMode, KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, PropertySchema,
@@ -234,6 +234,9 @@ pub struct ResolvedDeclaration {
     pub coordinate: Option<String>,
     pub component_kind: Option<String>,
     pub properties: BTreeMap<String, ResolvedValue>,
+    /// Definition-authored logical channel property names retain their bound
+    /// interface identity until Phase 7 substitutes an instance mapping.
+    pub property_channels: BTreeMap<String, ResolvedTarget>,
     pub children: Vec<ResolvedDeclaration>,
     pub runtime_target: Option<ResolvedTarget>,
     pub migration_key: Option<StateMigrationKey>,
@@ -1277,12 +1280,7 @@ impl<'a> Resolver<'a> {
             );
         }
         if is_structural(declaration) {
-            self.instances
-                .entry(id.clone())
-                .or_insert_with(|| InstanceInterface {
-                    child_scope,
-                    ..InstanceInterface::default()
-                });
+            self.instances.entry(id.clone()).or_default().child_scope = child_scope;
         }
 
         let nested_scope = child_scope.unwrap_or(containing_scope);
@@ -1514,8 +1512,9 @@ impl<'a> Resolver<'a> {
             {
                 self.install_definition_interface(&info, &schema);
             }
+            let mut duplicate_exports = Vec::new();
             if let Some(interface) = self.instances.get_mut(&info.id) {
-                for child in &declaration.children {
+                for (index, child) in declaration.children.iter().enumerate() {
                     if child.keyword.as_str() != "export" {
                         continue;
                     }
@@ -1526,10 +1525,31 @@ impl<'a> Resolver<'a> {
                             .map(ToString::to_string)
                             .or_else(|| source.last().cloned());
                         if let Some(alias) = alias {
-                            interface.pending_exports.insert(alias, source);
+                            match interface.pending_exports.entry(alias) {
+                                Entry::Occupied(entry) => {
+                                    let mut child_path = path.clone();
+                                    child_path.push(index);
+                                    duplicate_exports.push((
+                                        entry.key().clone(),
+                                        declaration_span(file, &child_path)
+                                            .unwrap_or_else(|| root_span(file)),
+                                    ));
+                                }
+                                Entry::Vacant(entry) => {
+                                    entry.insert(source);
+                                }
+                            }
                         }
                     }
                 }
+            }
+            for (alias, span) in duplicate_exports {
+                self.error(
+                    "AVENGER-RESOLVE-130",
+                    "explicit export alias collides with the component interface",
+                    span,
+                    format!("`{alias}` is exported more than once"),
+                );
             }
         }
         self.install_lexical_interfaces();
@@ -2194,6 +2214,21 @@ impl<'a> Resolver<'a> {
                 {
                     resolved = ResolvedHelperArgument::Target(target);
                 }
+                if index == 0
+                    && helper_uses_channel_argument(&call.name)
+                    && let ResolvedHelperArgument::Name(channel) = &resolved
+                    && !self.helper_channel_exists(scope, owner, &call.name, channel)
+                {
+                    self.error(
+                        "AVENGER-RESOLVE-154",
+                        "reserved helper references an unknown channel",
+                        span,
+                        format!(
+                            "`{}` is not a registered channel in this helper context",
+                            channel
+                        ),
+                    );
+                }
                 self.validate_helper_argument(&call.name, index, &resolved, span);
                 arguments.push(resolved);
             }
@@ -2204,6 +2239,53 @@ impl<'a> Resolver<'a> {
             });
         }
         output
+    }
+
+    fn helper_channel_exists(
+        &self,
+        scope: ScopeId,
+        owner: &Decl,
+        helper: &str,
+        channel: &str,
+    ) -> bool {
+        let coordinate = self.visible_coordinate(scope);
+        if helper == "channel"
+            && owner.keyword.as_str() == "mark"
+            && let Some(kind) = owner.kind.as_ref()
+        {
+            return coordinate
+                .as_deref()
+                .and_then(|coordinate| {
+                    self.registry
+                        .entries
+                        .get(&NativeKindKey::mark(coordinate, kind.as_str()))
+                        .cloned()
+                })
+                .or_else(|| self.definition_mark_schema(kind.as_str()))
+                .is_some_and(|schema| schema.channels.contains_key(channel));
+        }
+        self.registry.entries.values().any(|schema| {
+            schema.key.namespace == NativeKindNamespace::Mark
+                && coordinate
+                    .as_deref()
+                    .is_none_or(|coordinate| schema.key.coordinate.as_deref() == Some(coordinate))
+                && schema.channels.contains_key(channel)
+        })
+    }
+
+    fn visible_coordinate(&self, scope: ScopeId) -> Option<String> {
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if let Some(owner) = self.scopes[id.0].owner.as_ref()
+                && let Some((_, declaration)) = self.declaration_source(owner)
+                && matches!(declaration.keyword.as_str(), "chart" | "plot" | "view")
+                && let Some(kind) = declaration.kind.as_ref()
+            {
+                return Some(kind.to_string());
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        None
     }
 
     fn validate_helper_argument(
@@ -2444,6 +2526,7 @@ impl<'a> Resolver<'a> {
             self.validate_native_declaration(
                 declaration,
                 schema,
+                info.containing_scope,
                 parent.map(|parent| parent.keyword.as_str()),
                 coordinate.as_deref(),
                 info.span,
@@ -2457,7 +2540,13 @@ impl<'a> Resolver<'a> {
         let value_scope = info.child_scope.unwrap_or(info.containing_scope);
         let event_context = in_event || declaration.keyword.as_str() == "on";
         let mut properties = BTreeMap::new();
+        let mut property_channels = BTreeMap::new();
         for (name, value) in declaration.props.iter() {
+            let definition_channel =
+                self.visible_definition_channel_property(value_scope, name.as_str());
+            if let Some((target, _)) = definition_channel.clone() {
+                property_channels.insert(name.to_string(), target);
+            }
             let definition_slot = definition_schema
                 .as_ref()
                 .and_then(|schema| schema.slots.get(name.as_str()));
@@ -2477,7 +2566,14 @@ impl<'a> Resolver<'a> {
             };
             if let Some(shape) = native_schema
                 .as_ref()
-                .and_then(|schema| schema_property(schema, name.as_str()))
+                .and_then(|schema| {
+                    schema_property(schema, name.as_str()).or_else(|| {
+                        definition_channel
+                            .as_ref()
+                            .and_then(|(_, physical)| physical.as_deref())
+                            .and_then(|physical| schema_property(schema, physical))
+                    })
+                })
                 .cloned()
             {
                 self.normalize_definition_arguments(
@@ -2504,6 +2600,8 @@ impl<'a> Resolver<'a> {
                     name.as_str(),
                     info.span,
                 );
+            } else if matches!(file.kind, ProjectFileKind::Definition(_)) {
+                self.normalize_expression_argument(value_scope, &mut resolved, info.span);
             }
             properties.insert(name.to_string(), resolved);
         }
@@ -2633,6 +2731,7 @@ impl<'a> Resolver<'a> {
                 .and_then(value_atom)
                 .map(str::to_owned),
             properties,
+            property_channels,
             children,
             runtime_target: info.runtime_target,
             migration_key,
@@ -2648,14 +2747,22 @@ impl<'a> Resolver<'a> {
 
     fn native_schema(
         &self,
-        _file: &ProjectFile,
+        file: &ProjectFile,
         declaration: &Decl,
         coordinate: Option<&str>,
     ) -> Option<KindSchema> {
         let kind = declaration.kind.as_ref()?.as_str();
         let key = match declaration.keyword.as_str() {
             "chart" | "plot" | "view" => NativeKindKey::new(NativeKindNamespace::Coordinate, kind),
-            "mark" => NativeKindKey::mark(coordinate?, kind),
+            "mark" => {
+                if let Some(coordinate) = coordinate {
+                    NativeKindKey::mark(coordinate, kind)
+                } else if matches!(file.kind, ProjectFileKind::Definition(_)) {
+                    return self.definition_mark_schema(kind);
+                } else {
+                    return None;
+                }
+            }
             "transform" if kind != "pipeline" => {
                 NativeKindKey::new(NativeKindNamespace::Transform, kind)
             }
@@ -2677,6 +2784,24 @@ impl<'a> Resolver<'a> {
         })
     }
 
+    /// Definition bodies are checked before an instance supplies a concrete
+    /// coordinate system. Merge every registered coordinate-specific variant
+    /// of a mark into a conservative authoring schema for that template pass.
+    /// Phase 7 validates the substituted declaration against the exact
+    /// instance coordinate again.
+    fn definition_mark_schema(&self, kind: &str) -> Option<KindSchema> {
+        let candidates = self
+            .registry
+            .entries
+            .values()
+            .filter(|schema| {
+                schema.key.namespace == NativeKindNamespace::Mark && schema.key.kind == kind
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        merge_definition_mark_schemas(candidates)
+    }
+
     fn imported_definition(&self, file: &ProjectFile, kind: &str) -> Option<&DefinitionSchema> {
         let imported = self.imports.get(&file.id)?.get(kind)?;
         self.definitions.get(imported)
@@ -2686,6 +2811,7 @@ impl<'a> Resolver<'a> {
         &mut self,
         declaration: &Decl,
         schema: &KindSchema,
+        scope: ScopeId,
         parent: Option<&str>,
         coordinate: Option<&str>,
         span: SourceSpan,
@@ -2724,7 +2850,13 @@ impl<'a> Resolver<'a> {
             .map(String::as_str)
             .collect::<BTreeSet<_>>();
         for (name, _) in declaration.props.iter() {
-            if !accepted.contains(name.as_str()) && !core_property(declaration, name.as_str()) {
+            let logical_channel = self
+                .visible_definition_channel_property(scope, name.as_str())
+                .is_some();
+            if !accepted.contains(name.as_str())
+                && !logical_channel
+                && !core_property(declaration, name.as_str())
+            {
                 self.error(
                     "AVENGER-RESOLVE-021",
                     "unknown declaration property",
@@ -2744,7 +2876,19 @@ impl<'a> Resolver<'a> {
             }
         }
         for (name, channel) in &schema.channels {
-            if channel.required && declaration.props.get(name).is_none() {
+            let supplied_by_logical_channel = declaration.props.iter().any(|(property, _)| {
+                self.visible_definition_channel_property(scope, property.as_str())
+                    .is_some_and(|(_, physical)| physical.as_deref() == Some(name.as_str()))
+            });
+            let has_unbound_logical_channel = declaration.props.iter().any(|(property, _)| {
+                self.visible_definition_channel_property(scope, property.as_str())
+                    .is_some_and(|(_, physical)| physical.is_none())
+            });
+            if channel.required
+                && declaration.props.get(name).is_none()
+                && !supplied_by_logical_channel
+                && !has_unbound_logical_channel
+            {
                 self.error(
                     "AVENGER-RESOLVE-022",
                     "missing required channel",
@@ -2930,7 +3074,8 @@ impl<'a> Resolver<'a> {
             "selection" => {
                 self.validate_core_property_names(declaration, &["empty", "combine"], span);
                 if declaration.props.get("empty").is_some_and(|value| {
-                    !value_atom(value).is_some_and(|value| matches!(value, "none" | "all"))
+                    !matches!(value, Value::None)
+                        && value_atom(value).is_none_or(|value| value != "all")
                 }) {
                     self.error(
                         "AVENGER-RESOLVE-143",
@@ -3582,6 +3727,7 @@ impl<'a> Resolver<'a> {
                 .and_then(value_atom)
                 .map(str::to_owned),
             properties,
+            property_channels: BTreeMap::new(),
             children: declaration
                 .children
                 .iter()
@@ -3611,6 +3757,44 @@ impl<'a> Resolver<'a> {
             self.validate_action(declaration, &mut resolved, None, span, scope, true);
         }
         resolved
+    }
+
+    fn visible_definition_argument(&self, scope: ScopeId, name: &str) -> Option<ResolvedTarget> {
+        let mut cursor = Some(scope);
+        while let Some(id) = cursor {
+            if let Some(target) = self.scopes[id.0].definition_arguments.get(name) {
+                return Some(target.clone());
+            }
+            cursor = self.scopes[id.0].parent;
+        }
+        None
+    }
+
+    fn definition_channel_schema(&self, target: &ResolvedTarget) -> Option<&DefinitionChannel> {
+        let ResolvedTarget::DefinitionChannel { definition, name } = target else {
+            return None;
+        };
+        self.definitions
+            .values()
+            .find(|schema| &schema.declaration == definition)
+            .and_then(|schema| schema.channels.get(name))
+    }
+
+    fn visible_definition_channel_property(
+        &self,
+        scope: ScopeId,
+        property: &str,
+    ) -> Option<(ResolvedTarget, Option<String>)> {
+        let (logical, family_suffix) = property
+            .strip_suffix('2')
+            .map_or((property, ""), |logical| (logical, "2"));
+        let target = self.visible_definition_argument(scope, logical)?;
+        let channel = self.definition_channel_schema(&target)?;
+        let physical = channel
+            .physical_channel
+            .as_ref()
+            .map(|physical| format!("{physical}{family_suffix}"));
+        Some((target, physical))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -4191,7 +4375,7 @@ impl<'a> Resolver<'a> {
     ) {
         if let Some(source) = source
             && let Err(error) = data_type.accepts_literal(source)
-            && !matches!(source, Value::Expr(_) | Value::Binding { .. })
+            && ast_value_is_literal(source)
         {
             self.error(
                 "AVENGER-RESOLVE-076",
@@ -4426,7 +4610,10 @@ impl<'a> Resolver<'a> {
                 !matches!(
                     value,
                     ResolvedValue::String(_)
+                        | ResolvedValue::Atom(_)
                         | ResolvedValue::Null
+                        | ResolvedValue::Column(_)
+                        | ResolvedValue::Call { .. }
                         | ResolvedValue::Expression(_)
                         | ResolvedValue::Binding(_)
                 )
@@ -4436,6 +4623,28 @@ impl<'a> Resolver<'a> {
                     "cursor action requires a UTF-8 scalar expression",
                     span,
                     "cursor is a write-only peer of params and stores",
+                );
+            }
+            if let Some(ResolvedValue::String(style) | ResolvedValue::Atom(style)) = value
+                && !matches!(
+                    style.as_str(),
+                    "default"
+                        | "pointer"
+                        | "text"
+                        | "crosshair"
+                        | "grab"
+                        | "grabbing"
+                        | "resize_horizontal"
+                        | "resize_vertical"
+                        | "resize_nw_se"
+                        | "resize_ne_sw"
+                )
+            {
+                self.error(
+                    "AVENGER-RESOLVE-153",
+                    "unknown cursor style literal",
+                    span,
+                    format!("`{style}` is not a registered cursor style"),
                 );
             }
             if let Some(ResolvedValue::Binding(binding)) = value
@@ -5569,6 +5778,93 @@ impl<'a> Resolver<'a> {
     // helpers so validation can accumulate independent diagnostics.
 }
 
+fn merge_definition_mark_schemas(mut schemas: Vec<KindSchema>) -> Option<KindSchema> {
+    let mut merged = schemas.pop()?;
+    let first_coordinate = merged.key.coordinate.take();
+    if let Some(coordinate) = first_coordinate {
+        merged.compatible_coordinates.insert(coordinate);
+    }
+
+    for mut schema in schemas {
+        if let Some(coordinate) = schema.key.coordinate.take() {
+            merged.compatible_coordinates.insert(coordinate);
+        }
+        merged
+            .compatible_coordinates
+            .extend(schema.compatible_coordinates);
+        merged.allowed_parents.extend(schema.allowed_parents);
+        merged.body_mode =
+            if merged.body_mode == BodyMode::Mixed || schema.body_mode == BodyMode::Mixed {
+                BodyMode::Mixed
+            } else {
+                BodyMode::Properties
+            };
+        merged.stateless &= schema.stateless;
+        if merged.runtime_kind != schema.runtime_kind {
+            merged.runtime_kind = None;
+        }
+        if merged.child_rules != schema.child_rules {
+            // Coordinate-specific child grammars cannot be proven until the
+            // definition is instantiated. Exact validation occurs in Phase 7.
+            merged.child_rules.clear();
+        }
+
+        let previous_properties = merged.properties.keys().cloned().collect::<BTreeSet<_>>();
+        for name in previous_properties {
+            let Some(property) = merged.properties.get_mut(&name) else {
+                continue;
+            };
+            if let Some(candidate) = schema.properties.remove(&name) {
+                if property.shape != candidate.shape {
+                    property.shape = ValueShape::Any;
+                }
+                property.required &= candidate.required;
+                if property.default != candidate.default {
+                    property.default = None;
+                }
+            } else {
+                property.required = false;
+                property.default = None;
+            }
+        }
+        for (name, mut property) in schema.properties {
+            property.required = false;
+            property.default = None;
+            merged.properties.insert(name, property);
+        }
+
+        let previous_channels = merged.channels.keys().cloned().collect::<BTreeSet<_>>();
+        for name in previous_channels {
+            let Some(channel) = merged.channels.get_mut(&name) else {
+                continue;
+            };
+            if let Some(candidate) = schema.channels.remove(&name) {
+                if channel.shape != candidate.shape {
+                    channel.shape = ValueShape::Any;
+                }
+                channel.required &= candidate.required;
+            } else {
+                channel.required = false;
+            }
+        }
+        for (name, mut channel) in schema.channels {
+            channel.required = false;
+            merged.channels.insert(name, channel);
+        }
+
+        merged
+            .parts
+            .retain(|name, value| schema.parts.get(name) == Some(value));
+        merged
+            .exports
+            .retain(|name, value| schema.exports.get(name) == Some(value));
+        merged
+            .outputs
+            .retain(|name, value| schema.outputs.get(name) == Some(value));
+    }
+    Some(merged)
+}
+
 fn collect_public_targets(
     declaration: &ResolvedDeclaration,
     output: &mut BTreeMap<String, ResolvedTarget>,
@@ -5579,10 +5875,30 @@ fn collect_public_targets(
         insert_public_target(path, target, declaration.span, output, origins, collisions);
     }
     for (alias, target) in &declaration.exports {
-        if let Some(path) = &declaration.public_path {
+        // A targetable component part is the public event/scene identity for
+        // an exported mark. Keep the typed definition export on the resolved
+        // declaration, but publish exactly one canonical path here.
+        if !declaration.parts.contains_key(alias)
+            && let Some(path) = &declaration.public_path
+        {
             insert_public_target(
                 &format!("{path}.{alias}"),
                 target,
+                declaration.span,
+                output,
+                origins,
+                collisions,
+            );
+        }
+    }
+    for alias in declaration.parts.keys() {
+        if let Some(path) = &declaration.public_path {
+            insert_public_target(
+                &format!("{path}.{alias}"),
+                &ResolvedTarget::Part {
+                    declaration: declaration.id.clone(),
+                    alias: alias.clone(),
+                },
                 declaration.span,
                 output,
                 origins,
@@ -6014,6 +6330,21 @@ fn is_literal_value(value: &ResolvedValue) -> bool {
             | ResolvedValue::Boolean(_)
             | ResolvedValue::Null
     )
+}
+
+fn ast_value_is_literal(value: &Value) -> bool {
+    match value {
+        Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null => true,
+        Value::Array(values) => values.iter().all(ast_value_is_literal),
+        Value::Block { head: None, body } => {
+            body.children.is_empty()
+                && body
+                    .props
+                    .iter()
+                    .all(|(_, value)| ast_value_is_literal(value))
+        }
+        _ => false,
+    }
 }
 
 fn shape_name(shape: &ValueShape) -> &'static str {

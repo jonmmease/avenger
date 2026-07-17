@@ -170,6 +170,7 @@ fn store_body_schema() -> Value {
                     ("primary_key".to_owned(), json!({
                         "type": "array",
                         "items": atom_schema(),
+                        "minItems": 1,
                         "uniqueItems": true,
                     })),
                     ("sharing".to_owned(), sharing_schema()),
@@ -182,7 +183,10 @@ fn store_body_schema() -> Value {
                 "items": {
                     "allOf": [
                         { "$ref": "#/$defs/decl" },
-                        { "properties": { "decl": { "enum": ["field", "row"] } } }
+                        {
+                            "properties": { "decl": { "enum": ["field", "row"] } },
+                            "required": ["decl"]
+                        }
                     ]
                 }
             },
@@ -196,12 +200,16 @@ fn selection_body_schema() -> Value {
         "properties": {
             "props": object_properties_schema(
                 Map::from_iter([
-                    ("empty".to_owned(), enum_atom_schema(&["none", "all"])),
+                    (
+                        "empty".to_owned(),
+                        json!({ "oneOf": [tagged_schema("none"), enum_atom_schema(&["all"])] }),
+                    ),
                     ("combine".to_owned(), enum_atom_schema(&["union", "intersect"])),
                 ]),
                 Vec::new(),
                 true,
-            )
+            ),
+            "children": { "maxItems": 0 }
         }
     })
 }
@@ -230,7 +238,8 @@ fn event_body_schema() -> Value {
                 ]),
                 Vec::new(),
                 true,
-            )
+            ),
+            "children": declaration_children_schema(&["set", "on"])
         }
     })
 }
@@ -244,6 +253,24 @@ fn view_schema() -> Value {
         "not": {
             "properties": { "visibility": {} },
             "required": ["visibility"]
+        },
+        "properties": {
+            "children": declaration_children_schema(&["transform", "mark", "group"])
+        }
+    })
+}
+
+fn declaration_children_schema(keywords: &[&str]) -> Value {
+    json!({
+        "type": "array",
+        "items": {
+            "allOf": [
+                { "$ref": "#/$defs/decl" },
+                {
+                    "properties": { "decl": { "enum": keywords } },
+                    "required": ["decl"]
+                }
+            ]
         }
     })
 }

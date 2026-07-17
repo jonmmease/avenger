@@ -6,6 +6,7 @@ use avenger_lang_core::{
     resolve_project, semantic_json_schema,
     syntax::parse_file,
 };
+use std::{fs, path::PathBuf};
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
     serde_json::from_str(include_str!(
@@ -179,6 +180,18 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
             }"#,
         ),
         (
+            true,
+            r#"avenger 1; chart cartesian as chart {
+                selection as picked { empty: none; combine: union; }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                selection as picked { empty: maybe; combine: union; }
+            }"#,
+        ),
+        (
             false,
             r#"avenger 1; chart cartesian as chart {
                 mark symbol as dots { x: "x"; y: "y"; bogus: 1; }
@@ -204,6 +217,63 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
                 }
             }"#,
         ),
+        (
+            true,
+            r#"avenger 1; chart cartesian as chart {
+                widget radio_button_list as choice {
+                    id: 'choice';
+                    items: [{ value: 1; label: 'one'; }];
+                    position: top;
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                widget radio_button_list as choice {
+                    id: 'choice'; items: [{ value: 1; label: 'one'; }];
+                    mark symbol { x: "x"; y: "y"; }
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                widget radio_button_list as choice {
+                    id: 'choice'; items: [{ value: 1; }]; position: center;
+                }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                param as limit { type: int64; default: 1; mark symbol { x: "x"; y: "y"; } }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                selection as picked { mark symbol { x: "x"; y: "y"; } }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                store as rows { primary_key: []; field id: utf8; }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                group { view cartesian as viewport { export child; } }
+            }"#,
+        ),
+        (
+            false,
+            r#"avenger 1; chart cartesian as chart {
+                on click { mark symbol { x: "x"; y: "y"; } }
+            }"#,
+        ),
     ];
     for (expected, source) in corpus {
         let project = semantic_project(source).await;
@@ -220,6 +290,26 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
         schema, second,
         "semantic schema generation is deterministic"
     );
+}
+
+#[test]
+fn schema_generated_bootstrap_snapshot_is_reviewed() {
+    let schema = semantic_json_schema(&bootstrap_schema(), "bootstrap-test-profile");
+    let actual = format!("{}\n", serde_json::to_string_pretty(&schema).unwrap());
+    let baseline = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/baselines/schema/bootstrap-semantic-schema.json");
+    if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+        fs::create_dir_all(baseline.parent().unwrap()).unwrap();
+        fs::write(&baseline, actual).unwrap();
+    } else {
+        let expected = fs::read_to_string(&baseline).unwrap_or_else(|error| {
+            panic!(
+                "failed to read reviewed baseline {}: {error}",
+                baseline.display()
+            )
+        });
+        assert_eq!(actual, expected, "generated semantic schema changed");
+    }
 }
 
 fn number(spelling: &str) -> Value {

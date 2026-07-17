@@ -1,0 +1,144 @@
+{
+  "component": {
+    "component_kind": "point_pair",
+    "exports": {
+      "glyph": {
+        "id": "av1_7f22211f10a0bbb418e0c69792e222c2",
+        "target": "mark"
+      }
+    },
+    "id": "av1_9a7663dc0beeb779f50c37e9f08a14c5",
+    "parts": {
+      "glyph": {
+        "declaration": "av1_9a7663dc0beeb779f50c37e9f08a14c5",
+        "runtime_alias": "glyph",
+        "runtime_kind": "point_pair",
+        "source_alias": "glyph",
+        "targetable": true
+      }
+    },
+    "public_path": "provenance.composite"
+  },
+  "generated_state": [
+    {
+      "data_type": {
+        "type": "utf8"
+      },
+      "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+      "default": {
+        "value": "null"
+      },
+      "definition_local_seed": null,
+      "generated_by": {
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+        "export_role": "value"
+      },
+      "id": "av1_35f672ba1b92c17a8ea68b0126b37086",
+      "lexical_scope": "memory:provenance.avenger:0",
+      "migration_key": "av1_bda4d5a3b1f58004cb1cbe955b40f48b",
+      "owner_ancestry": [
+        "av1_3b1c25769c5191e72d091964167c8005"
+      ],
+      "sharing": "shared",
+      "source_name": "choice.value",
+      "table_owner": null
+    }
+  ],
+  "public_targets": {
+    "provenance": {
+      "id": "av1_3b1c25769c5191e72d091964167c8005",
+      "target": "declaration"
+    },
+    "provenance.choice": {
+      "id": "av1_f8941e9c0fa0b082269c2b589f19e3e6",
+      "target": "widget"
+    },
+    "provenance.choice.center": {
+      "id": {
+        "alias": "center",
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4"
+      },
+      "target": "part"
+    },
+    "provenance.choice.control": {
+      "id": {
+        "alias": "control",
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4"
+      },
+      "target": "part"
+    },
+    "provenance.choice.focus_ring": {
+      "id": {
+        "alias": "focus_ring",
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4"
+      },
+      "target": "part"
+    },
+    "provenance.choice.label": {
+      "id": {
+        "alias": "label",
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4"
+      },
+      "target": "part"
+    },
+    "provenance.choice.value": {
+      "id": "av1_35f672ba1b92c17a8ea68b0126b37086",
+      "target": "param"
+    },
+    "provenance.composite": {
+      "id": "av1_9a7663dc0beeb779f50c37e9f08a14c5",
+      "target": "declaration"
+    },
+    "provenance.composite.glyph": {
+      "id": {
+        "alias": "glyph",
+        "declaration": "av1_9a7663dc0beeb779f50c37e9f08a14c5"
+      },
+      "target": "part"
+    },
+    "provenance.composite.point": {
+      "id": "av1_7f22211f10a0bbb418e0c69792e222c2",
+      "target": "mark"
+    }
+  },
+  "widget": {
+    "exports": {
+      "value": {
+        "id": "av1_35f672ba1b92c17a8ea68b0126b37086",
+        "target": "param"
+      }
+    },
+    "id": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+    "parts": {
+      "center": {
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+        "runtime_alias": "center",
+        "runtime_kind": "radio-button-list",
+        "source_alias": "center",
+        "targetable": true
+      },
+      "control": {
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+        "runtime_alias": "control",
+        "runtime_kind": "radio-button-list",
+        "source_alias": "control",
+        "targetable": true
+      },
+      "focus_ring": {
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+        "runtime_alias": "focus-ring",
+        "runtime_kind": "radio-button-list",
+        "source_alias": "focus_ring",
+        "targetable": false
+      },
+      "label": {
+        "declaration": "av1_0fc1a79b1947a930df97855cb0bf84b4",
+        "runtime_alias": "label",
+        "runtime_kind": "radio-button-list",
+        "source_alias": "label",
+        "targetable": true
+      }
+    },
+    "public_path": "provenance.choice"
+  }
+}

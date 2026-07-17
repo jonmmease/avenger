@@ -1,0 +1,2846 @@
+{
+  "$defs": {
+    "binding": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "param",
+            "store"
+          ]
+        },
+        "path": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/name"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/name"
+              },
+              "minItems": 2,
+              "type": "array"
+            }
+          ]
+        },
+        "time": {
+          "enum": [
+            "start",
+            "previous"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
+    "body": {
+      "additionalProperties": false,
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/decl"
+          },
+          "type": "array"
+        },
+        "head": {
+          "$ref": "#/$defs/value"
+        },
+        "props": {
+          "$ref": "#/$defs/props"
+        }
+      },
+      "type": "object"
+    },
+    "call": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "$ref": "#/$defs/value"
+          },
+          "type": "array"
+        },
+        "fn": {
+          "$ref": "#/$defs/name"
+        }
+      },
+      "required": [
+        "fn"
+      ],
+      "type": "object"
+    },
+    "decl": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "param"
+              }
+            },
+            "required": [
+              "decl"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "default": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "sharing": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "type": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "default"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "name",
+              "props"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "store"
+              }
+            },
+            "required": [
+              "decl"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/decl"
+                    },
+                    {
+                      "properties": {
+                        "decl": {
+                          "enum": [
+                            "field",
+                            "row"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "primary_key": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "atom": {}
+                      },
+                      "required": [
+                        "atom"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "sharing": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "shared",
+                              "free"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "call": {}
+                        },
+                        "required": [
+                          "call"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "selection"
+              }
+            },
+            "required": [
+              "decl"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "combine": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atom": {
+                        "enum": [
+                          "union",
+                          "intersect"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "atom"
+                    ],
+                    "type": "object"
+                  },
+                  "empty": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "none": {}
+                        },
+                        "required": [
+                          "none"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "all"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "on"
+              }
+            },
+            "required": [
+              "decl"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/decl"
+                    },
+                    {
+                      "properties": {
+                        "decl": {
+                          "enum": [
+                            "set",
+                            "on"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "kind": {
+                "enum": [
+                  "mouse_down",
+                  "mouse_up",
+                  "click",
+                  "double_click",
+                  "mouse_wheel",
+                  "key_press",
+                  "key_release",
+                  "cursor_moved",
+                  "mark_mouse_enter",
+                  "mark_mouse_leave",
+                  "window_resize",
+                  "window_resize_settled",
+                  "canvas_resize",
+                  "canvas_resize_settled",
+                  "window_moved",
+                  "window_focused",
+                  "window_close_requested"
+                ]
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "between": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "consume": {
+                    "type": "boolean"
+                  },
+                  "filter": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "mode": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atom": {
+                        "enum": [
+                          "preview",
+                          "exact"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "atom"
+                    ],
+                    "type": "object"
+                  },
+                  "scope": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "settle_exact": {
+                    "type": "boolean"
+                  },
+                  "surface": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "target": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "throttle_ms": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "widget"
+              }
+            },
+            "required": [
+              "decl"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "view"
+              }
+            },
+            "required": [
+              "decl"
+            ]
+          },
+          "then": {
+            "not": {
+              "properties": {
+                "visibility": {}
+              },
+              "required": [
+                "visibility"
+              ]
+            },
+            "properties": {
+              "children": {
+                "items": {
+                  "allOf": [
+                    {
+                      "$ref": "#/$defs/decl"
+                    },
+                    {
+                      "properties": {
+                        "decl": {
+                          "enum": [
+                            "transform",
+                            "mark",
+                            "group"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    }
+                  ]
+                },
+                "type": "array"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "chart"
+              },
+              "kind": {
+                "const": "cartesian"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "layout": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "subtitle": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "theme": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "title": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "unit_aspect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "mark"
+              },
+              "kind": {
+                "const": "symbol"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "allOf": [
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "view"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
+                    "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "angle": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "data": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "fill": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "fill_pattern": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "opacity": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "shape": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "size": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "stroke": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "stroke_width": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "x": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "y": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ],
+                "type": "object"
+              }
+            },
+            "x-avenger-child-rules": [
+              {
+                "docs": "Optional inline view scope owned by this mark.",
+                "max": 1,
+                "min": 0,
+                "role": "view"
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "plot"
+              },
+              "kind": {
+                "const": "cartesian"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "layout": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "subtitle": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "theme": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "title": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "unit_aspect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "tool"
+              },
+              "kind": {
+                "const": "pan_scroll_zoom"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/value"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "x-avenger-compatible-coordinates": [
+              "cartesian"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "transform"
+              },
+              "kind": {
+                "const": "aggregate"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "group_by": {
+                    "items": {
+                      "oneOf": [
+                        {
+                          "type": [
+                            "string",
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "num": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "num"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "col": {}
+                          },
+                          "required": [
+                            "col"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "atom": {}
+                          },
+                          "required": [
+                            "atom"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "binding": {}
+                          },
+                          "required": [
+                            "binding"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "expr": {}
+                          },
+                          "required": [
+                            "expr"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "value": {}
+                          },
+                          "required": [
+                            "value"
+                          ],
+                          "type": "object"
+                        },
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "block": {}
+                          },
+                          "required": [
+                            "block"
+                          ],
+                          "type": "object"
+                        }
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  "measures": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "block": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "children": {
+                              "maxItems": 0
+                            },
+                            "head": {
+                              "$ref": "#/$defs/value"
+                            },
+                            "props": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "expr": {
+                                  "oneOf": [
+                                    {
+                                      "type": [
+                                        "string",
+                                        "boolean",
+                                        "null"
+                                      ]
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "num": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "required": [
+                                        "num"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "col": {}
+                                      },
+                                      "required": [
+                                        "col"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "atom": {}
+                                      },
+                                      "required": [
+                                        "atom"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "binding": {}
+                                      },
+                                      "required": [
+                                        "binding"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "expr": {}
+                                      },
+                                      "required": [
+                                        "expr"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "value": {}
+                                      },
+                                      "required": [
+                                        "value"
+                                      ],
+                                      "type": "object"
+                                    },
+                                    {
+                                      "additionalProperties": false,
+                                      "properties": {
+                                        "block": {}
+                                      },
+                                      "required": [
+                                        "block"
+                                      ],
+                                      "type": "object"
+                                    }
+                                  ]
+                                },
+                                "name": {
+                                  "type": "string"
+                                },
+                                "op": {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "atom": {
+                                      "enum": [
+                                        "sum",
+                                        "count",
+                                        "mean",
+                                        "min",
+                                        "max",
+                                        "median"
+                                      ]
+                                    }
+                                  },
+                                  "required": [
+                                    "atom"
+                                  ],
+                                  "type": "object"
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "op"
+                              ],
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "props"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "block"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "measures"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "transform"
+              },
+              "kind": {
+                "const": "filter"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "predicate": {
+                    "oneOf": [
+                      {
+                        "type": [
+                          "string",
+                          "boolean",
+                          "null"
+                        ]
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {}
+                        },
+                        "required": [
+                          "col"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {}
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "binding": {}
+                        },
+                        "required": [
+                          "binding"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "expr": {}
+                        },
+                        "required": [
+                          "expr"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "value": {}
+                        },
+                        "required": [
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "predicate"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "transform"
+              },
+              "kind": {
+                "const": "sql"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "query": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "query": {}
+                    },
+                    "required": [
+                      "query"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "query"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "view"
+              },
+              "kind": {
+                "const": "cartesian"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "unit_aspect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
+                "const": "widget"
+              },
+              "kind": {
+                "const": "radio_button_list"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "children": {
+                "maxItems": 0
+              },
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "default": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "items": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "block": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "children": {
+                              "maxItems": 0
+                            },
+                            "head": {
+                              "$ref": "#/$defs/value"
+                            },
+                            "props": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "label": {
+                                  "type": "string"
+                                },
+                                "value": {
+                                  "$ref": "#/$defs/value"
+                                }
+                              },
+                              "required": [
+                                "label",
+                                "value"
+                              ],
+                              "type": "object"
+                            }
+                          },
+                          "required": [
+                            "props"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "block"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "position": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "atom": {
+                        "enum": [
+                          "top",
+                          "right",
+                          "bottom",
+                          "left"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "atom"
+                    ],
+                    "type": "object"
+                  },
+                  "value_param": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "binding": {
+                        "allOf": [
+                          {
+                            "$ref": "#/$defs/binding"
+                          },
+                          {
+                            "properties": {
+                              "kind": {
+                                "const": "param"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "binding"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "id",
+                  "items"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "x-avenger-allowed-parents": [
+              "chart"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/decl"
+          },
+          "type": "array"
+        },
+        "decl": {
+          "$ref": "#/$defs/name"
+        },
+        "doc": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/name"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "props": {
+          "$ref": "#/$defs/props"
+        },
+        "visibility": {
+          "enum": [
+            "private",
+            "public"
+          ]
+        }
+      },
+      "required": [
+        "decl"
+      ],
+      "type": "object"
+    },
+    "import": {
+      "additionalProperties": false,
+      "properties": {
+        "as": {
+          "$ref": "#/$defs/name"
+        },
+        "import": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "import"
+      ],
+      "type": "object"
+    },
+    "name": {
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "type": "string"
+    },
+    "props": {
+      "additionalProperties": {
+        "$ref": "#/$defs/value"
+      },
+      "propertyNames": {
+        "$ref": "#/$defs/name"
+      },
+      "type": "object"
+    },
+    "ref": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "mark",
+            "group",
+            "selection",
+            "tool",
+            "widget",
+            "resource"
+          ]
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/name"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
+    "tagged": {
+      "additionalProperties": false,
+      "maxProperties": 1,
+      "minProperties": 1,
+      "properties": {
+        "atom": {
+          "$ref": "#/$defs/name"
+        },
+        "binding": {
+          "$ref": "#/$defs/binding"
+        },
+        "block": {
+          "$ref": "#/$defs/body"
+        },
+        "call": {
+          "$ref": "#/$defs/call"
+        },
+        "col": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "dim": {
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z_][A-Za-z0-9_]*$",
+          "type": "string"
+        },
+        "env": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "expr": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "none": {
+          "const": true
+        },
+        "num": {
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$",
+          "type": "string"
+        },
+        "pattern": {
+          "$ref": "#/$defs/value"
+        },
+        "query": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "#/$defs/ref"
+        },
+        "value": {
+          "$ref": "#/$defs/value"
+        }
+      },
+      "type": "object"
+    },
+    "value": {
+      "oneOf": [
+        {
+          "type": [
+            "string",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/value"
+          },
+          "type": "array"
+        },
+        {
+          "$ref": "#/$defs/tagged"
+        }
+      ]
+    }
+  },
+  "$id": "https://avenger.dev/schemas/semantic-1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "imports": {
+      "items": {
+        "$ref": "#/$defs/import"
+      },
+      "type": "array"
+    },
+    "name": {
+      "$ref": "#/$defs/name"
+    },
+    "root": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/decl"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/decl"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      ]
+    },
+    "version": {
+      "const": 1
+    }
+  },
+  "required": [
+    "version",
+    "root"
+  ],
+  "title": "Avenger AST interchange form, full semantic schema",
+  "type": "object",
+  "x-avenger-language-major": 1,
+  "x-avenger-native-profile": "bootstrap-test-profile",
+  "x-avenger-native-schema": {
+    "entries": [
+      {
+        "body_mode": "mixed",
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "A two-dimensional Cartesian coordinate system.",
+        "exports": {},
+        "key": {
+          "kind": "cartesian",
+          "namespace": "coordinate"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {
+          "unit_aspect": {
+            "docs": "Optional positive ratio between x and y data units.",
+            "required": false,
+            "shape": {
+              "shape": "number"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "body_mode": "mixed",
+        "channels": {
+          "angle": {
+            "docs": "The symbol `angle` encoding expression.",
+            "name": "angle",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "fill": {
+            "docs": "The symbol `fill` encoding expression.",
+            "name": "fill",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "fill_pattern": {
+            "docs": "The symbol `fill_pattern` encoding expression.",
+            "name": "fill_pattern",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "opacity": {
+            "docs": "The symbol `opacity` encoding expression.",
+            "name": "opacity",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "shape": {
+            "docs": "The symbol `shape` encoding expression.",
+            "name": "shape",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "size": {
+            "docs": "The symbol `size` encoding expression.",
+            "name": "size",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "stroke": {
+            "docs": "The symbol `stroke` encoding expression.",
+            "name": "stroke",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "stroke_width": {
+            "docs": "The symbol `stroke_width` encoding expression.",
+            "name": "stroke_width",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "x": {
+            "docs": "The symbol `x` encoding expression.",
+            "name": "x",
+            "required": true,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "y": {
+            "docs": "The symbol `y` encoding expression.",
+            "name": "y",
+            "required": true,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
+        "child_rules": [
+          {
+            "docs": "Optional inline view scope owned by this mark.",
+            "max": 1,
+            "min": 0,
+            "role": "view"
+          }
+        ],
+        "compatible_coordinates": [],
+        "docs": "A point symbol positioned in Cartesian coordinates.",
+        "exports": {},
+        "key": {
+          "coordinate": "cartesian",
+          "kind": "symbol",
+          "namespace": "mark"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {},
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "Group rows and compute named aggregate measures.",
+        "exports": {},
+        "key": {
+          "kind": "aggregate",
+          "namespace": "transform"
+        },
+        "outputs": {
+          "fields": {
+            "docs": "Named output fields declared by group keys and measures.",
+            "name": "fields",
+            "shape": {
+              "detail": {},
+              "shape": "object"
+            }
+          }
+        },
+        "parts": {},
+        "properties": {
+          "group_by": {
+            "docs": "Grouping expressions.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "shape": "sql_expression"
+              },
+              "shape": "array"
+            }
+          },
+          "measures": {
+            "docs": "Named aggregate measures.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "detail": {
+                  "expr": {
+                    "docs": "Input expression; omitted for count.",
+                    "required": false,
+                    "shape": {
+                      "shape": "sql_expression"
+                    }
+                  },
+                  "name": {
+                    "docs": "Output column name.",
+                    "required": true,
+                    "shape": {
+                      "shape": "string"
+                    }
+                  },
+                  "op": {
+                    "docs": "Aggregation operation.",
+                    "required": true,
+                    "shape": {
+                      "detail": {
+                        "values": [
+                          {
+                            "docs": "The `sum` aggregation operation.",
+                            "value": "sum"
+                          },
+                          {
+                            "docs": "The `count` aggregation operation.",
+                            "value": "count"
+                          },
+                          {
+                            "docs": "The `mean` aggregation operation.",
+                            "value": "mean"
+                          },
+                          {
+                            "docs": "The `min` aggregation operation.",
+                            "value": "min"
+                          },
+                          {
+                            "docs": "The `max` aggregation operation.",
+                            "value": "max"
+                          },
+                          {
+                            "docs": "The `median` aggregation operation.",
+                            "value": "median"
+                          }
+                        ]
+                      },
+                      "shape": "atom"
+                    }
+                  }
+                },
+                "shape": "object"
+              },
+              "shape": "array"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "Retain rows for which a predicate is true.",
+        "exports": {},
+        "key": {
+          "kind": "filter",
+          "namespace": "transform"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {
+          "predicate": {
+            "docs": "Boolean row predicate.",
+            "required": true,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "Run one DataFusion SQL query against the reserved `input` relation.",
+        "exports": {},
+        "key": {
+          "kind": "sql",
+          "namespace": "transform"
+        },
+        "outputs": {
+          "fields": {
+            "docs": "Fields projected by the SQL query.",
+            "name": "fields",
+            "shape": {
+              "detail": {},
+              "shape": "object"
+            }
+          }
+        },
+        "parts": {},
+        "properties": {
+          "query": {
+            "docs": "The SQL query.",
+            "required": true,
+            "shape": {
+              "shape": "sql_query"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [
+          "cartesian"
+        ],
+        "docs": "Pointer-drag panning and wheel zoom for Cartesian domains.",
+        "exports": {
+          "x_domain": {
+            "alias": "x_domain",
+            "docs": "The tool-owned current x domain.",
+            "value_kind": "param<fixed_size_list(float64,2)>"
+          },
+          "y_domain": {
+            "alias": "y_domain",
+            "docs": "The tool-owned current y domain.",
+            "value_kind": "param<fixed_size_list(float64,2)>"
+          }
+        },
+        "key": {
+          "kind": "pan_scroll_zoom",
+          "namespace": "tool"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {},
+        "stateless": false
+      },
+      {
+        "allowed_parents": [
+          "chart"
+        ],
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "A list that selects exactly one scalar value.",
+        "exports": {
+          "value": {
+            "alias": "value",
+            "binding_property": "value_param",
+            "default_property": "default",
+            "docs": "The currently selected item value.",
+            "value_kind": "param<item_scalar>"
+          }
+        },
+        "key": {
+          "kind": "radio_button_list",
+          "namespace": "widget"
+        },
+        "outputs": {},
+        "parts": {
+          "center": {
+            "alias": "center",
+            "docs": "The selected radio center.",
+            "runtime_alias": "center",
+            "runtime_kind": "radio-button-list",
+            "targetable": true
+          },
+          "control": {
+            "alias": "control",
+            "docs": "The outer radio control.",
+            "runtime_alias": "control",
+            "runtime_kind": "radio-button-list",
+            "targetable": true
+          },
+          "focus_ring": {
+            "alias": "focus_ring",
+            "docs": "The keyboard focus indicator.",
+            "runtime_alias": "focus-ring",
+            "runtime_kind": "radio-button-list",
+            "targetable": false
+          },
+          "label": {
+            "alias": "label",
+            "docs": "The row label.",
+            "runtime_alias": "label",
+            "runtime_kind": "radio-button-list",
+            "targetable": true
+          }
+        },
+        "properties": {
+          "default": {
+            "docs": "Initial selected scalar value.",
+            "required": false,
+            "shape": {
+              "shape": "any"
+            }
+          },
+          "id": {
+            "docs": "Widget source id.",
+            "required": true,
+            "shape": {
+              "shape": "string"
+            }
+          },
+          "items": {
+            "docs": "Static list items.",
+            "required": true,
+            "shape": {
+              "detail": {
+                "detail": {
+                  "label": {
+                    "docs": "The displayed item label.",
+                    "required": true,
+                    "shape": {
+                      "shape": "string"
+                    }
+                  },
+                  "value": {
+                    "docs": "The selected scalar value.",
+                    "required": true,
+                    "shape": {
+                      "shape": "any"
+                    }
+                  }
+                },
+                "shape": "object"
+              },
+              "shape": "array"
+            }
+          },
+          "position": {
+            "docs": "Chart chrome placement edge.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "values": [
+                  {
+                    "docs": "Place the widget on the top chart edge.",
+                    "value": "top"
+                  },
+                  {
+                    "docs": "Place the widget on the right chart edge.",
+                    "value": "right"
+                  },
+                  {
+                    "docs": "Place the widget on the bottom chart edge.",
+                    "value": "bottom"
+                  },
+                  {
+                    "docs": "Place the widget on the left chart edge.",
+                    "value": "left"
+                  }
+                ]
+              },
+              "shape": "atom"
+            }
+          },
+          "value_param": {
+            "docs": "Optional existing typed parameter bound to the value state slot.",
+            "required": false,
+            "shape": {
+              "shape": "scalar_binding"
+            }
+          }
+        },
+        "runtime_kind": "radio-button-list",
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "A continuous linear scale.",
+        "exports": {},
+        "key": {
+          "kind": "linear",
+          "namespace": "scale"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {},
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "A Cartesian axis configuration.",
+        "exports": {},
+        "key": {
+          "kind": "cartesian",
+          "namespace": "axis"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {},
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "A standard chart legend configuration.",
+        "exports": {},
+        "key": {
+          "kind": "standard",
+          "namespace": "legend"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {},
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "The default chart frame layout.",
+        "exports": {},
+        "key": {
+          "kind": "chart",
+          "namespace": "layout"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {},
+        "stateless": false
+      }
+    ],
+    "profile_label": "bootstrap-vertical-slice",
+    "version": {
+      "major": 1,
+      "minor": 0
+    }
+  }
+}

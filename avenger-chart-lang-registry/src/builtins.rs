@@ -100,14 +100,14 @@ fn pan_scroll_zoom_schema() -> KindSchema {
     )
     .export(ExportSchema {
         alias: "x_domain".to_string(),
-        value_kind: "param<fixed_size_list<float64, 2>>".to_string(),
+        value_kind: "param<fixed_size_list(float64,2)>".to_string(),
         binding_property: None,
         default_property: None,
         docs: "The tool-owned current x domain.".to_string(),
     })
     .export(ExportSchema {
         alias: "y_domain".to_string(),
-        value_kind: "param<fixed_size_list<float64, 2>>".to_string(),
+        value_kind: "param<fixed_size_list(float64,2)>".to_string(),
         binding_property: None,
         default_property: None,
         docs: "The tool-owned current y domain.".to_string(),
