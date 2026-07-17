@@ -100,6 +100,65 @@ chart cartesian as chart {
 }
 
 #[tokio::test]
+async fn resolved_configured_value_preserves_its_value_head() {
+    let valid_project = project(
+        &[(
+            "configured_channel.avenger",
+            r#"
+avenger 1;
+chart cartesian {
+  mark symbol as dots {
+    x: "x" { scale: linear; }
+    y: "y";
+  }
+}
+"#,
+        )],
+        "configured_channel.avenger",
+    )
+    .await;
+    let mut schema = bootstrap_schema();
+    schema
+        .entries
+        .get_mut(&NativeKindKey::mark("cartesian", "symbol"))
+        .unwrap()
+        .channels
+        .get_mut("x")
+        .unwrap()
+        .shape = avenger_chart_schema::ValueShape::Any;
+
+    let resolved = resolve_project(&valid_project, &schema).result.unwrap();
+    let chart = resolved
+        .files
+        .values()
+        .flat_map(|file| &file.roots)
+        .find(|declaration| declaration.keyword == "chart")
+        .unwrap();
+    let mark = chart
+        .children
+        .iter()
+        .find(|declaration| declaration.keyword == "mark")
+        .unwrap();
+    let avenger_lang_core::ResolvedValue::Object {
+        head,
+        kind,
+        properties,
+        ..
+    } = &mark.properties["x"]
+    else {
+        panic!("configured channel must resolve to an object")
+    };
+    assert_eq!(
+        head.as_deref(),
+        Some(&avenger_lang_core::ResolvedValue::Column("x".into()))
+    );
+    assert_eq!(kind, &None);
+    assert!(
+        matches!(properties.get("scale"), Some(avenger_lang_core::ResolvedValue::Atom(value)) if value == "linear")
+    );
+}
+
+#[tokio::test]
 async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
     let project = project(
         &[(

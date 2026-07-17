@@ -379,6 +379,13 @@ pub enum ResolvedValue {
     None,
     Array(Vec<ResolvedValue>),
     Object {
+        /// A value-bearing block head, such as the expression in
+        /// `x: "amount" { scale: linear; }`.
+        ///
+        /// Atom heads identify typed blocks and are represented by `kind`
+        /// instead, so the two fields are mutually exclusive.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        head: Option<Box<ResolvedValue>>,
         kind: Option<String>,
         properties: BTreeMap<String, ResolvedValue>,
         children: Vec<ResolvedDeclaration>,
@@ -3374,10 +3381,14 @@ impl<'a> Resolver<'a> {
                 self.normalize_expression_argument(scope, value, span);
             }
             ResolvedValue::Object {
+                head,
                 properties,
                 children,
                 ..
             } => {
+                if let Some(head) = head {
+                    self.normalize_expression_argument(scope, head, span);
+                }
                 for value in properties.values_mut() {
                     self.normalize_expression_argument(scope, value, span);
                 }
@@ -3664,6 +3675,10 @@ impl<'a> Resolver<'a> {
             ),
             Value::Block { head, body } => ResolvedValue::Object {
                 kind: head.as_deref().and_then(value_atom).map(str::to_owned),
+                head: head
+                    .as_deref()
+                    .filter(|head| value_atom(head).is_none())
+                    .map(|head| Box::new(self.resolve_value(scope, head, span, in_event, owner))),
                 properties: body
                     .props
                     .iter()
@@ -5590,8 +5605,12 @@ impl<'a> Resolver<'a> {
                 kind: Some(operation),
                 properties,
                 children,
+                ..
             }),
-        ) = (source.props.get("value"), action.properties.get_mut("value"))
+        ) = (
+            source.props.get("value"),
+            action.properties.get_mut("value"),
+        )
         else {
             return;
         };
@@ -5741,7 +5760,10 @@ impl<'a> Resolver<'a> {
                     "AVENGER-RESOLVE-157",
                     "duplicate scene-query mark target",
                     span,
-                    format!("`{}` names an already listed target", authored_path.join(".")),
+                    format!(
+                        "`{}` names an already listed target",
+                        authored_path.join(".")
+                    ),
                 );
                 resolved.push(ResolvedValue::Invalid);
                 continue;
@@ -6302,11 +6324,13 @@ fn resolved_value_contains_invalid(value: &ResolvedValue) -> bool {
             values.iter().any(resolved_value_contains_invalid)
         }
         ResolvedValue::Object {
+            head,
             properties,
             children,
             ..
         } => {
-            properties.values().any(resolved_value_contains_invalid)
+            head.as_deref().is_some_and(resolved_value_contains_invalid)
+                || properties.values().any(resolved_value_contains_invalid)
                 || children.iter().any(|child| {
                     child
                         .properties
@@ -6508,6 +6532,7 @@ fn resolved_json(value: &serde_json::Value) -> ResolvedValue {
             ResolvedValue::Array(values.iter().map(resolved_json).collect())
         }
         serde_json::Value::Object(values) => ResolvedValue::Object {
+            head: None,
             kind: None,
             properties: values
                 .iter()
@@ -6530,6 +6555,7 @@ fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> Res
                 .collect(),
         ),
         (serde_json::Value::Object(values), ValueShape::Object(fields)) => ResolvedValue::Object {
+            head: None,
             kind: None,
             properties: values
                 .iter()
@@ -6640,13 +6666,16 @@ fn resolved_value_has_forbidden_stream_binding(value: &ResolvedValue) -> bool {
             .iter()
             .any(resolved_value_has_forbidden_stream_binding),
         ResolvedValue::Object {
+            head,
             properties,
             children,
             ..
         } => {
-            properties
-                .values()
-                .any(resolved_value_has_forbidden_stream_binding)
+            head.as_deref()
+                .is_some_and(resolved_value_has_forbidden_stream_binding)
+                || properties
+                    .values()
+                    .any(resolved_value_has_forbidden_stream_binding)
                 || children.iter().any(|child| {
                     child
                         .properties
@@ -6734,10 +6763,14 @@ fn collect_param_dependencies(value: &ResolvedValue, output: &mut BTreeSet<Param
             }
         }
         ResolvedValue::Object {
+            head,
             properties,
             children,
             ..
         } => {
+            if let Some(head) = head {
+                collect_param_dependencies(head, output);
+            }
             for value in properties.values() {
                 collect_param_dependencies(value, output);
             }
@@ -6857,6 +6890,10 @@ fn unresolved_value(value: &Value) -> ResolvedValue {
         Value::Array(values) => ResolvedValue::Array(values.iter().map(unresolved_value).collect()),
         Value::Block { head, body } => ResolvedValue::Object {
             kind: head.as_deref().and_then(value_atom).map(str::to_owned),
+            head: head
+                .as_deref()
+                .filter(|head| value_atom(head).is_none())
+                .map(|head| Box::new(unresolved_value(head))),
             properties: body
                 .props
                 .iter()
@@ -6936,7 +6973,10 @@ fn normalize_definition_value_references(
         (
             Value::Block { head, body },
             ResolvedValue::Object {
-                kind, properties, ..
+                head: resolved_head,
+                kind,
+                properties,
+                ..
             },
         ) => {
             if let (Some(source), Some(resolved)) = (head.as_deref(), kind.as_mut())
@@ -6946,6 +6986,10 @@ fn normalize_definition_value_references(
                 // A block head is structural syntax rather than a value slot;
                 // leave its spelling intact for Phase 7 expansion.
                 *resolved = name.to_string();
+            }
+            if let (Some(source), Some(resolved)) = (head.as_deref(), resolved_head.as_deref_mut())
+            {
+                normalize_definition_value_references(source, resolved, definition, slots);
             }
             for (name, source) in body.props.iter() {
                 if let Some(resolved) = properties.get_mut(name.as_str()) {
