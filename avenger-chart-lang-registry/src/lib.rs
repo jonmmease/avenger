@@ -29,7 +29,7 @@ pub enum ResolvedValue {
     String(String),
     Scalar(ScalarValue),
     Expr(Expr),
-    Channel(ChannelValue),
+    Channel(Box<ChannelValue>),
     Query(String),
     Array(Vec<ResolvedValue>),
     Object(IndexMap<String, ResolvedValue>),
@@ -145,7 +145,7 @@ impl Default for ResolvedMarkGroup {
 #[derive(Clone, Debug)]
 pub enum ResolvedMark {
     Native(ResolvedDeclaration),
-    Group(ResolvedMarkGroup),
+    Group(Box<ResolvedMarkGroup>),
 }
 
 impl From<ResolvedDeclaration> for ResolvedMark {

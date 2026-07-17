@@ -1,3 +1,8 @@
+// Lowering returns source-rich diagnostics internally. Boxing every helper's
+// error would add pervasive indirection without shrinking the public failure
+// type or changing the one-diagnostic-at-a-time lowering control flow.
+#![allow(clippy::result_large_err)]
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -451,12 +456,11 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
 
-        let coordinate_kind = plot.coordinate.kind.clone();
         let root_group = self
-            .lower_container(chart, data.as_ref(), coordinate_kind.as_str(), &mut plot)
+            .lower_container(chart, data.as_ref(), &mut plot)
             .await?;
         if !root_group.marks.is_empty() || !root_group.transforms.is_empty() {
-            plot.marks.push(ResolvedMark::Group(root_group));
+            plot.marks.push(ResolvedMark::Group(Box::new(root_group)));
         }
         Ok(plot)
     }
@@ -465,7 +469,6 @@ impl<'a> ProjectLowerer<'a> {
         &'b mut self,
         container: &'b ResolvedDeclaration,
         inherited_data: Option<&'b DataFrame>,
-        coordinate: &'b str,
         plot: &'b mut ResolvedPlot,
     ) -> std::pin::Pin<
         Box<dyn std::future::Future<Output = Result<ResolvedMarkGroup, Diagnostic>> + 'b>,
@@ -534,9 +537,9 @@ impl<'a> ProjectLowerer<'a> {
                     }
                     "group" => {
                         let child_group = self
-                            .lower_container(child, current_data.as_ref(), coordinate, plot)
+                            .lower_container(child, current_data.as_ref(), plot)
                             .await?;
-                        group.marks.push(ResolvedMark::Group(child_group));
+                        group.marks.push(ResolvedMark::Group(Box::new(child_group)));
                     }
                     "mark" => {
                         let mark_data = match child.properties.get("data") {
@@ -554,7 +557,7 @@ impl<'a> ProjectLowerer<'a> {
                             let mut wrapper = ResolvedMarkGroup::new();
                             wrapper.data = Some(data);
                             wrapper.marks.push(native);
-                            group.marks.push(ResolvedMark::Group(wrapper));
+                            group.marks.push(ResolvedMark::Group(Box::new(wrapper)));
                         } else {
                             group.marks.push(native);
                         }
@@ -628,17 +631,11 @@ impl<'a> ProjectLowerer<'a> {
             }
             plot.data = explicit_data.clone();
             let planning_data = explicit_data.as_ref().or(inherited_data);
-            let coordinate_kind = plot.coordinate.kind.clone();
             let root_group = self
-                .lower_container(
-                    declaration,
-                    planning_data,
-                    coordinate_kind.as_str(),
-                    &mut plot,
-                )
+                .lower_container(declaration, planning_data, &mut plot)
                 .await?;
             if !root_group.marks.is_empty() || !root_group.transforms.is_empty() {
-                plot.marks.push(ResolvedMark::Group(root_group));
+                plot.marks.push(ResolvedMark::Group(Box::new(root_group)));
             }
             Ok(plot)
         })
@@ -793,7 +790,7 @@ impl<'a> ProjectLowerer<'a> {
         if matches!(value, ResolvedValue::Visual(_)) {
             channel = channel.no_scale();
         }
-        Ok(NativeValue::Channel(channel))
+        Ok(NativeValue::Channel(Box::new(channel)))
     }
 
     fn raw_channel_value(

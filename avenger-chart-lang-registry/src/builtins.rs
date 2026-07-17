@@ -129,7 +129,7 @@ fn lower_symbol(
     for (name, value) in &declaration.properties {
         let channel_value = match value {
             ResolvedValue::Expr(expr) => expr.clone().into(),
-            ResolvedValue::Channel(value) => value.clone(),
+            ResolvedValue::Channel(value) => value.as_ref().clone(),
             _ => {
                 return Err(RegistryError::InvalidPropertyType {
                     property: name.clone(),
