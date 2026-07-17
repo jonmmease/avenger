@@ -1283,26 +1283,76 @@ A temporal continuous scale.
 
 ## `Axis.cartesian`
 
-A Cartesian axis configuration.
+A Cartesian position-axis configuration.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `datetime_format` | property | false | Date/time-format pattern. |
+| `format` | property | false | Number-format pattern. |
 | `grid` | property | false | Whether to draw grid lines. |
-| `position` | property | false | Axis side position. |
+| `label_angle` | property | false | Tick-label rotation angle in degrees. |
+| `label_font_family` | property | false | Tick-label font family. |
+| `number_locale` | property | false | Number-format locale identifier. |
+| `position` | property | false | Axis side or crossing position. |
+| `show_title` | property | false | Whether to render the title while retaining its configuration. |
 | `tick_count` | property | false | Requested number of ticks. |
-| `title` | property | false | Axis title. |
+| `tick_label` | property | false | Expression producing tick-label text. |
+| `tick_spacing` | property | false | Structured start/step tick-spacing expression. |
+| `title` | property | false | Axis title text. |
+| `title_font_family` | property | false | Axis-title font family. |
+| `title_syntax` | property | false | Axis-title text syntax. |
+| `visible` | property | false | Whether the axis is visible. |
+
+## `Axis.polar`
+
+A radial or angular polar-axis configuration.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `axis_type` | property | false | Whether this is a radial or angular axis. |
+| `direction` | property | false | Angular-axis direction. |
+| `format` | property | false | Number-format pattern. |
+| `grid` | property | false | Whether to draw grid lines. |
+| `grid_levels` | property | false | Radial or angular values at which grid levels are drawn. |
+| `start_angle` | property | false | Angular-axis starting angle. |
+| `tick_count` | property | false | Requested number of ticks. |
+| `title` | property | false | Axis title text. |
 | `visible` | property | false | Whether the axis is visible. |
 
 ## `Legend.standard`
 
-A standard chart legend configuration.
+A standard discrete or continuous chart legend configuration.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
-| `columns` | property | false | Number of legend columns. |
-| `orientation` | property | false | Legend orientation. |
-| `position` | property | false | Legend chrome position. |
-| `title` | property | false | Legend title. |
+| `background_corner_radius` | property | false | Legend background corner radius. |
+| `background_fill` | property | false | Legend background fill color. |
+| `background_padding` | property | false | Padding between the background and content. |
+| `background_stroke` | property | false | Legend background stroke color. |
+| `background_stroke_width` | property | false | Legend background stroke width. |
+| `columns` | property | false | Number of discrete legend columns. |
+| `format_number` | property | false | Numeric label format pattern. |
+| `gradient_thickness` | property | false | Continuous colorbar thickness. |
+| `label_color` | property | false | Discrete item-label color. |
+| `label_font_family` | property | false | Discrete item-label font family. |
+| `label_font_size` | property | false | Discrete item-label font size. |
+| `label_font_weight` | property | false | Discrete item-label font weight. |
+| `label_limit` | property | false | Maximum item-label width in pixels. |
+| `label_syntax` | property | false | Legend-label text syntax. |
+| `order` | property | false | Expression controlling discrete item order. |
+| `orientation` | property | false | Legend item-flow orientation. |
+| `position` | property | false | Legend chrome-slot position. |
+| `symbol_size` | property | false | Discrete legend symbol area. |
+| `tick_color` | property | false | Continuous colorbar tick-label color. |
+| `tick_font_family` | property | false | Continuous tick-label font family. |
+| `tick_font_size` | property | false | Continuous tick-label font size. |
+| `tick_font_weight` | property | false | Continuous tick-label font weight. |
+| `title` | property | false | Legend title text. |
+| `title_color` | property | false | Legend-title color. |
+| `title_font_family` | property | false | Legend-title font family. |
+| `title_font_size` | property | false | Legend-title font size. |
+| `title_font_weight` | property | false | Legend-title font weight. |
+| `title_syntax` | property | false | Legend-title text syntax. |
 | `visible` | property | false | Whether the legend is visible. |
 
 ## `Layout.chart`

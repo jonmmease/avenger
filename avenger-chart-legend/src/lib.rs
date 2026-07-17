@@ -1,5 +1,6 @@
 pub mod builder;
 pub mod channel_config;
+pub mod language;
 pub mod layout;
 pub mod renderer;
 mod theme;

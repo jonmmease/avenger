@@ -7,9 +7,8 @@ use std::sync::Arc;
 
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::{Cartesian, CartesianAxis, Legend, PanScrollZoom},
+    prelude::{Cartesian, PanScrollZoom},
 };
-use avenger_chart_core::Axis;
 use avenger_chart_schema::{
     ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
@@ -133,93 +132,9 @@ fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
     for definition in avenger_chart_scales::language::definitions() {
         builder.register_object_definition(definition)?;
     }
-
-    let axis = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Axis, "cartesian"),
-        "A Cartesian axis configuration.",
-    )
-    .property(
-        "title",
-        PropertySchema::optional(ValueShape::SqlExpression, "Axis title."),
-    )
-    .property(
-        "grid",
-        PropertySchema::optional(ValueShape::SqlExpression, "Whether to draw grid lines."),
-    )
-    .property(
-        "tick_count",
-        PropertySchema::optional(ValueShape::SqlExpression, "Requested number of ticks."),
-    )
-    .property(
-        "visible",
-        PropertySchema::optional(ValueShape::SqlExpression, "Whether the axis is visible."),
-    )
-    .property(
-        "position",
-        PropertySchema::optional(ValueShape::SqlExpression, "Axis side position."),
-    );
-    builder.register_object(
-        axis,
-        Arc::new(|declaration| {
-            let mut axis = CartesianAxis::new();
-            for (name, value) in &declaration.properties {
-                let expression = native_expr(value, name)?;
-                axis = match name.as_str() {
-                    "title" => axis.title(expression),
-                    "grid" => axis.grid(expression),
-                    "tick_count" => axis.tick_count(expression),
-                    "visible" => axis.visible(expression),
-                    "position" => axis.position(expression),
-                    _ => unreachable!("registry validation checks axis properties"),
-                };
-            }
-            let erased: Box<dyn Axis> = Box::new(axis);
-            Ok(Box::new(erased))
-        }),
-    )?;
-
-    let legend = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Legend, "standard"),
-        "A standard chart legend configuration.",
-    )
-    .property(
-        "title",
-        PropertySchema::optional(ValueShape::SqlExpression, "Legend title."),
-    )
-    .property(
-        "visible",
-        PropertySchema::optional(ValueShape::SqlExpression, "Whether the legend is visible."),
-    )
-    .property(
-        "position",
-        PropertySchema::optional(ValueShape::SqlExpression, "Legend chrome position."),
-    )
-    .property(
-        "orientation",
-        PropertySchema::optional(ValueShape::SqlExpression, "Legend orientation."),
-    )
-    .property(
-        "columns",
-        PropertySchema::optional(ValueShape::SqlExpression, "Number of legend columns."),
-    );
-    builder.register_object(
-        legend,
-        Arc::new(|declaration| {
-            let mut legend = Legend::new();
-            for (name, value) in &declaration.properties {
-                let expression = native_expr(value, name)?;
-                legend = match name.as_str() {
-                    "title" => legend.title(expression),
-                    "visible" => legend.visible(expression),
-                    "position" => legend.position(expression),
-                    "orientation" => legend.orientation(expression),
-                    "columns" => legend.columns(expression),
-                    _ => unreachable!("registry validation checks legend properties"),
-                };
-            }
-            Ok(Box::new(legend))
-        }),
-    )?;
+    builder.register_object_definition(avenger_chart_cartesian::language::axis_definition())?;
+    builder.register_object_definition(avenger_chart_polar::language::axis_definition())?;
+    builder.register_object_definition(avenger_chart_legend::language::definition())?;
 
     let layout = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Layout, "chart"),

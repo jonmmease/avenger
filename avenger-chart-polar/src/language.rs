@@ -1,14 +1,17 @@
 //! Avenger-language registration for polar coordinates and primitive marks.
 
 use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration,
+    CoordinateLanguageDefinition, NativeLoweringError, ObjectLanguageDefinition,
+    ResolvedDeclaration, resolved_expr,
 };
 use avenger_chart_marks::language::{
     channel, lower_line, lower_symbol, lower_text, primitive_schema, primitive_text_schema,
 };
-use avenger_chart_schema::{BodyMode, KindSchema, NativeKindKey, NativeKindNamespace};
+use avenger_chart_schema::{
+    BodyMode, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
+};
 
-use crate::Polar;
+use crate::{Polar, PolarAxis};
 
 const LINE_CHANNELS: &[&str] = &[
     "r",
@@ -107,6 +110,69 @@ fn coordinate_schema() -> KindSchema {
 
 fn lower_polar(_declaration: &ResolvedDeclaration) -> Result<Polar, NativeLoweringError> {
     Ok(Polar::new())
+}
+
+/// Owner-provided polar axis authoring surface.
+pub fn axis_definition() -> ObjectLanguageDefinition {
+    let mut schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Axis, "polar"),
+        "A radial or angular polar-axis configuration.",
+    );
+    for (name, docs) in [
+        ("visible", "Whether the axis is visible."),
+        ("axis_type", "Whether this is a radial or angular axis."),
+        ("title", "Axis title text."),
+        ("grid", "Whether to draw grid lines."),
+        ("tick_count", "Requested number of ticks."),
+        ("format", "Number-format pattern."),
+        (
+            "grid_levels",
+            "Radial or angular values at which grid levels are drawn.",
+        ),
+        ("start_angle", "Angular-axis starting angle."),
+        ("direction", "Angular-axis direction."),
+    ] {
+        schema = schema.property(
+            name,
+            PropertySchema::optional(ValueShape::SqlExpression, docs),
+        );
+    }
+    ObjectLanguageDefinition {
+        schema,
+        lowerer: lower_axis,
+    }
+}
+
+fn lower_axis(
+    declaration: &ResolvedDeclaration,
+) -> Result<Box<dyn std::any::Any + Send + Sync>, NativeLoweringError> {
+    let mut axis = PolarAxis::new();
+    for (name, value) in &declaration.properties {
+        let expr =
+            resolved_expr(value).ok_or_else(|| NativeLoweringError::InvalidPropertyType {
+                property: name.clone(),
+                expected: "scalar SQL expression".to_string(),
+            })?;
+        axis = match name.as_str() {
+            "visible" => axis.visible(expr),
+            "axis_type" => axis.axis_type(expr),
+            "title" => axis.title(expr),
+            "grid" => axis.grid(expr),
+            "tick_count" => axis.tick_count(expr),
+            "format" => axis.format(expr),
+            "grid_levels" => axis.grid_levels(expr),
+            "start_angle" => axis.start_angle(expr),
+            "direction" => axis.direction(expr),
+            _ => {
+                return Err(NativeLoweringError::InvalidPropertyType {
+                    property: name.clone(),
+                    expected: "a registered polar axis property".to_string(),
+                });
+            }
+        };
+    }
+    let erased: Box<dyn avenger_chart_core::Axis> = Box::new(axis);
+    Ok(Box::new(erased))
 }
 
 #[cfg(test)]

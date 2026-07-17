@@ -1359,6 +1359,30 @@ mod tests {
     }
 
     #[test]
+    fn native_surface_axis_and_legend_owners_cover_public_configuration() {
+        let registry = builtins::bootstrap_registry().unwrap();
+        for (kind, property) in [("cartesian", "label_angle"), ("polar", "start_angle")] {
+            let key = NativeKindKey::new(NativeKindNamespace::Axis, kind);
+            let declaration =
+                ResolvedDeclaration::new(kind).property(property, ResolvedValue::Expr(lit(30.0)));
+            let lowered = registry.lower_object(&key, &declaration).unwrap();
+            assert!(
+                lowered
+                    .downcast::<Box<dyn avenger_chart_core::Axis>>()
+                    .is_ok()
+            );
+        }
+
+        let key = NativeKindKey::new(NativeKindNamespace::Legend, "standard");
+        let declaration = ResolvedDeclaration::new("standard")
+            .property("title", ResolvedValue::Expr(lit("Legend")))
+            .property("title_syntax", ResolvedValue::String("typst".to_string()))
+            .property("background_padding", ResolvedValue::Expr(lit(8.0)));
+        let lowered = registry.lower_object(&key, &declaration).unwrap();
+        assert!(lowered.downcast::<avenger_chart_core::Legend>().is_ok());
+    }
+
+    #[test]
     fn checked_bootstrap_schema_and_documentation_do_not_drift() {
         let registry = builtins::bootstrap_registry().unwrap();
         if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {

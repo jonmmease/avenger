@@ -1,7 +1,8 @@
 //! Avenger-language registration for Cartesian coordinates and primitive marks.
 
 use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
+    CoordinateLanguageDefinition, NativeLoweringError, ObjectLanguageDefinition,
+    ResolvedDeclaration, ResolvedValue, resolved_expr,
 };
 use avenger_chart_marks::language::{
     channel, lower_area, lower_image, lower_line, lower_path, lower_rect, lower_rule, lower_symbol,
@@ -9,10 +10,12 @@ use avenger_chart_marks::language::{
     uniform_raster_schema,
 };
 use avenger_chart_schema::{
-    BodyMode, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
+    BodyMode, EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
+    ValueShape,
 };
+use avenger_text::types::TextSyntaxMode;
 
-use crate::Cartesian;
+use crate::{Cartesian, CartesianAxis};
 
 const AREA_CHANNELS: &[&str] = &[
     "x",
@@ -227,6 +230,113 @@ fn text_schema() -> KindSchema {
         "Text positioned in Cartesian coordinates.",
         TEXT_CHANNELS.iter().copied().map(channel),
     )
+}
+
+/// Owner-provided Cartesian axis authoring surface.
+pub fn axis_definition() -> ObjectLanguageDefinition {
+    let mut schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Axis, "cartesian"),
+        "A Cartesian position-axis configuration.",
+    );
+    for (name, docs) in [
+        ("visible", "Whether the axis is visible."),
+        ("position", "Axis side or crossing position."),
+        ("title", "Axis title text."),
+        ("grid", "Whether to draw grid lines."),
+        ("tick_count", "Requested number of ticks."),
+        (
+            "tick_spacing",
+            "Structured start/step tick-spacing expression.",
+        ),
+        ("label_angle", "Tick-label rotation angle in degrees."),
+        ("format", "Number-format pattern."),
+        ("datetime_format", "Date/time-format pattern."),
+        ("number_locale", "Number-format locale identifier."),
+        ("tick_label", "Expression producing tick-label text."),
+        ("title_font_family", "Axis-title font family."),
+        ("label_font_family", "Tick-label font family."),
+        (
+            "show_title",
+            "Whether to render the title while retaining its configuration.",
+        ),
+    ] {
+        schema = schema.property(
+            name,
+            PropertySchema::optional(ValueShape::SqlExpression, docs),
+        );
+    }
+    schema = schema.property(
+        "title_syntax",
+        PropertySchema::optional(
+            ValueShape::Atom {
+                values: [
+                    ("plain", "Render the title literally."),
+                    ("typst", "Render the title as Typst markup."),
+                ]
+                .into_iter()
+                .map(|(value, docs)| EnumValueSchema {
+                    value: value.to_string(),
+                    docs: docs.to_string(),
+                })
+                .collect(),
+            },
+            "Axis-title text syntax.",
+        ),
+    );
+    ObjectLanguageDefinition {
+        schema,
+        lowerer: lower_axis,
+    }
+}
+
+fn lower_axis(
+    declaration: &ResolvedDeclaration,
+) -> Result<Box<dyn std::any::Any + Send + Sync>, NativeLoweringError> {
+    let mut axis = CartesianAxis::new();
+    for (name, value) in &declaration.properties {
+        axis = match name.as_str() {
+            "visible" => axis.visible(axis_expr(name, value)?),
+            "position" => axis.position(axis_expr(name, value)?),
+            "title" => axis.title(axis_expr(name, value)?),
+            "grid" => axis.grid(axis_expr(name, value)?),
+            "tick_count" => axis.tick_count(axis_expr(name, value)?),
+            "tick_spacing" => axis.tick_spacing(axis_expr(name, value)?),
+            "label_angle" => axis.label_angle(axis_expr(name, value)?),
+            "format" => axis.format(axis_expr(name, value)?),
+            "datetime_format" => axis.datetime_format(axis_expr(name, value)?),
+            "number_locale" => axis.number_locale(axis_expr(name, value)?),
+            "tick_label" => axis.tick_label(axis_expr(name, value)?),
+            "title_font_family" => axis.title_font_family(axis_expr(name, value)?),
+            "label_font_family" => axis.label_font_family(axis_expr(name, value)?),
+            "show_title" => axis.show_title(axis_expr(name, value)?),
+            "title_syntax" => match value {
+                ResolvedValue::String(value) if value == "plain" => {
+                    axis.syntax_mode(TextSyntaxMode::Plain)
+                }
+                ResolvedValue::String(value) if value == "typst" => {
+                    axis.syntax_mode(TextSyntaxMode::TypstMarkup)
+                }
+                _ => return Err(axis_invalid(name, "plain or typst")),
+            },
+            _ => return Err(axis_invalid(name, "a registered Cartesian axis property")),
+        };
+    }
+    let erased: Box<dyn avenger_chart_core::Axis> = Box::new(axis);
+    Ok(Box::new(erased))
+}
+
+fn axis_expr(
+    property: &str,
+    value: &ResolvedValue,
+) -> Result<datafusion::logical_expr::Expr, NativeLoweringError> {
+    resolved_expr(value).ok_or_else(|| axis_invalid(property, "scalar SQL expression"))
+}
+
+fn axis_invalid(property: &str, expected: &str) -> NativeLoweringError {
+    NativeLoweringError::InvalidPropertyType {
+        property: property.to_string(),
+        expected: expected.to_string(),
+    }
 }
 
 #[cfg(test)]

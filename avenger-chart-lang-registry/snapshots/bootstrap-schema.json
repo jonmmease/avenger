@@ -9165,8 +9165,22 @@
         "namespace": "axis",
         "kind": "cartesian"
       },
-      "docs": "A Cartesian axis configuration.",
+      "docs": "A Cartesian position-axis configuration.",
       "properties": {
+        "datetime_format": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Date/time-format pattern."
+        },
+        "format": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Number-format pattern."
+        },
         "grid": {
           "shape": {
             "shape": "sql_expression"
@@ -9174,12 +9188,159 @@
           "required": false,
           "docs": "Whether to draw grid lines."
         },
+        "label_angle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Tick-label rotation angle in degrees."
+        },
+        "label_font_family": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Tick-label font family."
+        },
+        "number_locale": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Number-format locale identifier."
+        },
         "position": {
           "shape": {
             "shape": "sql_expression"
           },
           "required": false,
-          "docs": "Axis side position."
+          "docs": "Axis side or crossing position."
+        },
+        "show_title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Whether to render the title while retaining its configuration."
+        },
+        "tick_count": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Requested number of ticks."
+        },
+        "tick_label": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression producing tick-label text."
+        },
+        "tick_spacing": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Structured start/step tick-spacing expression."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Axis title text."
+        },
+        "title_font_family": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Axis-title font family."
+        },
+        "title_syntax": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "plain",
+                  "docs": "Render the title literally."
+                },
+                {
+                  "value": "typst",
+                  "docs": "Render the title as Typst markup."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Axis-title text syntax."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Whether the axis is visible."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "axis",
+        "kind": "polar"
+      },
+      "docs": "A radial or angular polar-axis configuration.",
+      "properties": {
+        "axis_type": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Whether this is a radial or angular axis."
+        },
+        "direction": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Angular-axis direction."
+        },
+        "format": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Number-format pattern."
+        },
+        "grid": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Whether to draw grid lines."
+        },
+        "grid_levels": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Radial or angular values at which grid levels are drawn."
+        },
+        "start_angle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Angular-axis starting angle."
         },
         "tick_count": {
           "shape": {
@@ -9193,7 +9354,7 @@
             "shape": "sql_expression"
           },
           "required": false,
-          "docs": "Axis title."
+          "docs": "Axis title text."
         },
         "visible": {
           "shape": {
@@ -9216,35 +9377,227 @@
         "namespace": "legend",
         "kind": "standard"
       },
-      "docs": "A standard chart legend configuration.",
+      "docs": "A standard discrete or continuous chart legend configuration.",
       "properties": {
+        "background_corner_radius": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend background corner radius."
+        },
+        "background_fill": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend background fill color."
+        },
+        "background_padding": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Padding between the background and content."
+        },
+        "background_stroke": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend background stroke color."
+        },
+        "background_stroke_width": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend background stroke width."
+        },
         "columns": {
           "shape": {
             "shape": "sql_expression"
           },
           "required": false,
-          "docs": "Number of legend columns."
+          "docs": "Number of discrete legend columns."
+        },
+        "format_number": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Numeric label format pattern."
+        },
+        "gradient_thickness": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Continuous colorbar thickness."
+        },
+        "label_color": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Discrete item-label color."
+        },
+        "label_font_family": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Discrete item-label font family."
+        },
+        "label_font_size": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Discrete item-label font size."
+        },
+        "label_font_weight": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Discrete item-label font weight."
+        },
+        "label_limit": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Maximum item-label width in pixels."
+        },
+        "label_syntax": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "plain",
+                  "docs": "Render text literally."
+                },
+                {
+                  "value": "typst",
+                  "docs": "Render text as Typst markup."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Legend-label text syntax."
+        },
+        "order": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression controlling discrete item order."
         },
         "orientation": {
           "shape": {
             "shape": "sql_expression"
           },
           "required": false,
-          "docs": "Legend orientation."
+          "docs": "Legend item-flow orientation."
         },
         "position": {
           "shape": {
             "shape": "sql_expression"
           },
           "required": false,
-          "docs": "Legend chrome position."
+          "docs": "Legend chrome-slot position."
+        },
+        "symbol_size": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Discrete legend symbol area."
+        },
+        "tick_color": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Continuous colorbar tick-label color."
+        },
+        "tick_font_family": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Continuous tick-label font family."
+        },
+        "tick_font_size": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Continuous tick-label font size."
+        },
+        "tick_font_weight": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Continuous tick-label font weight."
         },
         "title": {
           "shape": {
             "shape": "sql_expression"
           },
           "required": false,
-          "docs": "Legend title."
+          "docs": "Legend title text."
+        },
+        "title_color": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend-title color."
+        },
+        "title_font_family": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend-title font family."
+        },
+        "title_font_size": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend-title font size."
+        },
+        "title_font_weight": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Legend-title font weight."
+        },
+        "title_syntax": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "plain",
+                  "docs": "Render text literally."
+                },
+                {
+                  "value": "typst",
+                  "docs": "Render text as Typst markup."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Legend-title text syntax."
         },
         "visible": {
           "shape": {

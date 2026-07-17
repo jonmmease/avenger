@@ -8,6 +8,7 @@ license = "BSD-3-Clause"
 async-trait = { workspace = true }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-lang-types = { path = "../avenger-chart-lang-types" }
+avenger-chart-legend = { path = "../avenger-chart-legend" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }

@@ -807,6 +807,7 @@ dependencies = [
  "avenger-chart-external-test",
  "avenger-chart-geo",
  "avenger-chart-lang-types",
+ "avenger-chart-legend",
  "avenger-chart-marks",
  "avenger-chart-marks-statistical",
  "avenger-chart-parallel",
@@ -844,6 +845,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "avenger-chart-core",
+ "avenger-chart-lang-types",
+ "avenger-chart-schema",
  "avenger-color",
  "avenger-common",
  "avenger-geometry",
