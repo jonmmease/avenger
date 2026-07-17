@@ -370,7 +370,7 @@ fn lower_geo_symbol(
         } else if name == "fill_pattern" {
             let value = match value {
                 ResolvedValue::Pattern(value) => value.clone(),
-                ResolvedValue::Channel(value) => value.as_ref().clone().into(),
+                ResolvedValue::Channel(value) => value.channel_value().clone().into(),
                 ResolvedValue::Expr(value) => value.clone().into(),
                 _ => {
                     return Err(NativeLoweringError::InvalidPropertyType {
@@ -409,7 +409,7 @@ fn ordinary_channel(
     value: &ResolvedValue,
 ) -> Result<ChannelValue, NativeLoweringError> {
     match value {
-        ResolvedValue::Channel(value) => Ok(value.as_ref().clone()),
+        ResolvedValue::Channel(value) => Ok(value.channel_value().clone()),
         ResolvedValue::Expr(value) => Ok(value.clone().into()),
         _ => Err(NativeLoweringError::InvalidPropertyType {
             property: name.to_string(),

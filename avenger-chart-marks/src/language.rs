@@ -366,7 +366,7 @@ fn ordinary_channel(
 ) -> Result<ChannelValue, NativeLoweringError> {
     match value {
         ResolvedValue::Expr(expr) => Ok(expr.clone().into()),
-        ResolvedValue::Channel(value) => Ok(value.as_ref().clone()),
+        ResolvedValue::Channel(value) => Ok(value.channel_value().clone()),
         ResolvedValue::Output(NativeOutputValue::Expr(expr)) => Ok(expr.clone().into()),
         ResolvedValue::Output(NativeOutputValue::Channel(value)) => {
             Ok(value.channel_value().clone())
@@ -385,7 +385,7 @@ fn pattern_channel(
     match value {
         ResolvedValue::Pattern(value) => Ok(value.clone()),
         ResolvedValue::Expr(expr) => Ok(expr.clone().into()),
-        ResolvedValue::Channel(value) => Ok(value.as_ref().clone().into()),
+        ResolvedValue::Channel(value) => Ok(value.channel_value().clone().into()),
         ResolvedValue::Output(NativeOutputValue::Expr(expr)) => Ok(expr.clone().into()),
         ResolvedValue::Output(NativeOutputValue::Channel(value)) => Ok(value.clone().into()),
         _ => Err(NativeLoweringError::InvalidPropertyType {

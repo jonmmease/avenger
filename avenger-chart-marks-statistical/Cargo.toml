@@ -6,7 +6,9 @@ edition = "2024"
 [dependencies]
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
+avenger-chart-lang-types = { path = "../avenger-chart-lang-types" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 datafusion = { workspace = true }
 datafusion-proto = { version = "54.0.0", default-features = false }

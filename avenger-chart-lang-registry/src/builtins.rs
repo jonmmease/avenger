@@ -61,7 +61,19 @@ pub fn register_bootstrap_noncoordinate_builtins(
 }
 
 pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
-    CoordinatePack::from_language_definition(avenger_chart_cartesian::language::definition()).tool(
+    let mut pack =
+        CoordinatePack::from_language_definition(avenger_chart_cartesian::language::definition());
+    for definition in avenger_chart_marks_statistical::language::definitions() {
+        let avenger_chart_lang_types::MarkLanguageDefinition {
+            kind,
+            schema,
+            lowerer,
+        } = definition;
+        pack = pack.mark(kind, schema, move |declaration| {
+            lowerer(declaration).map_err(RegistryError::from)
+        });
+    }
+    pack.tool(
         "pan_scroll_zoom",
         pan_scroll_zoom_schema(),
         lower_pan_scroll_zoom,

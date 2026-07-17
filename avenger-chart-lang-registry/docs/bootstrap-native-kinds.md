@@ -78,6 +78,19 @@ A filled Cartesian area mark.
 | `y` | channel | false | The `y` encoding channel. |
 | `y2` | channel | false | The `y2` encoding channel. |
 
+## `Mark.cartesian.box_plot`
+
+A compound box-and-whisker plot generated from Cartesian primitives and transforms.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `extent` | property | false | Non-negative interquartile-range multiplier used for whisker fences; defaults to 1.5. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `orientation` | property | false | Explicit value-axis orientation; otherwise inferred from the position channels. |
+| `fill` | channel | false | Shared categorical fill encoding for generated summary parts. |
+| `x` | channel | true | Horizontal position or grouping encoding. |
+| `y` | channel | true | Vertical position or grouping encoding. |
+
 ## `Mark.geo.geo_shape`
 
 A GeoJSON or WKB geometry projected through the geo coordinate system.
@@ -670,6 +683,30 @@ A uniformly binned two-dimensional raster image.
 | `null_color` | channel | false | The `null_color` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
 | `opacity_by_total` | channel | false | Configuration for the internal per-pixel total-to-opacity channel. |
+
+## `Mark.cartesian.violin`
+
+A compound kernel-density violin generated from Cartesian primitives and transforms.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `bandwidth` | property | false | Kernel bandwidth expression; zero requests automatic bandwidth selection. |
+| `counts` | property | false | Scale density values by the number of samples in each group. |
+| `density_data_scope` | property | false | Facet coordination scope used to compute density values. |
+| `density_extent` | property | false | Two scalar SQL expressions defining the density sample interval. |
+| `density_extent_resolve` | property | false | Coordination strategy for inferred KDE extents. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `orientation` | property | false | Explicit value-axis orientation; otherwise inferred from the position channels. |
+| `steps` | property | false | Number of density samples as a scalar SQL expression; defaults to 200. |
+| `width` | property | false | Fraction of the group band occupied by the violin, in (0, 1]. |
+| `width_normalization` | property | false | Density-to-width normalization strategy. |
+| `fill` | channel | false | Violin body fill encoding. |
+| `opacity` | channel | false | Violin body opacity encoding. |
+| `stroke` | channel | false | Violin body stroke encoding. |
+| `stroke_dash` | channel | false | Violin body stroke-dash encoding. |
+| `stroke_width` | channel | false | Violin body stroke-width encoding. |
+| `x` | channel | true | Horizontal position or grouping encoding. |
+| `y` | channel | true | Vertical position or grouping encoding. |
 
 ## `Transform.aggregate`
 

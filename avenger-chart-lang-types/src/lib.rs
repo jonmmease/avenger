@@ -30,7 +30,10 @@ pub enum ResolvedValue {
     String(String),
     Scalar(ScalarValue),
     Expr(Expr),
-    Channel(Box<ChannelValue>),
+    /// A configured encoding that preserves both its data expression and
+    /// channel metadata. Compound marks consume the expression while ordinary
+    /// primitive marks consume the `ChannelValue` from the same handle.
+    Channel(Box<ChannelExpr>),
     Query(String),
     Array(Vec<ResolvedValue>),
     Object(IndexMap<String, ResolvedValue>),

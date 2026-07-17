@@ -18,8 +18,8 @@ use arrow::{
 use avenger_chart::{
     layout::LayoutSpec,
     prelude::{
-        Auto, ChannelValue, LegendableChannelValue, Param, Scale, ScaleChannelValue, Selection,
-        Store, WidgetItemRow, WidgetItems,
+        Auto, ChannelExpr, ChannelValue, LegendableChannelValue, Param, Scale, ScaleChannelValue,
+        Selection, Store, WidgetItemRow, WidgetItems,
     },
 };
 use avenger_chart_core::{
@@ -899,6 +899,37 @@ impl<'a> ProjectLowerer<'a> {
                 .is_some_and(|property| property.shape == ValueShape::FacetDataScope)
             {
                 NativeValue::Integer(self.facet_data_scope_level(value, declaration)?.into())
+            } else if property_shape == Some(&ValueShape::CoordinationScope) {
+                match self.coordination_scope(value, declaration)? {
+                    avenger_chart_core::CoordinationScope::Shared => {
+                        NativeValue::String("shared".to_string())
+                    }
+                    avenger_chart_core::CoordinationScope::Free => {
+                        NativeValue::String("free".to_string())
+                    }
+                    avenger_chart_core::CoordinationScope::Level(level) => {
+                        NativeValue::Integer(level.into())
+                    }
+                }
+            } else if matches!(
+                property_shape,
+                Some(ValueShape::Array(inner)) if inner.as_ref() == &ValueShape::SqlExpression
+            ) {
+                let ResolvedValue::Array(values) = value else {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("property `{name}` must be an array of SQL expressions"),
+                    ));
+                };
+                NativeValue::Array(
+                    values
+                        .iter()
+                        .map(|value| {
+                            self.expression_value(value, data, declaration)
+                                .map(NativeValue::Expr)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                )
             } else if schema
                 .properties
                 .get(name)
@@ -985,6 +1016,42 @@ impl<'a> ProjectLowerer<'a> {
             _ => Err(lowerer_error(
                 declaration,
                 "facet_data_scope must be filtered, broadcast, or level(<integer>)",
+            )),
+        }
+    }
+
+    fn coordination_scope(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<avenger_chart_core::CoordinationScope, Diagnostic> {
+        match value {
+            ResolvedValue::Atom(value) if value == "shared" => {
+                Ok(avenger_chart_core::CoordinationScope::Shared)
+            }
+            ResolvedValue::Atom(value) if value == "free" => {
+                Ok(avenger_chart_core::CoordinationScope::Free)
+            }
+            ResolvedValue::Call { function, args } if function == "level" => {
+                let [ResolvedValue::Number(level)] = args.as_slice() else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "coordination scope level(...) requires one integer",
+                    ));
+                };
+                level
+                    .parse::<u8>()
+                    .map(avenger_chart_core::CoordinationScope::Level)
+                    .map_err(|_| {
+                        lowerer_error(
+                            declaration,
+                            "coordination scope level must be an integer from 0 through 255",
+                        )
+                    })
+            }
+            _ => Err(lowerer_error(
+                declaration,
+                "coordination scope must be shared, free, or level(<integer>)",
             )),
         }
     }
@@ -1371,6 +1438,13 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<NativeValue, Diagnostic> {
+        let data_expr = match value {
+            ResolvedValue::Object { head, .. } => match head {
+                Some(head) => self.channel_data_expr(head, data, declaration)?,
+                None => lit(1.0_f64),
+            },
+            _ => self.channel_data_expr(value, data, declaration)?,
+        };
         let mut channel = match value {
             ResolvedValue::Object {
                 head, properties, ..
@@ -1390,7 +1464,41 @@ impl<'a> ProjectLowerer<'a> {
         if matches!(value, ResolvedValue::Visual(_)) {
             channel = channel.no_scale();
         }
-        Ok(NativeValue::Channel(Box::new(channel)))
+        Ok(NativeValue::Channel(Box::new(ChannelExpr::new(
+            data_expr, channel,
+        ))))
+    }
+
+    fn channel_data_expr(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Expr, Diagnostic> {
+        if let ResolvedValue::Expression(expression) = value
+            && let Some(output) = self.direct_output(expression)
+        {
+            return match output {
+                NativeOutputValue::Expr(expr) => Ok(expr.clone()),
+                NativeOutputValue::Channel(channel) => Ok(channel.data_expr().clone()),
+                NativeOutputValue::RasterDim(_) | NativeOutputValue::Opaque(_) => Err(
+                    lowerer_error(declaration, "this transform output is not a channel value"),
+                ),
+            };
+        }
+        match value {
+            ResolvedValue::String(value) => Ok(lit(value.clone())),
+            ResolvedValue::Number(value) if value.parse::<i64>().is_ok() => {
+                Ok(lit(value.parse::<i64>().unwrap()))
+            }
+            ResolvedValue::Number(value) => value.parse::<f64>().map(lit).map_err(|_| {
+                lowerer_error(declaration, format!("invalid numeric literal `{value}`"))
+            }),
+            ResolvedValue::Boolean(value) => Ok(lit(*value)),
+            ResolvedValue::Null => Ok(lit(ScalarValue::Null)),
+            ResolvedValue::Visual(inner) => self.expression_value(inner, data, declaration),
+            _ => self.expression_value(value, data, declaration),
+        }
     }
 
     fn apply_channel_configs(

@@ -1064,7 +1064,9 @@ fn validate_value_shape(
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::Channel(_), ValueShape::ChannelConfig) => true,
         (ResolvedValue::Pattern(_), ValueShape::PatternChannel) => true,
-        (ResolvedValue::String(_), ValueShape::CoordinationScope) => true,
+        (ResolvedValue::String(_) | ResolvedValue::Integer(_), ValueShape::CoordinationScope) => {
+            true
+        }
         (ResolvedValue::String(_) | ResolvedValue::Integer(_), ValueShape::FacetDataScope) => true,
         (ResolvedValue::Output(NativeOutputValue::RasterDim(_)), ValueShape::RasterDimension) => {
             true

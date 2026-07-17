@@ -4,6 +4,7 @@
 //! high-level `avenger-chart` crate re-exports them for convenient authoring.
 
 pub mod box_plot;
+pub mod language;
 pub mod violin;
 
 pub use box_plot::{BoxPlot, BoxPlotOrientation};

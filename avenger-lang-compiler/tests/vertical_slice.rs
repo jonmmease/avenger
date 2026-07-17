@@ -277,6 +277,82 @@ async fn native_surface_common_mark_state_is_schema_directed_and_preserved() {
 }
 
 #[tokio::test]
+async fn native_surface_statistical_compound_marks_lower_with_public_parts() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: {
+            values: [
+              { category: 'A'; amount: 1.0; },
+              { category: 'A'; amount: 2.0; },
+              { category: 'A'; amount: 3.0; },
+              { category: 'B'; amount: 2.0; },
+              { category: 'B'; amount: 4.0; },
+              { category: 'B'; amount: 6.0; }
+            ];
+          }
+          mark box_plot as summary {
+            x: "category";
+            y: "amount";
+            orientation: vertical;
+            extent: 1.5;
+            fill: "category";
+          }
+          mark violin as distribution {
+            x: "category";
+            y: "amount";
+            orientation: vertical;
+            bandwidth: 0.0;
+            steps: 40;
+            density_extent: [0.0, 7.0];
+            counts: false;
+            density_extent_resolve: shared;
+            density_data_scope: level(1);
+            width: 0.8;
+            width_normalization: per_violin;
+            fill: "category";
+          }
+        }"#;
+    let compiler = source_compiler(source, None);
+    let schemas = compiler.language_host().registry().snapshot();
+    let box_plot = schemas
+        .entries
+        .get(&avenger_chart_schema::NativeKindKey::mark(
+            "cartesian",
+            "box_plot",
+        ))
+        .expect("box_plot schema");
+    assert_eq!(
+        box_plot
+            .parts
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        [
+            "box",
+            "lower_cap",
+            "median",
+            "outliers",
+            "upper_cap",
+            "whiskers",
+        ]
+    );
+    let violin = schemas
+        .entries
+        .get(&avenger_chart_schema::NativeKindKey::mark(
+            "cartesian",
+            "violin",
+        ))
+        .expect("violin schema");
+    assert!(violin.parts.contains_key("body"));
+
+    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("summary.box"), "{json}");
+    assert!(json.contains("distribution.body"), "{json}");
+    assert!(json.contains("\"scope\":{\"level\":1}"));
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

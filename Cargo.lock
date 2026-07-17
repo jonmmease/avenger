@@ -808,6 +808,7 @@ dependencies = [
  "avenger-chart-geo",
  "avenger-chart-lang-types",
  "avenger-chart-marks",
+ "avenger-chart-marks-statistical",
  "avenger-chart-parallel",
  "avenger-chart-polar",
  "avenger-chart-scales",
@@ -889,7 +890,9 @@ version = "0.1.0"
 dependencies = [
  "avenger-chart-cartesian",
  "avenger-chart-core",
+ "avenger-chart-lang-types",
  "avenger-chart-marks",
+ "avenger-chart-schema",
  "avenger-chart-transforms",
  "datafusion",
  "datafusion-proto",

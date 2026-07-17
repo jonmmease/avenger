@@ -11,6 +11,7 @@ avenger-chart-lang-types = { path = "../avenger-chart-lang-types" }
 avenger-chart-cartesian = { path = "../avenger-chart-cartesian" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
+avenger-chart-marks-statistical = { path = "../avenger-chart-marks-statistical" }
 avenger-chart-polar = { path = "../avenger-chart-polar" }
 avenger-chart-parallel = { path = "../avenger-chart-parallel" }
 avenger-chart-geo = { path = "../avenger-chart-geo" }

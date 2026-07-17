@@ -491,6 +491,124 @@
     {
       "key": {
         "namespace": "mark",
+        "kind": "box_plot",
+        "coordinate": "cartesian"
+      },
+      "docs": "A compound box-and-whisker plot generated from Cartesian primitives and transforms.",
+      "properties": {
+        "extent": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Non-negative interquartile-range multiplier used for whisker fences; defaults to 1.5."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "orientation": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "horizontal",
+                  "docs": "Use x for values and y for groups."
+                },
+                {
+                  "value": "vertical",
+                  "docs": "Use y for values and x for groups."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Explicit value-axis orientation; otherwise inferred from the position channels."
+        }
+      },
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Shared categorical fill encoding for generated summary parts."
+        },
+        "x": {
+          "name": "x",
+          "required": true,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Horizontal position or grouping encoding."
+        },
+        "y": {
+          "name": "y",
+          "required": true,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Vertical position or grouping encoding."
+        }
+      },
+      "parts": {
+        "box": {
+          "alias": "box",
+          "runtime_kind": "rect",
+          "runtime_alias": "box",
+          "targetable": true,
+          "docs": "The interquartile box body."
+        },
+        "lower_cap": {
+          "alias": "lower_cap",
+          "runtime_kind": "rule",
+          "runtime_alias": "lower_cap",
+          "targetable": true,
+          "docs": "The lower whisker cap."
+        },
+        "median": {
+          "alias": "median",
+          "runtime_kind": "rule",
+          "runtime_alias": "median",
+          "targetable": true,
+          "docs": "The median rule."
+        },
+        "outliers": {
+          "alias": "outliers",
+          "runtime_kind": "symbol",
+          "runtime_alias": "outliers",
+          "targetable": true,
+          "docs": "Raw observations outside the whisker fences."
+        },
+        "upper_cap": {
+          "alias": "upper_cap",
+          "runtime_kind": "rule",
+          "runtime_alias": "upper_cap",
+          "targetable": true,
+          "docs": "The upper whisker cap."
+        },
+        "whiskers": {
+          "alias": "whiskers",
+          "runtime_kind": "rule",
+          "runtime_alias": "whiskers",
+          "targetable": true,
+          "docs": "The lower and upper whisker rules."
+        }
+      },
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "mark",
         "kind": "geo_shape",
         "coordinate": "geo"
       },
@@ -4793,6 +4911,197 @@
           "docs": "Optional inline data view owned by this mark."
         }
       ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "violin",
+        "coordinate": "cartesian"
+      },
+      "docs": "A compound kernel-density violin generated from Cartesian primitives and transforms.",
+      "properties": {
+        "bandwidth": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Kernel bandwidth expression; zero requests automatic bandwidth selection."
+        },
+        "counts": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Scale density values by the number of samples in each group."
+        },
+        "density_data_scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Facet coordination scope used to compute density values."
+        },
+        "density_extent": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Two scalar SQL expressions defining the density sample interval."
+        },
+        "density_extent_resolve": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "independent",
+                  "docs": "Infer a separate extent for each violin."
+                },
+                {
+                  "value": "shared",
+                  "docs": "Infer one extent shared by all violins."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Coordination strategy for inferred KDE extents."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "orientation": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "horizontal",
+                  "docs": "Use x for values and y for groups."
+                },
+                {
+                  "value": "vertical",
+                  "docs": "Use y for values and x for groups."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Explicit value-axis orientation; otherwise inferred from the position channels."
+        },
+        "steps": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Number of density samples as a scalar SQL expression; defaults to 200."
+        },
+        "width": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Fraction of the group band occupied by the violin, in (0, 1]."
+        },
+        "width_normalization": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "shared",
+                  "docs": "Normalize all violin widths by one maximum density."
+                },
+                {
+                  "value": "per_violin",
+                  "docs": "Normalize each violin by its own maximum density."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Density-to-width normalization strategy."
+        }
+      },
+      "channels": {
+        "fill": {
+          "name": "fill",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Violin body fill encoding."
+        },
+        "opacity": {
+          "name": "opacity",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Violin body opacity encoding."
+        },
+        "stroke": {
+          "name": "stroke",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Violin body stroke encoding."
+        },
+        "stroke_dash": {
+          "name": "stroke_dash",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Violin body stroke-dash encoding."
+        },
+        "stroke_width": {
+          "name": "stroke_width",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Violin body stroke-width encoding."
+        },
+        "x": {
+          "name": "x",
+          "required": true,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Horizontal position or grouping encoding."
+        },
+        "y": {
+          "name": "y",
+          "required": true,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Vertical position or grouping encoding."
+        }
+      },
+      "parts": {
+        "body": {
+          "alias": "body",
+          "runtime_kind": "area",
+          "runtime_alias": "body",
+          "targetable": true,
+          "docs": "The generated density area body."
+        }
+      },
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
     },
     {
       "key": {
