@@ -175,7 +175,7 @@ impl Compiler {
             .compile_file_attempt(path)
             .await
             .result
-            .expect_err("phase-zero frontend is unavailable"))
+            .expect_err("Phase 5 native chart construction is unavailable"))
     }
 
     /// Phase 4 frontend seam: load and semantically resolve one chart and its

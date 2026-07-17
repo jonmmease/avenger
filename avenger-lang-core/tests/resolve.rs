@@ -702,6 +702,7 @@ define mark point_pair {
     mark symbol as point {
       horizontal: horizontal_value;
       vertical: vertical_value;
+      size: channel(horizontal) + 1;
     }
   }
   export body.point as point;
@@ -731,6 +732,16 @@ define mark point_pair {
         Some(avenger_lang_core::ResolvedValue::DefinitionArgument(
             ResolvedTarget::DefinitionSlot { name, .. }
         )) if name == "horizontal_value"
+    ));
+    let avenger_lang_core::ResolvedValue::Expression(size) = &point.properties["size"] else {
+        panic!("definition channel helper expression")
+    };
+    assert!(matches!(
+        size.helpers[0].arguments.as_slice(),
+        [avenger_lang_core::ResolvedHelperArgument::DefinitionChannel {
+            target: ResolvedTarget::DefinitionChannel { name, .. },
+            family_suffix,
+        }] if name == "horizontal" && family_suffix.is_empty()
     ));
 
     let chart_file = resolved
@@ -1704,7 +1715,11 @@ chart cartesian as events {
     }
     set param x at start replacing scopes = event_coord(x);
     set store rows = insert_rows { row { id: 'cursor'; value: event_coord(x); } }
-    set selection picked = clear;
+    set selection picked = replace_all_from_scene_query {
+      geometry: polygon(event_path());
+      policy: intersects;
+      marks: [overview.points, detail.points];
+    }
     set cursor = crosshair;
   }
 }
@@ -1744,7 +1759,58 @@ chart cartesian as events {
         event.children[2].state_lvalue.as_ref().unwrap().target,
         ResolvedTarget::Selection(_)
     ));
+    let avenger_lang_core::ResolvedValue::Object { properties, .. } =
+        &event.children[2].properties["value"]
+    else {
+        panic!("selection update payload")
+    };
+    let avenger_lang_core::ResolvedValue::Array(scene_targets) = &properties["marks"] else {
+        panic!("typed scene-query mark target list")
+    };
+    assert_eq!(scene_targets.len(), 2);
+    assert!(scene_targets.iter().all(|target| matches!(
+        target,
+        avenger_lang_core::ResolvedValue::Reference(reference)
+            if reference.kind == avenger_lang_core::ast::RefKind::Mark
+                && matches!(reference.target, ResolvedTarget::Mark(_))
+    )));
     assert!(event.children[3].state_lvalue.is_none());
+}
+
+#[tokio::test]
+async fn resolve_rejects_invalid_scene_query_mark_targets() {
+    let project = project(
+        &[(
+            "bad_scene_targets.avenger",
+            r#"
+avenger 1;
+chart cartesian as bad_scene_targets {
+  selection as picked { empty: none; combine: union; }
+  group as panel { mark symbol as points { x: "x"; y: "y"; } }
+  on cursor_moved {
+    set selection picked = replace_all_from_scene_query {
+      geometry: polygon(event_path());
+      policy: intersects;
+      marks: [panel.points, panel.points, panel, 1 + 2];
+    }
+  }
+}
+"#,
+        )],
+        "bad_scene_targets.avenger",
+    )
+    .await;
+    let failure = resolve_project(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    let codes = failure
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<Vec<_>>();
+    assert!(codes.contains(&"AVENGER-RESOLVE-155"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-156"));
+    assert!(codes.contains(&"AVENGER-RESOLVE-157"));
 }
 
 #[tokio::test]

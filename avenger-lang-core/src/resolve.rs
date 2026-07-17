@@ -442,6 +442,10 @@ pub enum ResolvedHelperArgument {
     String(String),
     Number(String),
     Target(ResolvedTarget),
+    DefinitionChannel {
+        target: ResolvedTarget,
+        family_suffix: String,
+    },
     Sql(String),
 }
 
@@ -2209,10 +2213,22 @@ impl<'a> Resolver<'a> {
                 } else if index == 0
                     && helper_uses_channel_argument(&call.name)
                     && let Some(path) = helper_argument_path(argument)
-                    && let Some(target @ ResolvedTarget::DefinitionChannel { .. }) =
-                        self.resolve_any_path(scope, &path, span, false)
+                    && path.len() == 1
+                    && let Some((target, _)) =
+                        self.visible_definition_channel_property(scope, &path[0])
                 {
-                    resolved = ResolvedHelperArgument::Target(target);
+                    let family_suffix = match &target {
+                        ResolvedTarget::DefinitionChannel { name, .. } => path[0]
+                            .strip_prefix(name)
+                            .filter(|suffix| *suffix == "2")
+                            .unwrap_or("")
+                            .to_owned(),
+                        _ => String::new(),
+                    };
+                    resolved = ResolvedHelperArgument::DefinitionChannel {
+                        target,
+                        family_suffix,
+                    };
                 }
                 if index == 0
                     && helper_uses_channel_argument(&call.name)
@@ -3785,15 +3801,18 @@ impl<'a> Resolver<'a> {
         scope: ScopeId,
         property: &str,
     ) -> Option<(ResolvedTarget, Option<String>)> {
-        let (logical, family_suffix) = property
-            .strip_suffix('2')
-            .map_or((property, ""), |logical| (logical, "2"));
+        if let Some(target) = self.visible_definition_argument(scope, property)
+            && let Some(channel) = self.definition_channel_schema(&target)
+        {
+            return Some((target, channel.physical_channel.clone()));
+        }
+        let logical = property.strip_suffix('2')?;
         let target = self.visible_definition_argument(scope, logical)?;
         let channel = self.definition_channel_schema(&target)?;
         let physical = channel
             .physical_channel
             .as_ref()
-            .map(|physical| format!("{physical}{family_suffix}"));
+            .map(|physical| format!("{physical}2"));
         Some((target, physical))
     }
 
@@ -4595,7 +4614,7 @@ impl<'a> Resolver<'a> {
         scope: ScopeId,
         widget_action: bool,
     ) {
-        let kind = action.kind.as_deref().unwrap_or("");
+        let kind = action.kind.clone().unwrap_or_default();
         if kind == "cursor" {
             let value = action.properties.get("value");
             if value.is_none() {
@@ -4674,7 +4693,7 @@ impl<'a> Resolver<'a> {
             .get("target")
             .and_then(resolved_path)
             .unwrap_or_default();
-        let expected = match kind {
+        let expected = match kind.as_str() {
             "param" => Some(BindingKind::Param),
             "store" => Some(BindingKind::Store),
             "selection" => None,
@@ -4780,7 +4799,7 @@ impl<'a> Resolver<'a> {
             self.validate_store_action(source, action, target, span);
         }
         if kind == "selection" {
-            self.validate_selection_action(source, action, span);
+            self.validate_selection_action(source, action, span, scope);
         }
         if matches!(action.properties.get("at"), Some(ResolvedValue::Atom(at)) if at == "start")
             && event.is_none_or(|event| event.props.get("between").is_none())
@@ -5529,8 +5548,9 @@ impl<'a> Resolver<'a> {
     fn validate_selection_action(
         &mut self,
         source: &Decl,
-        action: &ResolvedDeclaration,
+        action: &mut ResolvedDeclaration,
         span: SourceSpan,
+        scope: ScopeId,
     ) {
         let valid = match action.properties.get("value") {
             Some(ResolvedValue::Atom(operation)) => operation == "clear",
@@ -5571,7 +5591,7 @@ impl<'a> Resolver<'a> {
                 properties,
                 children,
             }),
-        ) = (source.props.get("value"), action.properties.get("value"))
+        ) = (source.props.get("value"), action.properties.get_mut("value"))
         else {
             return;
         };
@@ -5648,7 +5668,91 @@ impl<'a> Resolver<'a> {
                     );
                 }
             }
+            if let Some(source_marks) = source_body.props.get("marks") {
+                properties.insert(
+                    "marks".to_owned(),
+                    self.resolve_scene_query_targets(scope, source_marks, span),
+                );
+            }
         }
+    }
+
+    fn resolve_scene_query_targets(
+        &mut self,
+        scope: ScopeId,
+        source: &Value,
+        span: SourceSpan,
+    ) -> ResolvedValue {
+        let Value::Array(values) = source else {
+            self.error(
+                "AVENGER-RESOLVE-155",
+                "scene-query marks must be a non-empty path list",
+                span,
+                "use `marks: [mark_name, group.mark_name]`",
+            );
+            return ResolvedValue::Invalid;
+        };
+        if values.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-155",
+                "scene-query marks must be a non-empty path list",
+                span,
+                "add at least one targetable mark or exported mark part",
+            );
+            return ResolvedValue::Invalid;
+        }
+
+        let mut seen = BTreeSet::new();
+        let mut resolved = Vec::with_capacity(values.len());
+        for value in values {
+            let Some(authored_path) = authored_bare_path(value) else {
+                self.error(
+                    "AVENGER-RESOLVE-155",
+                    "scene-query mark target is not an authored path",
+                    span,
+                    "mark targets are bare or qualified structural paths, not computed SQL expressions",
+                );
+                resolved.push(ResolvedValue::Invalid);
+                continue;
+            };
+            let Some(target) =
+                self.resolve_typed_reference_path(scope, &authored_path, RefKind::Mark, span)
+            else {
+                resolved.push(ResolvedValue::Invalid);
+                continue;
+            };
+            if !reference_kind_matches(&target, RefKind::Mark)
+                || !self.is_targetable_event_target(&target)
+            {
+                self.error(
+                    "AVENGER-RESOLVE-156",
+                    "scene-query target is not a targetable mark",
+                    span,
+                    format!(
+                        "`{}` resolves to a non-mark or non-targetable part",
+                        authored_path.join(".")
+                    ),
+                );
+                resolved.push(ResolvedValue::Invalid);
+                continue;
+            }
+            if !seen.insert(target.clone()) {
+                self.error(
+                    "AVENGER-RESOLVE-157",
+                    "duplicate scene-query mark target",
+                    span,
+                    format!("`{}` names an already listed target", authored_path.join(".")),
+                );
+                resolved.push(ResolvedValue::Invalid);
+                continue;
+            }
+            resolved.push(ResolvedValue::Reference(ResolvedReference {
+                target,
+                kind: RefKind::Mark,
+                authored_path,
+            }));
+        }
+        ResolvedValue::Array(resolved)
     }
 
     fn check_param_dag(&mut self) -> Vec<ParamId> {
@@ -5792,7 +5896,11 @@ fn merge_definition_mark_schemas(mut schemas: Vec<KindSchema>) -> Option<KindSch
         merged
             .compatible_coordinates
             .extend(schema.compatible_coordinates);
-        merged.allowed_parents.extend(schema.allowed_parents);
+        if merged.allowed_parents.is_empty() || schema.allowed_parents.is_empty() {
+            merged.allowed_parents.clear();
+        } else {
+            merged.allowed_parents.extend(schema.allowed_parents);
+        }
         merged.body_mode =
             if merged.body_mode == BodyMode::Mixed || schema.body_mode == BodyMode::Mixed {
                 BodyMode::Mixed
@@ -6462,6 +6570,14 @@ fn resolved_path(value: &ResolvedValue) -> Option<Vec<String>> {
                 _ => None,
             })
             .collect(),
+        _ => None,
+    }
+}
+
+fn authored_bare_path(value: &Value) -> Option<Vec<String>> {
+    match value {
+        Value::Atom(name) => Some(vec![name.to_string()]),
+        Value::Expr(expression) => helper_argument_path(expression.ast()),
         _ => None,
     }
 }
