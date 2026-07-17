@@ -193,6 +193,11 @@ pub struct KindSchema {
     pub docs: String,
     #[serde(default)]
     pub properties: BTreeMap<String, PropertySchema>,
+    /// Optional schema for user-named properties not listed in `properties`.
+    /// This supports native constructs such as calculate expressions and
+    /// named aggregate measures without making other declarations open-ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_properties: Option<PropertySchema>,
     #[serde(default)]
     pub channels: BTreeMap<String, ChannelSchema>,
     #[serde(default)]
@@ -222,6 +227,7 @@ impl KindSchema {
             runtime_kind: None,
             docs: docs.into(),
             properties: BTreeMap::new(),
+            additional_properties: None,
             channels: BTreeMap::new(),
             parts: BTreeMap::new(),
             exports: BTreeMap::new(),
@@ -236,6 +242,11 @@ impl KindSchema {
 
     pub fn property(mut self, name: impl Into<String>, property: PropertySchema) -> Self {
         self.properties.insert(name.into(), property);
+        self
+    }
+
+    pub fn additional_properties(mut self, property: PropertySchema) -> Self {
+        self.additional_properties = Some(property);
         self
     }
 
@@ -354,6 +365,10 @@ impl NativeSchemaSnapshot {
                 require_docs(&property.docs, format!("{key:?} property '{name}'"))?;
                 validate_shape_docs(&property.shape, format!("{key:?} property '{name}'"))?;
             }
+            if let Some(property) = &schema.additional_properties {
+                require_docs(&property.docs, format!("{key:?} additional properties"))?;
+                validate_shape_docs(&property.shape, format!("{key:?} additional properties"))?;
+            }
             for (name, channel) in &schema.channels {
                 require_docs(&channel.docs, format!("{key:?} channel '{name}'"))?;
                 validate_shape_docs(&channel.shape, format!("{key:?} channel '{name}'"))?;
@@ -393,11 +408,20 @@ impl NativeSchemaSnapshot {
                 key.kind,
                 schema.docs
             ));
-            if !schema.properties.is_empty() || !schema.channels.is_empty() {
+            if !schema.properties.is_empty()
+                || schema.additional_properties.is_some()
+                || !schema.channels.is_empty()
+            {
                 output.push_str("\n| Name | Role | Required | Description |\n|---|---|---:|---|\n");
                 for (name, property) in &schema.properties {
                     output.push_str(&format!(
                         "| `{name}` | property | {} | {} |\n",
+                        property.required, property.docs
+                    ));
+                }
+                if let Some(property) = &schema.additional_properties {
+                    output.push_str(&format!(
+                        "| `*` | user-named property | {} | {} |\n",
                         property.required, property.docs
                     ));
                 }
@@ -514,5 +538,29 @@ mod tests {
             snapshot.validate_docs(),
             Err(SchemaError::MissingDocs { .. })
         ));
+    }
+
+    #[test]
+    fn additional_properties_are_documented_and_canonical() {
+        let schema = KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Transform, "calculate"),
+            "Add user-named expressions.",
+        )
+        .additional_properties(PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "A user-named output expression.",
+        ));
+        let snapshot = NativeSchemaSnapshot {
+            version: SchemaVersion::V1,
+            profile_label: "test".to_string(),
+            entries: [(schema.key.clone(), schema)].into_iter().collect(),
+        };
+        snapshot.validate_docs().unwrap();
+        assert!(snapshot.markdown_reference().contains("`*`"));
+        assert!(
+            String::from_utf8(snapshot.canonical_json().unwrap())
+                .unwrap()
+                .contains("additional_properties")
+        );
     }
 }

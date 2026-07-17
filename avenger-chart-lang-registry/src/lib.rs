@@ -910,7 +910,11 @@ impl NativeRegistry {
             }
         }
         for name in declaration.properties.keys() {
-            if !schema.properties.contains_key(name) && !schema.channels.contains_key(name) {
+            if let Some(property) = schema.additional_properties.as_ref().filter(|_| {
+                !schema.properties.contains_key(name) && !schema.channels.contains_key(name)
+            }) {
+                validate_value_shape(&declaration.properties[name], &property.shape, name)?;
+            } else if !schema.properties.contains_key(name) && !schema.channels.contains_key(name) {
                 return Err(RegistryError::UnknownProperty {
                     kind: declaration.kind.clone(),
                     property: name.clone(),

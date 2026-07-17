@@ -2882,6 +2882,7 @@ impl<'a> Resolver<'a> {
                 .visible_definition_channel_property(scope, name.as_str())
                 .is_some();
             if !accepted.contains(name.as_str())
+                && schema.additional_properties.is_none()
                 && !logical_channel
                 && !core_property(declaration, name.as_str())
             {
@@ -6245,6 +6246,12 @@ fn schema_property<'a>(schema: &'a KindSchema, name: &str) -> Option<&'a ValueSh
         .get(name)
         .map(|property| &property.shape)
         .or_else(|| schema.channels.get(name).map(|channel| &channel.shape))
+        .or_else(|| {
+            schema
+                .additional_properties
+                .as_ref()
+                .map(|property| &property.shape)
+        })
 }
 
 fn declaration_public_path(

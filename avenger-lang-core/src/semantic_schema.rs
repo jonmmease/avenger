@@ -95,7 +95,10 @@ fn native_body_schema(schema: &KindSchema, keyword: &str) -> Value {
             .entry((*name).to_owned())
             .or_insert_with(value_ref);
     }
-    let props = object_properties_schema(properties, required, true);
+    let mut props = object_properties_schema(properties, required, true);
+    if let Some(additional) = &schema.additional_properties {
+        props["additionalProperties"] = value_shape_schema(&additional.shape);
+    }
     let mut then = json!({
         "properties": { "props": props },
     });
