@@ -82,6 +82,31 @@ Retain rows for which a predicate is true.
 |---|---|---:|---|
 | `predicate` | property | true | Boolean row predicate. |
 
+## `Transform.fold`
+
+Turn a named set of source expressions into key/value rows.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `as_key` | property | false | Generated key column name. |
+| `as_value` | property | false | Generated value column name. |
+| `fields` | property | true | A map from emitted key labels to source expressions. |
+| `index` | property | false | Optional generated source-order column. |
+
+## `Transform.impute`
+
+Insert missing key rows and fill a value expression within groups.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `as_value` | property | false | Generated value column name. |
+| `field` | property | true | The value expression to impute. |
+| `fill_value` | property | false | Fill expression required by the `value` method. |
+| `flag` | property | false | Optional generated imputation flag column. |
+| `group_by` | property | false | Expressions defining independent imputation groups. |
+| `key` | property | true | The key expression whose domain is completed. |
+| `method` | property | true | The fill strategy. |
+
 ## `Transform.join_aggregate`
 
 Compute grouped aggregate measures and join them back onto every input row.
@@ -97,6 +122,38 @@ Dynamic transform outputs:
 - PropertyNames { exclude: {"group_by", "measures"} }: Each user-named aggregate expression exposes a same-named field handle.
 
 - ArrayObjectField { property: "measures", field: "name" }: Each structured measure exposes the field named by its `name` member.
+
+## `Transform.kde`
+
+Estimate a one-dimensional kernel density, optionally by group.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `as_fields` | property | false | Two names for the generated value and density columns. |
+| `bandwidth` | property | false | Kernel bandwidth; zero selects an automatic value. |
+| `counts` | property | false | Scale density by group sample count. |
+| `cumulative` | property | false | Emit a cumulative density estimate. |
+| `extent` | property | false | Two expressions defining the evaluation interval. |
+| `field` | property | true | The quantitative sample expression. |
+| `group_by` | property | false | Simple columns defining independent density groups. |
+| `resolve` | property | false | Whether groups use independent or shared evaluation domains. |
+| `steps` | property | false | Number of evaluation samples. |
+
+## `Transform.lump`
+
+Keep the highest-ranked categories and combine or drop the remainder.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `drop_other` | property | false | Drop categories outside the retained set. |
+| `field` | property | true | The categorical value to rank. |
+| `keep` | property | false | Predicate identifying retained ranks. |
+| `name` | property | false | Base name for generated columns. |
+| `order` | property | false | Ranking direction. |
+| `order_by` | property | false | Aggregate ranking expression. |
+| `other` | property | false | Replacement value for combined categories. |
+| `top_n` | property | true | Scalar number of categories to retain. |
+| `window` | property | false | Window ranking expression. |
 
 ## `Transform.select`
 

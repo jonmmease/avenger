@@ -444,6 +444,180 @@
     {
       "key": {
         "namespace": "transform",
+        "kind": "fold"
+      },
+      "docs": "Turn a named set of source expressions into key/value rows.",
+      "properties": {
+        "as_key": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Generated key column name."
+        },
+        "as_value": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Generated value column name."
+        },
+        "fields": {
+          "shape": {
+            "shape": "map",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": true,
+          "docs": "A map from emitted key labels to source expressions."
+        },
+        "index": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Optional generated source-order column."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "index": {
+          "name": "index",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "condition_property": "index",
+          "docs": "The generated source-order column when `index` is configured."
+        },
+        "key": {
+          "name": "key",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The generated field-key column."
+        },
+        "value": {
+          "name": "value",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The generated field-value column."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "impute"
+      },
+      "docs": "Insert missing key rows and fill a value expression within groups.",
+      "properties": {
+        "as_value": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Generated value column name."
+        },
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The value expression to impute."
+        },
+        "fill_value": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Fill expression required by the `value` method."
+        },
+        "flag": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Optional generated imputation flag column."
+        },
+        "group_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions defining independent imputation groups."
+        },
+        "key": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The key expression whose domain is completed."
+        },
+        "method": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "value",
+                  "docs": "Use the `value` mode."
+                },
+                {
+                  "value": "mean",
+                  "docs": "Use the `mean` mode."
+                },
+                {
+                  "value": "min",
+                  "docs": "Use the `min` mode."
+                },
+                {
+                  "value": "max",
+                  "docs": "Use the `max` mode."
+                }
+              ]
+            }
+          },
+          "required": true,
+          "docs": "The fill strategy."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "flag": {
+          "name": "flag",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "condition_property": "flag",
+          "docs": "The imputation flag when `flag` is configured."
+        },
+        "value": {
+          "name": "value",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The completed and imputed value column."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
         "kind": "join_aggregate"
       },
       "docs": "Compute grouped aggregate measures and join them back onto every input row.",
@@ -557,6 +731,248 @@
           "docs": "Each structured measure exposes the field named by its `name` member."
         }
       ],
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "kde"
+      },
+      "docs": "Estimate a one-dimensional kernel density, optionally by group.",
+      "properties": {
+        "as_fields": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "string"
+            }
+          },
+          "required": false,
+          "docs": "Two names for the generated value and density columns."
+        },
+        "bandwidth": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Kernel bandwidth; zero selects an automatic value."
+        },
+        "counts": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Scale density by group sample count."
+        },
+        "cumulative": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Emit a cumulative density estimate."
+        },
+        "extent": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Two expressions defining the evaluation interval."
+        },
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The quantitative sample expression."
+        },
+        "group_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Simple columns defining independent density groups."
+        },
+        "resolve": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "independent",
+                  "docs": "Use the `independent` mode."
+                },
+                {
+                  "value": "shared",
+                  "docs": "Use the `shared` mode."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Whether groups use independent or shared evaluation domains."
+        },
+        "steps": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Number of evaluation samples."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "density": {
+          "name": "density",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The estimated density at the evaluation position."
+        },
+        "value": {
+          "name": "value",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The density evaluation position."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "lump"
+      },
+      "docs": "Keep the highest-ranked categories and combine or drop the remainder.",
+      "properties": {
+        "drop_other": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Drop categories outside the retained set."
+        },
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The categorical value to rank."
+        },
+        "keep": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Predicate identifying retained ranks."
+        },
+        "name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Base name for generated columns."
+        },
+        "order": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "asc",
+                  "docs": "Use the `asc` mode."
+                },
+                {
+                  "value": "desc",
+                  "docs": "Use the `desc` mode."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Ranking direction."
+        },
+        "order_by": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Aggregate ranking expression."
+        },
+        "other": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Replacement value for combined categories."
+        },
+        "top_n": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Scalar number of categories to retain."
+        },
+        "window": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Window ranking expression."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "is_other": {
+          "name": "is_other",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Whether the row represents combined categories."
+        },
+        "measure": {
+          "name": "measure",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Aggregate ranking measure."
+        },
+        "order": {
+          "name": "order",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Stable category ordering value."
+        },
+        "rank": {
+          "name": "rank",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Category rank."
+        },
+        "value": {
+          "name": "value",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled retained-or-combined category value."
+        }
+      },
       "compatible_coordinates": [],
       "stateless": false,
       "child_rules": []

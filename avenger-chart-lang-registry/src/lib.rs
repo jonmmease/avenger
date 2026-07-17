@@ -962,6 +962,9 @@ fn validate_value_shape(
         (ResolvedValue::Array(values), ValueShape::Array(inner)) => values
             .iter()
             .all(|value| validate_value_shape(value, inner, property).is_ok()),
+        (ResolvedValue::Object(values), ValueShape::Map(inner)) => values
+            .values()
+            .all(|value| validate_value_shape(value, inner, property).is_ok()),
         (ResolvedValue::Object(values), ValueShape::Object(fields)) => {
             values.iter().all(|(name, value)| {
                 fields

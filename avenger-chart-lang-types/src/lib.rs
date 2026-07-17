@@ -13,7 +13,11 @@ use avenger_chart_core::{
     DataTransformCompileContext, Param, PlotMark, RasterDim, WidgetAttachment,
 };
 use avenger_chart_schema::KindSchema;
-use datafusion::{common::ScalarValue, dataframe::DataFrame, logical_expr::Expr};
+use datafusion::{
+    common::ScalarValue,
+    dataframe::DataFrame,
+    logical_expr::{Expr, lit},
+};
 use indexmap::IndexMap;
 
 /// Schema-validated value independent of parser AST and registry types.
@@ -243,12 +247,21 @@ pub fn expr_property(
     declaration: &ResolvedDeclaration,
     name: &str,
 ) -> Result<Expr, NativeLoweringError> {
-    match declaration.get(name)? {
-        ResolvedValue::Expr(expr) => Ok(expr.clone()),
-        _ => Err(NativeLoweringError::InvalidPropertyType {
-            property: name.to_string(),
-            expected: "SQL expression".to_string(),
-        }),
+    resolved_expr(declaration.get(name)?).ok_or_else(|| NativeLoweringError::InvalidPropertyType {
+        property: name.to_string(),
+        expected: "SQL expression".to_string(),
+    })
+}
+
+pub fn resolved_expr(value: &ResolvedValue) -> Option<Expr> {
+    match value {
+        ResolvedValue::Boolean(value) => Some(lit(*value)),
+        ResolvedValue::Integer(value) => Some(lit(*value)),
+        ResolvedValue::Number(value) => Some(lit(*value)),
+        ResolvedValue::String(value) => Some(lit(value.clone())),
+        ResolvedValue::Scalar(value) => Some(lit(value.clone())),
+        ResolvedValue::Expr(expr) => Some(expr.clone()),
+        _ => None,
     }
 }
 

@@ -91,6 +91,8 @@ pub enum ValueShape {
     /// Accept either one value of `detail` or an array of those values.
     OneOrMany(Box<ValueShape>),
     Array(Box<ValueShape>),
+    /// An object with arbitrary keys and values of one shared shape.
+    Map(Box<ValueShape>),
     Object(BTreeMap<String, PropertySchema>),
     Any,
 }
@@ -184,6 +186,10 @@ impl BodyMode {
 pub struct TransformOutputSchema {
     pub name: String,
     pub shape: ValueShape,
+    /// When set, the handle exists only when this declaration property is
+    /// authored. The native lowerer must follow the same condition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition_property: Option<String>,
     pub docs: String,
 }
 
@@ -494,7 +500,7 @@ fn validate_shape_docs(shape: &ValueShape, context: String) -> Result<(), Schema
                 require_docs(&value.docs, format!("{context} enum '{}'", value.value))?;
             }
         }
-        ValueShape::OneOrMany(inner) | ValueShape::Array(inner) => {
+        ValueShape::OneOrMany(inner) | ValueShape::Array(inner) | ValueShape::Map(inner) => {
             validate_shape_docs(inner, context)?
         }
         ValueShape::Object(properties) => {

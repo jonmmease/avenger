@@ -351,6 +351,10 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         ValueShape::Array(inner) => {
             json!({ "type": "array", "items": value_shape_schema(inner) })
         }
+        ValueShape::Map(inner) => json!({
+            "type": "object",
+            "additionalProperties": value_shape_schema(inner)
+        }),
         ValueShape::Object(fields) => object_value_schema(fields),
         ValueShape::Any => value_ref(),
     }

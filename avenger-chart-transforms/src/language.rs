@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use avenger_chart_core::DataTransform;
 use avenger_chart_lang_types::{
     LoweredTransform, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
-    TransformLanguageDefinition, expr_property, string_property,
+    TransformLanguageDefinition, expr_property, resolved_expr, string_property,
 };
 use avenger_chart_schema::{
     DynamicOutputSource, DynamicTransformOutputSchema, EnumValueSchema, KindSchema, NativeKindKey,
@@ -17,7 +17,10 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 
-use crate::{Aggregate, Bin, Calculate, Filter, JoinAggregate, Select, Sql, Stack, StackOffset};
+use crate::{
+    Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Kde, KdeResolve, Lump, Select,
+    Sql, Stack, StackOffset,
+};
 
 /// The transform definitions currently available to the native registry.
 ///
@@ -30,6 +33,10 @@ pub fn definitions() -> Vec<TransformLanguageDefinition> {
         join_aggregate_definition(),
         calculate_definition(),
         select_definition(),
+        fold_definition(),
+        impute_definition(),
+        kde_definition(),
+        lump_definition(),
         bin_definition(),
         stack_definition(),
         sql_definition(),
@@ -289,6 +296,416 @@ fn select_definition() -> TransformLanguageDefinition {
     }
 }
 
+fn fold_definition() -> TransformLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "fold"),
+        "Turn a named set of source expressions into key/value rows.",
+    )
+    .property(
+        "fields",
+        PropertySchema::required(
+            ValueShape::Map(Box::new(ValueShape::SqlExpression)),
+            "A map from emitted key labels to source expressions.",
+        ),
+    )
+    .property(
+        "as_key",
+        PropertySchema::optional(ValueShape::String, "Generated key column name."),
+    )
+    .property(
+        "as_value",
+        PropertySchema::optional(ValueShape::String, "Generated value column name."),
+    )
+    .property(
+        "index",
+        PropertySchema::optional(
+            ValueShape::String,
+            "Optional generated source-order column.",
+        ),
+    )
+    .output(transform_output("key", "The generated field-key column."))
+    .output(transform_output(
+        "value",
+        "The generated field-value column.",
+    ))
+    .output(conditional_transform_output(
+        "index",
+        "index",
+        "The generated source-order column when `index` is configured.",
+    ));
+    TransformLanguageDefinition {
+        schema,
+        lowerer: |declaration, context| {
+            let ResolvedValue::Object(fields) = declaration.get("fields")? else {
+                unreachable!("schema validation checks fold fields")
+            };
+            let mut fold = Fold::new();
+            for (key, value) in fields {
+                let ResolvedValue::Expr(expr) = value else {
+                    unreachable!("schema validation checks fold field expressions")
+                };
+                fold = fold.field(key, expr.clone());
+            }
+            if let Some(name) = optional_string(declaration, "as_key")? {
+                fold = fold.as_key(name);
+            }
+            if let Some(name) = optional_string(declaration, "as_value")? {
+                fold = fold.as_value(name);
+            }
+            let has_index = declaration.properties.contains_key("index");
+            if let Some(name) = optional_string(declaration, "index")? {
+                fold = fold.index(name);
+            }
+            let (transform, output) = fold.into_compiled_and_output(context)?;
+            let mut outputs = BTreeMap::from([
+                ("key".to_string(), output.key().into()),
+                ("value".to_string(), output.value().into()),
+            ]);
+            if has_index {
+                outputs.insert("index".to_string(), output.index().into());
+            }
+            Ok(LoweredTransform { transform, outputs })
+        },
+    }
+}
+
+fn impute_definition() -> TransformLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "impute"),
+        "Insert missing key rows and fill a value expression within groups.",
+    )
+    .property(
+        "field",
+        PropertySchema::required(ValueShape::SqlExpression, "The value expression to impute."),
+    )
+    .property(
+        "key",
+        PropertySchema::required(
+            ValueShape::SqlExpression,
+            "The key expression whose domain is completed.",
+        ),
+    )
+    .property(
+        "group_by",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
+            "Expressions defining independent imputation groups.",
+        ),
+    )
+    .property(
+        "method",
+        PropertySchema::required(atom(&["value", "mean", "min", "max"]), "The fill strategy."),
+    )
+    .property(
+        "fill_value",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Fill expression required by the `value` method.",
+        ),
+    )
+    .property(
+        "as_value",
+        PropertySchema::optional(ValueShape::String, "Generated value column name."),
+    )
+    .property(
+        "flag",
+        PropertySchema::optional(
+            ValueShape::String,
+            "Optional generated imputation flag column.",
+        ),
+    )
+    .output(transform_output(
+        "value",
+        "The completed and imputed value column.",
+    ))
+    .output(conditional_transform_output(
+        "flag",
+        "flag",
+        "The imputation flag when `flag` is configured.",
+    ));
+    TransformLanguageDefinition {
+        schema,
+        lowerer: |declaration, context| {
+            let mut impute = Impute::new(expr_property(declaration, "field")?)
+                .key(expr_property(declaration, "key")?)
+                .group_by(resolved_exprs(declaration.properties.get("group_by"))?);
+            let method = string_property(declaration, "method")?;
+            impute =
+                match method.as_str() {
+                    "value" => impute.value(optional_expr(declaration, "fill_value")?.ok_or_else(
+                        || NativeLoweringError::Lowering {
+                            kind: "impute".to_string(),
+                            message: "method `value` requires `fill_value`".to_string(),
+                        },
+                    )?),
+                    "mean" => impute.mean(),
+                    "min" => impute.min(),
+                    "max" => impute.max(),
+                    _ => unreachable!("schema validation checks impute method"),
+                };
+            if let Some(name) = optional_string(declaration, "as_value")? {
+                impute = impute.as_value(name);
+            }
+            let has_flag = declaration.properties.contains_key("flag");
+            if let Some(name) = optional_string(declaration, "flag")? {
+                impute = impute.flag(name);
+            }
+            let (transform, output) = impute.into_compiled_and_output(context)?;
+            let mut outputs = BTreeMap::from([("value".to_string(), output.value().into())]);
+            if has_flag {
+                outputs.insert("flag".to_string(), output.flag().into());
+            }
+            Ok(LoweredTransform { transform, outputs })
+        },
+    }
+}
+
+fn kde_definition() -> TransformLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "kde"),
+        "Estimate a one-dimensional kernel density, optionally by group.",
+    )
+    .property(
+        "field",
+        PropertySchema::required(
+            ValueShape::SqlExpression,
+            "The quantitative sample expression.",
+        ),
+    )
+    .property(
+        "group_by",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
+            "Simple columns defining independent density groups.",
+        ),
+    )
+    .property(
+        "bandwidth",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Kernel bandwidth; zero selects an automatic value.",
+        ),
+    )
+    .property(
+        "counts",
+        PropertySchema::optional(ValueShape::Boolean, "Scale density by group sample count."),
+    )
+    .property(
+        "cumulative",
+        PropertySchema::optional(ValueShape::Boolean, "Emit a cumulative density estimate."),
+    )
+    .property(
+        "extent",
+        PropertySchema::optional(
+            ValueShape::Array(Box::new(ValueShape::SqlExpression)),
+            "Two expressions defining the evaluation interval.",
+        ),
+    )
+    .property(
+        "resolve",
+        PropertySchema::optional(
+            atom(&["independent", "shared"]),
+            "Whether groups use independent or shared evaluation domains.",
+        ),
+    )
+    .property(
+        "steps",
+        PropertySchema::optional(ValueShape::SqlExpression, "Number of evaluation samples."),
+    )
+    .property(
+        "as_fields",
+        PropertySchema::optional(
+            ValueShape::Array(Box::new(ValueShape::String)),
+            "Two names for the generated value and density columns.",
+        ),
+    )
+    .output(transform_output(
+        "value",
+        "The density evaluation position.",
+    ))
+    .output(transform_output(
+        "density",
+        "The estimated density at the evaluation position.",
+    ));
+    TransformLanguageDefinition {
+        schema,
+        lowerer: lower_kde,
+    }
+}
+
+fn lower_kde(
+    declaration: &ResolvedDeclaration,
+    context: avenger_chart_core::DataTransformCompileContext,
+) -> Result<LoweredTransform, NativeLoweringError> {
+    let mut kde = Kde::new(expr_property(declaration, "field")?)
+        .group_by(resolved_exprs(declaration.properties.get("group_by"))?);
+    if let Some(value) = optional_expr(declaration, "bandwidth")? {
+        kde = kde.bandwidth(value);
+    }
+    if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("counts") {
+        kde = kde.counts(*value);
+    }
+    if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("cumulative") {
+        kde = kde.cumulative(*value);
+    }
+    if let Some(values) = optional_expr_array(declaration, "extent")? {
+        let [start, stop]: [Expr; 2] =
+            values
+                .try_into()
+                .map_err(|_| NativeLoweringError::Lowering {
+                    kind: "kde".to_string(),
+                    message: "extent requires exactly two expressions".to_string(),
+                })?;
+        kde = kde.extent(start, stop);
+    }
+    if let Some(resolve) = optional_string(declaration, "resolve")? {
+        kde = kde.resolve(match resolve.as_str() {
+            "independent" => KdeResolve::Independent,
+            "shared" => KdeResolve::Shared,
+            _ => unreachable!("schema validation checks KDE resolution"),
+        });
+    }
+    if let Some(value) = optional_expr(declaration, "steps")? {
+        kde = kde.steps(value);
+    }
+    if let Some(names) = optional_strings(declaration, "as_fields")? {
+        let [value, density]: [String; 2] =
+            names
+                .try_into()
+                .map_err(|_| NativeLoweringError::Lowering {
+                    kind: "kde".to_string(),
+                    message: "as_fields requires exactly two names".to_string(),
+                })?;
+        kde = kde.as_fields(value, density);
+    }
+    let (transform, output) = kde.into_compiled_and_output(context)?;
+    Ok(LoweredTransform {
+        transform,
+        outputs: [
+            ("value".to_string(), output.value().into()),
+            ("density".to_string(), output.density().into()),
+        ]
+        .into_iter()
+        .collect(),
+    })
+}
+
+fn lump_definition() -> TransformLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "lump"),
+        "Keep the highest-ranked categories and combine or drop the remainder.",
+    )
+    .property(
+        "field",
+        PropertySchema::required(ValueShape::SqlExpression, "The categorical value to rank."),
+    )
+    .property(
+        "top_n",
+        PropertySchema::required(
+            ValueShape::SqlExpression,
+            "Scalar number of categories to retain.",
+        ),
+    )
+    .property(
+        "order_by",
+        PropertySchema::optional(ValueShape::SqlExpression, "Aggregate ranking expression."),
+    )
+    .property(
+        "order",
+        PropertySchema::optional(atom(&["asc", "desc"]), "Ranking direction."),
+    )
+    .property(
+        "window",
+        PropertySchema::optional(ValueShape::SqlExpression, "Window ranking expression."),
+    )
+    .property(
+        "keep",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Predicate identifying retained ranks.",
+        ),
+    )
+    .property(
+        "other",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Replacement value for combined categories.",
+        ),
+    )
+    .property(
+        "drop_other",
+        PropertySchema::optional(
+            ValueShape::Boolean,
+            "Drop categories outside the retained set.",
+        ),
+    )
+    .property(
+        "name",
+        PropertySchema::optional(ValueShape::String, "Base name for generated columns."),
+    )
+    .output(transform_output(
+        "value",
+        "Scaled retained-or-combined category value.",
+    ))
+    .output(transform_output("rank", "Category rank."))
+    .output(transform_output("measure", "Aggregate ranking measure."))
+    .output(transform_output(
+        "is_other",
+        "Whether the row represents combined categories.",
+    ))
+    .output(transform_output("order", "Stable category ordering value."));
+    TransformLanguageDefinition {
+        schema,
+        lowerer: |declaration, context| {
+            let mut lump = Lump::top_n(
+                expr_property(declaration, "field")?,
+                expr_property(declaration, "top_n")?,
+            );
+            if let Some(value) = optional_expr(declaration, "order_by")? {
+                lump = lump.order_by(value);
+            }
+            if let Some(order) = optional_string(declaration, "order")? {
+                lump = if order == "asc" {
+                    lump.order_asc()
+                } else {
+                    lump.order_desc()
+                };
+            }
+            if let Some(value) = optional_expr(declaration, "window")? {
+                lump = lump.window(value);
+            }
+            if let Some(value) = optional_expr(declaration, "keep")? {
+                lump = lump.keep(value);
+            }
+            if let Some(value) = optional_expr(declaration, "other")? {
+                lump = lump.other_value(value);
+            }
+            if matches!(
+                declaration.properties.get("drop_other"),
+                Some(ResolvedValue::Boolean(true))
+            ) {
+                lump = lump.drop_other();
+            }
+            if let Some(name) = optional_string(declaration, "name")? {
+                lump = lump.name(name);
+            }
+            let (transform, output) = lump.into_compiled_and_output(context)?;
+            Ok(LoweredTransform {
+                transform,
+                outputs: [
+                    ("value".to_string(), output.value().into()),
+                    ("rank".to_string(), output.rank().into()),
+                    ("measure".to_string(), output.measure().into()),
+                    ("is_other".to_string(), output.is_other().into()),
+                    ("order".to_string(), output.order().into()),
+                ]
+                .into_iter()
+                .collect(),
+            })
+        },
+    }
+}
+
 fn bin_definition() -> TransformLanguageDefinition {
     let schema = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Transform, "bin"),
@@ -535,6 +952,7 @@ fn sql_definition() -> TransformLanguageDefinition {
     .output(TransformOutputSchema {
         name: "fields".to_string(),
         shape: ValueShape::Object(BTreeMap::new()),
+        condition_property: None,
         docs: "Fields projected by the SQL query.".to_string(),
     });
     TransformLanguageDefinition {
@@ -717,21 +1135,21 @@ fn literal_u32(expr: &Expr) -> Option<u32> {
 fn resolved_exprs(value: Option<&ResolvedValue>) -> Result<Vec<Expr>, NativeLoweringError> {
     match value {
         None => Ok(Vec::new()),
-        Some(ResolvedValue::Expr(expr)) => Ok(vec![expr.clone()]),
         Some(ResolvedValue::Array(values)) => values
             .iter()
-            .map(|value| match value {
-                ResolvedValue::Expr(expr) => Ok(expr.clone()),
-                _ => Err(NativeLoweringError::InvalidPropertyType {
+            .map(|value| {
+                resolved_expr(value).ok_or_else(|| NativeLoweringError::InvalidPropertyType {
                     property: "expression array".to_string(),
                     expected: "SQL expression".to_string(),
-                }),
+                })
             })
             .collect(),
-        Some(_) => Err(NativeLoweringError::InvalidPropertyType {
-            property: "expression".to_string(),
-            expected: "SQL expression or array".to_string(),
-        }),
+        Some(value) => resolved_expr(value)
+            .map(|value| vec![value])
+            .ok_or_else(|| NativeLoweringError::InvalidPropertyType {
+                property: "expression".to_string(),
+                expected: "SQL expression or array".to_string(),
+            }),
     }
 }
 
@@ -742,12 +1160,11 @@ fn optional_expr(
     declaration
         .properties
         .get(name)
-        .map(|value| match value {
-            ResolvedValue::Expr(expr) => Ok(expr.clone()),
-            _ => Err(NativeLoweringError::InvalidPropertyType {
+        .map(|value| {
+            resolved_expr(value).ok_or_else(|| NativeLoweringError::InvalidPropertyType {
                 property: name.to_string(),
                 expected: "SQL expression".to_string(),
-            }),
+            })
         })
         .transpose()
 }
@@ -854,6 +1271,34 @@ fn optional_numbers(
         .transpose()
 }
 
+fn optional_strings(
+    declaration: &ResolvedDeclaration,
+    name: &str,
+) -> Result<Option<Vec<String>>, NativeLoweringError> {
+    declaration
+        .properties
+        .get(name)
+        .map(|value| {
+            let ResolvedValue::Array(values) = value else {
+                return Err(NativeLoweringError::InvalidPropertyType {
+                    property: name.to_string(),
+                    expected: "string array".to_string(),
+                });
+            };
+            values
+                .iter()
+                .map(|value| match value {
+                    ResolvedValue::String(value) => Ok(value.clone()),
+                    _ => Err(NativeLoweringError::InvalidPropertyType {
+                        property: name.to_string(),
+                        expected: "string array".to_string(),
+                    }),
+                })
+                .collect()
+        })
+        .transpose()
+}
+
 fn optional_object_expr(
     fields: &IndexMap<String, ResolvedValue>,
     name: &str,
@@ -874,6 +1319,20 @@ fn transform_output(name: &str, docs: &str) -> TransformOutputSchema {
     TransformOutputSchema {
         name: name.to_string(),
         shape: ValueShape::SqlExpression,
+        condition_property: None,
+        docs: docs.to_string(),
+    }
+}
+
+fn conditional_transform_output(
+    name: &str,
+    condition_property: &str,
+    docs: &str,
+) -> TransformOutputSchema {
+    TransformOutputSchema {
+        name: name.to_string(),
+        shape: ValueShape::SqlExpression,
+        condition_property: Some(condition_property.to_string()),
         docs: docs.to_string(),
     }
 }
@@ -926,6 +1385,10 @@ mod tests {
                 "join_aggregate",
                 "calculate",
                 "select",
+                "fold",
+                "impute",
+                "kde",
+                "lump",
                 "bin",
                 "stack",
                 "sql"

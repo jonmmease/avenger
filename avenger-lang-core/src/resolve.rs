@@ -3314,6 +3314,11 @@ impl<'a> Resolver<'a> {
                 (value, ValueShape::OneOrMany(inner)) => {
                     self.validate_value_shape(value, inner, property, span);
                 }
+                (ResolvedValue::Object { properties, .. }, ValueShape::Map(inner)) => {
+                    for value in properties.values() {
+                        self.validate_value_shape(value, inner, property, span);
+                    }
+                }
                 _ => {}
             }
             return;
@@ -3396,6 +3401,19 @@ impl<'a> Resolver<'a> {
                                 span,
                                 in_event,
                                 owner,
+                            );
+                        }
+                    }
+                }
+            }
+            ValueShape::Map(inner) => {
+                if let (Value::Block { body, .. }, ResolvedValue::Object { properties, .. }) =
+                    (source, resolved)
+                {
+                    for (name, source) in body.props.iter() {
+                        if let Some(value) = properties.get_mut(name.as_str()) {
+                            self.normalize_definition_arguments(
+                                scope, source, value, inner, span, in_event, owner,
                             );
                         }
                     }
@@ -4548,7 +4566,13 @@ impl<'a> Resolver<'a> {
                 kind.to_string(),
             ))
         }) {
-            output_names.extend(schema.outputs.keys().cloned());
+            output_names.extend(schema.outputs.values().filter_map(|output| {
+                output
+                    .condition_property
+                    .as_ref()
+                    .is_none_or(|property| declaration.props.get(property).is_some())
+                    .then(|| output.name.clone())
+            }));
         }
         if let Some(definition) = definition {
             output_names.extend(definition.outputs.keys().cloned());
@@ -6406,6 +6430,12 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
         ValueShape::Array(inner) => {
             matches!(value, ResolvedValue::Array(values) if values.iter().all(|value| value_matches_shape(value, inner)))
         }
+        ValueShape::Map(inner) => match value {
+            ResolvedValue::Object { properties, .. } => properties
+                .values()
+                .all(|value| value_matches_shape(value, inner)),
+            _ => false,
+        },
         ValueShape::Object(_) => matches!(value, ResolvedValue::Object { .. }),
     }
 }
@@ -6589,6 +6619,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::TypedReference { .. } => "typed reference",
         ValueShape::OneOrMany(_) => "value or array",
         ValueShape::Array(_) => "array",
+        ValueShape::Map(_) => "property map",
         ValueShape::Object(_) => "object",
         ValueShape::Any => "value",
     }
@@ -6658,6 +6689,15 @@ fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> Res
                 .collect(),
         ),
         (_, ValueShape::OneOrMany(inner)) => resolved_schema_default(value, inner),
+        (serde_json::Value::Object(values), ValueShape::Map(inner)) => ResolvedValue::Object {
+            head: None,
+            kind: None,
+            properties: values
+                .iter()
+                .map(|(name, value)| (name.clone(), resolved_schema_default(value, inner)))
+                .collect(),
+            children: Vec::new(),
+        },
         (serde_json::Value::Object(values), ValueShape::Object(fields)) => ResolvedValue::Object {
             head: None,
             kind: None,
