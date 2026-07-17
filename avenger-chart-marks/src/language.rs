@@ -5,8 +5,8 @@
 //! uses the same implementation.
 
 use avenger_chart_core::{
-    ChannelDescriptor, ChannelValue, CoordinateSystem, IntoPlotMark, Mark, PatternChannelValue,
-    PlotMark, ZeroDCoord,
+    ChannelDescriptor, ChannelValue, CoordinateSystem, DefaultLogicalExprNodeExt, FacetDataScope,
+    GeometrySpace, IntoPlotMark, Mark, PatternChannelValue, PlotMark, ZeroDCoord,
 };
 use avenger_chart_lang_types::{
     CoordinateLanguageDefinition, NativeLoweringError, NativeOutputValue, ResolvedDeclaration,
@@ -31,14 +31,16 @@ pub fn primitive_schema(
     docs: impl Into<String>,
     channels: impl IntoIterator<Item = ChannelDescriptor>,
 ) -> KindSchema {
-    let mut schema = KindSchema::new(NativeKindKey::mark(coordinate, kind), docs)
-        .body_mode(BodyMode::Mixed)
-        .child_rule(ChildRule {
-            role: "view".to_string(),
-            min: 0,
-            max: Some(1),
-            docs: "Optional inline data view owned by this mark.".to_string(),
-        });
+    let mut schema = common_mark_schema(
+        KindSchema::new(NativeKindKey::mark(coordinate, kind), docs)
+            .body_mode(BodyMode::Mixed)
+            .child_rule(ChildRule {
+                role: "view".to_string(),
+                min: 0,
+                max: Some(1),
+                docs: "Optional inline data view owned by this mark.".to_string(),
+            }),
+    );
     for channel in channels {
         schema = schema.channel(ChannelSchema {
             name: channel.name.to_string(),
@@ -52,6 +54,66 @@ pub fn primitive_schema(
         });
     }
     schema
+}
+
+/// Add the coordinate-independent state surface shared by primitive and
+/// native compound marks. Keeping this vocabulary with the mark owner gives
+/// every coordinate pack the same authoring contract.
+pub fn common_mark_schema(schema: KindSchema) -> KindSchema {
+    schema
+        .property(
+            "visible",
+            PropertySchema::optional(
+                ValueShape::SqlExpression,
+                "Scalar boolean expression controlling whether the mark is rendered.",
+            ),
+        )
+        .property(
+            "details",
+            PropertySchema::optional(
+                ValueShape::OneOrMany(Box::new(ValueShape::Identifier)),
+                "Data field names retained for interaction details and path partitioning.",
+            ),
+        )
+        .property(
+            "zindex",
+            PropertySchema::optional(ValueShape::Integer, "Integer rendering order."),
+        )
+        .property(
+            "facet_data_scope",
+            PropertySchema::optional(
+                ValueShape::FacetDataScope,
+                "Facet visibility scope: filtered, broadcast, or level(n).",
+            ),
+        )
+        .property(
+            "geometry_space",
+            PropertySchema::optional(
+                ValueShape::Atom {
+                    values: [
+                        ("coordinate", "Build geometry before coordinate projection."),
+                        (
+                            "display",
+                            "Build geometry after projection in display space.",
+                        ),
+                    ]
+                    .into_iter()
+                    .map(|(value, docs)| EnumValueSchema {
+                        value: value.to_string(),
+                        docs: docs.to_string(),
+                    })
+                    .collect(),
+                },
+                "Space in which the mark constructs geometry.",
+            ),
+        )
+        .property(
+            "exclude_from_scale_domains",
+            PropertySchema::optional(
+                ValueShape::Boolean,
+                "Exclude this mark's channels from inferred scale domains.",
+            ),
+        )
 }
 
 /// Build a primitive text schema, including the non-channel syntax property.
@@ -244,6 +306,7 @@ where
     if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("smooth") {
         mark = mark.smooth(*value);
     }
+    apply_common_mark_state::<C, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 
@@ -332,6 +395,118 @@ fn pattern_channel(
     }
 }
 
+/// Apply the coordinate-independent mark properties after schema-directed
+/// native lowering has separated them from encoding channels.
+pub fn apply_common_mark_state<C, M>(
+    mark: &mut M,
+    declaration: &ResolvedDeclaration,
+) -> Result<(), NativeLoweringError>
+where
+    C: CoordinateSystem,
+    M: Mark<C>,
+{
+    let state = mark.state_mut();
+    if let Some(value) = declaration.properties.get("visible") {
+        let ResolvedValue::Expr(expr) = value else {
+            return Err(invalid_common_property(
+                "visible",
+                "scalar boolean expression",
+            ));
+        };
+        state.visible = Some(
+            DefaultLogicalExprNodeExt::from_default_expr(expr.clone()).map_err(|error| {
+                NativeLoweringError::Lowering {
+                    kind: declaration.kind.clone(),
+                    message: format!("failed to serialize mark visibility: {error}"),
+                }
+            })?,
+        );
+    }
+    if let Some(value) = declaration.properties.get("details") {
+        let values = match value {
+            ResolvedValue::String(value) => vec![value.clone()],
+            ResolvedValue::Array(values) => values
+                .iter()
+                .map(|value| match value {
+                    ResolvedValue::String(value) => Ok(value.clone()),
+                    _ => Err(invalid_common_property("details", "field-name array")),
+                })
+                .collect::<Result<_, _>>()?,
+            _ => return Err(invalid_common_property("details", "field name or array")),
+        };
+        state.details = Some(values);
+    }
+    if let Some(value) = declaration.properties.get("zindex") {
+        let ResolvedValue::Integer(value) = value else {
+            return Err(invalid_common_property("zindex", "32-bit integer"));
+        };
+        state.zindex = Some(
+            (*value)
+                .try_into()
+                .map_err(|_| invalid_common_property("zindex", "32-bit integer"))?,
+        );
+    }
+    if let Some(value) = declaration.properties.get("facet_data_scope") {
+        let ResolvedValue::Integer(value) = value else {
+            return Err(invalid_common_property(
+                "facet_data_scope",
+                "resolved facet scope level",
+            ));
+        };
+        let level = (*value).try_into().map_err(|_| {
+            invalid_common_property("facet_data_scope", "scope level from 0 through 255")
+        })?;
+        state.facet_data_scope = FacetDataScope::level(level);
+    }
+    if let Some(value) = declaration.properties.get("geometry_space") {
+        let ResolvedValue::String(value) = value else {
+            return Err(invalid_common_property(
+                "geometry_space",
+                "coordinate or display",
+            ));
+        };
+        state.geometry_space = Some(match value.as_str() {
+            "coordinate" => GeometrySpace::Coordinate,
+            "display" => GeometrySpace::Display,
+            _ => {
+                return Err(invalid_common_property(
+                    "geometry_space",
+                    "coordinate or display",
+                ));
+            }
+        });
+    }
+    if let Some(value) = declaration.properties.get("exclude_from_scale_domains") {
+        let ResolvedValue::Boolean(value) = value else {
+            return Err(invalid_common_property(
+                "exclude_from_scale_domains",
+                "boolean",
+            ));
+        };
+        state.exclude_from_scale_domains = *value;
+    }
+    Ok(())
+}
+
+pub fn is_common_mark_property(name: &str) -> bool {
+    matches!(
+        name,
+        "visible"
+            | "details"
+            | "zindex"
+            | "facet_data_scope"
+            | "geometry_space"
+            | "exclude_from_scale_domains"
+    )
+}
+
+fn invalid_common_property(property: &str, expected: &str) -> NativeLoweringError {
+    NativeLoweringError::InvalidPropertyType {
+        property: property.to_string(),
+        expected: expected.to_string(),
+    }
+}
+
 macro_rules! primitive_lowerer {
     ($function:ident, $mark:ident) => {
         pub fn $function<C>(
@@ -346,12 +521,16 @@ macro_rules! primitive_lowerer {
                 mark = mark.id(source_name.clone());
             }
             for (name, value) in &declaration.properties {
+                if is_common_mark_property(name) {
+                    continue;
+                }
                 mark = if name == "fill_pattern" {
                     mark.with_pattern_channel_value(name, pattern_channel(name, value)?)
                 } else {
                     mark.with_channel_value(name, ordinary_channel(name, value)?)
                 };
             }
+            apply_common_mark_state::<C, _>(&mut mark, declaration)?;
             Ok(mark.into_plot_marks())
         }
     };
@@ -378,6 +557,9 @@ where
         mark = mark.id(source_name.clone());
     }
     for (name, value) in &declaration.properties {
+        if is_common_mark_property(name) {
+            continue;
+        }
         if name == "syntax" {
             let ResolvedValue::String(mode) = value else {
                 return Err(NativeLoweringError::InvalidPropertyType {
@@ -399,5 +581,6 @@ where
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?)
         }
     }
+    apply_common_mark_state::<C, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }

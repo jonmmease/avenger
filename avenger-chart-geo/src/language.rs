@@ -9,8 +9,8 @@ use avenger_chart_lang_types::{
 use avenger_chart_marks::{
     Symbol,
     language::{
-        channel, lower_line, lower_rect, lower_uniform_raster, primitive_schema,
-        uniform_raster_schema,
+        apply_common_mark_state, channel, is_common_mark_property, lower_line, lower_rect,
+        lower_uniform_raster, primitive_schema, uniform_raster_schema,
     },
 };
 use avenger_chart_schema::{
@@ -351,6 +351,9 @@ fn lower_geo_symbol(
         mark = mark.id(id.clone());
     }
     for (name, value) in &declaration.properties {
+        if is_common_mark_property(name) {
+            continue;
+        }
         if name == "lon_lat" {
             let ResolvedValue::Array(values) = value else {
                 unreachable!("schema validates lon_lat")
@@ -381,6 +384,7 @@ fn lower_geo_symbol(
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
+    apply_common_mark_state::<Geo, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 
@@ -392,8 +396,11 @@ fn lower_geo_shape(
         mark = mark.id(id.clone());
     }
     for (name, value) in &declaration.properties {
-        mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
+        if !is_common_mark_property(name) {
+            mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
+        }
     }
+    apply_common_mark_state::<Geo, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 

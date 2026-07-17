@@ -3043,6 +3043,24 @@ mark rule as global_median {
 }
 ```
 
+All native and defined marks share the following coordinate-independent
+properties. These are schema-owned generic mark properties rather than
+encoding channels:
+
+- `visible`: a scalar boolean SQL expression;
+- `details`: one field name or an ordered array of field names retained for
+  interaction details and path partitioning;
+- `zindex`: a signed 32-bit integer rendering order;
+- `facet_data_scope`: `filtered`, `broadcast`, or `level(n)` where `n` is from
+  0 through 255;
+- `geometry_space`: `coordinate` (the default) or `display`;
+- `exclude_from_scale_domains`: a boolean, defaulting to `false`.
+
+`details` contains data-field names, not arbitrary scalar expressions.
+`geometry_space: coordinate` builds geometry in encoded coordinate space and
+then projects it; `display` projects channel values first and builds geometry
+in display space.
+
 ### Repeat
 
 Repeat variables are ordered child declarations whose ids become repeat
@@ -3869,7 +3887,8 @@ chart cartesian as sales_errors {
 
 - Properties bind slots by name; a missing slot without a default is an
   error, and an unknown property is an error — except the generic mark
-  properties (`zindex`, `visible`, `facet_data_scope`), which apply to the
+  properties (`visible`, `details`, `zindex`, `facet_data_scope`,
+  `geometry_space`, and `exclude_from_scale_domains`), which apply to the
   expansion root.
 - `part <name> { ... }` targets the mark explicitly exported under `<name>`; its
   properties merge over the definition's, use site winning. Parts cover

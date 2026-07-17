@@ -1063,6 +1063,7 @@ fn validate_value_shape(
         (ResolvedValue::Channel(_), ValueShape::ChannelConfig) => true,
         (ResolvedValue::Pattern(_), ValueShape::PatternChannel) => true,
         (ResolvedValue::String(_), ValueShape::CoordinationScope) => true,
+        (ResolvedValue::String(_) | ResolvedValue::Integer(_), ValueShape::FacetDataScope) => true,
         (ResolvedValue::Output(NativeOutputValue::RasterDim(_)), ValueShape::RasterDimension) => {
             true
         }

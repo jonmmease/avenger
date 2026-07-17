@@ -292,7 +292,65 @@
         "coordinate": "cartesian"
       },
       "docs": "A filled Cartesian area mark.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "defined": {
           "name": "defined",
@@ -437,7 +495,65 @@
         "coordinate": "geo"
       },
       "docs": "A GeoJSON or WKB geometry projected through the geo coordinate system.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "fill": {
           "name": "fill",
@@ -534,7 +650,65 @@
         "coordinate": "cartesian"
       },
       "docs": "An image positioned in Cartesian coordinates.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "align": {
           "name": "align",
@@ -631,7 +805,65 @@
         "coordinate": "cartesian"
       },
       "docs": "A Cartesian line mark.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "defined": {
           "name": "defined",
@@ -736,7 +968,65 @@
         "coordinate": "geo"
       },
       "docs": "A projected line with planar or longitude/latitude positions.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "defined": {
           "name": "defined",
@@ -857,7 +1147,65 @@
         "coordinate": "polar"
       },
       "docs": "A line in radial and angular coordinates.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "defined": {
           "name": "defined",
@@ -963,12 +1311,69 @@
       },
       "docs": "A wide-form polyline spanning the declared parallel dimensions.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
         "dimensions": {
           "shape": {
             "shape": "channel_map"
           },
           "required": true,
           "docs": "User-named dimension ids mapped to configured encoding channels."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -1052,12 +1457,69 @@
       },
       "docs": "A symbol at every row and parallel-dimension intersection.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
         "dimensions": {
           "shape": {
             "shape": "channel_map"
           },
           "required": true,
           "docs": "User-named dimension ids mapped to configured encoding channels."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -1140,7 +1602,65 @@
         "coordinate": "cartesian"
       },
       "docs": "An arbitrary Cartesian path mark.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "fill": {
           "name": "fill",
@@ -1253,7 +1773,65 @@
         "coordinate": "cartesian"
       },
       "docs": "A Cartesian rectangle mark.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "corner_radius": {
           "name": "corner_radius",
@@ -1358,7 +1936,65 @@
         "coordinate": "geo"
       },
       "docs": "A rectangle in projected geo plot coordinates.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "corner_radius": {
           "name": "corner_radius",
@@ -1463,7 +2099,65 @@
         "coordinate": "cartesian"
       },
       "docs": "A Cartesian rule mark.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "opacity": {
           "name": "opacity",
@@ -1560,7 +2254,65 @@
         "coordinate": "cartesian"
       },
       "docs": "A point symbol in Cartesian coordinates.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "angle": {
           "name": "angle",
@@ -1666,6 +2418,49 @@
       },
       "docs": "A symbol positioned by projected x/y or geographic lon/lat channels.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
         "lon_lat": {
           "shape": {
             "shape": "array",
@@ -1675,6 +2470,20 @@
           },
           "required": false,
           "docs": "Convenience pair `[longitude, latitude]`; do not also author `lon` or `lat`."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -1797,7 +2606,65 @@
         "coordinate": "polar"
       },
       "docs": "A point symbol in radial and angular coordinates.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "angle": {
           "name": "angle",
@@ -1886,7 +2753,65 @@
         "coordinate": "zerod"
       },
       "docs": "A non-spatial symbol placed at the plot center.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "angle": {
           "name": "angle",
@@ -1968,6 +2893,49 @@
       },
       "docs": "Text positioned in Cartesian coordinates.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
         "syntax": {
           "shape": {
             "shape": "atom",
@@ -1986,6 +2954,20 @@
           },
           "required": false,
           "docs": "Text syntax mode; defaults to `plain`."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -2245,6 +3227,49 @@
       },
       "docs": "Text positioned in radial and angular coordinates.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
         "syntax": {
           "shape": {
             "shape": "atom",
@@ -2263,6 +3288,20 @@
           },
           "required": false,
           "docs": "Text syntax mode; defaults to `plain`."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -2522,6 +3561,49 @@
       },
       "docs": "Text placed at the plot center.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
         "syntax": {
           "shape": {
             "shape": "atom",
@@ -2540,6 +3622,20 @@
           },
           "required": false,
           "docs": "Text syntax mode; defaults to `plain`."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -2662,7 +3758,65 @@
         "coordinate": "cartesian"
       },
       "docs": "A variable-width Cartesian trail mark.",
-      "properties": {},
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
       "channels": {
         "defined": {
           "name": "defined",
@@ -2744,6 +3898,49 @@
       },
       "docs": "Header bars for visible non-leaf treemap nodes.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
         "max_depth": {
           "shape": {
             "shape": "integer"
@@ -2764,6 +3961,20 @@
           },
           "required": false,
           "docs": "Header text padding in pixels."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -2871,6 +4082,30 @@
       },
       "docs": "Labels fitted inside visible treemap nodes.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
         "fit": {
           "shape": {
             "shape": "atom",
@@ -2889,6 +4124,25 @@
           },
           "required": false,
           "docs": "Overflow behavior for labels."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
         },
         "min_height_px": {
           "shape": {
@@ -2937,6 +4191,20 @@
           },
           "required": false,
           "docs": "Inner label padding in pixels."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -3036,6 +4304,49 @@
       },
       "docs": "Rectangles for visible treemap nodes.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
         "node_mode": {
           "shape": {
             "shape": "union",
@@ -3062,6 +4373,20 @@
           },
           "required": false,
           "docs": "Node set to render; an integer selects one relative depth."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -3161,12 +4486,55 @@
       },
       "docs": "A uniformly binned two-dimensional raster image.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
         "fill_by": {
           "shape": {
             "shape": "raster_dimension_channel"
           },
           "required": false,
           "docs": "Categorical raster plane dimension that drives the fill scale."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
         },
         "raster": {
           "shape": {
@@ -3182,6 +4550,13 @@
           "required": false,
           "docs": "Enable smooth image sampling."
         },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
         "x": {
           "shape": {
             "shape": "raster_dimension_channel"
@@ -3195,6 +4570,13 @@
           },
           "required": false,
           "docs": "Configured raster y-dimension handle."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {
@@ -3262,12 +4644,55 @@
       },
       "docs": "A uniformly binned two-dimensional raster image.",
       "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
         "fill_by": {
           "shape": {
             "shape": "raster_dimension_channel"
           },
           "required": false,
           "docs": "Categorical raster plane dimension that drives the fill scale."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
         },
         "raster": {
           "shape": {
@@ -3283,6 +4708,13 @@
           "required": false,
           "docs": "Enable smooth image sampling."
         },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
         "x": {
           "shape": {
             "shape": "raster_dimension_channel"
@@ -3296,6 +4728,13 @@
           },
           "required": false,
           "docs": "Configured raster y-dimension handle."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
         }
       },
       "channels": {

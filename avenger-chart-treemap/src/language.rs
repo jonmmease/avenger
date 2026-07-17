@@ -4,7 +4,9 @@ use avenger_chart_core::{ChannelValue, IntoPlotMark};
 use avenger_chart_lang_types::{
     CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
 };
-use avenger_chart_marks::language::{channel, primitive_schema};
+use avenger_chart_marks::language::{
+    apply_common_mark_state, channel, is_common_mark_property, primitive_schema,
+};
 use avenger_chart_schema::{
     BodyMode, EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
     ValueShape,
@@ -262,10 +264,11 @@ fn lower_tree_rect(
         |mark, mode| mark.node_mode(mode),
     )?;
     for (name, value) in &declaration.properties {
-        if name != "node_mode" {
+        if name != "node_mode" && !is_common_mark_property(name) {
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
+    apply_common_mark_state::<Treemap, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 
@@ -297,13 +300,16 @@ fn lower_tree_label(
         mark = mark.min_size_px(width.unwrap_or(10.0) as f32, height.unwrap_or(8.0) as f32);
     }
     for (name, value) in &declaration.properties {
-        if !matches!(
-            name.as_str(),
-            "node_mode" | "fit" | "padding_px" | "min_width_px" | "min_height_px"
-        ) {
+        if !is_common_mark_property(name)
+            && !matches!(
+                name.as_str(),
+                "node_mode" | "fit" | "padding_px" | "min_width_px" | "min_height_px"
+            )
+        {
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
+    apply_common_mark_state::<Treemap, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 
@@ -321,10 +327,13 @@ fn lower_tree_header(
         mark = mark.padding(value as f32);
     }
     for (name, value) in &declaration.properties {
-        if !matches!(name.as_str(), "min_depth" | "max_depth" | "padding_px") {
+        if !is_common_mark_property(name)
+            && !matches!(name.as_str(), "min_depth" | "max_depth" | "padding_px")
+        {
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
+    apply_common_mark_state::<Treemap, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 

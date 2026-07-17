@@ -335,6 +335,7 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
             ]
         }),
         ValueShape::CoordinationScope => sharing_schema(),
+        ValueShape::FacetDataScope => facet_data_scope_schema(),
         ValueShape::RasterDimension => tagged_schema("dim"),
         ValueShape::RasterDimensionChannel => json!({
             "oneOf": [
@@ -481,6 +482,15 @@ fn sharing_schema() -> Value {
     json!({
         "oneOf": [
             enum_atom_schema(&["shared", "free"]),
+            tagged_schema("call")
+        ]
+    })
+}
+
+fn facet_data_scope_schema() -> Value {
+    json!({
+        "oneOf": [
+            enum_atom_schema(&["filtered", "broadcast"]),
             tagged_schema("call")
         ]
     })

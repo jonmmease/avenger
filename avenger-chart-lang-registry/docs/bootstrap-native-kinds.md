@@ -56,6 +56,12 @@ A filled Cartesian area mark.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `defined` | channel | false | The `defined` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
@@ -78,6 +84,12 @@ A GeoJSON or WKB geometry projected through the geo coordinate system.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `geometry` | channel | false | The `geometry` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
@@ -94,6 +106,12 @@ An image positioned in Cartesian coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `align` | channel | false | The `align` encoding channel. |
 | `aspect` | channel | false | The `aspect` encoding channel. |
 | `baseline` | channel | false | The `baseline` encoding channel. |
@@ -110,6 +128,12 @@ A Cartesian line mark.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `defined` | channel | false | The `defined` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
 | `order` | channel | false | The `order` encoding channel. |
@@ -127,6 +151,12 @@ A projected line with planar or longitude/latitude positions.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `defined` | channel | false | The `defined` encoding channel. |
 | `lat` | channel | false | The `lat` encoding channel. |
 | `lon` | channel | false | The `lon` encoding channel. |
@@ -146,6 +176,12 @@ A line in radial and angular coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `defined` | channel | false | The `defined` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
 | `order` | channel | false | The `order` encoding channel. |
@@ -163,7 +199,13 @@ A wide-form polyline spanning the declared parallel dimensions.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
 | `dimensions` | property | true | User-named dimension ids mapped to configured encoding channels. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `defined` | channel | false | The `defined` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
 | `stroke` | channel | false | The `stroke` encoding channel. |
@@ -178,7 +220,13 @@ A symbol at every row and parallel-dimension intersection.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
 | `dimensions` | property | true | User-named dimension ids mapped to configured encoding channels. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
@@ -193,6 +241,12 @@ An arbitrary Cartesian path mark.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
@@ -211,6 +265,12 @@ A Cartesian rectangle mark.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `corner_radius` | channel | false | The `corner_radius` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
@@ -228,6 +288,12 @@ A rectangle in projected geo plot coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `corner_radius` | channel | false | The `corner_radius` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
@@ -245,6 +311,12 @@ A Cartesian rule mark.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
 | `stroke` | channel | false | The `stroke` encoding channel. |
 | `stroke_cap` | channel | false | The `stroke_cap` encoding channel. |
@@ -261,6 +333,12 @@ A point symbol in Cartesian coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
@@ -278,7 +356,13 @@ A symbol positioned by projected x/y or geographic lon/lat channels.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `lon_lat` | property | false | Convenience pair `[longitude, latitude]`; do not also author `lon` or `lat`. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `fill_pattern` | channel | false | The `fill_pattern` encoding channel. |
@@ -298,6 +382,12 @@ A point symbol in radial and angular coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `r` | channel | false | The `r` encoding channel. |
@@ -313,6 +403,12 @@ A non-spatial symbol placed at the plot center.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
@@ -327,7 +423,13 @@ Text positioned in Cartesian coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `syntax` | property | false | Text syntax mode; defaults to `plain`. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `align` | channel | false | The `align` encoding channel. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `baseline` | channel | false | The `baseline` encoding channel. |
@@ -364,7 +466,13 @@ Text positioned in radial and angular coordinates.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `syntax` | property | false | Text syntax mode; defaults to `plain`. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `align` | channel | false | The `align` encoding channel. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `baseline` | channel | false | The `baseline` encoding channel. |
@@ -401,7 +509,13 @@ Text placed at the plot center.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `syntax` | property | false | Text syntax mode; defaults to `plain`. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `align` | channel | false | The `align` encoding channel. |
 | `angle` | channel | false | The `angle` encoding channel. |
 | `baseline` | channel | false | The `baseline` encoding channel. |
@@ -421,6 +535,12 @@ A variable-width Cartesian trail mark.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `defined` | channel | false | The `defined` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
 | `order` | channel | false | The `order` encoding channel. |
@@ -435,9 +555,15 @@ Header bars for visible non-leaf treemap nodes.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `max_depth` | property | false | Maximum relative hierarchy depth. |
 | `min_depth` | property | false | Minimum relative hierarchy depth. |
 | `padding_px` | property | false | Header text padding in pixels. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `font` | channel | false | The `font` encoding channel. |
 | `font_size` | channel | false | The `font_size` encoding channel. |
@@ -455,11 +581,17 @@ Labels fitted inside visible treemap nodes.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `fit` | property | false | Overflow behavior for labels. |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `min_height_px` | property | false | Minimum node height for a label. |
 | `min_width_px` | property | false | Minimum node width for a label. |
 | `node_mode` | property | false | Node set to render; an integer selects one relative depth. |
 | `padding_px` | property | false | Inner label padding in pixels. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `align` | channel | false | The `align` encoding channel. |
 | `baseline` | channel | false | The `baseline` encoding channel. |
 | `color` | channel | false | The `color` encoding channel. |
@@ -476,7 +608,13 @@ Rectangles for visible treemap nodes.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `node_mode` | property | false | Node set to render; an integer selects one relative depth. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `zindex` | property | false | Integer rendering order. |
 | `corner_radius` | channel | false | The `corner_radius` encoding channel. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `opacity` | channel | false | The `opacity` encoding channel. |
@@ -493,11 +631,17 @@ A uniformly binned two-dimensional raster image.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `fill_by` | property | false | Categorical raster plane dimension that drives the fill scale. |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `raster` | property | true | Raster struct expression, usually a rasterize_2d output handle. |
 | `smooth` | property | false | Enable smooth image sampling. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
 | `x` | property | false | Configured raster x-dimension handle. |
 | `y` | property | false | Configured raster y-dimension handle. |
+| `zindex` | property | false | Integer rendering order. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `non_finite_color` | channel | false | The `non_finite_color` encoding channel. |
 | `null_color` | channel | false | The `null_color` encoding channel. |
@@ -510,11 +654,17 @@ A uniformly binned two-dimensional raster image.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
 | `fill_by` | property | false | Categorical raster plane dimension that drives the fill scale. |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
 | `raster` | property | true | Raster struct expression, usually a rasterize_2d output handle. |
 | `smooth` | property | false | Enable smooth image sampling. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
 | `x` | property | false | Configured raster x-dimension handle. |
 | `y` | property | false | Configured raster y-dimension handle. |
+| `zindex` | property | false | Integer rendering order. |
 | `fill` | channel | false | The `fill` encoding channel. |
 | `non_finite_color` | channel | false | The `non_finite_color` encoding channel. |
 | `null_color` | channel | false | The `null_color` encoding channel. |

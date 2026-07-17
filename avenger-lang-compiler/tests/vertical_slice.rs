@@ -250,6 +250,33 @@ async fn native_surface_pipeline_remains_one_parent_stage_and_exports_typed_outp
 }
 
 #[tokio::test]
+async fn native_surface_common_mark_state_is_schema_directed_and_preserved() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: { values: [{ x: 1.0; y: 2.0; category: 'A'; }]; }
+          mark symbol as point {
+            x: "x";
+            y: "y";
+            visible: true;
+            details: [x, category];
+            zindex: 7;
+            facet_data_scope: level(2);
+            geometry_space: display;
+            exclude_from_scale_domains: true;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("\"details\":[\"x\",\"category\"]"));
+    assert!(json.contains("\"zindex\":7"));
+    assert!(json.contains("\"geometry_space\":\"display\""));
+    assert!(json.contains("\"exclude_from_scale_domains\":true"));
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

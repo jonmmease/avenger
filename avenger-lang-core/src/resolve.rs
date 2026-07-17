@@ -6564,6 +6564,17 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             }
             _ => false,
         },
+        ValueShape::FacetDataScope => match value {
+            ResolvedValue::Atom(value) => matches!(value.as_str(), "filtered" | "broadcast"),
+            ResolvedValue::Call { function, args } => {
+                function == "level"
+                    && matches!(
+                        args.as_slice(),
+                        [ResolvedValue::Number(value)] if value.parse::<u8>().is_ok()
+                    )
+            }
+            _ => false,
+        },
         ValueShape::RasterDimension => matches!(value, ResolvedValue::Dimension(_)),
         ValueShape::RasterDimensionChannel => match value {
             ResolvedValue::Dimension(_) => true,
@@ -6802,6 +6813,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::ChannelConfig => "configuration-only channel block",
         ValueShape::PatternChannel => "pattern literal or configured pattern channel",
         ValueShape::CoordinationScope => "coordination scope",
+        ValueShape::FacetDataScope => "facet data scope",
         ValueShape::RasterDimension => "raster dimension",
         ValueShape::RasterDimensionChannel => "configured raster dimension",
         ValueShape::ScalarBinding => "param binding",

@@ -858,6 +858,18 @@ impl<'a> ProjectLowerer<'a> {
                 .is_some_and(|property| property.shape == ValueShape::RasterDimensionChannel)
             {
                 self.raster_dimension_channel_value(name, value, data, declaration)?
+            } else if schema
+                .properties
+                .get(name)
+                .is_some_and(|property| property.shape == ValueShape::FacetDataScope)
+            {
+                NativeValue::Integer(self.facet_data_scope_level(value, declaration)?.into())
+            } else if schema
+                .properties
+                .get(name)
+                .is_some_and(|property| property.shape == ValueShape::SqlExpression)
+            {
+                NativeValue::Expr(self.expression_value(value, data, declaration)?)
             } else {
                 self.native_value(value, data, declaration)?
             };
@@ -879,6 +891,35 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
         Ok(native)
+    }
+
+    fn facet_data_scope_level(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<u8, Diagnostic> {
+        match value {
+            ResolvedValue::Atom(value) if value == "filtered" => Ok(0),
+            ResolvedValue::Atom(value) if value == "broadcast" => Ok(u8::MAX),
+            ResolvedValue::Call { function, args } if function == "level" => {
+                let [ResolvedValue::Number(level)] = args.as_slice() else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "facet data scope level(...) requires one integer",
+                    ));
+                };
+                level.parse::<u8>().map_err(|_| {
+                    lowerer_error(
+                        declaration,
+                        "facet data scope level must be an integer from 0 through 255",
+                    )
+                })
+            }
+            _ => Err(lowerer_error(
+                declaration,
+                "facet_data_scope must be filtered, broadcast, or level(<integer>)",
+            )),
+        }
     }
 
     fn native_owner_child(

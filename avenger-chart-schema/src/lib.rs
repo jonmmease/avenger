@@ -94,6 +94,9 @@ pub enum ValueShape {
     PatternChannel,
     /// `shared`, `free`, or `level(<non-negative integer>)` transform scope.
     CoordinationScope,
+    /// `filtered`, `broadcast`, or `level(<non-negative integer>)` mark data
+    /// scope within the current facet tree.
+    FacetDataScope,
     RasterDimension,
     /// A raster dimension handle with ordinary channel configuration.
     RasterDimensionChannel,

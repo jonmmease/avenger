@@ -4,7 +4,9 @@ use avenger_chart_core::{ChannelValue, IntoPlotMark};
 use avenger_chart_lang_types::{
     CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
 };
-use avenger_chart_marks::language::{channel, primitive_schema};
+use avenger_chart_marks::language::{
+    apply_common_mark_state, channel, is_common_mark_property, primitive_schema,
+};
 use avenger_chart_schema::{
     BodyMode, ChildRule, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
@@ -168,10 +170,11 @@ fn lower_parallel_line(
         mark = mark.with_channel_value(&generated_dimension_channel(&id), value);
     }
     for (name, value) in &declaration.properties {
-        if name != "dimensions" {
+        if name != "dimensions" && !is_common_mark_property(name) {
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
+    apply_common_mark_state::<Parallel, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
 
@@ -186,9 +189,10 @@ fn lower_parallel_symbol(
         mark = mark.with_channel_value(&generated_dimension_channel(&id), value);
     }
     for (name, value) in &declaration.properties {
-        if name != "dimensions" {
+        if name != "dimensions" && !is_common_mark_property(name) {
             mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
         }
     }
+    apply_common_mark_state::<Parallel, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
 }
