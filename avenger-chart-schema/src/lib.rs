@@ -88,6 +88,8 @@ pub enum ValueShape {
     TypedReference {
         namespaces: BTreeSet<NativeKindNamespace>,
     },
+    /// Accept one of several explicitly documented shapes.
+    Union(Vec<ValueShape>),
     /// Accept either one value of `detail` or an array of those values.
     OneOrMany(Box<ValueShape>),
     Array(Box<ValueShape>),
@@ -205,6 +207,9 @@ pub enum DynamicOutputSource {
     /// Each object in an array property contributes the string stored in the
     /// configured field as an output handle.
     ArrayObjectField { property: String, field: String },
+    /// Each string or atom in an array property contributes its value as an
+    /// output-handle name.
+    ArrayValueNames { property: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -502,6 +507,11 @@ fn validate_shape_docs(shape: &ValueShape, context: String) -> Result<(), Schema
         }
         ValueShape::OneOrMany(inner) | ValueShape::Array(inner) | ValueShape::Map(inner) => {
             validate_shape_docs(inner, context)?
+        }
+        ValueShape::Union(shapes) => {
+            for shape in shapes {
+                validate_shape_docs(shape, context.clone())?;
+            }
         }
         ValueShape::Object(properties) => {
             for (name, property) in properties {

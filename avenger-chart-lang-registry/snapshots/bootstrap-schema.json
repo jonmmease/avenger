@@ -1146,6 +1146,524 @@
     },
     {
       "key": {
+        "namespace": "transform",
+        "kind": "time_fill"
+      },
+      "docs": "Complete missing calendar hierarchy rows and fill their values.",
+      "properties": {
+        "as_value": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Generated value column name."
+        },
+        "extent": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "end": {
+                "shape": {
+                  "shape": "array",
+                  "detail": {
+                    "shape": "sql_expression"
+                  }
+                },
+                "required": true,
+                "docs": "Hierarchy-aligned upper extent components."
+              },
+              "start": {
+                "shape": {
+                  "shape": "array",
+                  "detail": {
+                    "shape": "sql_expression"
+                  }
+                },
+                "required": true,
+                "docs": "Hierarchy-aligned lower extent components."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Optional explicit hierarchy-aligned extent."
+        },
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The value expression to fill."
+        },
+        "fill_value": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Value used for generated rows."
+        },
+        "flag": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Optional generated-row flag column."
+        },
+        "group_by": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "sql_expression"
+            }
+          },
+          "required": false,
+          "docs": "Expressions defining independent completion groups."
+        },
+        "levels": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": true,
+          "docs": "A `time_levels.levels` metadata handle."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "flag": {
+          "name": "flag",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "condition_property": "flag",
+          "docs": "The generated-row flag when `flag` is configured."
+        },
+        "value": {
+          "name": "value",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The completed and filled value column."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "time_levels"
+      },
+      "docs": "Derive an ordered categorical calendar hierarchy from timestamps.",
+      "properties": {
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The temporal input expression."
+        },
+        "levels": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "union",
+              "detail": [
+                {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "year",
+                        "docs": "Use the `year` mode."
+                      },
+                      {
+                        "value": "quarter",
+                        "docs": "Use the `quarter` mode."
+                      },
+                      {
+                        "value": "month",
+                        "docs": "Use the `month` mode."
+                      },
+                      {
+                        "value": "day_of_month",
+                        "docs": "Use the `day_of_month` mode."
+                      },
+                      {
+                        "value": "day_of_year",
+                        "docs": "Use the `day_of_year` mode."
+                      },
+                      {
+                        "value": "hour",
+                        "docs": "Use the `hour` mode."
+                      },
+                      {
+                        "value": "minute",
+                        "docs": "Use the `minute` mode."
+                      }
+                    ]
+                  }
+                },
+                {
+                  "shape": "object",
+                  "detail": {
+                    "label": {
+                      "shape": {
+                        "shape": "atom",
+                        "detail": {
+                          "values": [
+                            {
+                              "value": "key",
+                              "docs": "Use the `key` mode."
+                            },
+                            {
+                              "value": "year4",
+                              "docs": "Use the `year4` mode."
+                            },
+                            {
+                              "value": "quarter_short",
+                              "docs": "Use the `quarter_short` mode."
+                            },
+                            {
+                              "value": "month_name",
+                              "docs": "Use the `month_name` mode."
+                            },
+                            {
+                              "value": "month_abbrev",
+                              "docs": "Use the `month_abbrev` mode."
+                            }
+                          ]
+                        }
+                      },
+                      "required": false,
+                      "docs": "Generated label style."
+                    },
+                    "level": {
+                      "shape": {
+                        "shape": "atom",
+                        "detail": {
+                          "values": [
+                            {
+                              "value": "year",
+                              "docs": "Use the `year` mode."
+                            },
+                            {
+                              "value": "quarter",
+                              "docs": "Use the `quarter` mode."
+                            },
+                            {
+                              "value": "month",
+                              "docs": "Use the `month` mode."
+                            },
+                            {
+                              "value": "day_of_month",
+                              "docs": "Use the `day_of_month` mode."
+                            },
+                            {
+                              "value": "day_of_year",
+                              "docs": "Use the `day_of_year` mode."
+                            },
+                            {
+                              "value": "hour",
+                              "docs": "Use the `hour` mode."
+                            },
+                            {
+                              "value": "minute",
+                              "docs": "Use the `minute` mode."
+                            }
+                          ]
+                        }
+                      },
+                      "required": true,
+                      "docs": "Calendar hierarchy level."
+                    },
+                    "output_name": {
+                      "shape": {
+                        "shape": "string"
+                      },
+                      "required": false,
+                      "docs": "Generated key column name."
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": true,
+          "docs": "Ordered calendar levels, either atoms or configured level objects."
+        },
+        "name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Base name for generated key columns."
+        },
+        "time_context": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone name."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use the `sunday` mode."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use the `monday` mode."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use the `tuesday` mode."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use the `wednesday` mode."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use the `thursday` mode."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use the `friday` mode."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use the `saturday` mode."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First weekday used by calendar operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Timezone and week-start overrides."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "levels": {
+          "name": "levels",
+          "shape": {
+            "shape": "any"
+          },
+          "docs": "Opaque hierarchy metadata consumable by `time_fill`."
+        },
+        "nested": {
+          "name": "nested",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Nested categorical channel carrying hierarchy labels and ordering."
+        }
+      },
+      "dynamic_outputs": [
+        {
+          "source": {
+            "source": "array_value_names",
+            "property": "levels"
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each atom level exposes its generated key as a same-named handle."
+        },
+        {
+          "source": {
+            "source": "array_object_field",
+            "property": "levels",
+            "field": "level"
+          },
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Each configured level exposes its generated key by level name."
+        }
+      ],
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "transform",
+        "kind": "time_unit"
+      },
+      "docs": "Discretize timestamps into calendar-aware interval boundaries.",
+      "properties": {
+        "field": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "The temporal input expression."
+        },
+        "interval": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Whether to emit interval end boundaries."
+        },
+        "maxbins": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Requested maximum interval count."
+        },
+        "name": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Base name for generated columns and state."
+        },
+        "time_context": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone name."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use the `sunday` mode."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use the `monday` mode."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use the `tuesday` mode."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use the `wednesday` mode."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use the `thursday` mode."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use the `friday` mode."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use the `saturday` mode."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First weekday used by calendar operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Timezone and week-start overrides."
+        },
+        "units": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "atom",
+              "detail": {
+                "values": [
+                  {
+                    "value": "year",
+                    "docs": "Use the `year` mode."
+                  },
+                  {
+                    "value": "quarter",
+                    "docs": "Use the `quarter` mode."
+                  },
+                  {
+                    "value": "month",
+                    "docs": "Use the `month` mode."
+                  },
+                  {
+                    "value": "week",
+                    "docs": "Use the `week` mode."
+                  },
+                  {
+                    "value": "day",
+                    "docs": "Use the `day` mode."
+                  },
+                  {
+                    "value": "hour",
+                    "docs": "Use the `hour` mode."
+                  },
+                  {
+                    "value": "minute",
+                    "docs": "Use the `minute` mode."
+                  },
+                  {
+                    "value": "second",
+                    "docs": "Use the `second` mode."
+                  }
+                ]
+              }
+            }
+          },
+          "required": false,
+          "docs": "One calendar unit or an ordered array of units; overrides `maxbins`."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {
+        "end": {
+          "name": "end",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled interval end with temporal axis defaults."
+        },
+        "start": {
+          "name": "start",
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "Scaled interval start with temporal axis defaults."
+        }
+      },
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
         "namespace": "tool",
         "kind": "pan_scroll_zoom"
       },

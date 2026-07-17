@@ -3319,6 +3319,14 @@ impl<'a> Resolver<'a> {
                         self.validate_value_shape(value, inner, property, span);
                     }
                 }
+                (value, ValueShape::Union(shapes)) => {
+                    if let Some(shape) = shapes
+                        .iter()
+                        .find(|shape| value_matches_shape(value, shape))
+                    {
+                        self.validate_value_shape(value, shape, property, span);
+                    }
+                }
                 _ => {}
             }
             return;
@@ -3417,6 +3425,16 @@ impl<'a> Resolver<'a> {
                             );
                         }
                     }
+                }
+            }
+            ValueShape::Union(shapes) => {
+                if let Some(shape) = shapes
+                    .iter()
+                    .find(|shape| value_matches_shape(resolved, shape))
+                {
+                    self.normalize_definition_arguments(
+                        scope, source, resolved, shape, span, in_event, owner,
+                    );
                 }
             }
             _ => {}
@@ -4608,6 +4626,15 @@ impl<'a> Resolver<'a> {
                                     Some(Value::Atom(name)) => Some(name.to_string()),
                                     _ => None,
                                 }
+                            }));
+                        }
+                    }
+                    avenger_chart_schema::DynamicOutputSource::ArrayValueNames { property } => {
+                        if let Some(Value::Array(values)) = declaration.props.get(property) {
+                            output_names.extend(values.iter().filter_map(|value| match value {
+                                Value::Str(name) => Some(name.clone()),
+                                Value::Atom(name) => Some(name.to_string()),
+                                _ => None,
                             }));
                         }
                     }
@@ -6421,6 +6448,7 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 .any(|namespace| namespace_matches_target(*namespace, &reference.target)),
             _ => false,
         },
+        ValueShape::Union(shapes) => shapes.iter().any(|shape| value_matches_shape(value, shape)),
         ValueShape::OneOrMany(inner) => match value {
             ResolvedValue::Array(values) => {
                 values.iter().all(|value| value_matches_shape(value, inner))
@@ -6617,6 +6645,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::ScalarBinding => "param binding",
         ValueShape::TableBinding => "store binding",
         ValueShape::TypedReference { .. } => "typed reference",
+        ValueShape::Union(_) => "one of the allowed shapes",
         ValueShape::OneOrMany(_) => "value or array",
         ValueShape::Array(_) => "array",
         ValueShape::Map(_) => "property map",
@@ -6689,6 +6718,13 @@ fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> Res
                 .collect(),
         ),
         (_, ValueShape::OneOrMany(inner)) => resolved_schema_default(value, inner),
+        (_, ValueShape::Union(shapes)) => shapes
+            .iter()
+            .find(|shape| json_matches_shape(value, shape))
+            .map_or_else(
+                || resolved_json(value),
+                |shape| resolved_schema_default(value, shape),
+            ),
         (serde_json::Value::Object(values), ValueShape::Map(inner)) => ResolvedValue::Object {
             head: None,
             kind: None,
@@ -6714,6 +6750,28 @@ fn resolved_schema_default(value: &serde_json::Value, shape: &ValueShape) -> Res
             children: Vec::new(),
         },
         _ => resolved_json(value),
+    }
+}
+
+fn json_matches_shape(value: &serde_json::Value, shape: &ValueShape) -> bool {
+    match (value, shape) {
+        (_, ValueShape::Any) => true,
+        (serde_json::Value::Bool(_), ValueShape::Boolean) => true,
+        (serde_json::Value::Number(value), ValueShape::Integer) => value.is_i64() || value.is_u64(),
+        (serde_json::Value::Number(_), ValueShape::Number) => true,
+        (serde_json::Value::String(_), ValueShape::String | ValueShape::Atom { .. }) => true,
+        (serde_json::Value::Array(values), ValueShape::Array(inner)) => {
+            values.iter().all(|value| json_matches_shape(value, inner))
+        }
+        (serde_json::Value::Array(values), ValueShape::OneOrMany(inner)) => {
+            values.iter().all(|value| json_matches_shape(value, inner))
+        }
+        (value, ValueShape::OneOrMany(inner)) => json_matches_shape(value, inner),
+        (serde_json::Value::Object(_), ValueShape::Map(_) | ValueShape::Object(_)) => true,
+        (value, ValueShape::Union(shapes)) => {
+            shapes.iter().any(|shape| json_matches_shape(value, shape))
+        }
+        _ => false,
     }
 }
 

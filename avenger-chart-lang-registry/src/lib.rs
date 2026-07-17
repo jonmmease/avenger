@@ -951,8 +951,15 @@ fn validate_value_shape(
             | ResolvedValue::Channel(_),
             ValueShape::SqlExpression,
         ) => true,
+        (
+            ResolvedValue::Output(NativeOutputValue::Expr(_) | NativeOutputValue::Channel(_)),
+            ValueShape::SqlExpression,
+        ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::DataFrame(_), ValueShape::TableBinding) => true,
+        (value, ValueShape::Union(shapes)) => shapes
+            .iter()
+            .any(|shape| validate_value_shape(value, shape, property).is_ok()),
         (ResolvedValue::Array(values), ValueShape::OneOrMany(inner)) => values
             .iter()
             .all(|value| validate_value_shape(value, inner, property).is_ok()),

@@ -2,9 +2,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use avenger_chart_core::DataTransform;
+use avenger_chart_core::{DataTransform, TimeContext, WeekStart};
 use avenger_chart_lang_types::{
-    LoweredTransform, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
+    LoweredTransform, NativeLoweringError, NativeOutputValue, ResolvedDeclaration, ResolvedValue,
     TransformLanguageDefinition, expr_property, resolved_expr, string_property,
 };
 use avenger_chart_schema::{
@@ -19,7 +19,8 @@ use indexmap::IndexMap;
 
 use crate::{
     Aggregate, Bin, Calculate, Filter, Fold, Impute, JoinAggregate, Kde, KdeResolve, Lump, Select,
-    Sql, Stack, StackOffset,
+    Sql, Stack, StackOffset, TimeFill, TimeLevel, TimeLevelKeys, TimeLevelLabel, TimeLevels,
+    TimeUnit, TimeUnitPart,
 };
 
 /// The transform definitions currently available to the native registry.
@@ -37,6 +38,9 @@ pub fn definitions() -> Vec<TransformLanguageDefinition> {
         impute_definition(),
         kde_definition(),
         lump_definition(),
+        time_unit_definition(),
+        time_levels_definition(),
+        time_fill_definition(),
         bin_definition(),
         stack_definition(),
         sql_definition(),
@@ -706,6 +710,347 @@ fn lump_definition() -> TransformLanguageDefinition {
     }
 }
 
+fn time_unit_definition() -> TransformLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "time_unit"),
+        "Discretize timestamps into calendar-aware interval boundaries.",
+    )
+    .property(
+        "field",
+        PropertySchema::required(ValueShape::SqlExpression, "The temporal input expression."),
+    )
+    .property(
+        "maxbins",
+        PropertySchema::optional(
+            ValueShape::SqlExpression,
+            "Requested maximum interval count.",
+        ),
+    )
+    .property(
+        "units",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(time_unit_shape())),
+            "One calendar unit or an ordered array of units; overrides `maxbins`.",
+        ),
+    )
+    .property(
+        "time_context",
+        PropertySchema::optional(time_context_shape(), "Timezone and week-start overrides."),
+    )
+    .property(
+        "interval",
+        PropertySchema::optional(
+            ValueShape::Boolean,
+            "Whether to emit interval end boundaries.",
+        ),
+    )
+    .property(
+        "name",
+        PropertySchema::optional(
+            ValueShape::String,
+            "Base name for generated columns and state.",
+        ),
+    )
+    .output(transform_output(
+        "start",
+        "Scaled interval start with temporal axis defaults.",
+    ))
+    .output(transform_output(
+        "end",
+        "Scaled interval end with temporal axis defaults.",
+    ));
+    TransformLanguageDefinition {
+        schema,
+        lowerer: |declaration, context| {
+            let mut transform = TimeUnit::new(expr_property(declaration, "field")?);
+            if let Some(value) = optional_expr(declaration, "maxbins")? {
+                transform = transform.maxbins(value);
+            }
+            if let Some(value) = declaration.properties.get("units") {
+                transform = transform.units(time_unit_parts(value)?);
+            }
+            if let Some(value) = declaration.properties.get("time_context") {
+                transform = transform.time_context(time_context(value)?);
+            }
+            if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("interval") {
+                transform = transform.interval(*value);
+            }
+            if let Some(name) = optional_string(declaration, "name")? {
+                transform = transform.name(name);
+            }
+            let (transform, output) = transform.into_compiled_and_output(context)?;
+            Ok(LoweredTransform {
+                transform,
+                outputs: [
+                    ("start".to_string(), output.start().into()),
+                    ("end".to_string(), output.end().into()),
+                ]
+                .into_iter()
+                .collect(),
+            })
+        },
+    }
+}
+
+fn time_levels_definition() -> TransformLanguageDefinition {
+    let level_config = ValueShape::Object(
+        [
+            (
+                "level".to_string(),
+                PropertySchema::required(time_level_shape(), "Calendar hierarchy level."),
+            ),
+            (
+                "label".to_string(),
+                PropertySchema::optional(time_level_label_shape(), "Generated label style."),
+            ),
+            (
+                "output_name".to_string(),
+                PropertySchema::optional(ValueShape::String, "Generated key column name."),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "time_levels"),
+        "Derive an ordered categorical calendar hierarchy from timestamps.",
+    )
+    .property(
+        "field",
+        PropertySchema::required(ValueShape::SqlExpression, "The temporal input expression."),
+    )
+    .property(
+        "levels",
+        PropertySchema::required(
+            ValueShape::Array(Box::new(ValueShape::Union(vec![
+                time_level_shape(),
+                level_config,
+            ]))),
+            "Ordered calendar levels, either atoms or configured level objects.",
+        ),
+    )
+    .property(
+        "time_context",
+        PropertySchema::optional(time_context_shape(), "Timezone and week-start overrides."),
+    )
+    .property(
+        "name",
+        PropertySchema::optional(ValueShape::String, "Base name for generated key columns."),
+    )
+    .output(TransformOutputSchema {
+        name: "levels".to_string(),
+        shape: ValueShape::Any,
+        condition_property: None,
+        docs: "Opaque hierarchy metadata consumable by `time_fill`.".to_string(),
+    })
+    .output(transform_output(
+        "nested",
+        "Nested categorical channel carrying hierarchy labels and ordering.",
+    ))
+    .dynamic_output(DynamicTransformOutputSchema {
+        source: DynamicOutputSource::ArrayValueNames {
+            property: "levels".to_string(),
+        },
+        shape: ValueShape::SqlExpression,
+        docs: "Each atom level exposes its generated key as a same-named handle.".to_string(),
+    })
+    .dynamic_output(DynamicTransformOutputSchema {
+        source: DynamicOutputSource::ArrayObjectField {
+            property: "levels".to_string(),
+            field: "level".to_string(),
+        },
+        shape: ValueShape::SqlExpression,
+        docs: "Each configured level exposes its generated key by level name.".to_string(),
+    });
+    TransformLanguageDefinition {
+        schema,
+        lowerer: lower_time_levels,
+    }
+}
+
+fn lower_time_levels(
+    declaration: &ResolvedDeclaration,
+    context: avenger_chart_core::DataTransformCompileContext,
+) -> Result<LoweredTransform, NativeLoweringError> {
+    let mut transform = TimeLevels::new(expr_property(declaration, "field")?);
+    let ResolvedValue::Array(levels) = declaration.get("levels")? else {
+        unreachable!("schema validation checks time levels")
+    };
+    let mut requested = Vec::new();
+    for value in levels {
+        let (level, label, output_name) = match value {
+            ResolvedValue::String(level) => (parse_time_level(level)?, None, None),
+            ResolvedValue::Object(fields) => {
+                let level = parse_time_level(&object_string(fields, "level")?)?;
+                let label = fields
+                    .get("label")
+                    .map(|value| match value {
+                        ResolvedValue::String(value) => parse_time_level_label(value),
+                        _ => Err(NativeLoweringError::InvalidPropertyType {
+                            property: "label".to_string(),
+                            expected: "time level label".to_string(),
+                        }),
+                    })
+                    .transpose()?;
+                let output_name = fields
+                    .get("output_name")
+                    .map(|value| match value {
+                        ResolvedValue::String(value) => Ok(value.clone()),
+                        _ => Err(NativeLoweringError::InvalidPropertyType {
+                            property: "output_name".to_string(),
+                            expected: "string".to_string(),
+                        }),
+                    })
+                    .transpose()?;
+                (level, label, output_name)
+            }
+            _ => unreachable!("schema validation checks time level entries"),
+        };
+        requested.push(level);
+        transform = transform.level_with(level, |mut config| {
+            if let Some(label) = label {
+                config = config.label(label);
+            }
+            if let Some(output_name) = output_name {
+                config = config.output_name(output_name);
+            }
+            config
+        });
+    }
+    if let Some(value) = declaration.properties.get("time_context") {
+        transform = transform.time_context(time_context(value)?);
+    }
+    if let Some(name) = optional_string(declaration, "name")? {
+        transform = transform.name(name);
+    }
+    let (transform, output) = transform.into_compiled_and_output(context)?;
+    let mut outputs = BTreeMap::from([
+        (
+            "levels".to_string(),
+            NativeOutputValue::opaque(output.levels()),
+        ),
+        ("nested".to_string(), output.try_nested()?.into()),
+    ]);
+    for level in requested {
+        outputs.insert(time_level_name(level).to_string(), output.key(level).into());
+    }
+    Ok(LoweredTransform { transform, outputs })
+}
+
+fn time_fill_definition() -> TransformLanguageDefinition {
+    let extent = ValueShape::Object(
+        [
+            (
+                "start".to_string(),
+                PropertySchema::required(
+                    ValueShape::Array(Box::new(ValueShape::SqlExpression)),
+                    "Hierarchy-aligned lower extent components.",
+                ),
+            ),
+            (
+                "end".to_string(),
+                PropertySchema::required(
+                    ValueShape::Array(Box::new(ValueShape::SqlExpression)),
+                    "Hierarchy-aligned upper extent components.",
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Transform, "time_fill"),
+        "Complete missing calendar hierarchy rows and fill their values.",
+    )
+    .property(
+        "field",
+        PropertySchema::required(ValueShape::SqlExpression, "The value expression to fill."),
+    )
+    .property(
+        "levels",
+        PropertySchema::required(ValueShape::Any, "A `time_levels.levels` metadata handle."),
+    )
+    .property(
+        "group_by",
+        PropertySchema::optional(
+            ValueShape::OneOrMany(Box::new(ValueShape::SqlExpression)),
+            "Expressions defining independent completion groups.",
+        ),
+    )
+    .property(
+        "fill_value",
+        PropertySchema::required(ValueShape::SqlExpression, "Value used for generated rows."),
+    )
+    .property(
+        "extent",
+        PropertySchema::optional(extent, "Optional explicit hierarchy-aligned extent."),
+    )
+    .property(
+        "as_value",
+        PropertySchema::optional(ValueShape::String, "Generated value column name."),
+    )
+    .property(
+        "flag",
+        PropertySchema::optional(ValueShape::String, "Optional generated-row flag column."),
+    )
+    .output(transform_output(
+        "value",
+        "The completed and filled value column.",
+    ))
+    .output(conditional_transform_output(
+        "flag",
+        "flag",
+        "The generated-row flag when `flag` is configured.",
+    ));
+    TransformLanguageDefinition {
+        schema,
+        lowerer: lower_time_fill,
+    }
+}
+
+fn lower_time_fill(
+    declaration: &ResolvedDeclaration,
+    context: avenger_chart_core::DataTransformCompileContext,
+) -> Result<LoweredTransform, NativeLoweringError> {
+    let levels = match declaration.get("levels")? {
+        ResolvedValue::Output(output) => output
+            .downcast_ref::<TimeLevelKeys>()
+            .cloned()
+            .ok_or_else(|| NativeLoweringError::InvalidPropertyType {
+                property: "levels".to_string(),
+                expected: "time_levels.levels output".to_string(),
+            })?,
+        _ => {
+            return Err(NativeLoweringError::InvalidPropertyType {
+                property: "levels".to_string(),
+                expected: "time_levels.levels output".to_string(),
+            });
+        }
+    };
+    let mut transform = TimeFill::new(expr_property(declaration, "field")?)
+        .levels(levels)
+        .group_by(resolved_exprs(declaration.properties.get("group_by"))?)
+        .fill_value(expr_property(declaration, "fill_value")?);
+    if let Some(ResolvedValue::Object(extent)) = declaration.properties.get("extent") {
+        let start = resolved_exprs(extent.get("start"))?;
+        let end = resolved_exprs(extent.get("end"))?;
+        transform = transform.extent(start, end);
+    }
+    if let Some(name) = optional_string(declaration, "as_value")? {
+        transform = transform.as_value(name);
+    }
+    let has_flag = declaration.properties.contains_key("flag");
+    if let Some(name) = optional_string(declaration, "flag")? {
+        transform = transform.flag(name);
+    }
+    let (transform, output) = transform.into_compiled_and_output(context)?;
+    let mut outputs = BTreeMap::from([("value".to_string(), output.value().into())]);
+    if has_flag {
+        outputs.insert("flag".to_string(), output.flag().into());
+    }
+    Ok(LoweredTransform { transform, outputs })
+}
+
 fn bin_definition() -> TransformLanguageDefinition {
     let schema = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Transform, "bin"),
@@ -1315,6 +1660,165 @@ fn optional_object_expr(
         .transpose()
 }
 
+fn time_context_shape() -> ValueShape {
+    ValueShape::Object(
+        [
+            (
+                "timezone".to_string(),
+                PropertySchema::optional(ValueShape::String, "IANA timezone name."),
+            ),
+            (
+                "week_start".to_string(),
+                PropertySchema::optional(
+                    atom(&[
+                        "sunday",
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                    ]),
+                    "First weekday used by calendar operations.",
+                ),
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    )
+}
+
+fn time_context(value: &ResolvedValue) -> Result<TimeContext, NativeLoweringError> {
+    let ResolvedValue::Object(fields) = value else {
+        return Err(NativeLoweringError::InvalidPropertyType {
+            property: "time_context".to_string(),
+            expected: "time context object".to_string(),
+        });
+    };
+    let mut context = TimeContext::new();
+    if let Some(ResolvedValue::String(timezone)) = fields.get("timezone") {
+        context = context.timezone(timezone);
+    }
+    if let Some(ResolvedValue::String(week_start)) = fields.get("week_start") {
+        context = context.week_start(match week_start.as_str() {
+            "sunday" => WeekStart::Sunday,
+            "monday" => WeekStart::Monday,
+            "tuesday" => WeekStart::Tuesday,
+            "wednesday" => WeekStart::Wednesday,
+            "thursday" => WeekStart::Thursday,
+            "friday" => WeekStart::Friday,
+            "saturday" => WeekStart::Saturday,
+            _ => unreachable!("schema validation checks week start"),
+        });
+    }
+    Ok(context)
+}
+
+fn time_unit_shape() -> ValueShape {
+    atom(&[
+        "year", "quarter", "month", "week", "day", "hour", "minute", "second",
+    ])
+}
+
+fn time_unit_parts(value: &ResolvedValue) -> Result<Vec<TimeUnitPart>, NativeLoweringError> {
+    let values = match value {
+        ResolvedValue::Array(values) => values.iter().collect::<Vec<_>>(),
+        value => vec![value],
+    };
+    values
+        .into_iter()
+        .map(|value| {
+            let ResolvedValue::String(value) = value else {
+                return Err(NativeLoweringError::InvalidPropertyType {
+                    property: "units".to_string(),
+                    expected: "time unit atom or array".to_string(),
+                });
+            };
+            Ok(match value.as_str() {
+                "year" => TimeUnitPart::Year,
+                "quarter" => TimeUnitPart::Quarter,
+                "month" => TimeUnitPart::Month,
+                "week" => TimeUnitPart::Week,
+                "day" => TimeUnitPart::Day,
+                "hour" => TimeUnitPart::Hour,
+                "minute" => TimeUnitPart::Minute,
+                "second" => TimeUnitPart::Second,
+                _ => unreachable!("schema validation checks time unit"),
+            })
+        })
+        .collect()
+}
+
+fn time_level_shape() -> ValueShape {
+    atom(&[
+        "year",
+        "quarter",
+        "month",
+        "day_of_month",
+        "day_of_year",
+        "hour",
+        "minute",
+    ])
+}
+
+fn time_level_label_shape() -> ValueShape {
+    atom(&[
+        "key",
+        "year4",
+        "quarter_short",
+        "month_name",
+        "month_abbrev",
+    ])
+}
+
+fn parse_time_level(value: &str) -> Result<TimeLevel, NativeLoweringError> {
+    Ok(match value {
+        "year" => TimeLevel::Year,
+        "quarter" => TimeLevel::Quarter,
+        "month" => TimeLevel::Month,
+        "day_of_month" => TimeLevel::DayOfMonth,
+        "day_of_year" => TimeLevel::DayOfYear,
+        "hour" => TimeLevel::Hour,
+        "minute" => TimeLevel::Minute,
+        _ => {
+            return Err(NativeLoweringError::Lowering {
+                kind: "time_levels".to_string(),
+                message: format!("unsupported time level '{value}'"),
+            });
+        }
+    })
+}
+
+fn time_level_name(value: TimeLevel) -> &'static str {
+    match value {
+        TimeLevel::Year => "year",
+        TimeLevel::Quarter => "quarter",
+        TimeLevel::Month => "month",
+        TimeLevel::DayOfMonth => "day_of_month",
+        TimeLevel::DayOfYear => "day_of_year",
+        TimeLevel::Hour => "hour",
+        TimeLevel::Minute => "minute",
+        TimeLevel::Week => "week",
+        TimeLevel::DayOfWeek => "day_of_week",
+    }
+}
+
+fn parse_time_level_label(value: &str) -> Result<TimeLevelLabel, NativeLoweringError> {
+    Ok(match value {
+        "key" => TimeLevelLabel::Key,
+        "year4" => TimeLevelLabel::Year4,
+        "quarter_short" => TimeLevelLabel::QuarterShort,
+        "month_name" => TimeLevelLabel::MonthName,
+        "month_abbrev" => TimeLevelLabel::MonthAbbrev,
+        _ => {
+            return Err(NativeLoweringError::Lowering {
+                kind: "time_levels".to_string(),
+                message: format!("unsupported time level label '{value}'"),
+            });
+        }
+    })
+}
+
 fn transform_output(name: &str, docs: &str) -> TransformOutputSchema {
     TransformOutputSchema {
         name: name.to_string(),
@@ -1389,6 +1893,9 @@ mod tests {
                 "impute",
                 "kde",
                 "lump",
+                "time_unit",
+                "time_levels",
+                "time_fill",
                 "bin",
                 "stack",
                 "sql"
@@ -1458,6 +1965,51 @@ mod tests {
         ));
         assert!(matches!(
             lowered.outputs.get("index"),
+            Some(NativeOutputValue::Expr(_))
+        ));
+    }
+
+    #[test]
+    fn temporal_metadata_flows_between_native_lowerers() {
+        let context = DataTransformCompileContext::new(CoordinationScope::Free);
+        let definitions = definitions();
+        let time_levels = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "time_levels")
+            .unwrap();
+        let lowered_levels = (time_levels.lowerer)(
+            &ResolvedDeclaration::new("time_levels")
+                .property("field", ResolvedValue::Expr(col("date")))
+                .property(
+                    "levels",
+                    ResolvedValue::Array(vec![
+                        ResolvedValue::String("year".to_string()),
+                        ResolvedValue::String("month".to_string()),
+                    ]),
+                ),
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            lowered_levels.outputs.get("nested"),
+            Some(NativeOutputValue::Channel(_))
+        ));
+        let levels = lowered_levels.outputs.get("levels").unwrap().clone();
+
+        let time_fill = definitions
+            .iter()
+            .find(|definition| definition.schema.key.kind == "time_fill")
+            .unwrap();
+        let lowered_fill = (time_fill.lowerer)(
+            &ResolvedDeclaration::new("time_fill")
+                .property("field", ResolvedValue::Expr(col("value")))
+                .property("levels", ResolvedValue::Output(levels))
+                .property("fill_value", ResolvedValue::Integer(0)),
+            context,
+        )
+        .unwrap();
+        assert!(matches!(
+            lowered_fill.outputs.get("value"),
             Some(NativeOutputValue::Expr(_))
         ));
     }

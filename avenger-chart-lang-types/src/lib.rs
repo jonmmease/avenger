@@ -35,6 +35,7 @@ pub enum ResolvedValue {
     Object(IndexMap<String, ResolvedValue>),
     DataFrame(Box<DataFrame>),
     Param(Param),
+    Output(NativeOutputValue),
 }
 
 impl fmt::Debug for ResolvedValue {
@@ -52,6 +53,7 @@ impl fmt::Debug for ResolvedValue {
             Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
             Self::DataFrame(_) => f.write_str("DataFrame(..)"),
             Self::Param(value) => f.debug_tuple("Param").field(&value.name).finish(),
+            Self::Output(value) => f.debug_tuple("Output").field(value).finish(),
         }
     }
 }

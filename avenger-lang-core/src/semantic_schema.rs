@@ -342,6 +342,9 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
                 "additionalProperties": false
             })
         }
+        ValueShape::Union(shapes) => json!({
+            "oneOf": shapes.iter().map(value_shape_schema).collect::<Vec<_>>()
+        }),
         ValueShape::OneOrMany(inner) => json!({
             "oneOf": [
                 value_shape_schema(inner),

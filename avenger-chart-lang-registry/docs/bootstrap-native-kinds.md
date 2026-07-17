@@ -184,6 +184,50 @@ Compute stacked start and end positions for a quantitative field.
 | `sort_by` | property | false | Expressions that order rows within each stack. |
 | `value_name` | property | false | Optional copied value output column name. |
 
+## `Transform.time_fill`
+
+Complete missing calendar hierarchy rows and fill their values.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `as_value` | property | false | Generated value column name. |
+| `extent` | property | false | Optional explicit hierarchy-aligned extent. |
+| `field` | property | true | The value expression to fill. |
+| `fill_value` | property | true | Value used for generated rows. |
+| `flag` | property | false | Optional generated-row flag column. |
+| `group_by` | property | false | Expressions defining independent completion groups. |
+| `levels` | property | true | A `time_levels.levels` metadata handle. |
+
+## `Transform.time_levels`
+
+Derive an ordered categorical calendar hierarchy from timestamps.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `field` | property | true | The temporal input expression. |
+| `levels` | property | true | Ordered calendar levels, either atoms or configured level objects. |
+| `name` | property | false | Base name for generated key columns. |
+| `time_context` | property | false | Timezone and week-start overrides. |
+
+Dynamic transform outputs:
+
+- ArrayValueNames { property: "levels" }: Each atom level exposes its generated key as a same-named handle.
+
+- ArrayObjectField { property: "levels", field: "level" }: Each configured level exposes its generated key by level name.
+
+## `Transform.time_unit`
+
+Discretize timestamps into calendar-aware interval boundaries.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `field` | property | true | The temporal input expression. |
+| `interval` | property | false | Whether to emit interval end boundaries. |
+| `maxbins` | property | false | Requested maximum interval count. |
+| `name` | property | false | Base name for generated columns and state. |
+| `time_context` | property | false | Timezone and week-start overrides. |
+| `units` | property | false | One calendar unit or an ordered array of units; overrides `maxbins`. |
+
 ## `Tool.pan_scroll_zoom`
 
 Pointer-drag panning and wheel zoom for Cartesian domains.
