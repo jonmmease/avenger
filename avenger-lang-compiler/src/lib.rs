@@ -9,6 +9,7 @@
 mod analysis;
 mod artifact;
 mod compiler;
+mod lowering;
 mod options;
 mod schema;
 mod source_loader;

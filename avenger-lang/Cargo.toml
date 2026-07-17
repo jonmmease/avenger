@@ -12,4 +12,5 @@ avenger-lang-core = { path = "../avenger-lang-core" }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+datafusion = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

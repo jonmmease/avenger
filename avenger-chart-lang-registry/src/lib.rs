@@ -946,7 +946,16 @@ fn validate_value_shape(
         (ResolvedValue::String(value), ValueShape::Atom { values }) => {
             values.iter().any(|candidate| candidate.value == *value)
         }
-        (ResolvedValue::Expr(_) | ResolvedValue::Channel(_), ValueShape::SqlExpression) => true,
+        (
+            ResolvedValue::Boolean(_)
+            | ResolvedValue::Integer(_)
+            | ResolvedValue::Number(_)
+            | ResolvedValue::String(_)
+            | ResolvedValue::Scalar(_)
+            | ResolvedValue::Expr(_)
+            | ResolvedValue::Channel(_),
+            ValueShape::SqlExpression,
+        ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::DataFrame(_), ValueShape::TableBinding) => true,
         (ResolvedValue::Array(values), ValueShape::Array(inner)) => values
@@ -1058,9 +1067,12 @@ pub(crate) fn string_property(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+    use std::{
+        fs,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
     };
 
     use avenger_chart::prelude::{
@@ -1142,6 +1154,20 @@ mod tests {
     #[test]
     fn checked_bootstrap_schema_and_documentation_do_not_drift() {
         let registry = builtins::bootstrap_registry().unwrap();
+        if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+            let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            fs::write(
+                root.join("snapshots/bootstrap-schema.json"),
+                serde_json::to_string_pretty(registry.snapshot()).unwrap() + "\n",
+            )
+            .unwrap();
+            fs::write(
+                root.join("docs/bootstrap-native-kinds.md"),
+                registry.snapshot().markdown_reference(),
+            )
+            .unwrap();
+            return;
+        }
         let checked: NativeSchemaSnapshot =
             serde_json::from_str(include_str!("../snapshots/bootstrap-schema.json")).unwrap();
         assert_eq!(registry.snapshot(), &checked);
@@ -1220,7 +1246,7 @@ mod tests {
         let mut plot = ResolvedPlot::new("cartesian");
         plot.marks.push(
             ResolvedDeclaration::new("strict")
-                .property("x", ResolvedValue::Number(1.0))
+                .property("x", ResolvedValue::Object(IndexMap::new()))
                 .into(),
         );
         assert!(matches!(

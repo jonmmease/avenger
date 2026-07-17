@@ -1253,6 +1253,7 @@ dependencies = [
  "avenger-chart-lang-registry",
  "avenger-lang-compiler",
  "avenger-lang-core",
+ "datafusion",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -1269,6 +1270,7 @@ dependencies = [
  "avenger-chart-schema",
  "avenger-common",
  "avenger-lang-core",
+ "avenger-scenegraph",
  "avenger-wgpu",
  "datafusion",
  "image",

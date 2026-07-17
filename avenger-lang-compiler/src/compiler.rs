@@ -20,10 +20,11 @@ use datafusion::logical_expr::col;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
-    CompiledChartArtifact, CompiledProject, CompilerOptions, DefaultCompileEnvironmentFactory,
-    DefaultSourceLoader, DependencyFingerprint, LanguageHost, ProjectAnalysis, ProjectChartId,
-    ProjectFingerprint,
+    AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
+    CompiledChartArtifact, CompiledProject, CompilerOptions, DatasetProvenance, DatasetStageId,
+    DatasetStageKind, DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint,
+    LanguageHost, ProjectAnalysis, ProjectChartId, ProjectDatasetId, ProjectFingerprint,
+    lowering::{LoweredProject, compiled_project_from_lowered, lower_project},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -127,7 +128,32 @@ impl Compiler {
         path: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledChartArtifact> {
         let attempt = self.resolve_file_project_attempt(path).await;
-        map_resolved_project_to_compilation(attempt)
+        let dependencies = attempt.dependencies;
+        let result = match attempt.result {
+            Ok(project) => self
+                .lower_resolved_project(&project)
+                .await
+                .and_then(|mut lowered| {
+                    if lowered.charts.len() != 1 {
+                        return Err(CompileFailure {
+                            diagnostics: vec![Diagnostic::error(
+                                "AVENGER-LOWER-003",
+                                "compile_file requires exactly one chart",
+                                SourceLabel::new(
+                                    SourceSpan::empty(SourceId::new(0), 0),
+                                    format!("resolved {} charts", lowered.charts.len()),
+                                ),
+                            )],
+                        });
+                    }
+                    Ok(lowered.charts.remove(0).artifact)
+                }),
+            Err(error) => Err(error),
+        };
+        CompileAttempt {
+            result,
+            dependencies,
+        }
     }
 
     pub async fn compile_file(
@@ -142,7 +168,21 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledProject> {
         let attempt = self.resolve_project_graph_attempt(root).await;
-        map_resolved_project_to_project_compilation(attempt)
+        let dependencies = attempt.dependencies;
+        let result = match attempt.result {
+            Ok(project) => self.lower_resolved_project(&project).await.map(|lowered| {
+                compiled_project_from_lowered(
+                    &project,
+                    self.options.native_registry.as_ref(),
+                    lowered,
+                )
+            }),
+            Err(error) => Err(error),
+        };
+        CompileAttempt {
+            result,
+            dependencies,
+        }
     }
 
     pub async fn compile_project(
@@ -157,7 +197,38 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let project = self.resolve_project_graph_attempt(root).await.result?;
-        Err(phase_five_frontend_failure(&project))
+        let lowered = self.lower_resolved_project(&project).await?;
+        let mut analysis = ProjectAnalysis::empty(
+            project.sources.clone(),
+            self.options.native_registry.profile_id().clone(),
+            ProjectFingerprint::new(project.source_fingerprint.clone()),
+        );
+        for (ordinal, (declaration, span, schema)) in
+            lowered.analysis_schemas.into_iter().enumerate()
+        {
+            let dataset = ProjectDatasetId::new(declaration.as_str());
+            let stage = DatasetStageId::new(dataset.clone(), ordinal as u32);
+            analysis
+                .datasets
+                .insert(AnalyzedDataset {
+                    id: dataset,
+                    stage,
+                    provenance: DatasetProvenance {
+                        declaration_span: span,
+                        stage_span: span,
+                        stage_kind: DatasetStageKind::DatasetSource,
+                    },
+                    schema,
+                })
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-LOWER-004",
+                        "dataset analysis indexing failed",
+                        SourceLabel::new(span, error.to_string()),
+                    )],
+                })?;
+        }
+        Ok(analysis)
     }
 
     pub async fn check_project(&self, root: impl AsRef<Path>) -> Result<(), CompileFailure> {
@@ -171,11 +242,22 @@ impl Compiler {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<ExpandedSource, CompileFailure> {
-        Err(self
-            .compile_file_attempt(path)
-            .await
-            .result
-            .expect_err("Phase 5 native chart construction is unavailable"))
+        let project = self.resolve_file_project_attempt(path).await.result?;
+        let source = project
+            .files
+            .values()
+            .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
+            .map_or(SourceId::new(0), |file| file.source);
+        Err(CompileFailure {
+            diagnostics: vec![Diagnostic::error(
+                "AVENGER-EXPAND-001",
+                "source expansion is not implemented yet",
+                SourceLabel::new(
+                    SourceSpan::empty(source, 0),
+                    "definition expansion is planned for Phase 7",
+                ),
+            )],
+        })
     }
 
     /// Phase 4 frontend seam: load and semantically resolve one chart and its
@@ -386,6 +468,39 @@ impl Compiler {
             self.options.project_root.join(path)
         }
     }
+
+    async fn lower_resolved_project(
+        &self,
+        project: &ResolvedProject,
+    ) -> Result<LoweredProject, CompileFailure> {
+        let request = CompileEnvironmentRequest {
+            generation: 0,
+            native_registry_profile: self
+                .options
+                .native_registry
+                .profile_id()
+                .as_str()
+                .to_string(),
+        };
+        let environment = self
+            .options
+            .environment_factory
+            .create(&request)
+            .map_err(|error| CompileFailure {
+                diagnostics: vec![Diagnostic::error(
+                    "AVENGER-LOWER-005",
+                    "compile environment creation failed",
+                    SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
+                )],
+            })?;
+        lower_project(
+            project,
+            self.options.native_registry.as_ref(),
+            environment.session_context(),
+        )
+        .await
+        .map_err(|diagnostics| CompileFailure { diagnostics })
+    }
 }
 
 #[derive(Default)]
@@ -491,29 +606,6 @@ pub enum CompilerBuildError {
     SourceLoader(#[from] SourceLoaderError),
 }
 
-fn phase_five_frontend_diagnostic(source: SourceId) -> Diagnostic {
-    Diagnostic::error(
-        "AV0005",
-        "native chart lowering is not implemented yet",
-        SourceLabel::new(
-            SourceSpan::empty(source, 0),
-            "Phase 4 resolved the project; Phase 5 constructs native charts",
-        ),
-    )
-    .with_note("semantic validation and name resolution completed successfully")
-}
-
-fn phase_five_frontend_failure(project: &ResolvedProject) -> CompileFailure {
-    let source = project
-        .files
-        .values()
-        .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
-        .map_or(SourceId::new(0), |file| file.source);
-    CompileFailure {
-        diagnostics: vec![phase_five_frontend_diagnostic(source)],
-    }
-}
-
 fn phase_zero_failure(message: String) -> CompileFailure {
     CompileFailure {
         diagnostics: vec![Diagnostic::error(
@@ -574,30 +666,6 @@ fn map_parsed_project_to_resolution(
                 diagnostics: failure.diagnostics,
             })
     });
-    CompileAttempt {
-        result,
-        dependencies: attempt.dependencies,
-    }
-}
-
-fn map_resolved_project_to_compilation(
-    attempt: CompileAttempt<ResolvedProject>,
-) -> CompileAttempt<CompiledChartArtifact> {
-    let result = attempt
-        .result
-        .and_then(|project| Err(phase_five_frontend_failure(&project)));
-    CompileAttempt {
-        result,
-        dependencies: attempt.dependencies,
-    }
-}
-
-fn map_resolved_project_to_project_compilation(
-    attempt: CompileAttempt<ResolvedProject>,
-) -> CompileAttempt<CompiledProject> {
-    let result = attempt
-        .result
-        .and_then(|project| Err(phase_five_frontend_failure(&project)));
     CompileAttempt {
         result,
         dependencies: attempt.dependencies,

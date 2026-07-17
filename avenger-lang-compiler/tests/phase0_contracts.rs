@@ -135,7 +135,7 @@ async fn programmatic_registry_chart_uses_the_public_artifact_wrapper() {
 }
 
 #[tokio::test]
-async fn compile_attempt_retains_discovered_dependencies_on_failure() {
+async fn compile_attempt_retains_discovered_dependencies_on_success() {
     let origin = SourceOrigin::File("/project/chart.avenger".into());
     let loader = Arc::new(
         InMemorySourceLoader::default().with_source(LoadedSource::new(
@@ -151,10 +151,8 @@ async fn compile_attempt_retains_discovered_dependencies_on_failure() {
         .unwrap();
 
     let attempt = compiler.compile_file_attempt("chart.avenger").await;
-    assert_eq!(
-        attempt.result.unwrap_err().diagnostics[0].code.as_str(),
-        "AV0005"
-    );
+    let artifact = attempt.result.unwrap();
+    assert_eq!(artifact.name.as_deref(), Some("chart"));
     let dependencies = attempt.dependencies.iter().collect::<Vec<_>>();
     assert_eq!(dependencies.len(), 1);
     assert_eq!(dependencies[0].canonical_origin, origin);

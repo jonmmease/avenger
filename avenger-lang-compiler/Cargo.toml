@@ -23,6 +23,7 @@ reqwest = { workspace = true, features = ["rustls-tls"] }
 
 [dev-dependencies]
 avenger-common = { path = "../avenger-common" }
+avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 image = { workspace = true }
 image-compare = "0.4"

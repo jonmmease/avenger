@@ -6,21 +6,24 @@
 use std::{collections::BTreeMap, sync::Arc};
 
 use avenger_chart::{
-    layout::LayoutSpec,
+    layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
     prelude::{
-        Cartesian, CartesianAxis, CartesianSymbolPositionChannels, ChartWidgetPlacementExt,
-        ChromePosition, IntoPlotMark, Legend, Linear, PanScrollZoom, Scale, Symbol,
+        Auto, Cartesian, CartesianAxis, CartesianSymbolPositionChannels, ChartWidgetPlacementExt,
+        ChromePosition, IntoPlotMark, Legend, Linear, Ordinal, PanScrollZoom, Scale, Symbol,
         WidgetAttachment, WidgetItemRow, WidgetItems,
     },
 };
-use avenger_chart_core::DataTransform;
+use avenger_chart_core::{Axis, DataTransform};
 use avenger_chart_schema::{
     BodyMode, ChannelSchema, EnumValueSchema, ExportSchema, KindSchema, NativeKindKey,
     NativeKindNamespace, PartSchema, PropertySchema, TransformOutputSchema, ValueShape,
 };
 use avenger_chart_transforms::{Aggregate, Filter, Sql};
 use avenger_chart_widgets::RadioButtonList;
-use datafusion::{common::ScalarValue, logical_expr::col};
+use datafusion::{
+    common::ScalarValue,
+    logical_expr::{Expr, col, lit},
+};
 use indexmap::IndexMap;
 
 use crate::{
@@ -486,30 +489,297 @@ fn register_radio_button_list(builder: &mut NativeRegistryBuilder) -> Result<(),
 }
 
 fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
-    let scale = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Scale, "linear"),
-        "A continuous linear scale.",
+    let common_scale_properties = |schema: KindSchema| {
+        schema
+            .property(
+                "domain",
+                PropertySchema::optional(
+                    ValueShape::Array(Box::new(ValueShape::Any)),
+                    "Explicit scale domain values.",
+                ),
+            )
+            .property(
+                "range",
+                PropertySchema::optional(
+                    ValueShape::Array(Box::new(ValueShape::Any)),
+                    "Explicit scale range values.",
+                ),
+            )
+    };
+
+    let linear = common_scale_properties(
+        KindSchema::new(
+            NativeKindKey::new(NativeKindNamespace::Scale, "linear"),
+            "A continuous linear scale.",
+        )
+        .property(
+            "nice",
+            PropertySchema::optional(ValueShape::Boolean, "Round the domain to pleasant values."),
+        )
+        .property(
+            "zero",
+            PropertySchema::optional(ValueShape::Boolean, "Include zero in the inferred domain."),
+        ),
     );
-    builder.register_object(scale, Arc::new(|_| Ok(Box::new(Scale::<Linear>::new()))))?;
+    builder.register_object(
+        linear,
+        Arc::new(|declaration| {
+            let mut scale = Scale::<Linear>::new().into_type::<Auto>();
+            scale = lower_scale(scale, declaration)?;
+            if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("nice") {
+                scale = scale._option("nice", lit(*value));
+            }
+            if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("zero") {
+                scale = scale._option("zero", lit(*value));
+            }
+            Ok(Box::new(scale))
+        }),
+    )?;
+
+    let ordinal = common_scale_properties(KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Scale, "ordinal"),
+        "A discrete ordinal scale.",
+    ));
+    builder.register_object(
+        ordinal,
+        Arc::new(|declaration| {
+            Ok(Box::new(lower_scale(
+                Scale::<Ordinal>::new().into_type::<Auto>(),
+                declaration,
+            )?))
+        }),
+    )?;
 
     let axis = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Axis, "cartesian"),
         "A Cartesian axis configuration.",
+    )
+    .property(
+        "title",
+        PropertySchema::optional(ValueShape::SqlExpression, "Axis title."),
+    )
+    .property(
+        "grid",
+        PropertySchema::optional(ValueShape::SqlExpression, "Whether to draw grid lines."),
+    )
+    .property(
+        "tick_count",
+        PropertySchema::optional(ValueShape::SqlExpression, "Requested number of ticks."),
+    )
+    .property(
+        "visible",
+        PropertySchema::optional(ValueShape::SqlExpression, "Whether the axis is visible."),
+    )
+    .property(
+        "position",
+        PropertySchema::optional(ValueShape::SqlExpression, "Axis side position."),
     );
-    builder.register_object(axis, Arc::new(|_| Ok(Box::new(CartesianAxis::new()))))?;
+    builder.register_object(
+        axis,
+        Arc::new(|declaration| {
+            let mut axis = CartesianAxis::new();
+            for (name, value) in &declaration.properties {
+                let expression = native_expr(value, name)?;
+                axis = match name.as_str() {
+                    "title" => axis.title(expression),
+                    "grid" => axis.grid(expression),
+                    "tick_count" => axis.tick_count(expression),
+                    "visible" => axis.visible(expression),
+                    "position" => axis.position(expression),
+                    _ => unreachable!("registry validation checks axis properties"),
+                };
+            }
+            let erased: Box<dyn Axis> = Box::new(axis);
+            Ok(Box::new(erased))
+        }),
+    )?;
 
     let legend = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Legend, "standard"),
         "A standard chart legend configuration.",
+    )
+    .property(
+        "title",
+        PropertySchema::optional(ValueShape::SqlExpression, "Legend title."),
+    )
+    .property(
+        "visible",
+        PropertySchema::optional(ValueShape::SqlExpression, "Whether the legend is visible."),
+    )
+    .property(
+        "position",
+        PropertySchema::optional(ValueShape::SqlExpression, "Legend chrome position."),
+    )
+    .property(
+        "orientation",
+        PropertySchema::optional(ValueShape::SqlExpression, "Legend orientation."),
+    )
+    .property(
+        "columns",
+        PropertySchema::optional(ValueShape::SqlExpression, "Number of legend columns."),
     );
-    builder.register_object(legend, Arc::new(|_| Ok(Box::new(Legend::new()))))?;
+    builder.register_object(
+        legend,
+        Arc::new(|declaration| {
+            let mut legend = Legend::new();
+            for (name, value) in &declaration.properties {
+                let expression = native_expr(value, name)?;
+                legend = match name.as_str() {
+                    "title" => legend.title(expression),
+                    "visible" => legend.visible(expression),
+                    "position" => legend.position(expression),
+                    "orientation" => legend.orientation(expression),
+                    "columns" => legend.columns(expression),
+                    _ => unreachable!("registry validation checks legend properties"),
+                };
+            }
+            Ok(Box::new(legend))
+        }),
+    )?;
 
     let layout = KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Layout, "chart"),
         "The default chart frame layout.",
+    )
+    .property(
+        "canvas",
+        PropertySchema::optional(
+            ValueShape::Any,
+            "Canvas width/height constraints or `auto`.",
+        ),
+    )
+    .property(
+        "plot",
+        PropertySchema::optional(
+            ValueShape::Any,
+            "Plot-area width/height constraints or `auto`.",
+        ),
+    )
+    .property(
+        "margins",
+        PropertySchema::optional(ValueShape::Any, "Fixed chart margins."),
     );
-    builder.register_object(layout, Arc::new(|_| Ok(Box::new(LayoutSpec::default()))))?;
+    builder.register_object(layout, Arc::new(lower_layout))?;
     Ok(())
+}
+
+fn lower_scale(
+    mut scale: Scale<Auto>,
+    declaration: &crate::ResolvedDeclaration,
+) -> Result<Scale<Auto>, RegistryError> {
+    if let Some(ResolvedValue::Array(domain)) = declaration.properties.get("domain") {
+        scale = scale.domain_discrete(
+            domain
+                .iter()
+                .enumerate()
+                .map(|(index, value)| native_expr(value, &format!("domain[{index}]")))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+    if let Some(ResolvedValue::Array(range)) = declaration.properties.get("range") {
+        scale = scale.range_discrete(
+            range
+                .iter()
+                .enumerate()
+                .map(|(index, value)| resolved_scalar(value, &format!("range[{index}]")))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+    Ok(scale)
+}
+
+fn lower_layout(
+    declaration: &crate::ResolvedDeclaration,
+) -> Result<Box<dyn std::any::Any + Send + Sync>, RegistryError> {
+    let mut layout = LayoutSpec::default();
+    if let Some(value) = declaration.properties.get("canvas") {
+        layout = match dimensions(value, "canvas")? {
+            Dimensions::Auto => layout.canvas_constraint(CanvasConstraint::None),
+            Dimensions::Width(width) => layout.canvas_constraint(CanvasConstraint::Width(width)),
+            Dimensions::Height(height) => {
+                layout.canvas_constraint(CanvasConstraint::Height(height))
+            }
+            Dimensions::Fixed(width, height) => layout.canvas_size(width, height),
+        };
+    }
+    if let Some(value) = declaration.properties.get("plot") {
+        layout = match dimensions(value, "plot")? {
+            Dimensions::Auto => layout.plot_constraint(PlotConstraint::Auto),
+            Dimensions::Width(width) => layout.plot_constraint(PlotConstraint::Width(width)),
+            Dimensions::Height(height) => layout.plot_constraint(PlotConstraint::Height(height)),
+            Dimensions::Fixed(width, height) => layout.plot_size(width, height),
+        };
+    }
+    if let Some(ResolvedValue::Object(values)) = declaration.properties.get("margins") {
+        let mut margins = Margins::default();
+        for (name, value) in values {
+            let expression = native_expr(value, &format!("margins.{name}"))?;
+            margins = match name.as_str() {
+                "top" => margins.top(expression),
+                "right" => margins.right(expression),
+                "bottom" => margins.bottom(expression),
+                "left" => margins.left(expression),
+                _ => {
+                    return Err(RegistryError::UnknownProperty {
+                        kind: "margins".to_string(),
+                        property: name.clone(),
+                    });
+                }
+            };
+        }
+        layout = layout.with_margins(margins);
+    }
+    Ok(Box::new(layout))
+}
+
+enum Dimensions {
+    Auto,
+    Width(Expr),
+    Height(Expr),
+    Fixed(Expr, Expr),
+}
+
+fn dimensions(value: &ResolvedValue, name: &str) -> Result<Dimensions, RegistryError> {
+    if matches!(value, ResolvedValue::String(value) if value == "auto") {
+        return Ok(Dimensions::Auto);
+    }
+    let ResolvedValue::Object(values) = value else {
+        return Err(RegistryError::InvalidPropertyType {
+            property: name.to_string(),
+            expected: "`auto` or an object with width and/or height".to_string(),
+        });
+    };
+    let width = values
+        .get("width")
+        .filter(|value| !matches!(value, ResolvedValue::String(value) if value == "auto"))
+        .map(|value| native_expr(value, &format!("{name}.width")))
+        .transpose()?;
+    let height = values
+        .get("height")
+        .filter(|value| !matches!(value, ResolvedValue::String(value) if value == "auto"))
+        .map(|value| native_expr(value, &format!("{name}.height")))
+        .transpose()?;
+    match (width, height) {
+        (Some(width), Some(height)) => Ok(Dimensions::Fixed(width, height)),
+        (Some(width), None) => Ok(Dimensions::Width(width)),
+        (None, Some(height)) => Ok(Dimensions::Height(height)),
+        (None, None) => Ok(Dimensions::Auto),
+    }
+}
+
+fn native_expr(value: &ResolvedValue, name: &str) -> Result<Expr, RegistryError> {
+    match value {
+        ResolvedValue::Boolean(value) => Ok(lit(*value)),
+        ResolvedValue::Integer(value) => Ok(lit(*value)),
+        ResolvedValue::Number(value) => Ok(lit(*value)),
+        ResolvedValue::String(value) => Ok(lit(value.clone())),
+        ResolvedValue::Scalar(value) => Ok(lit(value.clone())),
+        ResolvedValue::Expr(value) => Ok(value.clone()),
+        _ => Err(RegistryError::InvalidPropertyType {
+            property: name.to_string(),
+            expected: "scalar SQL expression".to_string(),
+        }),
+    }
 }
 
 fn object_string(

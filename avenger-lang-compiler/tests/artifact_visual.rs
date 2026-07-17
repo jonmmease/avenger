@@ -17,7 +17,7 @@ use datafusion::{
 };
 
 #[tokio::test]
-async fn artifact_wrapper_matches_existing_simple_scatter_baseline() {
+async fn vertical_slice_hello_scatter_matches_direct_rust_and_existing_baseline() {
     let x_values = Float64Array::from(vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
     let y_values = Float64Array::from(vec![2.5, 3.2, 4.8, 3.1, 5.9, 7.2, 6.5, 8.1, 7.8, 9.5]);
     let schema = Arc::new(Schema::new(vec![
@@ -56,33 +56,64 @@ async fn artifact_wrapper_matches_existing_simple_scatter_baseline() {
         DependencyFingerprint::new("existing-simple-scatter"),
     );
 
-    let evaluated = artifact
+    let direct_evaluated = artifact
         .compiled_plot()
         .evaluate(&context, None)
         .await
         .unwrap();
+    let fixture =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects/00_hello_scatter");
+    let dsl_artifact = Compiler::builder()
+        .project_root(&fixture)
+        .build()
+        .unwrap()
+        .compile_file(fixture.join("chart.avenger"))
+        .await
+        .unwrap();
+    let dsl_evaluated = dsl_artifact
+        .compiled_plot()
+        .evaluate(&SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert_eq!(dsl_artifact.interface, artifact.interface);
+
+    let direct = render_scene(&direct_evaluated.scene_graph, 2.0).await;
+    let dsl = render_scene(&dsl_evaluated.scene_graph, 2.0).await;
+
+    let equivalence = image_compare::rgba_hybrid_compare(&direct, &dsl).unwrap();
+    assert!(
+        equivalence.score >= 0.9999,
+        "DSL render differs from direct Rust render (similarity {})",
+        equivalence.score
+    );
+
+    let baseline_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../avenger-chart/tests/baselines/symbol/simple_scatter_plot.png");
+    let expected = image::open(&baseline_path).unwrap().to_rgba8();
+    let comparison = image_compare::rgba_hybrid_compare(&expected, &dsl).unwrap();
+    assert!(
+        comparison.score >= 0.9999,
+        "DSL artifact render differs from {} (similarity {})",
+        baseline_path.display(),
+        comparison.score
+    );
+}
+
+async fn render_scene(
+    scene_graph: &avenger_scenegraph::scene_graph::SceneGraph,
+    scale: f32,
+) -> image::RgbaImage {
     let dimensions = CanvasDimensions {
-        size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
-        scale: 2.0,
+        size: [scene_graph.width, scene_graph.height],
+        scale,
     };
     let config = CanvasConfig {
         font_resolution: avenger_chart::fonts::default_font_resolution(),
         ..Default::default()
     };
     let mut canvas = PngCanvas::new(dimensions, config).await.unwrap();
-    canvas.set_scene(&evaluated.scene_graph).unwrap();
-    let actual = canvas.render().await.unwrap();
-
-    let baseline_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../avenger-chart/tests/baselines/symbol/simple_scatter_plot.png");
-    let expected = image::open(&baseline_path).unwrap().to_rgba8();
-    let comparison = image_compare::rgba_hybrid_compare(&expected, &actual).unwrap();
-    assert!(
-        comparison.score >= 0.9999,
-        "artifact render differs from {} (similarity {})",
-        baseline_path.display(),
-        comparison.score
-    );
+    canvas.set_scene(scene_graph).unwrap();
+    canvas.render().await.unwrap()
 }
 
 #[tokio::test]

@@ -82,14 +82,52 @@ Exports:
 
 A continuous linear scale.
 
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain` | property | false | Explicit scale domain values. |
+| `nice` | property | false | Round the domain to pleasant values. |
+| `range` | property | false | Explicit scale range values. |
+| `zero` | property | false | Include zero in the inferred domain. |
+
+## `Scale.ordinal`
+
+A discrete ordinal scale.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain` | property | false | Explicit scale domain values. |
+| `range` | property | false | Explicit scale range values. |
+
 ## `Axis.cartesian`
 
 A Cartesian axis configuration.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `grid` | property | false | Whether to draw grid lines. |
+| `position` | property | false | Axis side position. |
+| `tick_count` | property | false | Requested number of ticks. |
+| `title` | property | false | Axis title. |
+| `visible` | property | false | Whether the axis is visible. |
 
 ## `Legend.standard`
 
 A standard chart legend configuration.
 
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `columns` | property | false | Number of legend columns. |
+| `orientation` | property | false | Legend orientation. |
+| `position` | property | false | Legend chrome position. |
+| `title` | property | false | Legend title. |
+| `visible` | property | false | Whether the legend is visible. |
+
 ## `Layout.chart`
 
 The default chart frame layout.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `canvas` | property | false | Canvas width/height constraints or `auto`. |
+| `margins` | property | false | Fixed chart margins. |
+| `plot` | property | false | Plot-area width/height constraints or `auto`. |

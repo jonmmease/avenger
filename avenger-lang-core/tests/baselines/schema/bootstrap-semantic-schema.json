@@ -2788,7 +2788,78 @@
         },
         "outputs": {},
         "parts": {},
-        "properties": {},
+        "properties": {
+          "domain": {
+            "docs": "Explicit scale domain values.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "shape": "any"
+              },
+              "shape": "array"
+            }
+          },
+          "nice": {
+            "docs": "Round the domain to pleasant values.",
+            "required": false,
+            "shape": {
+              "shape": "boolean"
+            }
+          },
+          "range": {
+            "docs": "Explicit scale range values.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "shape": "any"
+              },
+              "shape": "array"
+            }
+          },
+          "zero": {
+            "docs": "Include zero in the inferred domain.",
+            "required": false,
+            "shape": {
+              "shape": "boolean"
+            }
+          }
+        },
+        "stateless": false
+      },
+      {
+        "channels": {},
+        "child_rules": [],
+        "compatible_coordinates": [],
+        "docs": "A discrete ordinal scale.",
+        "exports": {},
+        "key": {
+          "kind": "ordinal",
+          "namespace": "scale"
+        },
+        "outputs": {},
+        "parts": {},
+        "properties": {
+          "domain": {
+            "docs": "Explicit scale domain values.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "shape": "any"
+              },
+              "shape": "array"
+            }
+          },
+          "range": {
+            "docs": "Explicit scale range values.",
+            "required": false,
+            "shape": {
+              "detail": {
+                "shape": "any"
+              },
+              "shape": "array"
+            }
+          }
+        },
         "stateless": false
       },
       {
@@ -2803,7 +2874,43 @@
         },
         "outputs": {},
         "parts": {},
-        "properties": {},
+        "properties": {
+          "grid": {
+            "docs": "Whether to draw grid lines.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "position": {
+            "docs": "Axis side position.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "tick_count": {
+            "docs": "Requested number of ticks.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "title": {
+            "docs": "Axis title.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "visible": {
+            "docs": "Whether the axis is visible.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
         "stateless": false
       },
       {
@@ -2818,7 +2925,43 @@
         },
         "outputs": {},
         "parts": {},
-        "properties": {},
+        "properties": {
+          "columns": {
+            "docs": "Number of legend columns.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "orientation": {
+            "docs": "Legend orientation.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "position": {
+            "docs": "Legend chrome position.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "title": {
+            "docs": "Legend title.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          },
+          "visible": {
+            "docs": "Whether the legend is visible.",
+            "required": false,
+            "shape": {
+              "shape": "sql_expression"
+            }
+          }
+        },
         "stateless": false
       },
       {
@@ -2833,7 +2976,29 @@
         },
         "outputs": {},
         "parts": {},
-        "properties": {},
+        "properties": {
+          "canvas": {
+            "docs": "Canvas width/height constraints or `auto`.",
+            "required": false,
+            "shape": {
+              "shape": "any"
+            }
+          },
+          "margins": {
+            "docs": "Fixed chart margins.",
+            "required": false,
+            "shape": {
+              "shape": "any"
+            }
+          },
+          "plot": {
+            "docs": "Plot-area width/height constraints or `auto`.",
+            "required": false,
+            "shape": {
+              "shape": "any"
+            }
+          }
+        },
         "stateless": false
       }
     ],

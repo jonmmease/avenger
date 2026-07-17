@@ -502,6 +502,47 @@ impl Default for LayoutSpec {
 }
 
 impl LayoutSpec {
+    /// Apply a canvas sizing constraint while retaining the remaining layout
+    /// configuration. This is the object-level counterpart to
+    /// [`Chart::canvas_constraint`](crate::Chart::canvas_constraint).
+    pub fn canvas_constraint(mut self, constraint: CanvasConstraint) -> Self {
+        self.canvas = constraint.into();
+        self
+    }
+
+    /// Set both canvas dimensions while retaining plot-area and margin
+    /// configuration.
+    pub fn canvas_size(mut self, width: Expr, height: Expr) -> Self {
+        self.canvas = SizeMode::Fixed {
+            width: serializable_expr_from_expr(width, "canvas width"),
+            height: serializable_expr_from_expr(height, "canvas height"),
+        };
+        self
+    }
+
+    /// Apply a plot-area sizing constraint while retaining the remaining
+    /// layout configuration.
+    pub fn plot_constraint(mut self, constraint: PlotConstraint) -> Self {
+        self.plot_area = constraint.into();
+        self
+    }
+
+    /// Set both plot-area dimensions while retaining canvas and margin
+    /// configuration.
+    pub fn plot_size(mut self, width: Expr, height: Expr) -> Self {
+        self.plot_area = SizeMode::Fixed {
+            width: serializable_expr_from_expr(width, "plot width"),
+            height: serializable_expr_from_expr(height, "plot height"),
+        };
+        self
+    }
+
+    /// Replace the fixed chart margins.
+    pub fn with_margins(mut self, margins: Margins) -> Self {
+        self.margins = margins;
+        self
+    }
+
     /// Create a layout spec with fixed canvas size (traditional mode)
     pub fn fixed_canvas(width: Expr, height: Expr, margins: Margins) -> Self {
         Self {
