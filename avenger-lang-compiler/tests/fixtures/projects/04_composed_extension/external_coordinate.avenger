@@ -1,0 +1,5 @@
+avenger 1;
+
+chart external_isometric as external_coordinate {
+  mark external_cube as cube {}
+}

@@ -1,0 +1,32 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { category: 'A'; x: CAST(1.0 AS DOUBLE); y: CAST(2.0 AS DOUBLE); },
+      { category: 'B'; x: CAST(2.0 AS DOUBLE); y: CAST(3.0 AS DOUBLE); }
+    ];
+  }
+
+  widget radio_button_list as choice {
+    id: 'choice';
+    items: [
+      { value: 'A'; label: 'Category A'; },
+      { value: 'B'; label: 'Category B'; }
+    ];
+    default: 'A';
+    position: right;
+  }
+
+  group as selected_points {
+    transform filter as selected {
+      predicate: "category" = $choice.value;
+    }
+    mark symbol as points {
+      x: "x";
+      y: "y";
+      size: value 120.0;
+      fill: value '#5778a4';
+    }
+  }
+}

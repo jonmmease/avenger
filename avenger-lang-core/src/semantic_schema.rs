@@ -451,7 +451,7 @@ fn value_ref() -> Value {
 
 fn namespace_keywords(namespace: NativeKindNamespace) -> &'static [&'static str] {
     match namespace {
-        NativeKindNamespace::Coordinate => &["chart", "plot", "view"],
+        NativeKindNamespace::Coordinate => &["chart", "cell", "plot", "view"],
         NativeKindNamespace::Mark => &["mark"],
         NativeKindNamespace::Transform => &["transform"],
         NativeKindNamespace::Tool => &["tool"],
@@ -468,6 +468,7 @@ fn namespace_keywords(namespace: NativeKindNamespace) -> &'static [&'static str]
 fn core_native_properties(keyword: &str) -> &'static [&'static str] {
     match keyword {
         "chart" | "plot" => &["data", "title", "subtitle", "layout", "theme"],
+        "cell" => &["at", "data", "label"],
         "view" => &["data"],
         "mark" => &["data"],
         "tool" => &["id"],

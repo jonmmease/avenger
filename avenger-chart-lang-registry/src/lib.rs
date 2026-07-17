@@ -59,6 +59,10 @@ impl fmt::Debug for ResolvedValue {
 #[derive(Clone, Debug)]
 pub struct ResolvedDeclaration {
     pub kind: String,
+    /// Stable source-level declaration name, kept outside schema properties so
+    /// paired lowerers can preserve structural identity without inventing a
+    /// kind-specific `id` property.
+    pub source_name: Option<String>,
     pub properties: IndexMap<String, ResolvedValue>,
 }
 
@@ -66,8 +70,14 @@ impl ResolvedDeclaration {
     pub fn new(kind: impl Into<String>) -> Self {
         Self {
             kind: kind.into(),
+            source_name: None,
             properties: IndexMap::new(),
         }
+    }
+
+    pub fn source_name(mut self, source_name: impl Into<String>) -> Self {
+        self.source_name = Some(source_name.into());
+        self
     }
 
     pub fn property(mut self, name: impl Into<String>, value: ResolvedValue) -> Self {
@@ -1149,6 +1159,44 @@ mod tests {
             .unwrap();
         let extended = builder.build().unwrap();
         assert_ne!(left.profile_id(), extended.profile_id());
+    }
+
+    #[test]
+    fn bootstrap_vertical_slice_every_schema_entry_has_a_paired_lowerer() {
+        let registry = builtins::bootstrap_registry().unwrap();
+        let paired = registry
+            .coordinates
+            .values()
+            .flat_map(|pack| pack.schemas())
+            .map(|schema| schema.key)
+            .chain(
+                registry
+                    .transforms
+                    .values()
+                    .map(|entry| entry.schema.key.clone()),
+            )
+            .chain(
+                registry
+                    .widgets
+                    .values()
+                    .map(|entry| entry.schema.key.clone()),
+            )
+            .chain(
+                registry
+                    .objects
+                    .values()
+                    .map(|entry| entry.schema.key.clone()),
+            )
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(
+            paired,
+            registry
+                .snapshot()
+                .entries
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+        );
     }
 
     #[test]

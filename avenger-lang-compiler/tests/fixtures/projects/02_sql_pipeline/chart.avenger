@@ -1,0 +1,40 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { category: 'A'; amount: CAST(2.0 AS DOUBLE); },
+      { category: 'A'; amount: CAST(3.0 AS DOUBLE); },
+      { category: 'B'; amount: CAST(4.0 AS DOUBLE); },
+      { category: 'B'; amount: CAST(6.0 AS DOUBLE); }
+    ];
+  }
+
+  group as summarized {
+    transform aggregate as totals {
+      group_by: ["category"];
+      measures: [{ name: 'total'; op: sum; expr: "amount"; }];
+    }
+    transform sql as doubled {
+      query:
+        SELECT category, total * 2.0 AS doubled
+        FROM input
+        ORDER BY category;
+    }
+    mark symbol as points {
+      x: "category" {
+        scale: ordinal;
+        axis: { title: 'Category'; }
+      }
+      y: "doubled" {
+        scale: linear { zero: true; }
+        axis: { title: 'Doubled Total'; }
+      }
+      fill: "category" {
+        scale: ordinal { range: ['#5778a4', '#e49444']; }
+        legend: { title: 'Category'; position: right; }
+      }
+      size: value 100.0;
+    }
+  }
+}

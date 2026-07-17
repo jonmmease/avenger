@@ -123,6 +123,9 @@ fn lower_symbol(
     declaration: &crate::ResolvedDeclaration,
 ) -> Result<Vec<avenger_chart::prelude::PlotMark<Cartesian>>, RegistryError> {
     let mut mark = Symbol::<Cartesian>::new();
+    if let Some(source_name) = &declaration.source_name {
+        mark = mark.id(source_name.clone());
+    }
     for (name, value) in &declaration.properties {
         let channel_value = match value {
             ResolvedValue::Expr(expr) => expr.clone().into(),
@@ -154,9 +157,13 @@ fn lower_symbol(
 }
 
 fn lower_pan_scroll_zoom(
-    _declaration: &crate::ResolvedDeclaration,
+    declaration: &crate::ResolvedDeclaration,
 ) -> Result<Arc<dyn avenger_chart::prelude::ChartTool<Cartesian>>, RegistryError> {
-    Ok(Arc::new(PanScrollZoom::cartesian()))
+    let mut tool = PanScrollZoom::cartesian();
+    if let Some(source_name) = &declaration.source_name {
+        tool = tool.id(source_name.clone());
+    }
+    Ok(Arc::new(tool))
 }
 
 pub fn symbol_schema() -> KindSchema {
@@ -525,7 +532,7 @@ fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
         linear,
         Arc::new(|declaration| {
             let mut scale = Scale::<Linear>::new().into_type::<Auto>();
-            scale = lower_scale(scale, declaration)?;
+            scale = lower_scale(scale, declaration, true)?;
             if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("nice") {
                 scale = scale._option("nice", lit(*value));
             }
@@ -546,6 +553,7 @@ fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
             Ok(Box::new(lower_scale(
                 Scale::<Ordinal>::new().into_type::<Auto>(),
                 declaration,
+                false,
             )?))
         }),
     )?;
@@ -666,15 +674,25 @@ fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
 fn lower_scale(
     mut scale: Scale<Auto>,
     declaration: &crate::ResolvedDeclaration,
+    continuous: bool,
 ) -> Result<Scale<Auto>, RegistryError> {
     if let Some(ResolvedValue::Array(domain)) = declaration.properties.get("domain") {
-        scale = scale.domain_discrete(
-            domain
-                .iter()
-                .enumerate()
-                .map(|(index, value)| native_expr(value, &format!("domain[{index}]")))
-                .collect::<Result<Vec<_>, _>>()?,
-        );
+        let expressions = domain
+            .iter()
+            .enumerate()
+            .map(|(index, value)| native_expr(value, &format!("domain[{index}]")))
+            .collect::<Result<Vec<_>, _>>()?;
+        if continuous {
+            let [min, max] = expressions.as_slice() else {
+                return Err(RegistryError::InvalidPropertyType {
+                    property: "domain".to_string(),
+                    expected: "exactly two values for a continuous scale".to_string(),
+                });
+            };
+            scale = scale.domain_interval(min.clone(), max.clone());
+        } else {
+            scale = scale.domain_discrete(expressions);
+        }
     }
     if let Some(ResolvedValue::Array(range)) = declaration.properties.get("range") {
         scale = scale.range_discrete(

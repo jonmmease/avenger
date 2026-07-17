@@ -19,8 +19,8 @@ use avenger_chart::{
 };
 use avenger_chart_core::{DataTransformExecutionContext, Param as ChartParam, TimeContext};
 use avenger_chart_lang_registry::{
-    NativeRegistry, ResolvedDeclaration as NativeDeclaration, ResolvedMark, ResolvedMarkGroup,
-    ResolvedPlot, ResolvedTransformStage, ResolvedValue as NativeValue,
+    NativeRegistry, ResolvedChildPlot, ResolvedDeclaration as NativeDeclaration, ResolvedMark,
+    ResolvedMarkGroup, ResolvedPlot, ResolvedTransformStage, ResolvedValue as NativeValue,
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace};
 use avenger_lang_core::{
@@ -112,7 +112,7 @@ impl<'a> ProjectLowerer<'a> {
                 .compile_root(&plot, self.context)
                 .await
                 .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-            let artifact = CompiledChartArtifact::new(
+            let mut artifact = CompiledChartArtifact::new(
                 ProjectChartId::new(declaration.id.as_str()),
                 declaration.name.clone(),
                 declaration.source,
@@ -120,6 +120,7 @@ impl<'a> ProjectLowerer<'a> {
                 self.registry.profile_id().clone(),
                 DependencyFingerprint::new(self.project.source_fingerprint.clone()),
             );
+            self.enrich_interface(&mut artifact, declaration);
             charts.push(LoweredChart { artifact });
         }
         Ok(LoweredProject {
@@ -130,16 +131,160 @@ impl<'a> ProjectLowerer<'a> {
 
     fn lower_state(&mut self) -> Result<(), Diagnostic> {
         for id in &self.project.param_default_order {
-            let param = &self.project.params[id];
-            let data_type = physical_data_type(&param.data_type);
-            let default = self.typed_scalar(&param.default, &data_type, param)?;
-            let runtime_name = self.param_runtime_name(param);
-            self.params
-                .insert(id.clone(), Param::new(runtime_name, default));
+            self.lower_param(id)?;
+        }
+        // Native tool/widget exports have schema-provided defaults and do not
+        // participate in the authored param-default DAG. They still need the
+        // exact same typed parameter representation before their paired
+        // lowerers run.
+        for id in self.project.params.keys() {
+            if !self.params.contains_key(id) {
+                self.lower_param(id)?;
+            }
         }
         for (id, store) in &self.project.stores {
             self.stores.insert(id.clone(), self.lower_store(store)?);
         }
+        Ok(())
+    }
+
+    fn enrich_interface(&self, artifact: &mut CompiledChartArtifact, chart: &ResolvedDeclaration) {
+        for (id, param) in &self.project.params {
+            if !belongs_to_chart(&param.owner_ancestry, &chart.id) {
+                continue;
+            }
+            let runtime_name = &self.params[id].name;
+            if let Some(spec) = artifact.compiled.param_specs().get(runtime_name)
+                && let Some(binding) = artifact.interface.params.get_mut(runtime_name)
+            {
+                binding.runtime_id = spec.runtime_id.as_opaque_str().to_string();
+                binding.migration_key = param.migration_key.as_ref().map(|key| {
+                    avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
+                });
+            }
+        }
+        for (id, store) in &self.project.stores {
+            if !belongs_to_chart(&store.owner_ancestry, &chart.id) {
+                continue;
+            }
+            let runtime_name = &self.stores[id].name;
+            if let Some(spec) = artifact.compiled.store_specs().get(runtime_name)
+                && let Some(binding) = artifact.interface.stores.get_mut(runtime_name)
+            {
+                binding.runtime_id = spec.runtime_id.as_opaque_str().to_string();
+                binding.migration_key = store.migration_key.as_ref().map(|key| {
+                    avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
+                });
+            }
+        }
+        for selection in self.project.selections.values() {
+            if !belongs_to_chart(&selection.owner_ancestry, &chart.id) {
+                continue;
+            }
+            if let Some(spec) = artifact
+                .compiled
+                .selection_specs()
+                .get(&selection.source_name)
+                && let Some(binding) = artifact
+                    .interface
+                    .selections
+                    .get_mut(&selection.source_name)
+            {
+                binding.runtime_id = spec.runtime_id.as_opaque_str().to_string();
+                binding.migration_key = selection.migration_key.as_ref().map(|key| {
+                    avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
+                });
+            }
+        }
+
+        let chart_path = chart.public_path.as_deref().or(chart.name.as_deref());
+        let compiled_mark_aliases = compiled_mark_aliases(&artifact.compiled);
+        for (path, target) in &self.project.public_targets {
+            if !public_path_belongs_to_chart(path, chart_path) {
+                continue;
+            }
+            let runtime_id = match target {
+                ResolvedTarget::Param(id) => self.params.get(id).and_then(|param| {
+                    artifact
+                        .compiled
+                        .param_specs()
+                        .get(&param.name)
+                        .map(|spec| spec.runtime_id.as_opaque_str().to_string())
+                }),
+                ResolvedTarget::Store(id) => self.stores.get(id).and_then(|store| {
+                    artifact
+                        .compiled
+                        .store_specs()
+                        .get(&store.name)
+                        .map(|spec| spec.runtime_id.as_opaque_str().to_string())
+                }),
+                ResolvedTarget::Selection(id) => {
+                    self.project.selections.get(id).and_then(|value| {
+                        artifact
+                            .compiled
+                            .selection_specs()
+                            .get(&value.source_name)
+                            .map(|spec| spec.runtime_id.as_opaque_str().to_string())
+                    })
+                }
+                ResolvedTarget::Mark(_) => {
+                    compiled_mark_id_for_public_path(&compiled_mark_aliases, path, chart_path)
+                }
+                ResolvedTarget::Widget(_) => find_declaration_by_target(self.project, target)
+                    .and_then(|declaration| widget_source_id(declaration))
+                    .and_then(|id| {
+                        artifact
+                            .compiled
+                            .widgets()
+                            .iter()
+                            .find(|attachment| attachment.widget.id() == id)
+                            .map(|attachment| attachment.instance_id.as_opaque_str().to_string())
+                    }),
+                ResolvedTarget::Part { declaration, .. } => {
+                    find_declaration(self.project, declaration).and_then(|owner| {
+                        if owner.keyword == "widget" {
+                            compiled_widget_part_id(&artifact.compiled, path, chart_path)
+                        } else {
+                            compiled_mark_id_for_public_path(
+                                &compiled_mark_aliases,
+                                path,
+                                chart_path,
+                            )
+                        }
+                    })
+                }
+                _ => None,
+            };
+            if let Some(runtime_id) = runtime_id {
+                artifact
+                    .interface
+                    .public_targets
+                    .insert(path.clone(), runtime_id.clone());
+                if let ResolvedTarget::Param(id) = target
+                    && self.project.params[id]
+                        .generated_by
+                        .as_ref()
+                        .is_some_and(|origin| {
+                            find_declaration(self.project, &origin.declaration)
+                                .is_some_and(|declaration| declaration.keyword == "widget")
+                        })
+                {
+                    artifact
+                        .interface
+                        .widget_exports
+                        .insert(path.clone(), runtime_id);
+                }
+            }
+        }
+    }
+
+    fn lower_param(&mut self, id: &ParamId) -> Result<(), Diagnostic> {
+        let param = &self.project.params[id];
+        let data_type = physical_data_type(&param.data_type);
+        let default = self.typed_scalar(&param.default, &data_type, param)?;
+        let runtime_name = self.param_runtime_name(param);
+        self.params
+            .insert(id.clone(), Param::new(runtime_name, default));
         Ok(())
     }
 
@@ -436,6 +581,15 @@ impl<'a> ProjectLowerer<'a> {
                         }
                         plot.widgets.push(declaration);
                     }
+                    "cell" | "plot" => {
+                        let child_plot =
+                            self.lower_nested_plot(child, current_data.as_ref()).await?;
+                        let placement = self.child_placement(child, current_data.as_ref())?;
+                        plot.children.push(ResolvedChildPlot {
+                            plot: Box::new(child_plot),
+                            placement,
+                        });
+                    }
                     "param" | "store" | "selection" | "on" => {}
                     other => {
                         return Err(lowerer_error(
@@ -449,6 +603,70 @@ impl<'a> ProjectLowerer<'a> {
         })
     }
 
+    fn lower_nested_plot<'b>(
+        &'b mut self,
+        declaration: &'b ResolvedDeclaration,
+        inherited_data: Option<&'b DataFrame>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<ResolvedPlot, Diagnostic>> + 'b>>
+    {
+        Box::pin(async move {
+            let coordinate = declaration.kind.clone().ok_or_else(|| {
+                lowerer_error(declaration, "child plot coordinate kind was not resolved")
+            })?;
+            let mut plot = ResolvedPlot::new(coordinate);
+            plot.coordinate = self.native_declaration(
+                declaration,
+                inherited_data,
+                NativeKindNamespace::Coordinate,
+            )?;
+            let explicit_data = match declaration.properties.get("data") {
+                Some(value) => Some(self.lower_data(value, declaration).await?),
+                None => None,
+            };
+            if let Some(data) = &explicit_data {
+                self.record_schema(declaration, data);
+            }
+            plot.data = explicit_data.clone();
+            let planning_data = explicit_data.as_ref().or(inherited_data);
+            let coordinate_kind = plot.coordinate.kind.clone();
+            let root_group = self
+                .lower_container(
+                    declaration,
+                    planning_data,
+                    coordinate_kind.as_str(),
+                    &mut plot,
+                )
+                .await?;
+            if !root_group.marks.is_empty() || !root_group.transforms.is_empty() {
+                plot.marks.push(ResolvedMark::Group(root_group));
+            }
+            Ok(plot)
+        })
+    }
+
+    fn child_placement(
+        &self,
+        declaration: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+    ) -> Result<NativeDeclaration, Diagnostic> {
+        let mut placement = NativeDeclaration::new("child");
+        placement.source_name.clone_from(&declaration.name);
+        if let Some(ResolvedValue::Object { properties, .. }) = declaration.properties.get("at") {
+            for (name, value) in properties {
+                placement
+                    .properties
+                    .insert(name.clone(), self.native_value(value, data, declaration)?);
+            }
+        }
+        if let Some(label) = declaration.properties.get("label") {
+            placement.properties.insert(
+                "label".to_string(),
+                self.native_value(label, data, declaration)?,
+            );
+        }
+        Ok(placement)
+    }
+
     fn native_declaration(
         &self,
         declaration: &ResolvedDeclaration,
@@ -459,6 +677,7 @@ impl<'a> ProjectLowerer<'a> {
             lowerer_error(declaration, "native declaration kind was not resolved")
         })?;
         let mut native = NativeDeclaration::new(kind.clone());
+        native.source_name.clone_from(&declaration.name);
         for (name, value) in &declaration.properties {
             if is_core_property(&declaration.keyword, name) {
                 continue;
@@ -730,7 +949,18 @@ impl<'a> ProjectLowerer<'a> {
             }),
             ResolvedValue::Boolean(value) => Ok(lit(*value)),
             ResolvedValue::Null => Ok(lit(ScalarValue::Null)),
-            ResolvedValue::Column(name) => Ok(col(name)),
+            ResolvedValue::Column(name) => {
+                let data = data.ok_or_else(|| {
+                    lowerer_error(
+                        declaration,
+                        format!("column `{name}` has no data schema in scope"),
+                    )
+                })?;
+                data.schema()
+                    .field_with_unqualified_name(name)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                Ok(col(name))
+            }
             ResolvedValue::Expression(expression) => {
                 self.planned_expression(expression, data, declaration)
             }
@@ -1037,6 +1267,78 @@ fn find_declaration<'a>(
         .find(|declaration| &declaration.id == id)
 }
 
+fn find_declaration_by_target<'a>(
+    project: &'a ResolvedProject,
+    target: &ResolvedTarget,
+) -> Option<&'a ResolvedDeclaration> {
+    project
+        .files
+        .values()
+        .flat_map(|file| &file.roots)
+        .flat_map(declarations_depth_first)
+        .find(|declaration| declaration.runtime_target.as_ref() == Some(target))
+}
+
+fn widget_source_id(declaration: &ResolvedDeclaration) -> Option<&str> {
+    match declaration.properties.get("id") {
+        Some(ResolvedValue::String(id)) => Some(id),
+        _ => declaration.name.as_deref(),
+    }
+}
+
+fn public_path_belongs_to_chart(path: &str, chart_path: Option<&str>) -> bool {
+    chart_path.is_none_or(|chart| path == chart || path.starts_with(&format!("{chart}.")))
+}
+
+fn relative_public_path<'a>(path: &'a str, chart_path: Option<&str>) -> &'a str {
+    chart_path
+        .and_then(|chart| path.strip_prefix(chart))
+        .and_then(|path| path.strip_prefix('.'))
+        .unwrap_or(path)
+}
+
+fn compiled_mark_aliases(compiled: &avenger_chart::plot::CompiledPlot) -> BTreeMap<String, String> {
+    compiled
+        .marks()
+        .iter()
+        .flat_map(|mark| {
+            let runtime_id = mark.state().identity.runtime_id.as_opaque_str().to_string();
+            mark.state()
+                .identity
+                .public_aliases
+                .iter()
+                .cloned()
+                .map(move |alias| (alias, runtime_id.clone()))
+        })
+        .collect()
+}
+
+fn compiled_mark_id_for_public_path(
+    aliases: &BTreeMap<String, String>,
+    path: &str,
+    chart_path: Option<&str>,
+) -> Option<String> {
+    aliases.get(relative_public_path(path, chart_path)).cloned()
+}
+
+fn compiled_widget_part_id(
+    compiled: &avenger_chart::plot::CompiledPlot,
+    path: &str,
+    chart_path: Option<&str>,
+) -> Option<String> {
+    let relative = relative_public_path(path, chart_path);
+    compiled.widgets().iter().find_map(|attachment| {
+        let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget else {
+            return None;
+        };
+        widget
+            .relative_target_ids
+            .get(relative)
+            .and_then(|ids| ids.first())
+            .map(|id| id.as_opaque_str().to_string())
+    })
+}
+
 fn belongs_to_chart(ancestry: &[DeclarationId], chart: &DeclarationId) -> bool {
     ancestry.iter().any(|ancestor| ancestor == chart)
 }
@@ -1047,7 +1349,8 @@ fn is_core_property(keyword: &str, name: &str) -> bool {
         (
             "chart" | "plot",
             "data" | "title" | "subtitle" | "layout" | "theme"
-        ) | ("group", "data" | "component_kind" | "label")
+        ) | ("cell", "at" | "data" | "label")
+            | ("group", "data" | "component_kind" | "label")
             | ("mark", "data")
             | ("tool", "id")
     )

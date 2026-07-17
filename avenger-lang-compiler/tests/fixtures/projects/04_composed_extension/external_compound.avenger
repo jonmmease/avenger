@@ -1,0 +1,5 @@
+avenger 1;
+
+chart cartesian as external_compound {
+  mark external_mean_point as mean_point {}
+}

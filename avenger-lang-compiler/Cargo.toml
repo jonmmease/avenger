@@ -13,6 +13,7 @@ avenger-chart-lang-registry = { path = "../avenger-chart-lang-registry" }
 avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-lang-core = { path = "../avenger-lang-core" }
 arrow = { workspace = true }
+bincode = "1.3"
 datafusion = { workspace = true }
 indexmap = { workspace = true }
 serde = { workspace = true }
@@ -22,6 +23,7 @@ thiserror = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 
 [dev-dependencies]
+avenger-chart-external-test = { path = "../avenger-chart-external-test" }
 avenger-common = { path = "../avenger-common" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }

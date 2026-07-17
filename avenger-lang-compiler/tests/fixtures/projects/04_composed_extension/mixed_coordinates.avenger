@@ -1,0 +1,11 @@
+avenger 1;
+
+chart external_facet_column as mixed_coordinates {
+  cell cartesian as built_in at { column: 'built_in'; } {
+    mark external_hexbin as built_in_mark {}
+  }
+
+  cell external_isometric as custom at { column: 'custom'; } {
+    mark external_cube as custom_mark {}
+  }
+}

@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart_core::StateMigrationKey;
-use avenger_chart_lang_registry::NativeRegistryProfileId;
+use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryProfileId};
 use avenger_lang_core::{SourceId, SourceMap};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -114,6 +114,125 @@ impl CompiledChartArtifact {
     pub fn compiled_plot(&self) -> &CompiledPlot {
         &self.compiled
     }
+
+    /// Serialize a versioned host artifact envelope followed by the compiled
+    /// plot payload. The fixed prefix lets hosts reject incompatible format
+    /// majors and native registry profiles before deserializing trait objects.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, ArtifactSerializationError> {
+        let header = SerializedArtifactHeader {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            source: self.source,
+            interface: self.interface.clone(),
+            native_registry_profile: self.native_registry_profile.clone(),
+            dependency_fingerprint: self.dependency_fingerprint.clone(),
+        };
+        let header = bincode::serialize(&header)
+            .map_err(|error| ArtifactSerializationError::Encode(error.to_string()))?;
+        let compiled = bincode::serialize(self.compiled.as_ref())
+            .map_err(|error| ArtifactSerializationError::Encode(error.to_string()))?;
+        let header_len = u32::try_from(header.len()).map_err(|_| {
+            ArtifactSerializationError::Encode("artifact header exceeds u32 length".to_string())
+        })?;
+        let mut output = Vec::with_capacity(ARTIFACT_PREFIX_LEN + header.len() + compiled.len());
+        output.extend_from_slice(&ARTIFACT_MAGIC);
+        output.extend_from_slice(&COMPILED_ARTIFACT_FORMAT_MAJOR.to_le_bytes());
+        output.extend_from_slice(&header_len.to_le_bytes());
+        output.extend_from_slice(&header);
+        output.extend_from_slice(&compiled);
+        Ok(output)
+    }
+
+    /// Deserialize an artifact only after verifying both the format major and
+    /// the exact composed native-registry profile installed in this host.
+    pub fn from_bytes(
+        bytes: &[u8],
+        registry: &NativeRegistry,
+    ) -> Result<Self, ArtifactSerializationError> {
+        let (header, compiled) = decode_artifact_parts(bytes)?;
+        if &header.native_registry_profile != registry.profile_id() {
+            return Err(ArtifactSerializationError::RegistryProfileMismatch {
+                artifact: header.native_registry_profile.as_str().to_string(),
+                host: registry.profile_id().as_str().to_string(),
+            });
+        }
+        let compiled = bincode::deserialize(compiled)
+            .map_err(|error| ArtifactSerializationError::Decode(error.to_string()))?;
+        Ok(Self {
+            id: header.id,
+            name: header.name,
+            source: header.source,
+            compiled: Arc::new(compiled),
+            interface: header.interface,
+            native_registry_profile: header.native_registry_profile,
+            dependency_fingerprint: header.dependency_fingerprint,
+        })
+    }
+}
+
+pub const COMPILED_ARTIFACT_FORMAT_MAJOR: u16 = 1;
+const ARTIFACT_MAGIC: [u8; 8] = *b"AVNGRART";
+const ARTIFACT_PREFIX_LEN: usize = ARTIFACT_MAGIC.len() + 2 + 4;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SerializedArtifactHeader {
+    id: ProjectChartId,
+    name: Option<String>,
+    source: SourceId,
+    interface: CompiledChartInterface,
+    native_registry_profile: NativeRegistryProfileId,
+    dependency_fingerprint: DependencyFingerprint,
+}
+
+fn decode_artifact_parts(
+    bytes: &[u8],
+) -> Result<(SerializedArtifactHeader, &[u8]), ArtifactSerializationError> {
+    if bytes.len() < ARTIFACT_PREFIX_LEN {
+        return Err(ArtifactSerializationError::Truncated);
+    }
+    if bytes[..ARTIFACT_MAGIC.len()] != ARTIFACT_MAGIC {
+        return Err(ArtifactSerializationError::InvalidMagic);
+    }
+    let major = u16::from_le_bytes(
+        bytes[ARTIFACT_MAGIC.len()..ARTIFACT_MAGIC.len() + 2]
+            .try_into()
+            .expect("prefix length checked"),
+    );
+    if major != COMPILED_ARTIFACT_FORMAT_MAJOR {
+        return Err(ArtifactSerializationError::UnsupportedFormatMajor {
+            found: major,
+            supported: COMPILED_ARTIFACT_FORMAT_MAJOR,
+        });
+    }
+    let length_start = ARTIFACT_MAGIC.len() + 2;
+    let header_len = u32::from_le_bytes(
+        bytes[length_start..length_start + 4]
+            .try_into()
+            .expect("prefix length checked"),
+    ) as usize;
+    let header_end = ARTIFACT_PREFIX_LEN
+        .checked_add(header_len)
+        .filter(|end| *end <= bytes.len())
+        .ok_or(ArtifactSerializationError::Truncated)?;
+    let header = bincode::deserialize(&bytes[ARTIFACT_PREFIX_LEN..header_end])
+        .map_err(|error| ArtifactSerializationError::Decode(error.to_string()))?;
+    Ok((header, &bytes[header_end..]))
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ArtifactSerializationError {
+    #[error("artifact is truncated")]
+    Truncated,
+    #[error("artifact magic header is invalid")]
+    InvalidMagic,
+    #[error("unsupported compiled artifact format major {found}; host supports {supported}")]
+    UnsupportedFormatMajor { found: u16, supported: u16 },
+    #[error("artifact native registry profile '{artifact}' does not match host profile '{host}'")]
+    RegistryProfileMismatch { artifact: String, host: String },
+    #[error("failed to encode compiled artifact: {0}")]
+    Encode(String),
+    #[error("failed to decode compiled artifact: {0}")]
+    Decode(String),
 }
 
 impl fmt::Debug for CompiledChartArtifact {

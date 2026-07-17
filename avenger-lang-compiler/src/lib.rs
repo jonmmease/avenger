@@ -19,8 +19,9 @@ pub use analysis::{
     DatasetSchemaIndex, DatasetStageId, DatasetStageKind, ProjectAnalysis, ProjectDatasetId,
 };
 pub use artifact::{
-    ArtifactCacheKey, CompiledChartArtifact, CompiledChartInterface, CompiledProject,
-    DependencyFingerprint, InterfaceStateBinding, ProjectChartId, ProjectFingerprint,
+    ArtifactCacheKey, ArtifactSerializationError, COMPILED_ARTIFACT_FORMAT_MAJOR,
+    CompiledChartArtifact, CompiledChartInterface, CompiledProject, DependencyFingerprint,
+    InterfaceStateBinding, ProjectChartId, ProjectFingerprint,
 };
 pub use compiler::{
     CompileAttempt, CompileFailure, CompiledDependency, Compiler, CompilerBuildError,

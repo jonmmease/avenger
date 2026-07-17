@@ -1,0 +1,5 @@
+avenger 1;
+
+chart cartesian as external_primitive {
+  mark external_hexbin as bins {}
+}

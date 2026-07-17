@@ -510,6 +510,53 @@
           "if": {
             "properties": {
               "decl": {
+                "const": "cell"
+              },
+              "kind": {
+                "const": "cartesian"
+              }
+            },
+            "required": [
+              "decl",
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "props": {
+                "additionalProperties": false,
+                "properties": {
+                  "at": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "data": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "label": {
+                    "$ref": "#/$defs/value"
+                  },
+                  "unit_aspect": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "num": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "num"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "decl": {
                 "const": "chart"
               },
               "kind": {

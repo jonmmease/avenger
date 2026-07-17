@@ -2301,7 +2301,10 @@ impl<'a> Resolver<'a> {
         while let Some(id) = cursor {
             if let Some(owner) = self.scopes[id.0].owner.as_ref()
                 && let Some((_, declaration)) = self.declaration_source(owner)
-                && matches!(declaration.keyword.as_str(), "chart" | "plot" | "view")
+                && matches!(
+                    declaration.keyword.as_str(),
+                    "chart" | "cell" | "plot" | "view"
+                )
                 && let Some(kind) = declaration.kind.as_ref()
             {
                 return Some(kind.to_string());
@@ -2776,7 +2779,9 @@ impl<'a> Resolver<'a> {
     ) -> Option<KindSchema> {
         let kind = declaration.kind.as_ref()?.as_str();
         let key = match declaration.keyword.as_str() {
-            "chart" | "plot" | "view" => NativeKindKey::new(NativeKindNamespace::Coordinate, kind),
+            "chart" | "cell" | "plot" | "view" => {
+                NativeKindKey::new(NativeKindNamespace::Coordinate, kind)
+            }
             "mark" => {
                 if let Some(coordinate) = coordinate {
                     NativeKindKey::mark(coordinate, kind)
@@ -5243,7 +5248,7 @@ impl<'a> Resolver<'a> {
                 && self
                     .declaration_source(owner)
                     .is_some_and(|(_, declaration)| {
-                        matches!(declaration.keyword.as_str(), "chart" | "plot")
+                        matches!(declaration.keyword.as_str(), "chart" | "cell" | "plot")
                     })
             {
                 return Some(owner.clone());
@@ -6129,7 +6134,7 @@ fn find_import_trace(
 
 fn declaration_coordinate(declaration: &Decl, inherited: Option<&str>) -> Option<String> {
     match declaration.keyword.as_str() {
-        "chart" | "plot" | "view" => declaration.kind.as_ref().map(ToString::to_string),
+        "chart" | "cell" | "plot" | "view" => declaration.kind.as_ref().map(ToString::to_string),
         _ => inherited.map(str::to_owned),
     }
 }
@@ -6152,7 +6157,7 @@ fn parent_declaration<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a D
 fn requires_registered_kind(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "plot" | "view" | "mark" | "transform" | "tool" | "widget"
+        "chart" | "cell" | "plot" | "view" | "mark" | "transform" | "tool" | "widget"
     ) && !matches!(
         (
             declaration.keyword.as_str(),
@@ -6223,6 +6228,7 @@ fn core_property(declaration: &Decl, property: &str) -> bool {
         "chart" | "plot" => {
             matches!(property, "data" | "title" | "subtitle" | "layout" | "theme")
         }
+        "cell" => matches!(property, "at" | "data" | "label"),
         "view" => property == "data",
         "group" => matches!(property, "data" | "component_kind" | "label"),
         "mark" => matches!(property, "data"),

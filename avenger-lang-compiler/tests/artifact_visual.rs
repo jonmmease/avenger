@@ -29,31 +29,43 @@ async fn vertical_slice_hello_scatter_matches_direct_rust_and_existing_baseline(
     let data = data_context.read_batch(batch).unwrap();
     let context = SessionContext::new();
     let plot = Chart::<Cartesian>::new().data(data).mark(
-        Symbol::new()
-            .x_with(col("x"), |channel| {
-                channel
-                    .scale_with::<Linear>(|scale| scale)
-                    .axis(|axis| axis.title("X Value"))
-            })
-            .y_with(col("y"), |channel| {
-                channel
-                    .scale_with::<Linear>(|scale| scale)
-                    .axis(|axis| axis.title("Y Value"))
-            })
-            .size(100.0)
-            .fill("#4682b4")
-            .stroke("#000000")
-            .stroke_width(1.0),
+        MarkGroup::new().id("points").mark(
+            Symbol::new()
+                .id("dots")
+                .x_with(col("x"), |channel| {
+                    channel
+                        .scale_with::<Linear>(|scale| scale)
+                        .axis(|axis| axis.title("X Value"))
+                })
+                .y_with(col("y"), |channel| {
+                    channel
+                        .scale_with::<Linear>(|scale| scale)
+                        .axis(|axis| axis.title("Y Value"))
+                })
+                .size(100.0)
+                .fill("#4682b4")
+                .stroke("#000000")
+                .stroke_width(1.0),
+        ),
     );
     let compiled = Arc::new(plot.compile(&context).await.unwrap());
     let registry = avenger_chart_lang_registry::builtins::bootstrap_registry().unwrap();
-    let artifact = CompiledChartArtifact::new(
+    let mut artifact = CompiledChartArtifact::new(
         ProjectChartId::new("existing-simple-scatter"),
         Some("Existing simple scatter visual fixture".to_string()),
         avenger_lang_core::SourceId::new(0),
         compiled,
         registry.profile_id().clone(),
         DependencyFingerprint::new("existing-simple-scatter"),
+    );
+    artifact.interface.public_targets.insert(
+        "chart.points.dots".to_string(),
+        artifact.compiled_plot().marks()[0]
+            .state()
+            .identity
+            .runtime_id
+            .as_opaque_str()
+            .to_string(),
     );
 
     let direct_evaluated = artifact

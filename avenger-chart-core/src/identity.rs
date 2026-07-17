@@ -100,6 +100,15 @@ opaque_id!(
     "Stable host-facing state migration metadata, distinct from runtime identity."
 );
 
+impl StateMigrationKey {
+    /// Rehydrate compiler-derived migration metadata at a language/compiler
+    /// boundary. The value remains opaque to chart/runtime code.
+    #[doc(hidden)]
+    pub fn from_compiler_identity(value: impl Into<String>) -> Self {
+        Self::from_allocated(value.into())
+    }
+}
+
 macro_rules! state_ref {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
