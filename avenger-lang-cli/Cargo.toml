@@ -1,0 +1,28 @@
+[package]
+name = "avenger-lang-cli"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Native command-line host for Avenger chart-language projects"
+
+[lib]
+name = "avenger_lang_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "avenger"
+path = "src/main.rs"
+
+[dependencies]
+avenger-chart = { path = "../avenger-chart" }
+avenger-chart-app = { path = "../avenger-chart-app", features = ["winit-wgpu"] }
+avenger-lang = { path = "../avenger-lang" }
+avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
+clap = { version = "4.5.48", features = ["derive"] }
+datafusion = { workspace = true }
+notify = "8.0.0"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+winit = { workspace = true }

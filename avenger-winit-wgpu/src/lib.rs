@@ -65,8 +65,12 @@ pub struct FileWatcher;
 #[derive(Clone)]
 pub enum WinitWgpuEvent {
     App(AvengerWindowEvent),
-    RenderInvalidated(RenderInvalidation),
+    RenderInvalidated {
+        host_generation: u64,
+        invalidation: RenderInvalidation,
+    },
     HostUpdateReady,
+    SetWindowTitle(String),
 }
 
 /// A fully prepared application generation for event-loop-thread installation.
@@ -101,6 +105,12 @@ where
             .push_back(update);
         self.event_proxy
             .send_event(WinitWgpuEvent::HostUpdateReady)
+            .map_err(|_| HostUpdateSubmitError::EventLoopClosed)
+    }
+
+    pub fn set_window_title(&self, title: impl Into<String>) -> Result<(), HostUpdateSubmitError> {
+        self.event_proxy
+            .send_event(WinitWgpuEvent::SetWindowTitle(title.into()))
             .map_err(|_| HostUpdateSubmitError::EventLoopClosed)
     }
 }
@@ -146,17 +156,24 @@ where
 
 fn send_render_invalidation_event(
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
+    host_generation: u64,
     invalidation: RenderInvalidation,
 ) {
     match invalidation.schedule {
         RenderInvalidationSchedule::Now => {
-            let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+            let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated {
+                host_generation,
+                invalidation,
+            });
         }
         RenderInvalidationSchedule::After(delay) => {
             #[cfg(not(target_arch = "wasm32"))]
             std::thread::spawn(move || {
                 std::thread::sleep(delay);
-                let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+                let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated {
+                    host_generation,
+                    invalidation,
+                });
             });
 
             #[cfg(target_arch = "wasm32")]
@@ -165,7 +182,10 @@ fn send_render_invalidation_event(
 
                 let delay_ms = delay.as_millis().min(i32::MAX as u128) as i32;
                 let callback = wasm_bindgen::closure::Closure::once(move || {
-                    let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated(invalidation));
+                    let _ = event_proxy.send_event(WinitWgpuEvent::RenderInvalidated {
+                        host_generation,
+                        invalidation,
+                    });
                 });
                 web_sys::window()
                     .and_then(|window| {
@@ -735,11 +755,12 @@ where
                 let subscription = hub.subscribe(Arc::new(move |invalidation| {
                     send_render_invalidation_event(
                         event_proxy_for_subscription.clone(),
+                        0,
                         invalidation,
                     );
                 }));
                 if let Some(invalidation) = hub.latest_invalidation() {
-                    send_render_invalidation_event(event_proxy.clone(), invalidation);
+                    send_render_invalidation_event(event_proxy.clone(), 0, invalidation);
                 }
                 subscription
             });
@@ -858,17 +879,22 @@ where
         self.pending_startup_render_invalidation = None;
         self.render_invalidation_pending = false;
         self.installed_host_generation = update.generation;
+        let installed_generation = update.generation;
 
         if let Some(hub) = self.render_invalidation_hub.as_ref() {
             let proxy = self.event_proxy.clone();
             self._render_invalidation_subscription = Some(hub.subscribe(Arc::new({
                 let proxy = proxy.clone();
                 move |invalidation| {
-                    send_render_invalidation_event(proxy.clone(), invalidation);
+                    send_render_invalidation_event(
+                        proxy.clone(),
+                        installed_generation,
+                        invalidation,
+                    );
                 }
             })));
             if let Some(invalidation) = hub.latest_invalidation() {
-                send_render_invalidation_event(proxy, invalidation);
+                send_render_invalidation_event(proxy, installed_generation, invalidation);
             }
         }
     }
@@ -1588,6 +1614,7 @@ where
                 use wasm_bindgen::JsCast;
 
                 let event_proxy = self.event_proxy.clone();
+                let render_generation = self.installed_host_generation;
                 let render_invalidation_hub = self.render_invalidation_hub.clone();
                 let setup_future = async move {
                     match canvas_future.await {
@@ -1606,7 +1633,11 @@ where
                                 .as_ref()
                                 .and_then(|hub| hub.latest_evaluation_invalidation())
                             {
-                                send_render_invalidation_event(event_proxy, invalidation);
+                                send_render_invalidation_event(
+                                    event_proxy,
+                                    render_generation,
+                                    invalidation,
+                                );
                             }
                         }
                         Err(e) => {
@@ -1695,11 +1726,23 @@ where
                 };
                 self.dispatch_avenger_event(event, force);
             }
-            WinitWgpuEvent::RenderInvalidated(invalidation) => {
-                self.handle_render_invalidation(invalidation);
+            WinitWgpuEvent::RenderInvalidated {
+                host_generation,
+                invalidation,
+            } => {
+                if host_generation == self.installed_host_generation {
+                    self.handle_render_invalidation(invalidation);
+                }
             }
             WinitWgpuEvent::HostUpdateReady => {
                 self.install_latest_prepared_host_update();
+            }
+            WinitWgpuEvent::SetWindowTitle(title) => {
+                if let Some(canvas) = self.canvas.borrow().as_ref() {
+                    canvas.window().set_title(&title);
+                } else {
+                    self.window_attributes = self.window_attributes.clone().with_title(title);
+                }
             }
         }
     }

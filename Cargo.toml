@@ -28,6 +28,7 @@ members = [
     "avenger-lang-core",
     "avenger-lang-compiler",
     "avenger-lang",
+    "avenger-lang-cli",
     "avenger-chart-marks",
     "avenger-chart-marks-statistical",
     "avenger-chart-legend",

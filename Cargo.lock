@@ -1304,6 +1304,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-lang-cli"
+version = "0.1.0"
+dependencies = [
+ "avenger-chart",
+ "avenger-chart-app",
+ "avenger-lang",
+ "avenger-winit-wgpu",
+ "clap",
+ "datafusion",
+ "notify",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "winit",
+]
+
+[[package]]
 name = "avenger-lang-compiler"
 version = "0.1.0"
 dependencies = [
@@ -2222,6 +2240,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2134bb3ea021b78629caa971416385309e0131b351b25e01dc16fb54e1b5fae"
 dependencies = [
  "clap_builder",
+ "clap_derive",
 ]
 
 [[package]]
@@ -2244,6 +2263,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75bf0b32ad2e152de789bb635ea4d3078f6b838ad7974143e99b99f45a04af4a"
 dependencies = [
  "clap",
+]
+
+[[package]]
+name = "clap_derive"
+version = "4.5.47"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfd7eae0b0f1a6e63d4b13c9c478de77c2eb546fba158ad50b4203dc24b9f9c"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
