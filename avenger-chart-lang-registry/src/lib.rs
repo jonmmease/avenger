@@ -1411,6 +1411,7 @@ pub enum RegistryError {
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::BTreeSet,
         fs,
         sync::{
             Arc,
@@ -1423,7 +1424,9 @@ mod tests {
         FacetColumnSubplotChannels, IntoPlotMark, PanScrollZoom, Scale, Selection, Subplot, Symbol,
         ToolExportTarget, WidgetItemRow, WidgetItems,
     };
-    use avenger_chart_core::ParamRef;
+    use avenger_chart_core::{
+        ChannelExpr, DataTransformCompileContext, DataTransformStage, ParamRef, RasterDim,
+    };
     use avenger_chart_external_test::{
         external_compound_mark::ExternalMeanPoint,
         external_coord_system::{Cube, Isometric},
@@ -1446,6 +1449,98 @@ mod tests {
                 .map(|(name, value)| (name.to_string(), value))
                 .collect(),
         )
+    }
+
+    fn schema_smoke_value(shape: &ValueShape, property: &str) -> ResolvedValue {
+        match shape {
+            ValueShape::Boolean => ResolvedValue::Boolean(true),
+            ValueShape::Integer => ResolvedValue::Integer(1),
+            ValueShape::Number => ResolvedValue::Number(1.0),
+            ValueShape::String | ValueShape::Identifier => ResolvedValue::String("x".to_string()),
+            ValueShape::Atom { values } => {
+                ResolvedValue::String(values.first().unwrap().value.clone())
+            }
+            ValueShape::SqlExpression => ResolvedValue::Expr(match property {
+                "predicate" => lit(true),
+                "top_n" => lit(1_i64),
+                "fill_value" => lit(0.0_f64),
+                "y" => col("y"),
+                _ => col("x"),
+            }),
+            ValueShape::SqlQuery => ResolvedValue::Query("SELECT * FROM input".to_string()),
+            ValueShape::ChannelConfig => {
+                ResolvedValue::Channel(Box::new(ChannelExpr::scaled(col("x"))))
+            }
+            ValueShape::ConfiguredExpression(fields) => ResolvedValue::Configured {
+                head: Box::new(ResolvedValue::Expr(col("x"))),
+                properties: fields
+                    .iter()
+                    .filter(|(_, field)| field.required)
+                    .map(|(name, field)| (name.clone(), schema_smoke_value(&field.shape, name)))
+                    .collect(),
+            },
+            ValueShape::ConfiguredReference { .. } | ValueShape::TypedReference { .. } => {
+                ResolvedValue::Output(NativeOutputValue::opaque(()))
+            }
+            ValueShape::PatternChannel => ResolvedValue::Expr(col("x")),
+            ValueShape::CoordinationScope => ResolvedValue::String("shared".to_string()),
+            ValueShape::FacetDataScope => ResolvedValue::String("filtered".to_string()),
+            ValueShape::RasterDimension => {
+                ResolvedValue::Output(NativeOutputValue::RasterDim(RasterDim::new("x")))
+            }
+            ValueShape::RasterDimensionChannel => ResolvedValue::RasterDimensionChannel {
+                dimension: RasterDim::new("x"),
+                channel: Box::new(col("x").into()),
+            },
+            ValueShape::ScalarBinding => ResolvedValue::Param(Param::new("smoke", 1_i64)),
+            ValueShape::TableBinding => ResolvedValue::String("input".to_string()),
+            ValueShape::SelectionBinding => ResolvedValue::Selection(Selection::new("smoke")),
+            ValueShape::WidgetData => ResolvedValue::WidgetItems(WidgetItems::Static(vec![])),
+            ValueShape::ParamChangeAction => ResolvedValue::Object(IndexMap::new()),
+            ValueShape::Union(shapes) => schema_smoke_value(shapes.first().unwrap(), property),
+            ValueShape::OneOrMany(inner) => schema_smoke_value(inner, property),
+            ValueShape::Array(inner) => {
+                ResolvedValue::Array(vec![schema_smoke_value(inner, property)])
+            }
+            ValueShape::Map(inner) => ResolvedValue::Object(IndexMap::from([(
+                "x".to_string(),
+                schema_smoke_value(inner, "x"),
+            )])),
+            ValueShape::ChannelMap => ResolvedValue::Object(IndexMap::from([
+                (
+                    "x".to_string(),
+                    ResolvedValue::Channel(Box::new(ChannelExpr::scaled(col("x")))),
+                ),
+                (
+                    "y".to_string(),
+                    ResolvedValue::Channel(Box::new(ChannelExpr::scaled(col("y")))),
+                ),
+            ])),
+            ValueShape::Object(fields) => ResolvedValue::Object(
+                fields
+                    .iter()
+                    .filter(|(_, field)| field.required)
+                    .map(|(name, field)| (name.clone(), schema_smoke_value(&field.shape, name)))
+                    .collect(),
+            ),
+            ValueShape::Any => ResolvedValue::String("smoke".to_string()),
+        }
+    }
+
+    fn schema_smoke_declaration(schema: &KindSchema) -> ResolvedDeclaration {
+        let mut declaration =
+            ResolvedDeclaration::new(schema.key.kind.clone()).source_name("smoke");
+        for (name, property) in schema.properties.iter().filter(|(_, value)| value.required) {
+            declaration
+                .properties
+                .insert(name.clone(), schema_smoke_value(&property.shape, name));
+        }
+        for (name, channel) in schema.channels.iter().filter(|(_, value)| value.required) {
+            declaration
+                .properties
+                .insert(name.clone(), schema_smoke_value(&channel.shape, name));
+        }
+        declaration
     }
 
     fn symbol() -> ResolvedDeclaration {
@@ -2035,6 +2130,87 @@ mod tests {
             )
             .unwrap();
         assert_eq!(aggregate.outputs.keys().collect::<Vec<_>>(), vec!["total"]);
+    }
+
+    #[test]
+    fn native_surface_schema_generated_smoke_lowers_every_transform_kind() {
+        let registry = builtins::stock_registry().unwrap();
+        let context = DataTransformCompileContext::new(CoordinationScope::Shared);
+        let schemas = registry
+            .snapshot()
+            .entries
+            .values()
+            .filter(|schema| schema.key.namespace == NativeKindNamespace::Transform)
+            .cloned()
+            .collect::<Vec<_>>();
+        let levels_schema = schemas
+            .iter()
+            .find(|schema| schema.key.kind == "time_levels")
+            .unwrap();
+        let levels = registry
+            .lower_transform(&schema_smoke_declaration(levels_schema), context)
+            .unwrap()
+            .outputs
+            .remove("levels")
+            .unwrap();
+
+        let mut lowered = BTreeSet::new();
+        for schema in schemas {
+            let kind = schema.key.kind.clone();
+            let mut declaration = schema_smoke_declaration(&schema);
+            if kind == "impute" {
+                declaration.properties.insert(
+                    "method".to_string(),
+                    ResolvedValue::String("mean".to_string()),
+                );
+            }
+            if matches!(
+                kind.as_str(),
+                "aggregate" | "join_aggregate" | "scalar_aggregate"
+            ) {
+                declaration.properties.insert(
+                    "measures".to_string(),
+                    ResolvedValue::Array(vec![object([
+                        ("name", ResolvedValue::String("total".to_string())),
+                        ("op", ResolvedValue::String("sum".to_string())),
+                        ("expr", ResolvedValue::Expr(col("x"))),
+                    ])]),
+                );
+            }
+            let result = if kind == "pipeline" {
+                let filter = registry
+                    .lower_transform(
+                        &ResolvedDeclaration::new("filter")
+                            .property("predicate", ResolvedValue::Expr(lit(true))),
+                        context,
+                    )
+                    .unwrap();
+                registry.lower_transform_pipeline(
+                    &declaration,
+                    vec![DataTransformStage::new(context.scope, filter.transform)],
+                    BTreeMap::from([("x".to_string(), col("x"))]),
+                    context,
+                )
+            } else {
+                if kind == "time_fill" {
+                    declaration
+                        .properties
+                        .insert("levels".to_string(), ResolvedValue::Output(levels.clone()));
+                }
+                registry.lower_transform(&declaration, context)
+            };
+            result.unwrap_or_else(|error| panic!("schema-generated {kind} smoke failed: {error}"));
+            lowered.insert(kind);
+        }
+
+        let registered = registry
+            .snapshot()
+            .entries
+            .keys()
+            .filter(|key| key.namespace == NativeKindNamespace::Transform)
+            .map(|key| key.kind.clone())
+            .collect::<BTreeSet<_>>();
+        assert_eq!(lowered, registered);
     }
 
     #[test]
