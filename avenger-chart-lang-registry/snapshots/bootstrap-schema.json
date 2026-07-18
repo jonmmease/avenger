@@ -1224,6 +1224,27 @@
           "required": false,
           "docs": "Chart subtitle expression."
         },
+        "tiles": {
+          "shape": {
+            "shape": "configured_reference",
+            "detail": {
+              "namespaces": [
+                "resource"
+              ],
+              "properties": {
+                "zindex": {
+                  "shape": {
+                    "shape": "integer"
+                  },
+                  "required": false,
+                  "docs": "Use-site z-index overriding the resource default."
+                }
+              }
+            }
+          },
+          "required": false,
+          "docs": "Raster tile resource and use-site layer configuration."
+        },
         "time": {
           "shape": {
             "shape": "object",
@@ -13876,6 +13897,108 @@
           "docs": "A group rendered from the view-local relation."
         }
       ]
+    },
+    {
+      "key": {
+        "namespace": "resource",
+        "kind": "tiles"
+      },
+      "docs": "A reusable XYZ raster tile source for geographic charts.",
+      "properties": {
+        "attribution": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": false,
+          "docs": "Required source attribution text."
+        },
+        "kind": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "xyz",
+                  "docs": "A `{z}/{x}/{y}` raster tile pyramid."
+                }
+              ]
+            }
+          },
+          "required": true,
+          "docs": "Tile pyramid kind; v1 supports XYZ tiles."
+        },
+        "loading_policy": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "immediate",
+                  "docs": "Fetch and render the target zoom directly."
+                },
+                {
+                  "value": "smooth_zoom",
+                  "docs": "Use the native fallback and prefetch policy while zooming."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Tile loading and fallback behavior."
+        },
+        "max_zoom": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Maximum available tile zoom."
+        },
+        "min_zoom": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Minimum available tile zoom."
+        },
+        "subdomains": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "string"
+            }
+          },
+          "required": false,
+          "docs": "Subdomains substituted for `{s}` in deterministic order."
+        },
+        "tile_size": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Tile edge length in pixels."
+        },
+        "url": {
+          "shape": {
+            "shape": "string"
+          },
+          "required": true,
+          "docs": "URL template containing `{z}`, `{x}`, and `{y}` placeholders."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Default layer z-index."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "stateless": false,
+      "child_rules": []
     }
   ]
 }

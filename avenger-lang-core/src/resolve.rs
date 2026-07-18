@@ -2880,6 +2880,7 @@ impl<'a> Resolver<'a> {
             "transform" => NativeKindKey::new(NativeKindNamespace::Transform, kind),
             "tool" if kind != "behavior" => NativeKindKey::new(NativeKindNamespace::Tool, kind),
             "widget" => NativeKindKey::new(NativeKindNamespace::Widget, kind),
+            "resource" => NativeKindKey::new(NativeKindNamespace::Resource, kind),
             _ => return None,
         };
         self.registry.entries.get(&key).cloned().or_else(|| {
@@ -3396,6 +3397,27 @@ impl<'a> Resolver<'a> {
                     self.validate_value_shape(head, &ValueShape::SqlExpression, property, span);
                     self.validate_object_fields(properties, fields, property, span);
                 }
+                (
+                    ResolvedValue::Object {
+                        head: Some(head),
+                        properties,
+                        ..
+                    },
+                    ValueShape::ConfiguredReference {
+                        namespaces,
+                        properties: fields,
+                    },
+                ) => {
+                    self.validate_value_shape(
+                        head,
+                        &ValueShape::TypedReference {
+                            namespaces: namespaces.clone(),
+                        },
+                        property,
+                        span,
+                    );
+                    self.validate_object_fields(properties, fields, property, span);
+                }
                 (ResolvedValue::Object { properties, .. }, ValueShape::Object(fields)) => {
                     self.validate_object_fields(properties, fields, property, span);
                 }
@@ -3511,6 +3533,57 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
+            ValueShape::ConfiguredReference {
+                namespaces,
+                properties: fields,
+            } => {
+                if let Value::Block {
+                    head: Some(source_head),
+                    body,
+                } = source
+                    && let ResolvedValue::Object {
+                        head,
+                        kind,
+                        properties,
+                        ..
+                    } = resolved
+                {
+                    if head.is_none()
+                        && let Some(atom) = kind.take()
+                    {
+                        *head = Some(Box::new(ResolvedValue::Atom(atom)));
+                    }
+                    let Some(resolved_head) = head.as_deref_mut() else {
+                        return;
+                    };
+                    self.normalize_definition_arguments(
+                        scope,
+                        source_head,
+                        resolved_head,
+                        &ValueShape::TypedReference {
+                            namespaces: namespaces.clone(),
+                        },
+                        span,
+                        in_event,
+                        owner,
+                    );
+                    for (name, field) in fields {
+                        if let (Some(source), Some(value)) =
+                            (body.props.get(name), properties.get_mut(name))
+                        {
+                            self.normalize_definition_arguments(
+                                scope,
+                                source,
+                                value,
+                                &field.shape,
+                                span,
+                                in_event,
+                                owner,
+                            );
+                        }
+                    }
+                }
+            }
             ValueShape::SelectionBinding => {
                 if let Value::Atom(name) = source {
                     let authored_path = vec![name.to_string()];
@@ -3529,6 +3602,31 @@ impl<'a> Resolver<'a> {
                             })
                         })
                         .unwrap_or(ResolvedValue::Invalid);
+                }
+            }
+            ValueShape::TypedReference { namespaces } => {
+                if let Value::Atom(name) = source {
+                    let kinds = namespaces
+                        .iter()
+                        .filter_map(native_namespace_ref_kind)
+                        .collect::<Vec<_>>();
+                    if let Some(kind) = kinds
+                        .first()
+                        .copied()
+                        .filter(|kind| kinds.iter().all(|candidate| candidate == kind))
+                    {
+                        let authored_path = vec![name.to_string()];
+                        *resolved = self
+                            .resolve_typed_reference_path(scope, &authored_path, kind, span)
+                            .map(|target| {
+                                ResolvedValue::Reference(ResolvedReference {
+                                    target,
+                                    kind,
+                                    authored_path,
+                                })
+                            })
+                            .unwrap_or(ResolvedValue::Invalid);
+                    }
                 }
             }
             ValueShape::Array(inner) => {
@@ -6521,7 +6619,7 @@ fn parent_declaration<'a>(file: &'a ProjectFile, path: &[usize]) -> Option<&'a D
 fn requires_registered_kind(declaration: &Decl) -> bool {
     matches!(
         declaration.keyword.as_str(),
-        "chart" | "cell" | "plot" | "view" | "mark" | "transform" | "tool" | "widget"
+        "chart" | "cell" | "plot" | "view" | "mark" | "transform" | "tool" | "widget" | "resource"
     ) && !matches!(
         (
             declaration.keyword.as_str(),
@@ -6700,6 +6798,21 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 ..
             } if children.is_empty()
         ),
+        ValueShape::ConfiguredReference { namespaces, .. } => matches!(
+            value,
+            ResolvedValue::Object {
+                head: Some(head),
+                kind: None,
+                children,
+                ..
+            } if children.is_empty()
+                && value_matches_shape(
+                    head,
+                    &ValueShape::TypedReference {
+                        namespaces: namespaces.clone(),
+                    },
+                )
+        ),
         ValueShape::PatternChannel => {
             matches!(value, ResolvedValue::Pattern(_))
                 || value_matches_shape(value, &ValueShape::SqlExpression)
@@ -6832,10 +6945,24 @@ fn namespace_matches_target(namespace: NativeKindNamespace, target: &ResolvedTar
             | (NativeKindNamespace::Tool, ResolvedTarget::Tool(_))
             | (NativeKindNamespace::Widget, ResolvedTarget::Widget(_))
             | (
+                NativeKindNamespace::Resource,
+                ResolvedTarget::Declaration(_)
+            )
+            | (
                 NativeKindNamespace::Mark | NativeKindNamespace::Tool | NativeKindNamespace::Widget,
                 ResolvedTarget::DefinitionStructural { .. }
             )
     )
+}
+
+fn native_namespace_ref_kind(namespace: &NativeKindNamespace) -> Option<RefKind> {
+    Some(match namespace {
+        NativeKindNamespace::Mark => RefKind::Mark,
+        NativeKindNamespace::Tool => RefKind::Tool,
+        NativeKindNamespace::Widget => RefKind::Widget,
+        NativeKindNamespace::Resource => RefKind::Resource,
+        _ => return None,
+    })
 }
 
 fn reference_kind_matches(target: &ResolvedTarget, kind: RefKind) -> bool {
@@ -7063,6 +7190,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::SqlQuery => "SQL query",
         ValueShape::ChannelConfig => "configuration-only channel block",
         ValueShape::ConfiguredExpression(_) => "configured SQL expression",
+        ValueShape::ConfiguredReference { .. } => "configured typed reference",
         ValueShape::PatternChannel => "pattern literal or configured pattern channel",
         ValueShape::CoordinationScope => "coordination scope",
         ValueShape::FacetDataScope => "facet data scope",
@@ -7688,6 +7816,7 @@ fn is_structural(declaration: &Decl) -> bool {
             | "variable"
             | "dimension"
             | "overlay"
+            | "resource"
     )
 }
 

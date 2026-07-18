@@ -1,10 +1,14 @@
 //! Avenger-language registration for geographic coordinates and marks.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 use avenger_chart_core::{ChannelValue, ChartTool, CoordinationScope, IntoPlotMark};
 use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
+    CoordinateLanguageDefinition, NativeLoweringError, NativeOutputValue, ObjectLanguageDefinition,
+    ResolvedDeclaration, ResolvedValue,
 };
 use avenger_chart_marks::{
     Symbol,
@@ -18,7 +22,7 @@ use avenger_chart_schema::{
     PartSchema, PropertySchema, ValueShape,
 };
 
-use crate::{Geo, GeoPanZoom, GeoShape, ProjectionKind};
+use crate::{Geo, GeoPanZoom, GeoShape, ProjectionKind, RasterTileLayer, TileLoadingPolicy};
 
 const LINE_CHANNELS: &[&str] = &[
     "x",
@@ -113,6 +117,85 @@ pub fn definition() -> CoordinateLanguageDefinition<Geo> {
         .tool("geo_pan_zoom", geo_pan_zoom_schema(), lower_geo_pan_zoom)
 }
 
+pub fn tile_resource_definition() -> ObjectLanguageDefinition {
+    let schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Resource, "tiles"),
+        "A reusable XYZ raster tile source for geographic charts.",
+    )
+    .body_mode(BodyMode::Properties)
+    .property(
+        "kind",
+        PropertySchema::required(
+            ValueShape::Atom {
+                values: vec![EnumValueSchema {
+                    value: "xyz".to_string(),
+                    docs: "A `{z}/{x}/{y}` raster tile pyramid.".to_string(),
+                }],
+            },
+            "Tile pyramid kind; v1 supports XYZ tiles.",
+        ),
+    )
+    .property(
+        "url",
+        PropertySchema::required(
+            ValueShape::String,
+            "URL template containing `{z}`, `{x}`, and `{y}` placeholders.",
+        ),
+    )
+    .property(
+        "tile_size",
+        PropertySchema::optional(ValueShape::Integer, "Tile edge length in pixels."),
+    )
+    .property(
+        "min_zoom",
+        PropertySchema::optional(ValueShape::Integer, "Minimum available tile zoom."),
+    )
+    .property(
+        "max_zoom",
+        PropertySchema::optional(ValueShape::Integer, "Maximum available tile zoom."),
+    )
+    .property(
+        "attribution",
+        PropertySchema::optional(ValueShape::String, "Required source attribution text."),
+    )
+    .property(
+        "subdomains",
+        PropertySchema::optional(
+            ValueShape::Array(Box::new(ValueShape::String)),
+            "Subdomains substituted for `{s}` in deterministic order.",
+        ),
+    )
+    .property(
+        "zindex",
+        PropertySchema::optional(ValueShape::Integer, "Default layer z-index."),
+    )
+    .property(
+        "loading_policy",
+        PropertySchema::optional(
+            ValueShape::Atom {
+                values: [
+                    ("immediate", "Fetch and render the target zoom directly."),
+                    (
+                        "smooth_zoom",
+                        "Use the native fallback and prefetch policy while zooming.",
+                    ),
+                ]
+                .into_iter()
+                .map(|(value, docs)| EnumValueSchema {
+                    value: value.to_string(),
+                    docs: docs.to_string(),
+                })
+                .collect(),
+            },
+            "Tile loading and fallback behavior.",
+        ),
+    );
+    ObjectLanguageDefinition {
+        schema,
+        lowerer: lower_tile_resource,
+    }
+}
+
 fn coordinate_schema() -> KindSchema {
     KindSchema::new(
         NativeKindKey::new(NativeKindNamespace::Coordinate, "geo"),
@@ -154,6 +237,22 @@ fn coordinate_schema() -> KindSchema {
     .property(
         "viewport_id",
         PropertySchema::optional(ValueShape::String, "Runtime viewport state id prefix."),
+    )
+    .property(
+        "tiles",
+        PropertySchema::optional(
+            ValueShape::ConfiguredReference {
+                namespaces: BTreeSet::from([NativeKindNamespace::Resource]),
+                properties: BTreeMap::from([(
+                    "zindex".to_string(),
+                    PropertySchema::optional(
+                        ValueShape::Integer,
+                        "Use-site z-index overriding the resource default.",
+                    ),
+                )]),
+            },
+            "Raster tile resource and use-site layer configuration.",
+        ),
     )
 }
 
@@ -252,7 +351,142 @@ fn lower_geo(declaration: &ResolvedDeclaration) -> Result<Geo, NativeLoweringErr
     if let Some(ResolvedValue::String(value)) = declaration.properties.get("viewport_id") {
         geo = geo.viewport_id(value.clone());
     }
+    if let Some(value) = declaration.properties.get("tiles") {
+        let ResolvedValue::Configured { head, properties } = value else {
+            return Err(NativeLoweringError::InvalidPropertyType {
+                property: "tiles".to_string(),
+                expected: "configured tile resource".to_string(),
+            });
+        };
+        let ResolvedValue::Output(NativeOutputValue::Opaque(resource)) = head.as_ref() else {
+            return Err(NativeLoweringError::InvalidPropertyType {
+                property: "tiles".to_string(),
+                expected: "tile resource reference".to_string(),
+            });
+        };
+        let mut layer = resource
+            .downcast_ref::<RasterTileLayer>()
+            .ok_or_else(|| NativeLoweringError::InvalidPropertyType {
+                property: "tiles".to_string(),
+                expected: "XYZ raster tile resource".to_string(),
+            })?
+            .clone();
+        if let Some(ResolvedValue::Integer(zindex)) = properties.get("zindex") {
+            layer = layer.zindex(i32::try_from(*zindex).map_err(|_| {
+                NativeLoweringError::InvalidPropertyType {
+                    property: "tiles.zindex".to_string(),
+                    expected: "32-bit integer".to_string(),
+                }
+            })?);
+        }
+        geo = geo.tiles(layer);
+    }
     Ok(geo)
+}
+
+fn lower_tile_resource(
+    declaration: &ResolvedDeclaration,
+) -> Result<Box<dyn std::any::Any + Send + Sync>, NativeLoweringError> {
+    let kind = string_value(declaration, "kind")?;
+    if kind != "xyz" {
+        return Err(NativeLoweringError::Lowering {
+            kind: declaration.kind.clone(),
+            message: format!("unsupported tile resource kind `{kind}`"),
+        });
+    }
+    let mut layer = RasterTileLayer::xyz(string_value(declaration, "url")?);
+    if let Some(name) = &declaration.source_name {
+        layer = layer.id(name.clone());
+    }
+    if let Some(value) = integer_value(declaration, "tile_size")? {
+        layer = layer.tile_size(u32::try_from(value).map_err(|_| {
+            NativeLoweringError::InvalidPropertyType {
+                property: "tile_size".to_string(),
+                expected: "positive 32-bit integer".to_string(),
+            }
+        })?);
+    }
+    if let Some(value) = integer_value(declaration, "min_zoom")? {
+        layer = layer.min_zoom(u8::try_from(value).map_err(|_| {
+            NativeLoweringError::InvalidPropertyType {
+                property: "min_zoom".to_string(),
+                expected: "zoom from 0 through 255".to_string(),
+            }
+        })?);
+    }
+    if let Some(value) = integer_value(declaration, "max_zoom")? {
+        layer = layer.max_zoom(u8::try_from(value).map_err(|_| {
+            NativeLoweringError::InvalidPropertyType {
+                property: "max_zoom".to_string(),
+                expected: "zoom from 0 through 255".to_string(),
+            }
+        })?);
+    }
+    if let Some(ResolvedValue::String(value)) = declaration.properties.get("attribution") {
+        layer = layer.attribution(value.clone());
+    }
+    if let Some(ResolvedValue::Array(values)) = declaration.properties.get("subdomains") {
+        let values = values
+            .iter()
+            .map(|value| match value {
+                ResolvedValue::String(value) => Ok(value.clone()),
+                _ => Err(NativeLoweringError::InvalidPropertyType {
+                    property: "subdomains".to_string(),
+                    expected: "array of strings".to_string(),
+                }),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        layer = layer.subdomains(values);
+    }
+    if let Some(value) = integer_value(declaration, "zindex")? {
+        layer = layer.zindex(i32::try_from(value).map_err(|_| {
+            NativeLoweringError::InvalidPropertyType {
+                property: "zindex".to_string(),
+                expected: "32-bit integer".to_string(),
+            }
+        })?);
+    }
+    if let Some(ResolvedValue::String(policy)) = declaration.properties.get("loading_policy") {
+        layer = layer.loading_policy(match policy.as_str() {
+            "immediate" => TileLoadingPolicy::Immediate,
+            "smooth_zoom" => TileLoadingPolicy::smooth_zoom_default(),
+            _ => {
+                return Err(NativeLoweringError::InvalidPropertyType {
+                    property: "loading_policy".to_string(),
+                    expected: "immediate or smooth_zoom".to_string(),
+                });
+            }
+        });
+    }
+    layer.validate()?;
+    Ok(Box::new(layer))
+}
+
+fn string_value<'a>(
+    declaration: &'a ResolvedDeclaration,
+    property: &str,
+) -> Result<&'a str, NativeLoweringError> {
+    match declaration.get(property)? {
+        ResolvedValue::String(value) => Ok(value),
+        _ => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "string".to_string(),
+        }),
+    }
+}
+
+fn integer_value(
+    declaration: &ResolvedDeclaration,
+    property: &str,
+) -> Result<Option<i64>, NativeLoweringError> {
+    match declaration.properties.get(property) {
+        None => Ok(None),
+        Some(ResolvedValue::Integer(value)) => Ok(Some(*value)),
+        Some(_) => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "integer".to_string(),
+        }),
+    }
 }
 
 fn lower_structured_projection(

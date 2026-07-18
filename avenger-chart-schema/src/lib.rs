@@ -32,6 +32,7 @@ pub enum NativeKindNamespace {
     Legend,
     Layout,
     View,
+    Resource,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -54,6 +55,7 @@ pub type AxisSchema = KindSchema;
 pub type LegendSchema = KindSchema;
 pub type LayoutSchema = KindSchema;
 pub type ViewSchema = KindSchema;
+pub type ResourceSchema = KindSchema;
 
 impl NativeKindKey {
     pub fn new(namespace: NativeKindNamespace, kind: impl Into<String>) -> Self {
@@ -95,6 +97,12 @@ pub enum ValueShape {
     /// This models declarations such as facet dimensions, whose expression
     /// and configuration are one authored value but are not encoding channels.
     ConfiguredExpression(BTreeMap<String, PropertySchema>),
+    /// A required typed declaration reference followed by schema-owned
+    /// configuration, such as `tiles: osm { zindex: -10; }`.
+    ConfiguredReference {
+        namespaces: BTreeSet<NativeKindNamespace>,
+        properties: BTreeMap<String, PropertySchema>,
+    },
     /// A literal `pattern { ... }` or a configured expression whose scale
     /// range contains pattern values.
     PatternChannel,

@@ -1751,6 +1751,12 @@ impl<'a> ProjectLowerer<'a> {
                 self.raster_dimension_channel_value(name, value, data, declaration)?
             } else if let Some(ValueShape::ConfiguredExpression(fields)) = property_shape {
                 self.configured_expression_value(value, fields, data, declaration)?
+            } else if let Some(ValueShape::ConfiguredReference {
+                namespaces,
+                properties,
+            }) = property_shape
+            {
+                self.configured_reference_value(value, namespaces, properties, data, declaration)?
             } else if schema
                 .properties
                 .get(name)
@@ -2350,6 +2356,80 @@ impl<'a> ProjectLowerer<'a> {
                     format!("value `{value:?}` is not lowerable in this native slot"),
                 ));
             }
+        })
+    }
+
+    fn configured_reference_value(
+        &self,
+        value: &ResolvedValue,
+        namespaces: &BTreeSet<NativeKindNamespace>,
+        fields: &BTreeMap<String, avenger_chart_schema::PropertySchema>,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<NativeValue, Diagnostic> {
+        let ResolvedValue::Object {
+            head: Some(head),
+            properties,
+            ..
+        } = value
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "configured reference requires a reference head",
+            ));
+        };
+        let ResolvedValue::Reference(reference) = head.as_ref() else {
+            return Err(lowerer_error(
+                declaration,
+                "configured reference head was not resolved",
+            ));
+        };
+        if namespaces.len() != 1 || !namespaces.contains(&NativeKindNamespace::Resource) {
+            return Err(lowerer_error(
+                declaration,
+                "configured native references currently require one resource namespace",
+            ));
+        }
+        let ResolvedTarget::Declaration(id) = &reference.target else {
+            return Err(lowerer_error(
+                declaration,
+                "configured resource reference has the wrong target kind",
+            ));
+        };
+        let resource = find_declaration(self.project, id).ok_or_else(|| {
+            lowerer_error(
+                declaration,
+                "configured resource declaration is unavailable",
+            )
+        })?;
+        if resource.keyword != "resource" {
+            return Err(lowerer_error(
+                declaration,
+                "configured reference does not name a resource declaration",
+            ));
+        }
+        let native = self.native_declaration(resource, None, NativeKindNamespace::Resource)?;
+        let key = NativeKindKey::new(NativeKindNamespace::Resource, native.kind.clone());
+        let lowered = self
+            .registry
+            .lower_object(&key, &native)
+            .map_err(|error| lowerer_error(resource, error.to_string()))?;
+        let opaque: Arc<dyn std::any::Any + Send + Sync> = lowered.into();
+        let properties = properties
+            .iter()
+            .map(|(name, value)| {
+                if !fields.contains_key(name) {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("unknown configured resource property `{name}`"),
+                    ));
+                }
+                Ok((name.clone(), self.native_value(value, data, declaration)?))
+            })
+            .collect::<Result<IndexMap<_, _>, _>>()?;
+        Ok(NativeValue::Configured {
+            head: Box::new(NativeValue::Output(NativeOutputValue::Opaque(opaque))),
+            properties,
         })
     }
 

@@ -257,12 +257,12 @@ async fn resolve_widget_instances_get_distinct_generated_state_and_migration_ids
 avenger 1;
 chart cartesian as widgets {
   widget radio_button_list as first {
-    id: 'first';
-    items: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }]; }
+    position: top;
   }
   widget radio_button_list as second {
-    id: 'second';
-    items: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }]; }
+    position: top;
   }
   param as selected { type: utf8; default: $first.value; }
 }
@@ -322,14 +322,14 @@ chart cartesian as tools {
         .values()
         .filter(|param| param.generated_by.is_some())
         .collect::<Vec<_>>();
-    assert_eq!(generated.len(), 4);
+    assert_eq!(generated.len(), 6);
     assert_eq!(
         generated
             .iter()
             .map(|param| &param.id)
             .collect::<std::collections::BTreeSet<_>>()
             .len(),
-        4
+        6
     );
     assert_eq!(
         generated
@@ -337,7 +337,7 @@ chart cartesian as tools {
             .filter_map(|param| param.migration_key.as_ref())
             .collect::<std::collections::BTreeSet<_>>()
             .len(),
-        4
+        6
     );
 }
 
@@ -351,8 +351,8 @@ avenger 1;
 chart cartesian as chart {
   param as selected { type: utf8; default: 'a'; }
   widget radio_button_list as choice {
-    id: 'choice';
-    items: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }, { value: 'b'; label: 'B'; }]; }
+    position: top;
     value_param: $selected;
   }
   on click { target: mark choice.control; }
@@ -387,13 +387,13 @@ chart cartesian {
   param as wrong { type: int64; default: 1; }
   store as wrong_kind { field id: utf8; }
   widget radio_button_list as choice {
-    id: 'choice';
-    items: [{ value: 'a'; label: 'A'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }]; }
+    position: top;
     value_param: $wrong;
   }
   widget radio_button_list as wrong_binding_kind {
-    id: 'wrong-kind';
-    items: [{ value: 'a'; label: 'A'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }]; }
+    position: top;
     value_param: $wrong_kind;
   }
   param as also_wrong { type: utf8; default: $choice.value; }
@@ -426,13 +426,13 @@ avenger 1;
 chart cartesian as contracts {
   group {
     widget radio_button_list as nested {
-      id: 'nested';
-      items: [{ value: 'a'; label: 'A'; }];
+      data: { values: [{ value: 'a'; label: 'A'; }]; }
+      position: top;
     }
   }
   widget radio_button_list as expanded {
-    id: 'expanded';
-    items: [{ value: 'a'; label: 'A'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }]; }
+    position: top;
     mark symbol { x: "x"; y: "y"; }
   }
   mark symbol { x: not_sql(); y: "y";
@@ -631,6 +631,7 @@ chart cartesian {
   param as a { type: int64; default: $b; }
   param as b { type: int64; default: $a; }
   mark symbol { x: "x"; bogus: 1; }
+  resource tiles as missing_url { kind: xyz; }
 }
 "#,
         )],
@@ -1069,8 +1070,8 @@ chart cartesian as stable {
   param as unrelated { type: boolean; default: true; }
   mark symbol as stable_mark { x: "x"; y: "y"; }
   widget radio_button_list as stable_widget {
-    id: 'stable';
-    items: [{ value: 1; label: 'one'; }];
+    data: { values: [{ value: 1; label: 'one'; }]; }
+    position: top;
   }
   param as stable_param { type: int64; default: 1; }
 }
@@ -1083,8 +1084,8 @@ avenger 1;
 chart cartesian as stable {
   param as stable_param { type: int64; default: 1; }
   widget radio_button_list as stable_widget {
-    id: 'stable';
-    items: [{ value: 1; label: 'one'; }];
+    data: { values: [{ value: 1; label: 'one'; }]; }
+    position: top;
   }
   mark symbol as stable_mark { x: "x"; y: "y"; }
   param as unrelated { type: boolean; default: true; }
@@ -1151,8 +1152,8 @@ chart cartesian as provenance {
     export point as glyph;
   }
   widget radio_button_list as choice {
-    id: 'choice';
-    items: [{ value: 'a'; label: 'A'; }];
+    data: { values: [{ value: 'a'; label: 'A'; }]; }
+    position: top;
   }
 }
 "#,

@@ -78,6 +78,7 @@ A geographic map projection with an optional authored viewport.
 | `projection` | property | false | Map projection; defaults to Equal Earth. |
 | `rotate` | property | false | Three-axis spherical rotation in degrees. |
 | `subtitle` | property | false | Chart subtitle expression. |
+| `tiles` | property | false | Raster tile resource and use-site layer configuration. |
 | `time` | property | false | Chart temporal defaults. |
 | `title` | property | false | Chart title expression. |
 | `viewport_id` | property | false | Runtime viewport state id prefix. |
@@ -1813,3 +1814,19 @@ A scale-free logical-pixel inline view.
 | `debounce_ms` | property | false | Quiet interval before evaluation in milliseconds. |
 | `stale_policy` | property | false | Behavior while a newer view-local result is pending. |
 | `throttle_ms` | property | false | Minimum interval between evaluations in milliseconds. |
+
+## `Resource.tiles`
+
+A reusable XYZ raster tile source for geographic charts.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `attribution` | property | false | Required source attribution text. |
+| `kind` | property | true | Tile pyramid kind; v1 supports XYZ tiles. |
+| `loading_policy` | property | false | Tile loading and fallback behavior. |
+| `max_zoom` | property | false | Maximum available tile zoom. |
+| `min_zoom` | property | false | Minimum available tile zoom. |
+| `subdomains` | property | false | Subdomains substituted for `{s}` in deterministic order. |
+| `tile_size` | property | false | Tile edge length in pixels. |
+| `url` | property | true | URL template containing `{z}`, `{x}`, and `{y}` placeholders. |
+| `zindex` | property | false | Default layer z-index. |

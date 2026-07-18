@@ -2209,7 +2209,7 @@ set selection picked = toggle_clauses {
   clause {
     id: datum('id');
     equality {
-      dimension id { field: "id"; value: datum('id'); }
+      dimension as id { field: "id"; value: datum('id'); }
     }
   }
 }
@@ -3377,15 +3377,15 @@ geo` properties. `lon_lat`, `projected`, and `geometry` are the
 coordinate-specific channel groups:
 
 ```avenger
-resource tiles as osm {
-  kind: xyz;
-  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  min_zoom: 0;
-  max_zoom: 19;
-  attribution: 'OpenStreetMap contributors';
-}
-
 chart geo as map {
+  resource tiles as osm {
+    kind: xyz;
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    min_zoom: 0;
+    max_zoom: 19;
+    attribution: 'OpenStreetMap contributors';
+  }
+
   projection: mercator;
   center_lon_lat: [-73.9857, 40.7484];
   zoom: 11;
@@ -3424,13 +3424,13 @@ viewport's pixel size:
 ```avenger
 avenger 1;
 
-resource tiles as osm {
-  kind: xyz;
-  url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  attribution: 'OpenStreetMap contributors';
-}
-
 chart geo as taxi_density {
+  resource tiles as osm {
+    kind: xyz;
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    attribution: 'OpenStreetMap contributors';
+  }
+
   projection: mercator;
   center_lon_lat: [-73.98, 40.75];
   zoom: 11;
@@ -3953,7 +3953,7 @@ tool behavior as hover {
     set selection hovered = replace_all_clauses {
       clause {
         equality {
-          dimension id { field: "id"; value: datum('id'); }
+          dimension as id { field: "id"; value: datum('id'); }
         }
       }
     }
@@ -4079,7 +4079,7 @@ define tool hover_highlight {
     set selection hovered = replace_all_clauses {
       clause {
         equality {
-          dimension id { field: "id"; value: datum('id'); }
+          dimension as id { field: "id"; value: datum('id'); }
         }
       }
     }
@@ -4499,12 +4499,12 @@ define tool click_picker {
     match mode {
       toggle {
         set selection sel = toggle_clauses {
-          clause { equality { dimension id { field: "id"; value: datum('id'); } } }
+          clause { equality { dimension as id { field: "id"; value: datum('id'); } } }
         }
       }
       replace {
         set selection sel = replace_all_clauses {
-          clause { equality { dimension id { field: "id"; value: datum('id'); } } }
+          clause { equality { dimension as id { field: "id"; value: datum('id'); } } }
         }
       }
     }

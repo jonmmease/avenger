@@ -881,6 +881,7 @@ impl NativeRegistryBuilder {
                 | NativeKindNamespace::Legend
                 | NativeKindNamespace::Layout
                 | NativeKindNamespace::View
+                | NativeKindNamespace::Resource
         ) {
             return Err(RegistryError::SchemaLowererMismatch(key));
         }
@@ -1184,6 +1185,10 @@ fn validate_value_shape(
         (ResolvedValue::Param(_), ValueShape::ScalarBinding) => true,
         (ResolvedValue::Selection(_), ValueShape::SelectionBinding) => true,
         (ResolvedValue::WidgetItems(_), ValueShape::WidgetData) => true,
+        (
+            ResolvedValue::Output(NativeOutputValue::Opaque(_)),
+            ValueShape::TypedReference { .. },
+        ) => true,
         (ResolvedValue::String(value), ValueShape::Atom { values }) => {
             values.iter().any(|candidate| candidate.value == *value)
         }
@@ -1208,6 +1213,30 @@ fn validate_value_shape(
             ValueShape::ConfiguredExpression(fields),
         ) => {
             validate_value_shape(head, &ValueShape::SqlExpression, property).is_ok()
+                && properties.iter().all(|(name, value)| {
+                    fields.get(name).is_some_and(|field| {
+                        validate_value_shape(value, &field.shape, name).is_ok()
+                    })
+                })
+                && fields.iter().all(|(name, field)| {
+                    !field.required || field.default.is_some() || properties.contains_key(name)
+                })
+        }
+        (
+            ResolvedValue::Configured { head, properties },
+            ValueShape::ConfiguredReference {
+                namespaces,
+                properties: fields,
+            },
+        ) => {
+            validate_value_shape(
+                head,
+                &ValueShape::TypedReference {
+                    namespaces: namespaces.clone(),
+                },
+                property,
+            )
+            .is_ok()
                 && properties.iter().all(|(name, value)| {
                     fields.get(name).is_some_and(|field| {
                         validate_value_shape(value, &field.shape, name).is_ok()
@@ -1534,6 +1563,29 @@ mod tests {
             .property("background_padding", ResolvedValue::Expr(lit(8.0)));
         let lowered = registry.lower_object(&key, &declaration).unwrap();
         assert!(lowered.downcast::<avenger_chart_core::Legend>().is_ok());
+    }
+
+    #[test]
+    fn native_surface_geo_tile_resource_has_an_owner_lowerer() {
+        let registry = builtins::bootstrap_registry().unwrap();
+        let key = NativeKindKey::new(NativeKindNamespace::Resource, "tiles");
+        let declaration = ResolvedDeclaration::new("tiles")
+            .source_name("osm")
+            .property("kind", ResolvedValue::String("xyz".to_string()))
+            .property(
+                "url",
+                ResolvedValue::String("https://tile.example/{z}/{x}/{y}.png".to_string()),
+            )
+            .property("min_zoom", ResolvedValue::Integer(0))
+            .property("max_zoom", ResolvedValue::Integer(19));
+        let layer = registry
+            .lower_object(&key, &declaration)
+            .unwrap()
+            .downcast::<avenger_chart_geo::RasterTileLayer>()
+            .unwrap();
+        assert_eq!(layer.layer_id(), "osm");
+        assert_eq!(layer.min_zoom_value(), 0);
+        assert_eq!(layer.max_zoom_value(), 19);
     }
 
     #[tokio::test]

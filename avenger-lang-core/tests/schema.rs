@@ -174,7 +174,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
             }"#,
         ),
         (
-            false,
+            true,
             r#"avenger 1; chart cartesian as chart {
                 mark symbol as dots { x: "x"; }
             }"#,
@@ -213,7 +213,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
             false,
             r#"avenger 1; chart cartesian as chart {
                 widget radio_button_list as choice {
-                    items: [{ value: 1; label: 'one'; }];
+                    position: top;
                 }
             }"#,
         ),
@@ -221,8 +221,7 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
             true,
             r#"avenger 1; chart cartesian as chart {
                 widget radio_button_list as choice {
-                    id: 'choice';
-                    items: [{ value: 1; label: 'one'; }];
+                    data: { values: [{ value: 1; label: 'one'; }]; }
                     position: top;
                 }
             }"#,
@@ -231,7 +230,8 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
             false,
             r#"avenger 1; chart cartesian as chart {
                 widget radio_button_list as choice {
-                    id: 'choice'; items: [{ value: 1; label: 'one'; }];
+                    data: { values: [{ value: 1; label: 'one'; }]; }
+                    position: top;
                     mark symbol { x: "x"; y: "y"; }
                 }
             }"#,
@@ -240,7 +240,8 @@ async fn schema_generated_bootstrap_corpus_agrees_with_semantic_validation() {
             false,
             r#"avenger 1; chart cartesian as chart {
                 widget radio_button_list as choice {
-                    id: 'choice'; items: [{ value: 1; }]; position: center;
+                    data: { values: [{ value: 1; label: 'one'; }]; }
+                    position: center;
                 }
             }"#,
         ),

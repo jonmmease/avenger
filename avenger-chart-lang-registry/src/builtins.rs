@@ -720,6 +720,7 @@ fn register_widgets(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryE
 }
 
 fn register_objects(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    builder.register_object_definition(avenger_chart_geo::language::tile_resource_definition())?;
     builder.register_object_definition(avenger_chart::language::cartesian_view_definition())?;
     builder.register_object_definition(avenger_chart::language::pixel_frame_view_definition())?;
     for definition in avenger_chart_scales::language::definitions() {

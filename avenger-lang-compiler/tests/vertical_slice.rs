@@ -901,6 +901,43 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
 }
 
 #[tokio::test]
+async fn native_surface_geo_tile_resources_lower_through_typed_references() {
+    let source = r#"avenger 1;
+        chart geo as chart {
+          projection: mercator;
+          center_lon_lat: [-73.9857, 40.7484];
+          zoom: 11;
+          tiles: osm { zindex: -10; }
+
+          resource tiles as osm {
+            kind: xyz;
+            url: 'https://tile.example/{z}/{x}/{y}.png';
+            min_zoom: 0;
+            max_zoom: 19;
+            attribution: 'Example tiles';
+            loading_policy: smooth_zoom;
+          }
+          mark symbol as station {
+            lon_lat: [-73.9857, 40.7484];
+            size: value 64.0;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    for expected in [
+        "https://tile.example/{z}/{x}/{y}.png",
+        "Example tiles",
+        "smooth-zoom",
+        "\"zindex\":-10",
+    ] {
+        assert!(json.contains(expected), "missing {expected}: {json}");
+    }
+}
+
+#[tokio::test]
 async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {

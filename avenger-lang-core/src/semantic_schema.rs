@@ -329,6 +329,10 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         ValueShape::SqlQuery => tagged_schema("query"),
         ValueShape::ChannelConfig => tagged_schema("block"),
         ValueShape::ConfiguredExpression(fields) => configured_expression_schema(fields),
+        ValueShape::ConfiguredReference {
+            namespaces,
+            properties,
+        } => configured_reference_schema(namespaces, properties),
         ValueShape::PatternChannel => json!({
             "oneOf": [
                 tagged_schema("pattern"),
@@ -454,6 +458,40 @@ fn configured_expression_schema(
     })
 }
 
+fn configured_reference_schema(
+    namespaces: &std::collections::BTreeSet<NativeKindNamespace>,
+    fields: &std::collections::BTreeMap<String, PropertySchema>,
+) -> Value {
+    let properties = fields
+        .iter()
+        .map(|(name, field)| (name.clone(), value_shape_schema(&field.shape)))
+        .collect::<Map<_, _>>();
+    let required = fields
+        .iter()
+        .filter(|(_, field)| field.required)
+        .map(|(name, _)| json!(name))
+        .collect::<Vec<_>>();
+    json!({
+        "type": "object",
+        "required": ["block"],
+        "properties": {
+            "block": {
+                "type": "object",
+                "properties": {
+                    "head": value_shape_schema(&ValueShape::TypedReference {
+                        namespaces: namespaces.clone()
+                    }),
+                    "props": object_properties_schema(properties, required, true),
+                    "children": { "maxItems": 0 }
+                },
+                "required": ["head", "props"],
+                "additionalProperties": false
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
 fn number_schema() -> Value {
     json!({
         "type": "object",
@@ -544,6 +582,7 @@ fn namespace_keywords(namespace: NativeKindNamespace) -> &'static [&'static str]
         NativeKindNamespace::Tool => &["tool"],
         NativeKindNamespace::Widget => &["widget"],
         NativeKindNamespace::View => &["view"],
+        NativeKindNamespace::Resource => &["resource"],
         // These namespaces are currently represented in configured value
         // blocks rather than top-level declaration nodes.
         NativeKindNamespace::Scale
@@ -569,6 +608,7 @@ fn reference_kind_for_namespace(namespace: &NativeKindNamespace) -> Option<&'sta
         NativeKindNamespace::Mark => Some("mark"),
         NativeKindNamespace::Tool => Some("tool"),
         NativeKindNamespace::Widget => Some("widget"),
+        NativeKindNamespace::Resource => Some("resource"),
         _ => None,
     }
 }
