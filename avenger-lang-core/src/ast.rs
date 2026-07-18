@@ -312,12 +312,21 @@ impl SqlExpression {
     }
 
     pub(crate) fn from_parsed(parsed: ParsedSqlIsland<Expr>) -> Result<Self, AstError> {
+        let relation_names = relation_names(&parsed.ast);
         Ok(Self {
             ast: parsed.ast,
             bindings: parsed
                 .bindings
                 .iter()
-                .map(|binding| sql_binding(binding, BindingKind::Param))
+                .map(|binding| {
+                    let quoted = format!("\"{}\"", binding.synthetic_identifier);
+                    let kind = if relation_names.contains(&quoted) {
+                        BindingKind::Store
+                    } else {
+                        BindingKind::Param
+                    };
+                    sql_binding(binding, kind)
+                })
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -602,7 +611,7 @@ fn restore_bindings(mut sql: String, bindings: &[SqlBinding]) -> String {
     sql
 }
 
-fn relation_names(query: &Query) -> BTreeSet<String> {
+fn relation_names(node: &impl Visit) -> BTreeSet<String> {
     #[derive(Default)]
     struct Relations(BTreeSet<String>);
 
@@ -616,7 +625,7 @@ fn relation_names(query: &Query) -> BTreeSet<String> {
     }
 
     let mut relations = Relations::default();
-    let _ = query.visit(&mut relations);
+    let _ = node.visit(&mut relations);
     relations.0
 }
 
@@ -642,6 +651,9 @@ mod tests {
         let expression = SqlExpression::parse("$width@start + 1").unwrap();
         assert_eq!(expression.canonical_sql(), "$width@start + 1");
         assert_eq!(expression.bindings()[0].kind, BindingKind::Param);
+
+        let expression = SqlExpression::parse("(SELECT count(*) FROM $rows)").unwrap();
+        assert_eq!(expression.bindings()[0].kind, BindingKind::Store);
 
         let query = SqlQuery::parse("FROM $rows SELECT * WHERE \"x\" > $minimum").unwrap();
         assert_eq!(query.bindings()[0].kind, BindingKind::Store);

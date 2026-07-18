@@ -6,6 +6,10 @@ chart cartesian as chart {
     default: 0.0;
     sharing: free;
   }
+  param as hover_count {
+    type: int64;
+    default: 0;
+  }
 
   store as hovered {
     field id: utf8;
@@ -40,6 +44,7 @@ chart cartesian as chart {
     set store hovered = insert_rows {
       row { id: 'drag'; x: event_coord(x); }
     }
+    set param hover_count = (SELECT count(*) FROM $hovered);
     set selection picked = upsert_clauses {
       clause {
         id: 'drag';

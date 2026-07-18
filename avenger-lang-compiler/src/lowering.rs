@@ -53,11 +53,12 @@ use avenger_lang_core::{
 };
 use datafusion::{
     common::{
-        ScalarValue,
+        Column, ScalarValue,
         tree_node::{Transformed, TreeNode},
     },
     dataframe::DataFrame,
-    logical_expr::{Expr, col, lit},
+    datasource::empty::EmptyTable,
+    logical_expr::{Expr, LogicalPlan, TableScan, col, lit},
     prelude::SessionContext,
 };
 use indexmap::IndexMap;
@@ -98,6 +99,7 @@ struct ProjectLowerer<'a> {
     capabilities: &'a ImportCapabilities,
     params: BTreeMap<ParamId, Param>,
     stores: BTreeMap<StoreId, Store>,
+    store_table_names: BTreeMap<StoreId, String>,
     selections: BTreeMap<SelectionId, Selection>,
     widget_owned_params: BTreeSet<ParamId>,
     native_owned_selections: BTreeSet<SelectionId>,
@@ -124,6 +126,7 @@ impl<'a> ProjectLowerer<'a> {
             capabilities,
             params: BTreeMap::new(),
             stores: BTreeMap::new(),
+            store_table_names: BTreeMap::new(),
             selections: BTreeMap::new(),
             widget_owned_params: widget_owned_params(project),
             native_owned_selections: native_owned_selections(project),
@@ -191,7 +194,26 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
         for (id, store) in &self.project.stores {
-            self.stores.insert(id.clone(), self.lower_store(store)?);
+            let lowered = self.lower_store(store)?;
+            let table_name = format!("__avenger_store_binding_{}", id.as_str());
+            let schema = Arc::new(Schema::new(
+                lowered
+                    .fields
+                    .iter()
+                    .map(avenger_chart_core::StoreFieldSpec::to_field_ref)
+                    .collect::<Vec<_>>(),
+            ));
+            self.context
+                .register_table(&table_name, Arc::new(EmptyTable::new(schema)))
+                .map_err(|error| {
+                    lowerer_error_at(
+                        store.declaration.clone(),
+                        self.project,
+                        format!("failed to register store query placeholder: {error}"),
+                    )
+                })?;
+            self.store_table_names.insert(id.clone(), table_name);
+            self.stores.insert(id.clone(), lowered);
         }
         for (id, selection) in &self.project.selections {
             self.selections
@@ -3446,11 +3468,36 @@ impl<'a> ProjectLowerer<'a> {
         };
         let mut sql = expression.sql.clone();
         let mut replacements = BTreeMap::new();
+        let mut store_scan_targets = BTreeMap::new();
         let mut source_replacements = Vec::<(String, String)>::new();
 
         for (index, binding) in expression.bindings.iter().enumerate() {
-            let synthetic = format!("__avenger_event_binding_{index:08}");
             let authored = binding_spelling(binding);
+            if let ResolvedTarget::Store(id) = &binding.target {
+                if binding.time != BindingTime::Current {
+                    return Err(lowerer_error(
+                        declaration,
+                        "store relation bindings do not support temporal qualifiers",
+                    ));
+                }
+                let table_name = self.store_table_names.get(id).ok_or_else(|| {
+                    lowerer_error(
+                        declaration,
+                        "resolved store query placeholder is unavailable",
+                    )
+                })?;
+                let store = self
+                    .stores
+                    .get(id)
+                    .ok_or_else(|| lowerer_error(declaration, "resolved store is unavailable"))?;
+                let replacement = format!("\"{}\"", table_name.replace('"', "\"\""));
+                sql = sql.replace(&authored, &replacement);
+                source_replacements.push((authored, replacement));
+                store_scan_targets.insert(table_name.clone(), store.name.clone());
+                continue;
+            }
+
+            let synthetic = format!("__avenger_event_binding_{index:08}");
             let replacement = format!("\"{synthetic}\"");
             sql = sql.replace(&authored, &replacement);
             let param = match &binding.target {
@@ -3460,7 +3507,7 @@ impl<'a> ProjectLowerer<'a> {
                 _ => {
                     return Err(lowerer_error(
                         declaration,
-                        "table bindings in event scalar subqueries are not implemented yet",
+                        "event scalar bindings must reference params or stores",
                     ));
                 }
             };
@@ -3508,10 +3555,14 @@ impl<'a> ProjectLowerer<'a> {
             replacements.insert(synthetic, expr);
             source_replacements.push((authored, replacement));
         }
-        let parsed = parse_data
-            .parse_sql_expr(&sql)
-            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-        parsed
+        let parsed = if store_scan_targets.is_empty() {
+            self.context
+                .parse_sql_expr(&sql, parse_data.schema())
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?
+        } else {
+            self.plan_event_expression_with_relations(&sql, &parse_data, declaration)?
+        };
+        let parsed = parsed
             .transform_up(|candidate| {
                 if let Expr::Column(column) = &candidate
                     && let Some(replacement) = replacements.get(&column.name)
@@ -3521,6 +3572,71 @@ impl<'a> ProjectLowerer<'a> {
                 Ok(Transformed::no(candidate))
             })
             .map(|result| result.data)
+            .map_err(|error: datafusion::error::DataFusionError| {
+                lowerer_error(declaration, error.to_string())
+            })?;
+        rewrite_store_subquery_targets(parsed, &store_scan_targets)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))
+    }
+
+    /// DataFusion's expression-only SQL planner intentionally has no relation
+    /// providers, so it cannot plan a scalar subquery over a store. Plan the
+    /// same expression as a one-column `SELECT` over a schema-only outer table,
+    /// then recover the projection expression. No rows are read at compile
+    /// time; the store scan is retargeted to its runtime relation immediately
+    /// afterward.
+    fn plan_event_expression_with_relations(
+        &self,
+        sql: &str,
+        parse_data: &DataFrame,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Expr, Diagnostic> {
+        use sha2::{Digest, Sha256};
+
+        let fingerprint = Sha256::digest(format!("{sql}\n{:?}", parse_data.schema()).as_bytes());
+        let outer_name = format!("__avenger_event_outer_{fingerprint:x}");
+        self.context
+            .register_table(
+                &outer_name,
+                Arc::new(EmptyTable::new(Arc::clone(parse_data.schema().inner()))),
+            )
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+
+        let query = format!("SELECT {sql} FROM \"{}\"", outer_name.replace('"', "\"\""));
+        let state = self.context.state();
+        let plan = futures::executor::block_on(state.create_logical_plan(&query))
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        let LogicalPlan::Projection(projection) = plan else {
+            return Err(lowerer_error(
+                declaration,
+                "event expression query did not lower to a projection",
+            ));
+        };
+        let [expression] = projection.expr.as_slice() else {
+            return Err(lowerer_error(
+                declaration,
+                "event expression query did not produce exactly one expression",
+            ));
+        };
+        expression
+            .clone()
+            .unalias()
+            .transform_up(|candidate| {
+                let Expr::Column(column) = candidate else {
+                    return Ok(Transformed::no(candidate));
+                };
+                if column
+                    .relation
+                    .as_ref()
+                    .is_some_and(|relation| relation.table() == outer_name)
+                {
+                    return Ok(Transformed::yes(Expr::Column(Column::new_unqualified(
+                        column.name,
+                    ))));
+                }
+                Ok(Transformed::no(Expr::Column(column)))
+            })
+            .map(|transformed| transformed.data)
             .map_err(|error: datafusion::error::DataFusionError| {
                 lowerer_error(declaration, error.to_string())
             })
@@ -4584,6 +4700,45 @@ fn rewrite_source_fragment(source: &str, replacements: &[(String, String)]) -> S
         .fold(source.to_owned(), |source, (authored, replacement)| {
             source.replace(authored, replacement)
         })
+}
+
+fn rewrite_store_subquery_targets(
+    expr: Expr,
+    targets: &BTreeMap<String, String>,
+) -> Result<Expr, datafusion::error::DataFusionError> {
+    if targets.is_empty() {
+        return Ok(expr);
+    }
+    expr.transform(|candidate| {
+        let Expr::ScalarSubquery(mut subquery) = candidate else {
+            return Ok(Transformed::no(candidate));
+        };
+        let plan = subquery
+            .subquery
+            .as_ref()
+            .clone()
+            .transform_up_with_subqueries(|candidate| {
+                let LogicalPlan::TableScan(scan) = candidate else {
+                    return Ok(Transformed::no(candidate));
+                };
+                let Some(target) = targets.get(scan.table_name.table()) else {
+                    return Ok(Transformed::no(LogicalPlan::TableScan(scan)));
+                };
+                Ok(Transformed::yes(LogicalPlan::TableScan(
+                    TableScan::try_new(
+                        target.as_str(),
+                        scan.source,
+                        scan.projection,
+                        scan.filters,
+                        scan.fetch,
+                    )?,
+                )))
+            })?
+            .data;
+        subquery.subquery = Arc::new(plan);
+        Ok(Transformed::yes(Expr::ScalarSubquery(subquery)))
+    })
+    .map(|transformed| transformed.data)
 }
 
 fn helper_argument_expr(

@@ -1323,6 +1323,7 @@ dependencies = [
  "avenger-wgpu",
  "bincode",
  "datafusion",
+ "futures",
  "image",
  "image-compare",
  "indexmap 2.14.0",

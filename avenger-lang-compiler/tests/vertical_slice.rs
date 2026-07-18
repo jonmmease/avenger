@@ -1636,6 +1636,10 @@ async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() 
     assert_eq!(status.cursor, Some(CursorStyle::Crosshair));
     let state = app.app_state_mut().clone();
     assert_ne!(state.param_f64("drag_x"), Some(0.0));
+    assert_eq!(
+        state.params().await.get("hover_count"),
+        Some(&ScalarValue::Int64(Some(1)))
+    );
     let metrics = state.event_metrics().await;
     assert_eq!(metrics.param_patch_events, 1);
     assert_eq!(metrics.store_patch_events, 1);
