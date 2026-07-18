@@ -45,6 +45,7 @@ impl fmt::Debug for ResolvedTransformStage {
 #[derive(Clone, Debug)]
 pub struct ResolvedMarkGroup {
     pub id: Option<String>,
+    pub publish_id: bool,
     pub component_kind: Option<String>,
     pub data: Option<DataFrame>,
     pub store_data: Option<avenger_chart_core::StoreData>,
@@ -65,6 +66,7 @@ impl ResolvedMarkGroup {
     pub fn new() -> Self {
         Self {
             id: None,
+            publish_id: true,
             component_kind: None,
             data: None,
             store_data: None,
@@ -425,7 +427,18 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                     }
                 })?;
                 registry.validate(&entry.schema.key, declaration)?;
-                (entry.lowerer)(declaration)
+                (entry.lowerer)(declaration).map(|marks| {
+                    marks
+                        .into_iter()
+                        .map(|mark| {
+                            mark.with_language_identity(
+                                declaration.publish_source_name,
+                                declaration.public_aliases.clone(),
+                                declaration.component_part_alias.clone(),
+                            )
+                        })
+                        .collect()
+                })
             }
             ResolvedMark::NativeWithChild { declaration, child } => {
                 let entry = self.child_marks.get(&declaration.kind).ok_or_else(|| {
@@ -444,7 +457,18 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                 } else {
                     child.as_ref()
                 };
-                (entry.lowerer)(declaration, registry.lower_child_plot(child)?)
+                (entry.lowerer)(declaration, registry.lower_child_plot(child)?).map(|marks| {
+                    marks
+                        .into_iter()
+                        .map(|mark| {
+                            mark.with_language_identity(
+                                declaration.publish_source_name,
+                                declaration.public_aliases.clone(),
+                                declaration.component_part_alias.clone(),
+                            )
+                        })
+                        .collect()
+                })
             }
             ResolvedMark::Group(resolved) => {
                 let mut data = match (&resolved.data, &resolved.store_data) {
@@ -496,7 +520,11 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                         group = group.mark(mark);
                     }
                 }
-                Ok(vec![PlotMark::from_group(group)])
+                Ok(vec![PlotMark::from_group(group).with_language_identity(
+                    resolved.publish_id,
+                    Vec::new(),
+                    None,
+                )])
             }
         }
     }

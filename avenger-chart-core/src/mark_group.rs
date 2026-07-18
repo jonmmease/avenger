@@ -368,6 +368,9 @@ where
 #[derive(Clone)]
 pub struct PlotMark<C: CoordinateSystemCore> {
     kind: PlotMarkKind<C>,
+    publish_source_id: bool,
+    public_aliases: Vec<String>,
+    component_part_alias: Option<String>,
 }
 
 impl<C> IntoPlotMark<C> for PlotMark<C>
@@ -386,6 +389,9 @@ impl<C: CoordinateSystemCore> PlotMark<C> {
     {
         Self {
             kind: PlotMarkKind::Primitive(Arc::new(mark)),
+            publish_source_id: true,
+            public_aliases: Vec::new(),
+            component_part_alias: None,
         }
     }
 
@@ -393,19 +399,58 @@ impl<C: CoordinateSystemCore> PlotMark<C> {
     pub fn from_mark_arc(mark: Arc<dyn Mark<C>>) -> Self {
         Self {
             kind: PlotMarkKind::Primitive(mark),
+            publish_source_id: true,
+            public_aliases: Vec::new(),
+            component_part_alias: None,
         }
     }
 
     pub fn from_group(group: MarkGroup<C>) -> Self {
         Self {
             kind: PlotMarkKind::Group(group),
+            publish_source_id: true,
+            public_aliases: Vec::new(),
+            component_part_alias: None,
         }
     }
 
     pub fn from_invalid_argument(message: impl Into<String>) -> Self {
         Self {
             kind: PlotMarkKind::InvalidArgument(message.into()),
+            publish_source_id: true,
+            public_aliases: Vec::new(),
+            component_part_alias: None,
         }
+    }
+
+    /// Attach compiler-resolved public routing metadata without requiring
+    /// every native mark owner to duplicate DSL visibility/export handling.
+    #[doc(hidden)]
+    pub fn with_language_identity(
+        mut self,
+        publish_source_id: bool,
+        public_aliases: impl IntoIterator<Item = String>,
+        component_part_alias: Option<String>,
+    ) -> Self {
+        self.publish_source_id = publish_source_id;
+        self.public_aliases.extend(public_aliases);
+        self.component_part_alias = component_part_alias;
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn publishes_source_id(&self) -> bool {
+        self.publish_source_id
+    }
+
+    #[doc(hidden)]
+    pub fn language_public_aliases(&self) -> &[String] {
+        &self.public_aliases
+    }
+
+    #[doc(hidden)]
+    pub fn component_part_alias(&self) -> Option<&str> {
+        self.component_part_alias.as_deref()
     }
 
     #[doc(hidden)]

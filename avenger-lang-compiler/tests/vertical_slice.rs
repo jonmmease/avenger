@@ -761,6 +761,103 @@ async fn native_surface_chart_theme_time_and_format_context_lower() {
 }
 
 #[tokio::test]
+async fn native_surface_component_exports_preserve_parts_without_private_paths() {
+    let root = fixture("10_native_surface_contracts");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("theme_parts.avenger"))
+        .await
+        .unwrap();
+
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .contains_key("theme_parts.pair.glyph")
+    );
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .contains_key("theme_parts.pair.annotation")
+    );
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .keys()
+            .all(|path| { !path.contains(".body.") && !path.ends_with(".point") })
+    );
+
+    let glyph = artifact
+        .compiled_plot()
+        .marks()
+        .iter()
+        .find(|mark| {
+            mark.state()
+                .identity
+                .public_aliases
+                .iter()
+                .any(|alias| alias == "pair.glyph")
+        })
+        .expect("exported component glyph");
+    let component = glyph
+        .state()
+        .identity
+        .component
+        .as_ref()
+        .expect("component part provenance");
+    assert_eq!(component.component_kind, "point_pair");
+    assert_eq!(component.component_id.as_deref(), Some("pair"));
+    assert_eq!(component.part_alias, "glyph");
+
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("point_pair::part(glyph)"), "{json}");
+}
+
+#[tokio::test]
+async fn native_surface_public_routing_hoists_and_exports_exact_targets() {
+    let root = fixture("10_native_surface_contracts");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("public_routing.avenger"))
+        .await
+        .unwrap();
+
+    for path in ["public_routing.layer.visible", "public_routing.layer.label"] {
+        assert!(
+            artifact.interface.public_targets.contains_key(path),
+            "missing {path}: {:?}",
+            artifact.interface.public_targets
+        );
+    }
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .keys()
+            .all(|path| { !path.contains(".implementation.") && !path.ends_with(".secret") })
+    );
+
+    let aliases = artifact
+        .compiled_plot()
+        .marks()
+        .iter()
+        .flat_map(|mark| mark.state().identity.public_aliases.iter().cloned())
+        .collect::<Vec<_>>();
+    assert!(
+        aliases.contains(&"layer.visible".to_string()),
+        "{aliases:?}"
+    );
+    assert!(aliases.contains(&"layer.label".to_string()), "{aliases:?}");
+    assert!(aliases.iter().all(|path| !path.contains("implementation")));
+}
+
+#[tokio::test]
 async fn vertical_slice_widget_is_opaque_and_exported_state_drives_the_mark() {
     let root = fixture("03_widget_vertical_slice");
     let artifact = Compiler::builder()

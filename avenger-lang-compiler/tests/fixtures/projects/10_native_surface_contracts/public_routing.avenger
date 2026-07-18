@@ -1,0 +1,22 @@
+avenger 1;
+
+chart cartesian as public_routing {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+
+  group as layer {
+    export implementation.secret as visible;
+
+    private group as implementation {
+      mark symbol as secret {
+        x: "x" { scale: linear { domain: [0.0, 3.0]; } }
+        y: "y" { scale: linear { domain: [0.0, 3.0]; } }
+      }
+
+      public mark text as label {
+        x: "x";
+        y: "y";
+        text: value 'label';
+      }
+    }
+  }
+}

@@ -2357,6 +2357,9 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                 for alias in &mark.state().public_aliases {
                     validate_mark_target_path("mark alias", alias)?;
                 }
+                for alias in element.language_public_aliases() {
+                    validate_mark_target_path("mark alias", alias)?;
+                }
                 if let Some(id) = mark.state().id.as_deref() {
                     validate_structural_id("mark", id)?;
                     if public_path_prefix.is_empty() {
@@ -2385,12 +2388,21 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                     ));
                 }
                 let mark_index = flat.marks.len();
-                let public_target_aliases = mark_public_target_aliases(
-                    mark.state().id.as_deref(),
+                let mut public_target_aliases = mark_public_target_aliases(
+                    element
+                        .publishes_source_id()
+                        .then_some(mark.state().id.as_deref())
+                        .flatten(),
                     &mark.state().public_aliases,
                     parent_group_index,
                     public_path_prefix,
                 );
+                // Compiler-resolved aliases are already exact paths relative
+                // to the chart root; native Rust aliases remain relative to
+                // the mark's containing public group.
+                public_target_aliases.extend(element.language_public_aliases().iter().cloned());
+                public_target_aliases.sort();
+                public_target_aliases.dedup();
                 flat.marks.push(mark.clone());
                 flat.mark_group_indices.push(parent_group_index);
                 flat.public_target_aliases
@@ -2400,7 +2412,11 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                     avenger_chart_core::CompiledComponentProvenance {
                         component_kind: component.kind.clone(),
                         component_id: component.id.clone(),
-                        part_alias: mark.state().id.clone().expect("component part validated"),
+                        part_alias: element
+                            .component_part_alias()
+                            .map(ToString::to_string)
+                            .or_else(|| mark.state().id.clone())
+                            .expect("component part validated"),
                     }
                 }));
                 for public_target_alias in public_target_aliases {
@@ -2416,8 +2432,13 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                         "MarkGroup must contain at least one child mark or group".to_string(),
                     ));
                 }
-                let group_public_path_prefix =
-                    group_public_path_prefix(public_path_prefix, group.id_ref());
+                let group_public_path_prefix = group_public_path_prefix(
+                    public_path_prefix,
+                    element
+                        .publishes_source_id()
+                        .then_some(group.id_ref())
+                        .flatten(),
+                );
                 let group_index = flat.group_states.len();
                 flat.group_states.push(AuthoringMarkGroupState {
                     id: group.id_ref().map(ToString::to_string),
@@ -2449,7 +2470,10 @@ fn flatten_plot_mark_elements<C: CoordinateSystem>(
                     repeat_context,
                     flat,
                 )?;
-                if group.id_ref().is_some() && !group_public_path_prefix.is_empty() {
+                if element.publishes_source_id()
+                    && group.id_ref().is_some()
+                    && !group_public_path_prefix.is_empty()
+                {
                     let group_target = group_public_path_prefix.join(".");
                     let paths = group_descendants
                         .iter()

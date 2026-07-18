@@ -106,6 +106,17 @@ pub struct ResolvedDeclaration {
     /// Stable source-level name, separate from schema properties so lowerers
     /// can preserve identity without inventing a kind-specific `id` field.
     pub source_name: Option<String>,
+    /// Whether the structural source name is also an implicit public target.
+    /// Private DSL structure retains its source name for diagnostics and
+    /// component identity while suppressing that automatic target path.
+    pub publish_source_name: bool,
+    /// Additional public target aliases, relative to the containing public
+    /// group. Component exports use these without exposing private ancestry.
+    pub public_aliases: Vec<String>,
+    /// Component export alias to retain as theme part provenance. This is
+    /// deliberately independent of both the private source id and public
+    /// target aliases.
+    pub component_part_alias: Option<String>,
     pub properties: IndexMap<String, ResolvedValue>,
     /// Ordered schema-owned child declarations. Core containers remain in the
     /// compiler IR; native owners receive only children declared by their
@@ -122,6 +133,9 @@ impl ResolvedDeclaration {
             kind: kind.into(),
             variant: None,
             source_name: None,
+            publish_source_name: true,
+            public_aliases: Vec::new(),
+            component_part_alias: None,
             properties: IndexMap::new(),
             children: Vec::new(),
             live_exports: std::collections::BTreeSet::new(),

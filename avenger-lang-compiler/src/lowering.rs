@@ -100,6 +100,7 @@ struct ProjectLowerer<'a> {
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     view_refs: BTreeMap<DeclarationId, ViewRef>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
+    active_chart_path: Option<String>,
 }
 
 impl<'a> ProjectLowerer<'a> {
@@ -124,6 +125,7 @@ impl<'a> ProjectLowerer<'a> {
             transform_outputs: BTreeMap::new(),
             view_refs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
+            active_chart_path: None,
         }
     }
 
@@ -139,6 +141,10 @@ impl<'a> ProjectLowerer<'a> {
                     chart_id.to_string(),
                 )
             })?;
+            self.active_chart_path = declaration
+                .public_path
+                .clone()
+                .or_else(|| declaration.name.clone());
             let plot = self.lower_chart(declaration).await?;
             let compiled = self
                 .registry
@@ -156,6 +162,7 @@ impl<'a> ProjectLowerer<'a> {
             self.enrich_interface(&mut artifact, declaration);
             charts.push(LoweredChart { artifact });
         }
+        self.active_chart_path = None;
         Ok(LoweredProject {
             charts,
             analysis_schemas: std::mem::take(&mut self.analysis_schemas),
@@ -1422,6 +1429,7 @@ impl<'a> ProjectLowerer<'a> {
             group.store_data = explicit_store;
             if container.keyword == "group" {
                 group.id = container.name.clone();
+                group.publish_id = container.public_path.is_some();
                 group.component_kind = container.component_kind.clone();
             }
 
@@ -1566,7 +1574,7 @@ impl<'a> ProjectLowerer<'a> {
                             placement,
                         });
                     }
-                    "param" | "store" | "selection" | "on" | "theme" | "resource" => {}
+                    "param" | "store" | "selection" | "on" | "theme" | "resource" | "export" => {}
                     other => {
                         let coordinate_key = NativeKindKey::new(
                             NativeKindNamespace::Coordinate,
@@ -1928,6 +1936,10 @@ impl<'a> ProjectLowerer<'a> {
         })?;
         let mut native = NativeDeclaration::new(kind.clone());
         native.source_name.clone_from(&declaration.name);
+        native.publish_source_name = declaration.public_path.is_some();
+        let (aliases, part_alias) = self.mark_interface_metadata(declaration);
+        native.public_aliases = aliases;
+        native.component_part_alias = part_alias;
         native.live_exports = declaration.exports.keys().cloned().collect();
         for (name, value) in &declaration.properties {
             if is_core_property(&declaration.keyword, name) {
@@ -2066,6 +2078,53 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
         Ok(native)
+    }
+
+    fn mark_interface_metadata(
+        &self,
+        declaration: &ResolvedDeclaration,
+    ) -> (Vec<String>, Option<String>) {
+        if declaration.keyword != "mark" {
+            return (Vec::new(), None);
+        }
+        let Some(target) = declaration.runtime_target.as_ref() else {
+            return (Vec::new(), None);
+        };
+        let mut aliases = Vec::new();
+        let mut component_aliases = Vec::new();
+        for owner in self
+            .project
+            .files
+            .values()
+            .flat_map(|file| file.roots.iter())
+            .flat_map(declarations_depth_first)
+        {
+            let Some(owner_path) = owner.public_path.as_deref() else {
+                continue;
+            };
+            for (alias, exported) in &owner.exports {
+                if exported != target {
+                    continue;
+                }
+                let full = format!("{owner_path}.{alias}");
+                let relative = self
+                    .active_chart_path
+                    .as_deref()
+                    .and_then(|chart| full.strip_prefix(chart))
+                    .and_then(|path| path.strip_prefix('.'))
+                    .unwrap_or(&full)
+                    .to_string();
+                aliases.push(relative);
+                if owner.component_kind.is_some() {
+                    component_aliases.push(alias.clone());
+                }
+            }
+        }
+        aliases.sort();
+        aliases.dedup();
+        component_aliases.sort();
+        component_aliases.dedup();
+        (aliases, component_aliases.into_iter().next())
     }
 
     fn configured_expression_value(
