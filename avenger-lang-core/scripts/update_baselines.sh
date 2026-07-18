@@ -8,6 +8,7 @@ AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-core --test
 AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-core --test token_corpus token_golden_corpus_is_stable
 AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-core --test language_corpus parse_
 AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-chart-lang-registry checked_full_v1_schema_and_documentation_do_not_drift
+AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-chart-lang-registry checked_full_v1_widget_schema_mapping_does_not_drift
 AVENGER_LANG_UPDATE_BASELINES=1 cargo test --release -p avenger-lang-compiler --test phase0_contracts full_v1
 
 changed=$(git diff --name-only -- \

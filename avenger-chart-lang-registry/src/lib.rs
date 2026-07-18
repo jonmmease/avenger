@@ -1435,6 +1435,7 @@ mod tests {
         logical_expr::{col, lit},
     };
     use indexmap::IndexMap;
+    use serde_json::json;
 
     use super::*;
 
@@ -2053,6 +2054,43 @@ mod tests {
             Some("focus-ring")
         );
         assert_eq!(schema.exports["value"].value_kind, "param<item_scalar>");
+    }
+
+    #[test]
+    fn checked_full_v1_widget_schema_mapping_does_not_drift() {
+        let registry = builtins::stock_registry().unwrap();
+        let widgets = registry
+            .snapshot()
+            .entries
+            .iter()
+            .filter(|(key, _)| key.namespace == NativeKindNamespace::Widget)
+            .map(|(key, schema)| {
+                json!({
+                    "authoring_kind": key.kind,
+                    "runtime_kind": schema.runtime_kind,
+                    "properties": schema.properties,
+                    "parts": schema.parts,
+                    "exports": schema.exports,
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(widgets.len(), 6);
+        let mapping = json!({
+            "schema_version": registry.snapshot().version,
+            "profile_label": registry.snapshot().profile_label,
+            "widgets": widgets,
+        });
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = root.join("snapshots/full-v1-widget-schema-mapping.json");
+        if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+            fs::write(path, serde_json::to_string_pretty(&mapping).unwrap() + "\n").unwrap();
+            return;
+        }
+        let checked: serde_json::Value = serde_json::from_str(include_str!(
+            "../snapshots/full-v1-widget-schema-mapping.json"
+        ))
+        .unwrap();
+        assert_eq!(mapping, checked);
     }
 
     #[tokio::test]

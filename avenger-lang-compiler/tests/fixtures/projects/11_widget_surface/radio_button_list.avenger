@@ -1,0 +1,27 @@
+avenger 1;
+
+chart zerod as radio_button_list {
+  param as choice_state {
+    type: utf8;
+    default: 'east';
+  }
+
+  widget radio_button_list as choice {
+    position: right;
+    data: {
+      sql:
+        SELECT 'west' AS value, 'West' AS label, 2 AS rank
+        UNION ALL
+        SELECT 'east' AS value, 'East' AS label, 1 AS rank;
+    }
+    value: "value";
+    label: "label";
+    order_by: ["rank", "value"];
+    default: 'east';
+    value_param: $choice_state;
+  }
+
+  mark text as value_label {
+    text: $choice.value;
+  }
+}

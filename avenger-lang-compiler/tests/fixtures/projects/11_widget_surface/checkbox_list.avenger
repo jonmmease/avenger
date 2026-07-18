@@ -1,0 +1,19 @@
+avenger 1;
+
+chart zerod as checkbox_list {
+  selection as regions {
+    empty: none;
+    combine: union;
+  }
+
+  widget checkbox_list as region_picker {
+    position: right;
+    data: {
+      values: [
+        { value: 'east'; label: 'East'; },
+        { value: 'west'; label: 'West'; }
+      ];
+    }
+    selection: regions;
+  }
+}

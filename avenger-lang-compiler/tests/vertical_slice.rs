@@ -1160,6 +1160,133 @@ async fn native_surface_button_actions_preserve_order_and_shared_state_targets()
 }
 
 #[tokio::test]
+async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting_tiers() {
+    let root = fixture("11_widget_surface");
+    let cases = [
+        ("checkbox", "checkbox", false),
+        ("button", "button", false),
+        ("checkbox_list", "checkbox-list", false),
+        ("radio_button_list", "radio-button-list", false),
+        ("slider", "slider", false),
+        ("text_input", "text-input", true),
+    ];
+    let registry = builtins::stock_registry().unwrap();
+    for (file, runtime_kind, native) in cases {
+        let artifact = Compiler::builder()
+            .project_root(&root)
+            .build()
+            .unwrap()
+            .compile_file(root.join(format!("{file}.avenger")))
+            .await
+            .unwrap_or_else(|failure| panic!("{file} failed: {:?}", failure.diagnostics));
+        let [attachment] = artifact.compiled_plot().widgets() else {
+            panic!("{file} must compile exactly one widget")
+        };
+        assert_eq!(attachment.widget.kind(), runtime_kind);
+        assert_eq!(
+            matches!(attachment.widget, CompiledWidget::Native(_)),
+            native,
+            "{file} hosting tier"
+        );
+        match &attachment.widget {
+            CompiledWidget::Composed(widget) => {
+                assert!(!widget.relative_target_paths.is_empty());
+                assert!(bincode::serialize(&widget.measure).is_ok());
+            }
+            CompiledWidget::Native(widget) => {
+                assert!(bincode::serialize(&widget.measure).is_ok());
+            }
+        }
+        assert!(
+            artifact
+                .interface
+                .public_targets
+                .contains_key(&format!("{file}.{}", attachment.widget.id()))
+        );
+        let bytes = artifact.to_bytes().unwrap();
+        let restored = CompiledChartArtifact::from_bytes(&bytes, &registry).unwrap();
+        assert_eq!(restored.compiled_plot().widgets().len(), 1);
+    }
+
+    let radio = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("radio_button_list.avenger"))
+        .await
+        .unwrap();
+    assert!(radio.interface.params.contains_key("choice_state"));
+    assert!(!radio.interface.params.contains_key("choice__value"));
+    let CompiledWidget::Composed(radio_widget) = &radio.compiled_plot().widgets()[0].widget else {
+        panic!("radio list must use composed hosting")
+    };
+    assert!(radio_widget.items.is_some());
+    let relational_without_order = std::fs::read_to_string(root.join("radio_button_list.avenger"))
+        .unwrap()
+        .replace("    order_by: [\"rank\", \"value\"];\n", "")
+        .replace("chart zerod as radio_button_list", "chart zerod as chart");
+    let failure = source_compiler(&relational_without_order, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap_err();
+    let diagnostics = format!("{:?}", failure.diagnostics);
+    assert!(
+        diagnostics.contains("requires a nonempty total `order_by`"),
+        "unexpected diagnostics: {diagnostics}"
+    );
+
+    let checkbox = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("checkbox.avenger"))
+        .await
+        .unwrap();
+    assert!(checkbox.interface.params.contains_key("enabled_state"));
+    assert!(!checkbox.interface.params.contains_key("enabled__checked"));
+
+    let checkbox_list = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("checkbox_list.avenger"))
+        .await
+        .unwrap();
+    assert!(checkbox_list.interface.selections.contains_key("regions"));
+    assert_eq!(
+        checkbox_list
+            .compiled_plot()
+            .selection_specs()
+            .keys()
+            .filter(|name| name.as_str() == "regions")
+            .count(),
+        1
+    );
+
+    let slider = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("slider.avenger"))
+        .await
+        .unwrap();
+    assert!(slider.interface.params.contains_key("threshold_state"));
+    assert!(!slider.interface.params.contains_key("threshold__value"));
+
+    let text = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("text_input.avenger"))
+        .await
+        .unwrap();
+    assert!(text.interface.params.contains_key("query_state"));
+    assert!(!text.interface.params.contains_key("query__value"));
+    assert!(text.interface.params.contains_key("query__cursor"));
+    assert!(text.interface.params.contains_key("query__selected_text"));
+}
+
+#[tokio::test]
 async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {

@@ -100,7 +100,7 @@ struct ProjectLowerer<'a> {
     stores: BTreeMap<StoreId, Store>,
     selections: BTreeMap<SelectionId, Selection>,
     widget_owned_params: BTreeSet<ParamId>,
-    tool_owned_selections: BTreeSet<SelectionId>,
+    native_owned_selections: BTreeSet<SelectionId>,
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     view_refs: BTreeMap<DeclarationId, ViewRef>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
@@ -126,7 +126,7 @@ impl<'a> ProjectLowerer<'a> {
             stores: BTreeMap::new(),
             selections: BTreeMap::new(),
             widget_owned_params: widget_owned_params(project),
-            tool_owned_selections: tool_owned_selections(project),
+            native_owned_selections: native_owned_selections(project),
             transform_outputs: BTreeMap::new(),
             view_refs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
@@ -566,7 +566,7 @@ impl<'a> ProjectLowerer<'a> {
         for (id, selection) in &self.project.selections {
             if belongs_to_chart(&selection.owner_ancestry, &chart.id)
                 && selection.generated_by.is_none()
-                && !self.tool_owned_selections.contains(id)
+                && !self.native_owned_selections.contains(id)
             {
                 plot.furnishings
                     .selections
@@ -4234,13 +4234,13 @@ fn widget_owned_params(project: &ResolvedProject) -> BTreeSet<ParamId> {
         .collect()
 }
 
-fn tool_owned_selections(project: &ResolvedProject) -> BTreeSet<SelectionId> {
+fn native_owned_selections(project: &ResolvedProject) -> BTreeSet<SelectionId> {
     project
         .files
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
-        .filter(|declaration| declaration.keyword == "tool")
+        .filter(|declaration| matches!(declaration.keyword.as_str(), "tool" | "widget"))
         .flat_map(|declaration| declaration.exports.values())
         .filter_map(|target| match target {
             ResolvedTarget::Selection(id) => Some(id.clone()),

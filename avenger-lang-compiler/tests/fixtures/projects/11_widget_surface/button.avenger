@@ -1,0 +1,33 @@
+avenger 1;
+
+chart zerod as button {
+  param as query {
+    type: utf8;
+    default: 'initial';
+  }
+  store as history {
+    field id: utf8;
+    primary_key: [id];
+  }
+  selection as picked {
+    empty: none;
+    combine: union;
+  }
+
+  widget button as clear {
+    position: right;
+    label: 'Clear';
+    variant: accent;
+    action: {
+      set param query = '';
+      set store history = insert_rows {
+        row { id: 'clear'; }
+      }
+      set selection picked = clear;
+    }
+  }
+
+  mark text as activation_label {
+    text: $clear.activations;
+  }
+}

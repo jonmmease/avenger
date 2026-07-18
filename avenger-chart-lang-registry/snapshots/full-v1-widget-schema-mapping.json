@@ -1,0 +1,774 @@
+{
+  "profile_label": "stock-v1",
+  "schema_version": {
+    "major": 1,
+    "minor": 0
+  },
+  "widgets": [
+    {
+      "authoring_kind": "button",
+      "exports": {
+        "activations": {
+          "alias": "activations",
+          "binding_property": "activation_param",
+          "docs": "Number of completed activations.",
+          "lazy": false,
+          "value_kind": "param<uint64>"
+        }
+      },
+      "parts": {
+        "box": {
+          "alias": "box",
+          "docs": "The widget's `box` visual part.",
+          "runtime_alias": "box",
+          "runtime_kind": "button",
+          "targetable": true
+        },
+        "focus_ring": {
+          "alias": "focus_ring",
+          "docs": "The widget's `focus-ring` visual part.",
+          "runtime_alias": "focus-ring",
+          "runtime_kind": "button",
+          "targetable": false
+        },
+        "label": {
+          "alias": "label",
+          "docs": "The widget's `label` visual part.",
+          "runtime_alias": "label",
+          "runtime_kind": "button",
+          "targetable": true
+        }
+      },
+      "properties": {
+        "action": {
+          "docs": "Ordered shared-state mutations run atomically after each activation.",
+          "required": false,
+          "shape": {
+            "shape": "param_change_action"
+          }
+        },
+        "activation_param": {
+          "docs": "Existing UInt64 parameter bound to the activation count.",
+          "required": false,
+          "shape": {
+            "shape": "scalar_binding"
+          }
+        },
+        "label": {
+          "docs": "Nonempty visible label.",
+          "required": true,
+          "shape": {
+            "shape": "string"
+          }
+        },
+        "position": {
+          "docs": "Containing chart guide-slot edge.",
+          "required": true,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Place the widget on the chart's top edge.",
+                  "value": "top"
+                },
+                {
+                  "docs": "Place the widget on the chart's right edge.",
+                  "value": "right"
+                },
+                {
+                  "docs": "Place the widget on the chart's bottom edge.",
+                  "value": "bottom"
+                },
+                {
+                  "docs": "Place the widget on the chart's left edge.",
+                  "value": "left"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        },
+        "variant": {
+          "docs": "Semantic visual treatment; defaults to neutral.",
+          "required": false,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Neutral secondary treatment.",
+                  "value": "neutral"
+                },
+                {
+                  "docs": "Accent-filled primary treatment.",
+                  "value": "accent"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        }
+      },
+      "runtime_kind": "button"
+    },
+    {
+      "authoring_kind": "checkbox",
+      "exports": {
+        "checked": {
+          "alias": "checked",
+          "binding_property": "checked_param",
+          "default_property": "default",
+          "docs": "The current checked state.",
+          "lazy": false,
+          "value_kind": "param<boolean>"
+        }
+      },
+      "parts": {
+        "box": {
+          "alias": "box",
+          "docs": "The widget's `box` visual part.",
+          "runtime_alias": "box",
+          "runtime_kind": "checkbox",
+          "targetable": true
+        },
+        "check": {
+          "alias": "check",
+          "docs": "The widget's `check` visual part.",
+          "runtime_alias": "check",
+          "runtime_kind": "checkbox",
+          "targetable": true
+        },
+        "focus_ring": {
+          "alias": "focus_ring",
+          "docs": "The widget's `focus-ring` visual part.",
+          "runtime_alias": "focus-ring",
+          "runtime_kind": "checkbox",
+          "targetable": false
+        },
+        "label": {
+          "alias": "label",
+          "docs": "The widget's `label` visual part.",
+          "runtime_alias": "label",
+          "runtime_kind": "checkbox",
+          "targetable": true
+        }
+      },
+      "properties": {
+        "checked_param": {
+          "docs": "Existing boolean parameter bound to the checked state.",
+          "required": false,
+          "shape": {
+            "shape": "scalar_binding"
+          }
+        },
+        "default": {
+          "docs": "Initial checked state.",
+          "required": true,
+          "shape": {
+            "shape": "boolean"
+          }
+        },
+        "label": {
+          "docs": "Nonempty visible label.",
+          "required": true,
+          "shape": {
+            "shape": "string"
+          }
+        },
+        "position": {
+          "docs": "Containing chart guide-slot edge.",
+          "required": true,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Place the widget on the chart's top edge.",
+                  "value": "top"
+                },
+                {
+                  "docs": "Place the widget on the chart's right edge.",
+                  "value": "right"
+                },
+                {
+                  "docs": "Place the widget on the chart's bottom edge.",
+                  "value": "bottom"
+                },
+                {
+                  "docs": "Place the widget on the chart's left edge.",
+                  "value": "left"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        }
+      },
+      "runtime_kind": "checkbox"
+    },
+    {
+      "authoring_kind": "checkbox_list",
+      "exports": {
+        "selection": {
+          "alias": "selection",
+          "binding_property": "selection",
+          "docs": "The equality selection managed by the list.",
+          "lazy": false,
+          "value_kind": "selection"
+        }
+      },
+      "parts": {
+        "box": {
+          "alias": "box",
+          "docs": "The widget's `box` visual part.",
+          "runtime_alias": "box",
+          "runtime_kind": "checkbox-list",
+          "targetable": true
+        },
+        "check": {
+          "alias": "check",
+          "docs": "The widget's `check` visual part.",
+          "runtime_alias": "check",
+          "runtime_kind": "checkbox-list",
+          "targetable": true
+        },
+        "container": {
+          "alias": "container",
+          "docs": "The widget's `container` visual part.",
+          "runtime_alias": "container",
+          "runtime_kind": "checkbox-list",
+          "targetable": false
+        },
+        "focus_ring": {
+          "alias": "focus_ring",
+          "docs": "The widget's `focus-ring` visual part.",
+          "runtime_alias": "focus-ring",
+          "runtime_kind": "checkbox-list",
+          "targetable": false
+        },
+        "label": {
+          "alias": "label",
+          "docs": "The widget's `label` visual part.",
+          "runtime_alias": "label",
+          "runtime_kind": "checkbox-list",
+          "targetable": true
+        },
+        "row": {
+          "alias": "row",
+          "docs": "The widget's `row` visual part.",
+          "runtime_alias": "row",
+          "runtime_kind": "checkbox-list",
+          "targetable": true
+        },
+        "selected_box": {
+          "alias": "selected_box",
+          "docs": "The widget's `selected-box` visual part.",
+          "runtime_alias": "selected-box",
+          "runtime_kind": "checkbox-list",
+          "targetable": false
+        }
+      },
+      "properties": {
+        "data": {
+          "docs": "Ordered widget item relation.",
+          "required": true,
+          "shape": {
+            "shape": "widget_data"
+          }
+        },
+        "label": {
+          "docs": "Item label expression; defaults to the `label` column.",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          }
+        },
+        "order_by": {
+          "docs": "Nonempty total order required for non-inline data.",
+          "required": false,
+          "shape": {
+            "detail": {
+              "shape": "sql_expression"
+            },
+            "shape": "one_or_many"
+          }
+        },
+        "position": {
+          "docs": "Containing chart guide-slot edge.",
+          "required": true,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Place the widget on the chart's top edge.",
+                  "value": "top"
+                },
+                {
+                  "docs": "Place the widget on the chart's right edge.",
+                  "value": "right"
+                },
+                {
+                  "docs": "Place the widget on the chart's bottom edge.",
+                  "value": "bottom"
+                },
+                {
+                  "docs": "Place the widget on the chart's left edge.",
+                  "value": "left"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        },
+        "selection": {
+          "docs": "Existing equality selection managed by the widget.",
+          "required": false,
+          "shape": {
+            "shape": "selection_binding"
+          }
+        },
+        "value": {
+          "docs": "Item value expression; defaults to the `value` column.",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          }
+        }
+      },
+      "runtime_kind": "checkbox-list"
+    },
+    {
+      "authoring_kind": "radio_button_list",
+      "exports": {
+        "value": {
+          "alias": "value",
+          "binding_property": "value_param",
+          "default_property": "default",
+          "docs": "The currently selected item value.",
+          "lazy": false,
+          "value_kind": "param<item_scalar>"
+        }
+      },
+      "parts": {
+        "center": {
+          "alias": "center",
+          "docs": "The widget's `center` visual part.",
+          "runtime_alias": "center",
+          "runtime_kind": "radio-button-list",
+          "targetable": true
+        },
+        "container": {
+          "alias": "container",
+          "docs": "The widget's `container` visual part.",
+          "runtime_alias": "container",
+          "runtime_kind": "radio-button-list",
+          "targetable": false
+        },
+        "control": {
+          "alias": "control",
+          "docs": "The widget's `control` visual part.",
+          "runtime_alias": "control",
+          "runtime_kind": "radio-button-list",
+          "targetable": true
+        },
+        "focus_ring": {
+          "alias": "focus_ring",
+          "docs": "The widget's `focus-ring` visual part.",
+          "runtime_alias": "focus-ring",
+          "runtime_kind": "radio-button-list",
+          "targetable": false
+        },
+        "label": {
+          "alias": "label",
+          "docs": "The widget's `label` visual part.",
+          "runtime_alias": "label",
+          "runtime_kind": "radio-button-list",
+          "targetable": true
+        },
+        "row": {
+          "alias": "row",
+          "docs": "The widget's `row` visual part.",
+          "runtime_alias": "row",
+          "runtime_kind": "radio-button-list",
+          "targetable": true
+        },
+        "selected_control": {
+          "alias": "selected_control",
+          "docs": "The widget's `selected-control` visual part.",
+          "runtime_alias": "selected-control",
+          "runtime_kind": "radio-button-list",
+          "targetable": false
+        }
+      },
+      "properties": {
+        "data": {
+          "docs": "Ordered widget item relation.",
+          "required": true,
+          "shape": {
+            "shape": "widget_data"
+          }
+        },
+        "default": {
+          "docs": "Initial selected scalar; inferred only for compatible inline data.",
+          "required": false,
+          "shape": {
+            "shape": "any"
+          }
+        },
+        "label": {
+          "docs": "Item label expression; defaults to the `label` column.",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          }
+        },
+        "order_by": {
+          "docs": "Nonempty total order required for non-inline data.",
+          "required": false,
+          "shape": {
+            "detail": {
+              "shape": "sql_expression"
+            },
+            "shape": "one_or_many"
+          }
+        },
+        "position": {
+          "docs": "Containing chart guide-slot edge.",
+          "required": true,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Place the widget on the chart's top edge.",
+                  "value": "top"
+                },
+                {
+                  "docs": "Place the widget on the chart's right edge.",
+                  "value": "right"
+                },
+                {
+                  "docs": "Place the widget on the chart's bottom edge.",
+                  "value": "bottom"
+                },
+                {
+                  "docs": "Place the widget on the chart's left edge.",
+                  "value": "left"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        },
+        "value": {
+          "docs": "Item value expression; defaults to the `value` column.",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          }
+        },
+        "value_param": {
+          "docs": "Existing item-typed parameter bound to the selected value.",
+          "required": false,
+          "shape": {
+            "shape": "scalar_binding"
+          }
+        }
+      },
+      "runtime_kind": "radio-button-list"
+    },
+    {
+      "authoring_kind": "slider",
+      "exports": {
+        "value": {
+          "alias": "value",
+          "binding_property": "value_param",
+          "default_property": "default",
+          "docs": "The current slider value.",
+          "lazy": false,
+          "value_kind": "param<float64>"
+        }
+      },
+      "parts": {
+        "fill": {
+          "alias": "fill",
+          "docs": "The widget's `fill` visual part.",
+          "runtime_alias": "fill",
+          "runtime_kind": "slider",
+          "targetable": true
+        },
+        "focus_ring": {
+          "alias": "focus_ring",
+          "docs": "The widget's `focus-ring` visual part.",
+          "runtime_alias": "focus-ring",
+          "runtime_kind": "slider",
+          "targetable": false
+        },
+        "handle": {
+          "alias": "handle",
+          "docs": "The widget's `handle` visual part.",
+          "runtime_alias": "handle",
+          "runtime_kind": "slider",
+          "targetable": true
+        },
+        "label": {
+          "alias": "label",
+          "docs": "The widget's `label` visual part.",
+          "runtime_alias": "label",
+          "runtime_kind": "slider",
+          "targetable": true
+        },
+        "track": {
+          "alias": "track",
+          "docs": "The widget's `track` visual part.",
+          "runtime_alias": "track",
+          "runtime_kind": "slider",
+          "targetable": true
+        },
+        "value_label": {
+          "alias": "value_label",
+          "docs": "The widget's `value-label` visual part.",
+          "runtime_alias": "value-label",
+          "runtime_kind": "slider",
+          "targetable": true
+        }
+      },
+      "properties": {
+        "default": {
+          "docs": "Initial value; defaults to min.",
+          "required": false,
+          "shape": {
+            "shape": "number"
+          }
+        },
+        "format": {
+          "docs": "d3-compatible number format.",
+          "required": false,
+          "shape": {
+            "shape": "string"
+          }
+        },
+        "max": {
+          "docs": "Finite upper bound greater than min.",
+          "required": true,
+          "shape": {
+            "shape": "number"
+          }
+        },
+        "min": {
+          "docs": "Finite lower bound.",
+          "required": true,
+          "shape": {
+            "shape": "number"
+          }
+        },
+        "position": {
+          "docs": "Containing chart guide-slot edge.",
+          "required": true,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Place the widget on the chart's top edge.",
+                  "value": "top"
+                },
+                {
+                  "docs": "Place the widget on the chart's right edge.",
+                  "value": "right"
+                },
+                {
+                  "docs": "Place the widget on the chart's bottom edge.",
+                  "value": "bottom"
+                },
+                {
+                  "docs": "Place the widget on the chart's left edge.",
+                  "value": "left"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        },
+        "step": {
+          "docs": "Positive quantization step; defaults to 1.",
+          "required": false,
+          "shape": {
+            "shape": "number"
+          }
+        },
+        "throttle_ms": {
+          "docs": "Optional drag-update throttle interval.",
+          "required": false,
+          "shape": {
+            "shape": "integer"
+          }
+        },
+        "title": {
+          "docs": "Visible caption above the track.",
+          "required": false,
+          "shape": {
+            "shape": "string"
+          }
+        },
+        "value_param": {
+          "docs": "Existing Float64 parameter bound to the value.",
+          "required": false,
+          "shape": {
+            "shape": "scalar_binding"
+          }
+        }
+      },
+      "runtime_kind": "slider"
+    },
+    {
+      "authoring_kind": "text_input",
+      "exports": {
+        "cursor_position": {
+          "alias": "cursor_position",
+          "docs": "Lazy committed-text cursor position in grapheme units.",
+          "lazy": true,
+          "value_kind": "param<uint64>"
+        },
+        "selected_text": {
+          "alias": "selected_text",
+          "docs": "Lazy selected committed text.",
+          "lazy": true,
+          "value_kind": "param<utf8>"
+        },
+        "value": {
+          "alias": "value",
+          "binding_property": "value_param",
+          "default_property": "default",
+          "docs": "The committed text value.",
+          "lazy": false,
+          "value_kind": "param<utf8>"
+        }
+      },
+      "parts": {
+        "box": {
+          "alias": "box",
+          "docs": "The widget's `box` visual part.",
+          "runtime_alias": "box",
+          "runtime_kind": "text-input",
+          "targetable": true
+        },
+        "caret": {
+          "alias": "caret",
+          "docs": "The widget's `caret` visual part.",
+          "runtime_alias": "caret",
+          "runtime_kind": "text-input",
+          "targetable": false
+        },
+        "focus_ring": {
+          "alias": "focus_ring",
+          "docs": "The widget's `focus-ring` visual part.",
+          "runtime_alias": "focus-ring",
+          "runtime_kind": "text-input",
+          "targetable": false
+        },
+        "placeholder": {
+          "alias": "placeholder",
+          "docs": "The widget's `placeholder` visual part.",
+          "runtime_alias": "placeholder",
+          "runtime_kind": "text-input",
+          "targetable": true
+        },
+        "preedit": {
+          "alias": "preedit",
+          "docs": "The widget's `preedit` visual part.",
+          "runtime_alias": "preedit",
+          "runtime_kind": "text-input",
+          "targetable": false
+        },
+        "selection": {
+          "alias": "selection",
+          "docs": "The widget's `selection` visual part.",
+          "runtime_alias": "selection",
+          "runtime_kind": "text-input",
+          "targetable": false
+        },
+        "text": {
+          "alias": "text",
+          "docs": "The widget's `text` visual part.",
+          "runtime_alias": "text",
+          "runtime_kind": "text-input",
+          "targetable": true
+        }
+      },
+      "properties": {
+        "commit": {
+          "docs": "Commit policy; defaults to on_change.",
+          "required": false,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Commit after a quiet period.",
+                  "value": "on_change"
+                },
+                {
+                  "docs": "Commit only on Enter or blur.",
+                  "value": "on_enter_or_blur"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        },
+        "debounce_ms": {
+          "docs": "On-change quiet period; defaults to 150 ms.",
+          "required": false,
+          "shape": {
+            "shape": "integer"
+          }
+        },
+        "default": {
+          "docs": "Initial committed value; defaults to empty.",
+          "required": false,
+          "shape": {
+            "shape": "string"
+          }
+        },
+        "placeholder": {
+          "docs": "Hint shown while the value is empty.",
+          "required": false,
+          "shape": {
+            "shape": "string"
+          }
+        },
+        "position": {
+          "docs": "Containing chart guide-slot edge.",
+          "required": true,
+          "shape": {
+            "detail": {
+              "values": [
+                {
+                  "docs": "Place the widget on the chart's top edge.",
+                  "value": "top"
+                },
+                {
+                  "docs": "Place the widget on the chart's right edge.",
+                  "value": "right"
+                },
+                {
+                  "docs": "Place the widget on the chart's bottom edge.",
+                  "value": "bottom"
+                },
+                {
+                  "docs": "Place the widget on the chart's left edge.",
+                  "value": "left"
+                }
+              ]
+            },
+            "shape": "atom"
+          }
+        },
+        "value_param": {
+          "docs": "Existing UTF-8 parameter bound to the committed value.",
+          "required": false,
+          "shape": {
+            "shape": "scalar_binding"
+          }
+        }
+      },
+      "runtime_kind": "text-input"
+    }
+  ]
+}

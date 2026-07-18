@@ -1,0 +1,19 @@
+avenger 1;
+
+chart zerod as checkbox {
+  param as enabled_state {
+    type: boolean;
+    default: true;
+  }
+
+  widget checkbox as enabled {
+    position: left;
+    label: 'Enabled';
+    default: false;
+    checked_param: $enabled_state;
+  }
+
+  mark text as value_label {
+    text: $enabled.checked;
+  }
+}
