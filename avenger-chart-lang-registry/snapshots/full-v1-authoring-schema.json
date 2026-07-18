@@ -3557,6 +3557,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -3830,6 +3835,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -3985,6 +3995,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -4148,6 +4163,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -4327,6 +4347,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -4490,6 +4515,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -4636,6 +4666,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -4782,6 +4817,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -4953,6 +4993,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -5116,6 +5161,16 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
+        },
+        {
+          "role": "derive",
+          "min": 0,
+          "docs": "Primitive marks derived from each rendered source item."
         }
       ]
     },
@@ -5279,6 +5334,16 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
+        },
+        {
+          "role": "derive",
+          "min": 0,
+          "docs": "Primitive marks derived from each rendered source item."
         }
       ]
     },
@@ -5434,6 +5499,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -5555,6 +5625,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         },
         {
           "role": "plot",
@@ -5682,6 +5757,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         },
         {
           "role": "plot",
@@ -5851,6 +5931,16 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
+        },
+        {
+          "role": "derive",
+          "min": 0,
+          "docs": "Primitive marks derived from each rendered source item."
         }
       ]
     },
@@ -6040,6 +6130,16 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
+        },
+        {
+          "role": "derive",
+          "min": 0,
+          "docs": "Primitive marks derived from each rendered source item."
         }
       ]
     },
@@ -6187,6 +6287,16 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
+        },
+        {
+          "role": "derive",
+          "min": 0,
+          "docs": "Primitive marks derived from each rendered source item."
         }
       ]
     },
@@ -6326,6 +6436,16 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
+        },
+        {
+          "role": "derive",
+          "min": 0,
+          "docs": "Primitive marks derived from each rendered source item."
         }
       ]
     },
@@ -6660,6 +6780,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -6994,6 +7119,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -7192,6 +7322,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -7331,6 +7466,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -7515,6 +7655,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -7737,6 +7882,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -7919,6 +8069,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -8077,6 +8232,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },
@@ -8235,6 +8395,11 @@
           "min": 0,
           "max": 1,
           "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "adjust",
+          "min": 0,
+          "docs": "Ordered render-stage expression or transform adjustment."
         }
       ]
     },

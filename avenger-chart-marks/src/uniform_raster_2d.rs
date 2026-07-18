@@ -81,6 +81,12 @@ impl<C> UniformRaster2D<C> {
     }
 
     #[doc(hidden)]
+    pub fn with_mark_effects(mut self, effects: PrimitiveMarkEffects) -> Self {
+        self.effects = effects;
+        self
+    }
+
+    #[doc(hidden)]
     pub fn configure_raster(
         self,
         raster_expr: Expr,

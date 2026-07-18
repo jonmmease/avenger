@@ -16127,6 +16127,23 @@
                     "minContains": 0
                   }
                 }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
+                    "minContains": 0
+                  }
+                }
               }
             ],
             "properties": {
@@ -17589,6 +17606,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -17965,6 +17987,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -18918,6 +18957,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -18953,6 +18997,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -19906,6 +19967,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -19943,6 +20009,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -20979,6 +21062,11 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               },
@@ -20998,6 +21086,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -22200,6 +22305,11 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               },
@@ -22219,6 +22329,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -23255,6 +23382,11 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               }
@@ -23292,6 +23424,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -24168,6 +24317,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -24203,6 +24357,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -25079,6 +25250,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -25114,6 +25290,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -26247,6 +26440,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -26287,1072 +26485,37 @@
                         "minContains": 0
                       }
                     }
-                  }
-                ],
-                "properties": {
-                  "props": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "corner_radius": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "data": {
-                        "$ref": "#/$defs/value"
-                      },
-                      "details": {
-                        "oneOf": [
-                          {
-                            "oneOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "atom": {}
-                                },
-                                "required": [
-                                  "atom"
-                                ],
-                                "type": "object"
-                              }
-                            ]
-                          },
-                          {
-                            "items": {
-                              "oneOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "additionalProperties": false,
-                                  "properties": {
-                                    "atom": {}
-                                  },
-                                  "required": [
-                                    "atom"
-                                  ],
-                                  "type": "object"
-                                }
-                              ]
-                            },
-                            "type": "array"
-                          }
-                        ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
-                      "facet_data_scope": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {
-                                "enum": [
-                                  "filtered",
-                                  "broadcast"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "call": {}
-                            },
-                            "required": [
-                              "call"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "fill": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "fill_pattern": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "pattern": {}
-                            },
-                            "required": [
-                              "pattern"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "oneOf": [
-                              {
-                                "type": [
-                                  "string",
-                                  "boolean",
-                                  "null"
-                                ]
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "num": {
-                                    "type": "string"
-                                  }
-                                },
-                                "required": [
-                                  "num"
-                                ],
-                                "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "col": {}
-                                },
-                                "required": [
-                                  "col"
-                                ],
-                                "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "atom": {}
-                                },
-                                "required": [
-                                  "atom"
-                                ],
-                                "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "binding": {}
-                                },
-                                "required": [
-                                  "binding"
-                                ],
-                                "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "expr": {}
-                                },
-                                "required": [
-                                  "expr"
-                                ],
-                                "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "value": {}
-                                },
-                                "required": [
-                                  "value"
-                                ],
-                                "type": "object"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "block": {}
-                                },
-                                "required": [
-                                  "block"
-                                ],
-                                "type": "object"
-                              }
-                            ]
-                          }
-                        ]
-                      },
-                      "geometry_space": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "atom": {
-                            "enum": [
-                              "coordinate",
-                              "display"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "atom"
-                        ],
-                        "type": "object"
-                      },
-                      "opacity": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "stroke": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "stroke_width": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "visible": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "x": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "x2": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "y": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "y2": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "zindex": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "num": {
-                            "pattern": "^-?(0|[1-9][0-9]*)$",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "num"
-                        ],
-                        "type": "object"
-                      }
-                    },
-                    "type": "object"
-                  }
-                },
-                "x-avenger-child-rules": [
-                  {
-                    "docs": "Optional inline data view owned by this mark.",
-                    "max": 1,
-                    "min": 0,
-                    "role": "view"
-                  }
-                ]
-              },
-              {
-                "allOf": [
+                  },
                   {
                     "properties": {
                       "children": {
                         "contains": {
                           "properties": {
                             "decl": {
-                              "const": "view"
+                              "const": "adjust"
                             }
                           },
                           "required": [
                             "decl"
                           ]
                         },
-                        "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "derive"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -28403,6 +27566,1129 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
+                    "docs": "Primitive marks derived from each rendered source item.",
+                    "min": 0,
+                    "role": "derive"
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "view"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "derive"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "props": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "corner_radius": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "data": {
+                        "$ref": "#/$defs/value"
+                      },
+                      "details": {
+                        "oneOf": [
+                          {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "atom": {}
+                                },
+                                "required": [
+                                  "atom"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "atom": {}
+                                  },
+                                  "required": [
+                                    "atom"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "exclude_from_scale_domains": {
+                        "type": "boolean"
+                      },
+                      "facet_data_scope": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {
+                                "enum": [
+                                  "filtered",
+                                  "broadcast"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "call": {}
+                            },
+                            "required": [
+                              "call"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "fill": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "fill_pattern": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "pattern": {}
+                            },
+                            "required": [
+                              "pattern"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "oneOf": [
+                              {
+                                "type": [
+                                  "string",
+                                  "boolean",
+                                  "null"
+                                ]
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "num": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "num"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "col": {}
+                                },
+                                "required": [
+                                  "col"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "atom": {}
+                                },
+                                "required": [
+                                  "atom"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "binding": {}
+                                },
+                                "required": [
+                                  "binding"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "expr": {}
+                                },
+                                "required": [
+                                  "expr"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "value": {}
+                                },
+                                "required": [
+                                  "value"
+                                ],
+                                "type": "object"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "block": {}
+                                },
+                                "required": [
+                                  "block"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      "geometry_space": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "coordinate",
+                              "display"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      "opacity": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "stroke": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "stroke_width": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "visible": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "x": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "x2": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "y": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "y2": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "zindex": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "x-avenger-child-rules": [
+                  {
+                    "docs": "Optional inline data view owned by this mark.",
+                    "max": 1,
+                    "min": 0,
+                    "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
+                    "docs": "Primitive marks derived from each rendered source item.",
+                    "min": 0,
+                    "role": "derive"
                   }
                 ]
               }
@@ -28440,6 +28726,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -29393,6 +29696,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -29430,6 +29738,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -30071,6 +30396,11 @@
                     "role": "view"
                   },
                   {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
                     "docs": "The embedded mixed-coordinate child plot.",
                     "max": 1,
                     "min": 1,
@@ -30094,6 +30424,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -30735,6 +31082,11 @@
                     "role": "view"
                   },
                   {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
                     "docs": "The embedded mixed-coordinate child plot.",
                     "max": 1,
                     "min": 1,
@@ -30778,6 +31130,40 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "derive"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -31828,6 +32214,16 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
+                    "docs": "Primitive marks derived from each rendered source item.",
+                    "min": 0,
+                    "role": "derive"
                   }
                 ]
               },
@@ -31847,6 +32243,40 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "derive"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -33149,6 +33579,16 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
+                    "docs": "Primitive marks derived from each rendered source item.",
+                    "min": 0,
+                    "role": "derive"
                   }
                 ]
               },
@@ -33168,6 +33608,40 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "derive"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -34038,6 +34512,16 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
+                    "docs": "Primitive marks derived from each rendered source item.",
+                    "min": 0,
+                    "role": "derive"
                   }
                 ]
               },
@@ -34057,6 +34541,40 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "derive"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -34844,6 +35362,16 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  },
+                  {
+                    "docs": "Primitive marks derived from each rendered source item.",
+                    "min": 0,
+                    "role": "derive"
                   }
                 ]
               }
@@ -34883,6 +35411,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -37511,6 +38056,11 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               },
@@ -37530,6 +38080,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -40158,6 +40725,11 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               },
@@ -40177,6 +40749,23 @@
                           ]
                         },
                         "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
                         "minContains": 0
                       }
                     }
@@ -41394,6 +41983,11 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               }
@@ -41431,6 +42025,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -42218,6 +42829,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -42253,6 +42869,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -43327,6 +43960,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -43362,6 +44000,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -44398,6 +45053,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -44433,6 +45093,23 @@
                       ]
                     },
                     "maxContains": 1,
+                    "minContains": 0
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "children": {
+                    "contains": {
+                      "properties": {
+                        "decl": {
+                          "const": "adjust"
+                        }
+                      },
+                      "required": [
+                        "decl"
+                      ]
+                    },
                     "minContains": 0
                   }
                 }
@@ -45418,6 +46095,11 @@
                 "max": 1,
                 "min": 0,
                 "role": "view"
+              },
+              {
+                "docs": "Ordered render-stage expression or transform adjustment.",
+                "min": 0,
+                "role": "adjust"
               }
             ]
           }
@@ -45458,731 +46140,20 @@
                         "minContains": 0
                       }
                     }
-                  }
-                ],
-                "properties": {
-                  "props": {
-                    "additionalProperties": false,
-                    "properties": {
-                      "data": {
-                        "$ref": "#/$defs/value"
-                      },
-                      "details": {
-                        "oneOf": [
-                          {
-                            "oneOf": [
-                              {
-                                "type": "string"
-                              },
-                              {
-                                "additionalProperties": false,
-                                "properties": {
-                                  "atom": {}
-                                },
-                                "required": [
-                                  "atom"
-                                ],
-                                "type": "object"
-                              }
-                            ]
-                          },
-                          {
-                            "items": {
-                              "oneOf": [
-                                {
-                                  "type": "string"
-                                },
-                                {
-                                  "additionalProperties": false,
-                                  "properties": {
-                                    "atom": {}
-                                  },
-                                  "required": [
-                                    "atom"
-                                  ],
-                                  "type": "object"
-                                }
-                              ]
-                            },
-                            "type": "array"
-                          }
-                        ]
-                      },
-                      "exclude_from_scale_domains": {
-                        "type": "boolean"
-                      },
-                      "facet_data_scope": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {
-                                "enum": [
-                                  "filtered",
-                                  "broadcast"
-                                ]
-                              }
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "call": {}
-                            },
-                            "required": [
-                              "call"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "fill": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "fill_by": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "dim": {}
-                            },
-                            "required": [
-                              "dim"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "geometry_space": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "atom": {
-                            "enum": [
-                              "coordinate",
-                              "display"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "atom"
-                        ],
-                        "type": "object"
-                      },
-                      "non_finite_color": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "null_color": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "opacity": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "opacity_by_total": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "block": {}
-                        },
-                        "required": [
-                          "block"
-                        ],
-                        "type": "object"
-                      },
-                      "raster": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "smooth": {
-                        "type": "boolean"
-                      },
-                      "visible": {
-                        "oneOf": [
-                          {
-                            "type": [
-                              "string",
-                              "boolean",
-                              "null"
-                            ]
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "num": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "num"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "col": {}
-                            },
-                            "required": [
-                              "col"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "atom": {}
-                            },
-                            "required": [
-                              "atom"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "binding": {}
-                            },
-                            "required": [
-                              "binding"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "expr": {}
-                            },
-                            "required": [
-                              "expr"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "value": {}
-                            },
-                            "required": [
-                              "value"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "x": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "dim": {}
-                            },
-                            "required": [
-                              "dim"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "y": {
-                        "oneOf": [
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "dim": {}
-                            },
-                            "required": [
-                              "dim"
-                            ],
-                            "type": "object"
-                          },
-                          {
-                            "additionalProperties": false,
-                            "properties": {
-                              "block": {}
-                            },
-                            "required": [
-                              "block"
-                            ],
-                            "type": "object"
-                          }
-                        ]
-                      },
-                      "zindex": {
-                        "additionalProperties": false,
-                        "properties": {
-                          "num": {
-                            "pattern": "^-?(0|[1-9][0-9]*)$",
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "num"
-                        ],
-                        "type": "object"
-                      }
-                    },
-                    "required": [
-                      "raster"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "x-avenger-child-rules": [
-                  {
-                    "docs": "Optional inline data view owned by this mark.",
-                    "max": 1,
-                    "min": 0,
-                    "role": "view"
-                  }
-                ]
-              },
-              {
-                "allOf": [
+                  },
                   {
                     "properties": {
                       "children": {
                         "contains": {
                           "properties": {
                             "decl": {
-                              "const": "view"
+                              "const": "adjust"
                             }
                           },
                           "required": [
                             "decl"
                           ]
                         },
-                        "maxContains": 1,
                         "minContains": 0
                       }
                     }
@@ -46892,6 +46863,761 @@
                     "max": 1,
                     "min": 0,
                     "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
+                  }
+                ]
+              },
+              {
+                "allOf": [
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "view"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "maxContains": 1,
+                        "minContains": 0
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "children": {
+                        "contains": {
+                          "properties": {
+                            "decl": {
+                              "const": "adjust"
+                            }
+                          },
+                          "required": [
+                            "decl"
+                          ]
+                        },
+                        "minContains": 0
+                      }
+                    }
+                  }
+                ],
+                "properties": {
+                  "props": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "data": {
+                        "$ref": "#/$defs/value"
+                      },
+                      "details": {
+                        "oneOf": [
+                          {
+                            "oneOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "atom": {}
+                                },
+                                "required": [
+                                  "atom"
+                                ],
+                                "type": "object"
+                              }
+                            ]
+                          },
+                          {
+                            "items": {
+                              "oneOf": [
+                                {
+                                  "type": "string"
+                                },
+                                {
+                                  "additionalProperties": false,
+                                  "properties": {
+                                    "atom": {}
+                                  },
+                                  "required": [
+                                    "atom"
+                                  ],
+                                  "type": "object"
+                                }
+                              ]
+                            },
+                            "type": "array"
+                          }
+                        ]
+                      },
+                      "exclude_from_scale_domains": {
+                        "type": "boolean"
+                      },
+                      "facet_data_scope": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {
+                                "enum": [
+                                  "filtered",
+                                  "broadcast"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "call": {}
+                            },
+                            "required": [
+                              "call"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "fill": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "fill_by": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "dim": {}
+                            },
+                            "required": [
+                              "dim"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "geometry_space": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "atom": {
+                            "enum": [
+                              "coordinate",
+                              "display"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "atom"
+                        ],
+                        "type": "object"
+                      },
+                      "non_finite_color": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "null_color": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "opacity": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "opacity_by_total": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "block": {}
+                        },
+                        "required": [
+                          "block"
+                        ],
+                        "type": "object"
+                      },
+                      "raster": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "smooth": {
+                        "type": "boolean"
+                      },
+                      "visible": {
+                        "oneOf": [
+                          {
+                            "type": [
+                              "string",
+                              "boolean",
+                              "null"
+                            ]
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "num": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "num"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "col": {}
+                            },
+                            "required": [
+                              "col"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "atom": {}
+                            },
+                            "required": [
+                              "atom"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "binding": {}
+                            },
+                            "required": [
+                              "binding"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "expr": {}
+                            },
+                            "required": [
+                              "expr"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "value": {}
+                            },
+                            "required": [
+                              "value"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "x": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "dim": {}
+                            },
+                            "required": [
+                              "dim"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "y": {
+                        "oneOf": [
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "dim": {}
+                            },
+                            "required": [
+                              "dim"
+                            ],
+                            "type": "object"
+                          },
+                          {
+                            "additionalProperties": false,
+                            "properties": {
+                              "block": {}
+                            },
+                            "required": [
+                              "block"
+                            ],
+                            "type": "object"
+                          }
+                        ]
+                      },
+                      "zindex": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "num": {
+                            "pattern": "^-?(0|[1-9][0-9]*)$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "num"
+                        ],
+                        "type": "object"
+                      }
+                    },
+                    "required": [
+                      "raster"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "x-avenger-child-rules": [
+                  {
+                    "docs": "Optional inline data view owned by this mark.",
+                    "max": 1,
+                    "min": 0,
+                    "role": "view"
+                  },
+                  {
+                    "docs": "Ordered render-stage expression or transform adjustment.",
+                    "min": 0,
+                    "role": "adjust"
                   }
                 ]
               }
@@ -66843,7 +67569,7 @@
   "title": "Avenger AST interchange form, full semantic schema",
   "type": "object",
   "x-avenger-language-major": 1,
-  "x-avenger-native-profile": "avenger-native-1-ef5898233320917a67f44fb01459da425864a33755e23f5289cbbeec65351f8f",
+  "x-avenger-native-profile": "avenger-native-1-8d470198e402aec96e55316400bd008bc8d0a0f08f9342215049f514a6fc53d8",
   "x-avenger-native-schema": {
     "entries": [
       {
@@ -70328,6 +71054,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -70601,6 +71332,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -70756,6 +71492,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -70919,6 +71660,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -71098,6 +71844,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -71261,6 +72012,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -71400,6 +72156,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -71546,6 +72307,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -71724,6 +72490,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -71887,6 +72658,16 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
+          },
+          {
+            "docs": "Primitive marks derived from each rendered source item.",
+            "min": 0,
+            "role": "derive"
           }
         ],
         "compatible_coordinates": [],
@@ -72050,6 +72831,16 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
+          },
+          {
+            "docs": "Primitive marks derived from each rendered source item.",
+            "min": 0,
+            "role": "derive"
           }
         ],
         "compatible_coordinates": [],
@@ -72205,6 +72996,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -72312,6 +73108,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           },
           {
             "docs": "The embedded mixed-coordinate child plot.",
@@ -72439,6 +73240,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           },
           {
             "docs": "The embedded mixed-coordinate child plot.",
@@ -72622,6 +73428,16 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
+          },
+          {
+            "docs": "Primitive marks derived from each rendered source item.",
+            "min": 0,
+            "role": "derive"
           }
         ],
         "compatible_coordinates": [],
@@ -72801,6 +73617,16 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
+          },
+          {
+            "docs": "Primitive marks derived from each rendered source item.",
+            "min": 0,
+            "role": "derive"
           }
         ],
         "compatible_coordinates": [],
@@ -72958,6 +73784,16 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
+          },
+          {
+            "docs": "Primitive marks derived from each rendered source item.",
+            "min": 0,
+            "role": "derive"
           }
         ],
         "compatible_coordinates": [],
@@ -73097,6 +73933,16 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
+          },
+          {
+            "docs": "Primitive marks derived from each rendered source item.",
+            "min": 0,
+            "role": "derive"
           }
         ],
         "compatible_coordinates": [],
@@ -73412,6 +74258,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -73746,6 +74597,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -73944,6 +74800,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -74102,6 +74963,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -74265,6 +75131,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -74441,6 +75312,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -74663,6 +75539,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -74813,6 +75694,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],
@@ -74971,6 +75857,11 @@
             "max": 1,
             "min": 0,
             "role": "view"
+          },
+          {
+            "docs": "Ordered render-stage expression or transform adjustment.",
+            "min": 0,
+            "role": "adjust"
           }
         ],
         "compatible_coordinates": [],

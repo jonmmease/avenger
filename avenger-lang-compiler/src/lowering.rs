@@ -25,12 +25,16 @@ use avenger_chart::{
 };
 use avenger_chart_core::{
     ChartEventBinding, ChartEventStream, ChartEventType, DataTransformExecutionContext,
-    DataTransformStage, FormattingContext, Param as ChartParam, PatternAnchor, PatternChannelValue,
-    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SceneGeometryHitPolicy,
-    SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate,
-    SelectionSceneQuery, SelectionUpdate, StoreData, StoreFieldPatch, StoreKey, StoreRow,
-    StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
-    item_bbox_column_name, item_channel_column_name, item_data_column_name,
+    DataTransformStage, DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec,
+    DerivedSymbolMarkSpec, DerivedTextMarkSpec, Dodge, ExpressionMarkAdjustmentSpec,
+    FormattingContext, ItemChannelAssignment, Jitter, MarkAdjustmentCompileContext,
+    MarkAdjustmentSpec, MarkAdjustmentTransform, Nudge, Param as ChartParam, PatternAnchor,
+    PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
+    PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId,
+    SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate, StoreData,
+    StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash, StripePatternLayer, Theme,
+    TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event, item_bbox_column_name,
+    item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -1945,6 +1949,9 @@ impl<'a> ProjectLowerer<'a> {
         let (aliases, part_alias) = self.mark_interface_metadata(declaration);
         native.public_aliases = aliases;
         native.component_part_alias = part_alias;
+        if namespace == NativeKindNamespace::Mark {
+            native.mark_effects = self.lower_mark_effects(declaration, data)?;
+        }
         native.live_exports = declaration.exports.keys().cloned().collect();
         for (name, value) in &declaration.properties {
             if is_core_property(&declaration.keyword, name) {
@@ -2083,6 +2090,212 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
         Ok(native)
+    }
+
+    fn lower_mark_effects(
+        &self,
+        declaration: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+    ) -> Result<PrimitiveMarkEffects, Diagnostic> {
+        let mut effects = PrimitiveMarkEffects::default();
+        for child in &declaration.children {
+            match child.keyword.as_str() {
+                "adjust" if child.kind.is_none() => {
+                    let mut assignments = Vec::new();
+                    for (channel, value) in &child.properties {
+                        assignments.push(
+                            ItemChannelAssignment::new(
+                                channel,
+                                self.event_expression_value(value, data, child)?,
+                            )
+                            .map_err(|error| lowerer_error(child, error.to_string()))?,
+                        );
+                    }
+                    if !assignments.is_empty() {
+                        effects.push_adjustment(MarkAdjustmentSpec::Expr(
+                            ExpressionMarkAdjustmentSpec::new(assignments),
+                        ));
+                    }
+                }
+                "adjust" => {
+                    effects.push_adjustment(MarkAdjustmentSpec::Transform(
+                        self.lower_transform_mark_adjustment(child, effects.adjustments.len())?,
+                    ));
+                }
+                "derive" => effects.push_derived(self.lower_derived_mark(child, data)?),
+                _ => {}
+            }
+        }
+        Ok(effects)
+    }
+
+    fn lower_transform_mark_adjustment(
+        &self,
+        declaration: &ResolvedDeclaration,
+        stage_index: usize,
+    ) -> Result<TransformMarkAdjustmentSpec, Diagnostic> {
+        let kind = declaration.kind.as_deref().ok_or_else(|| {
+            lowerer_error(
+                declaration,
+                "transform adjustment requires a registered kind",
+            )
+        })?;
+        let axis = declaration
+            .properties
+            .get("axis")
+            .and_then(resolved_atom)
+            .unwrap_or("x");
+        let context = MarkAdjustmentCompileContext::new(stage_index);
+        let (compiled, outputs): (_, BTreeMap<&str, Expr>) = match kind {
+            "nudge" => {
+                let adjustment = Nudge::new(
+                    resolved_f32(declaration.properties.get("dx"), 0.0, declaration, "dx")?,
+                    resolved_f32(declaration.properties.get("dy"), 0.0, declaration, "dy")?,
+                );
+                let (compiled, output) = adjustment
+                    .compile(context)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                (
+                    compiled,
+                    BTreeMap::from([("x", output.x()), ("y", output.y())]),
+                )
+            }
+            "jitter" => {
+                let mut adjustment = match axis {
+                    "x" => Jitter::x(),
+                    "y" => Jitter::y(),
+                    _ => {
+                        return Err(lowerer_error(declaration, "jitter axis must be `x` or `y`"));
+                    }
+                };
+                adjustment = adjustment.width_px(resolved_f32(
+                    declaration.properties.get("width_px"),
+                    1.0,
+                    declaration,
+                    "width_px",
+                )?);
+                if let Some(seed) = declaration.properties.get("seed") {
+                    adjustment = adjustment.seed(resolved_u64(seed, declaration, "seed")?);
+                }
+                let (compiled, output) = adjustment
+                    .compile(context)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                (
+                    compiled,
+                    BTreeMap::from([("x", output.x()), ("y", output.y())]),
+                )
+            }
+            "dodge" => {
+                let mut adjustment = match axis {
+                    "x" => Dodge::x(),
+                    "y" => Dodge::y(),
+                    _ => {
+                        return Err(lowerer_error(declaration, "dodge axis must be `x` or `y`"));
+                    }
+                };
+                let by = declaration
+                    .properties
+                    .get("by")
+                    .and_then(resolved_atom)
+                    .ok_or_else(|| lowerer_error(declaration, "dodge requires `by:`"))?;
+                adjustment = adjustment.by(by).step_px(resolved_f32(
+                    declaration.properties.get("step_px"),
+                    1.0,
+                    declaration,
+                    "step_px",
+                )?);
+                let (compiled, output) = adjustment
+                    .compile(context)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                (
+                    compiled,
+                    BTreeMap::from([("x", output.x()), ("y", output.y())]),
+                )
+            }
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("unknown mark adjustment transform `{kind}`"),
+                ));
+            }
+        };
+        let apply = declaration
+            .properties
+            .get("apply")
+            .ok_or_else(|| lowerer_error(declaration, "transform adjustment requires `apply:`"))?;
+        let ResolvedValue::Object { properties, .. } = apply else {
+            return Err(lowerer_error(
+                declaration,
+                "transform adjustment `apply:` must be a property block",
+            ));
+        };
+        let mut assignments = Vec::new();
+        for (channel, value) in properties {
+            let output = adjustment_output_name(value, declaration).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    format!("`apply.{channel}` must reference a bound adjustment output"),
+                )
+            })?;
+            let expr = outputs.get(output.as_str()).ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    format!("adjustment `{kind}` has no `{output}` output"),
+                )
+            })?;
+            assignments.push(
+                ItemChannelAssignment::new(channel, expr.clone())
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?,
+            );
+        }
+        Ok(TransformMarkAdjustmentSpec::new(compiled, assignments))
+    }
+
+    fn lower_derived_mark(
+        &self,
+        declaration: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+    ) -> Result<DerivedPrimitiveMarkSpec, Diagnostic> {
+        let kind = declaration
+            .kind
+            .as_deref()
+            .ok_or_else(|| lowerer_error(declaration, "derived mark requires a primitive kind"))?;
+        let zindex = declaration
+            .properties
+            .get("zindex")
+            .map(|value| resolved_i32(value, declaration, "zindex"))
+            .transpose()?;
+        let mut assignments = Vec::new();
+        for (channel, value) in &declaration.properties {
+            if channel == "zindex" {
+                continue;
+            }
+            assignments.push(
+                ItemChannelAssignment::new(
+                    channel,
+                    self.event_expression_value(value, data, declaration)?,
+                )
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?,
+            );
+        }
+        Ok(match kind {
+            "symbol" => {
+                DerivedPrimitiveMarkSpec::Symbol(DerivedSymbolMarkSpec::new(assignments, zindex))
+            }
+            "rule" => DerivedPrimitiveMarkSpec::Rule(DerivedRuleMarkSpec::new(assignments, zindex)),
+            "rect" => DerivedPrimitiveMarkSpec::Rect(DerivedRectMarkSpec::new(assignments, zindex)),
+            "text" => DerivedPrimitiveMarkSpec::Text(DerivedTextMarkSpec::new(
+                assignments,
+                PrimitiveMarkEffects::default(),
+                zindex,
+            )),
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("unsupported derived primitive mark `{kind}`"),
+                ));
+            }
+        })
     }
 
     fn mark_interface_metadata(
@@ -4031,7 +4244,7 @@ fn resolved_f32(
         Some(ResolvedValue::Number(value)) => value.parse::<f32>().map_err(|_| {
             lowerer_error(
                 declaration,
-                format!("pattern property `{property}` must be a finite number"),
+                format!("property `{property}` must be a finite number"),
             )
         }),
         None if !default.is_nan() => Ok(default),
@@ -4041,9 +4254,61 @@ fn resolved_f32(
         )),
         Some(_) => Err(lowerer_error(
             declaration,
-            format!("pattern property `{property}` must be a number"),
+            format!("property `{property}` must be a number"),
         )),
     }
+}
+
+fn resolved_u64(
+    value: &ResolvedValue,
+    declaration: &ResolvedDeclaration,
+    property: &str,
+) -> Result<u64, Diagnostic> {
+    let ResolvedValue::Number(value) = value else {
+        return Err(lowerer_error(
+            declaration,
+            format!("property `{property}` must be a non-negative integer"),
+        ));
+    };
+    value.parse::<u64>().map_err(|_| {
+        lowerer_error(
+            declaration,
+            format!("property `{property}` must be a non-negative integer"),
+        )
+    })
+}
+
+fn resolved_i32(
+    value: &ResolvedValue,
+    declaration: &ResolvedDeclaration,
+    property: &str,
+) -> Result<i32, Diagnostic> {
+    let ResolvedValue::Number(value) = value else {
+        return Err(lowerer_error(
+            declaration,
+            format!("property `{property}` must be a 32-bit integer"),
+        ));
+    };
+    value.parse::<i32>().map_err(|_| {
+        lowerer_error(
+            declaration,
+            format!("property `{property}` must be a 32-bit integer"),
+        )
+    })
+}
+
+fn adjustment_output_name(
+    value: &ResolvedValue,
+    declaration: &ResolvedDeclaration,
+) -> Option<String> {
+    let binder = declaration.name.as_deref()?;
+    let sql = match value {
+        ResolvedValue::Expression(expression) => expression.sql.trim(),
+        ResolvedValue::Column(column) | ResolvedValue::Atom(column) => column.as_str(),
+        _ => return None,
+    };
+    let (owner, output) = sql.rsplit_once('.')?;
+    (owner.trim_matches('"') == binder).then(|| output.trim_matches('"').to_string())
 }
 
 fn required_resolved_f32(

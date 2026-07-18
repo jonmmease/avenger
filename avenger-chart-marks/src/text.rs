@@ -75,6 +75,12 @@ impl<C> Text<C> {
     }
 
     #[doc(hidden)]
+    pub fn with_mark_effects(mut self, effects: PrimitiveMarkEffects) -> Self {
+        self.effects = effects;
+        self
+    }
+
+    #[doc(hidden)]
     pub fn text_syntax_mode(&self) -> TextSyntaxMode {
         self.syntax_mode
     }

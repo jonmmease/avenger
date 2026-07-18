@@ -39,8 +39,22 @@ pub fn primitive_schema(
                 min: 0,
                 max: Some(1),
                 docs: "Optional inline data view owned by this mark.".to_string(),
+            })
+            .child_rule(ChildRule {
+                role: "adjust".to_string(),
+                min: 0,
+                max: None,
+                docs: "Ordered render-stage expression or transform adjustment.".to_string(),
             }),
     );
+    if matches!(kind, "symbol" | "rect") {
+        schema = schema.child_rule(ChildRule {
+            role: "derive".to_string(),
+            min: 0,
+            max: None,
+            docs: "Primitive marks derived from each rendered source item.".to_string(),
+        });
+    }
     for channel in channels {
         schema = schema.channel(ChannelSchema {
             name: channel.name.to_string(),
@@ -275,7 +289,7 @@ where
             });
         }
     };
-    let mut mark = UniformRaster2D::<C>::new();
+    let mut mark = UniformRaster2D::<C>::new().with_mark_effects(declaration.mark_effects.clone());
     if let Some(id) = &declaration.source_name {
         mark = mark.id(id.clone());
     }
@@ -516,7 +530,7 @@ macro_rules! primitive_lowerer {
             C: CoordinateSystem,
             $mark<C>: Mark<C>,
         {
-            let mut mark = $mark::<C>::new();
+            let mut mark = $mark::<C>::new().with_mark_effects(declaration.mark_effects.clone());
             if let Some(source_name) = &declaration.source_name {
                 mark = mark.id(source_name.clone());
             }
@@ -552,7 +566,7 @@ where
     C: CoordinateSystem,
     Text<C>: Mark<C>,
 {
-    let mut mark = Text::<C>::new();
+    let mut mark = Text::<C>::new().with_mark_effects(declaration.mark_effects.clone());
     if let Some(source_name) = &declaration.source_name {
         mark = mark.id(source_name.clone());
     }

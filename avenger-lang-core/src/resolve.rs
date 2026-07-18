@@ -2243,7 +2243,13 @@ impl<'a> Resolver<'a> {
                     ),
                 );
             }
-            if matches!(class, HelperClass::Event | HelperClass::Datum) && !in_event {
+            let item_effect = matches!(owner.keyword.as_str(), "adjust" | "derive")
+                && matches!(
+                    call.name.as_str(),
+                    "item_channel" | "item_data" | "item_bbox"
+                );
+            if matches!(class, HelperClass::Event | HelperClass::Datum) && !in_event && !item_effect
+            {
                 self.error(
                     "AVENGER-RESOLVE-110",
                     "event helper is outside an event context",
@@ -3080,6 +3086,18 @@ impl<'a> Resolver<'a> {
                         rule.min,
                         rule.max.map_or_else(String::new, |max| format!("..={max}"))
                     ),
+                );
+            }
+        }
+        for effect in ["adjust", "derive"] {
+            if counts.get(effect).copied().unwrap_or(0) > 0
+                && !schema.child_rules.iter().any(|rule| rule.role == effect)
+            {
+                self.error(
+                    "AVENGER-RESOLVE-024",
+                    "native child role is not supported",
+                    span,
+                    format!("`{}` does not support `{effect}` children", schema.key.kind),
                 );
             }
         }
@@ -6769,7 +6787,7 @@ fn placement_allowed(parent: &str, child: &str) -> bool {
         "transform" => matches!(child, "transform" | "output"),
         "on" => matches!(child, "set" | "on"),
         "view" => matches!(child, "transform" | "mark" | "group"),
-        "mark" => matches!(child, "view" | "plot"),
+        "mark" => matches!(child, "view" | "plot" | "adjust" | "derive"),
         "table" => matches!(child, "param" | "field" | "row" | "key"),
         "catalog" => matches!(child, "schema"),
         "schema" => matches!(child, "table"),

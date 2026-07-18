@@ -11,7 +11,7 @@ use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 use avenger_chart_core::{
     ChannelExpr, ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem,
     DataTransformCompileContext, DataTransformStage, Param, PatternChannelValue, PlotMark,
-    RasterDim, Selection, WidgetAttachment, WidgetItems,
+    PrimitiveMarkEffects, RasterDim, Selection, WidgetAttachment, WidgetItems,
 };
 use avenger_chart_schema::KindSchema;
 use datafusion::{
@@ -117,6 +117,9 @@ pub struct ResolvedDeclaration {
     /// deliberately independent of both the private source id and public
     /// target aliases.
     pub component_part_alias: Option<String>,
+    /// Ordered render-stage adjustments and derived primitive marks lowered
+    /// from core `adjust`/`derive` children.
+    pub mark_effects: PrimitiveMarkEffects,
     pub properties: IndexMap<String, ResolvedValue>,
     /// Ordered schema-owned child declarations. Core containers remain in the
     /// compiler IR; native owners receive only children declared by their
@@ -136,6 +139,7 @@ impl ResolvedDeclaration {
             publish_source_name: true,
             public_aliases: Vec::new(),
             component_part_alias: None,
+            mark_effects: PrimitiveMarkEffects::default(),
             properties: IndexMap::new(),
             children: Vec::new(),
             live_exports: std::collections::BTreeSet::new(),

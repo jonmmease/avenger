@@ -59,6 +59,12 @@ impl<C> Image<C> {
     pub fn mark_effects(&self) -> &PrimitiveMarkEffects {
         &self.effects
     }
+
+    #[doc(hidden)]
+    pub fn with_mark_effects(mut self, effects: PrimitiveMarkEffects) -> Self {
+        self.effects = effects;
+        self
+    }
 }
 
 define_common_mark_channels! {

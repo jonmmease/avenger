@@ -62,6 +62,12 @@ impl<C> Area<C> {
         &self.effects
     }
 
+    #[doc(hidden)]
+    pub fn with_mark_effects(mut self, effects: PrimitiveMarkEffects) -> Self {
+        self.effects = effects;
+        self
+    }
+
     /// Set the structured fill pattern channel.
     pub fn fill_pattern<V: Into<PatternChannelValue>>(self, value: V) -> Self {
         self.with_pattern_channel_value("fill_pattern", value.into())

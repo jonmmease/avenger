@@ -926,6 +926,52 @@ async fn native_surface_public_routing_hoists_and_exports_exact_targets() {
 }
 
 #[tokio::test]
+async fn native_surface_mark_adjustments_and_derived_marks_lower_in_order() {
+    let root = fixture("10_native_surface_contracts");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("mark_effects.avenger"))
+        .await
+        .unwrap();
+
+    let json = serde_json::to_value(artifact.compiled_plot()).unwrap();
+    let effects = &json["marks"][0]["effects"];
+    let adjustments = effects["adjustments"].as_array().unwrap();
+    assert_eq!(adjustments.len(), 4);
+    assert!(adjustments[0].get("Expr").is_some());
+    assert_eq!(adjustments[1]["Transform"]["transform"]["type"], "nudge");
+    assert_eq!(adjustments[2]["Transform"]["transform"]["type"], "jitter");
+    assert_eq!(adjustments[3]["Transform"]["transform"]["type"], "dodge");
+    assert_eq!(effects["derived"].as_array().unwrap().len(), 3);
+    assert!(effects["derived"][0].get("Symbol").is_some());
+    assert!(effects["derived"][1].get("Rule").is_some());
+    assert!(effects["derived"][2].get("Text").is_some());
+    assert_eq!(
+        effects["derived"][2]["Text"]["assignments"][0]["data_fields"],
+        serde_json::json!(["name"])
+    );
+    assert!(
+        json["marks"][1]["effects"]["derived"][0]
+            .get("Rect")
+            .is_some()
+    );
+
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+    let scene = serde_json::to_string(&evaluated.scene_graph).unwrap();
+    assert!(
+        scene.contains("text"),
+        "derived text missing from scene: {scene}"
+    );
+}
+
+#[tokio::test]
 async fn vertical_slice_widget_is_opaque_and_exported_state_drives_the_mark() {
     let root = fixture("03_widget_vertical_slice");
     let artifact = Compiler::builder()
