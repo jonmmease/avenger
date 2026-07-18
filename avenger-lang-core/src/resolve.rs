@@ -595,6 +595,7 @@ impl<'a> Resolver<'a> {
         self.check_versions();
         self.build_import_bindings();
         self.extract_definition_schemas();
+        self.validate_definition_templates();
         self.predeclare_project();
         self.build_table_dependencies();
         self.finish_instance_interfaces();
@@ -1070,6 +1071,171 @@ impl<'a> Resolver<'a> {
                 "duplicate definition interface name",
                 root_span(file),
                 format!("`{name}` is declared as both {previous} and {role}"),
+            );
+        }
+    }
+
+    fn validate_definition_templates(&mut self) {
+        let definitions = self
+            .project
+            .files
+            .iter()
+            .filter_map(|(file_id, file)| {
+                let schema = self.definitions.get(file_id)?.clone();
+                let Root::Define(root) = &file.parsed.ast.root else {
+                    return None;
+                };
+                Some((file.clone(), root.clone(), schema))
+            })
+            .collect::<Vec<_>>();
+
+        for (file, root, schema) in definitions {
+            let mut splice_counts = BTreeMap::<String, usize>::new();
+            self.validate_definition_node(&file, &root, &[0], &schema, &mut splice_counts);
+            for (name, slot) in &schema.slots {
+                let count = splice_counts.get(name).copied().unwrap_or(0);
+                if slot.shape == "block" && count != 1 {
+                    self.error(
+                        "AVENGER-RESOLVE-153",
+                        "block slot requires exactly one splice point",
+                        root_span(&file),
+                        format!(
+                            "block slot `{name}` has {count} splice points; expected exactly one"
+                        ),
+                    );
+                } else if slot.shape != "block" && count > 0 {
+                    self.error(
+                        "AVENGER-RESOLVE-154",
+                        "only block slots may be spliced",
+                        root_span(&file),
+                        format!("`{name}` is a `{}` slot, not a block slot", slot.shape),
+                    );
+                }
+                if slot.shape == "block" {
+                    for exposed in &slot.exposes {
+                        if find_definition_target(&root, std::slice::from_ref(exposed)).is_none() {
+                            self.error(
+                                "AVENGER-RESOLVE-155",
+                                "block slot exposes an unknown internal handle",
+                                root_span(&file),
+                                format!("slot `{name}` cannot expose unknown name `{exposed}`"),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_definition_node(
+        &mut self,
+        file: &ProjectFile,
+        declaration: &Decl,
+        path: &[usize],
+        schema: &DefinitionSchema,
+        splice_counts: &mut BTreeMap<String, usize>,
+    ) {
+        let span = declaration_span(file, path).unwrap_or_else(|| root_span(file));
+        if declaration.props.get("data").is_some() {
+            self.error(
+                "AVENGER-RESOLVE-156",
+                "definitions cannot declare data",
+                span,
+                "the expanded component inherits data from its instantiation site",
+            );
+        }
+        if declaration.keyword.as_str() == "theme" {
+            self.error(
+                "AVENGER-RESOLVE-157",
+                "definitions cannot declare themes",
+                span,
+                "themes belong to chart files and are not definition-local state",
+            );
+        }
+        if declaration.keyword.as_str() == "splice"
+            && let Some(name) = declaration.name.as_ref()
+        {
+            *splice_counts.entry(name.to_string()).or_default() += 1;
+            if !schema.slots.contains_key(name.as_str()) {
+                self.error(
+                    "AVENGER-RESOLVE-158",
+                    "splice references an unknown definition slot",
+                    span,
+                    format!("definition has no slot `{name}`"),
+                );
+            }
+        }
+        if declaration.keyword.as_str() == "match" {
+            self.validate_definition_match(declaration, span, schema);
+        }
+        for (index, child) in declaration.children.iter().enumerate() {
+            let mut child_path = path.to_vec();
+            child_path.push(index);
+            self.validate_definition_node(file, child, &child_path, schema, splice_counts);
+        }
+    }
+
+    fn validate_definition_match(
+        &mut self,
+        declaration: &Decl,
+        span: SourceSpan,
+        schema: &DefinitionSchema,
+    ) {
+        let Some(name) = declaration.name.as_ref() else {
+            return;
+        };
+        let Some(slot) = schema.slots.get(name.as_str()) else {
+            self.error(
+                "AVENGER-RESOLVE-159",
+                "match target is not a definition slot",
+                span,
+                format!("definition has no slot `{name}`"),
+            );
+            return;
+        };
+        if slot.shape != "enum" {
+            self.error(
+                "AVENGER-RESOLVE-160",
+                "match target must be an enum slot",
+                span,
+                format!("slot `{name}` has shape `{}`", slot.shape),
+            );
+            return;
+        }
+        let mut arms = BTreeSet::new();
+        for arm in &declaration.children {
+            let Some(arm_name) = arm.name.as_ref().map(ToString::to_string) else {
+                continue;
+            };
+            if !arms.insert(arm_name.clone()) {
+                self.error(
+                    "AVENGER-RESOLVE-161",
+                    "duplicate match arm",
+                    span,
+                    format!("match `{name}` repeats arm `{arm_name}`"),
+                );
+            }
+            if !slot.enum_values.contains(&arm_name) {
+                self.error(
+                    "AVENGER-RESOLVE-162",
+                    "match arm is outside the enum domain",
+                    span,
+                    format!("`{arm_name}` is not a value of enum slot `{name}`"),
+                );
+            }
+        }
+        let missing = slot
+            .enum_values
+            .iter()
+            .filter(|value| !arms.contains(*value))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            self.error(
+                "AVENGER-RESOLVE-163",
+                "match does not cover the enum domain",
+                span,
+                format!("match `{name}` is missing arms: {}", missing.join(", ")),
             );
         }
     }
@@ -2653,6 +2819,7 @@ impl<'a> Resolver<'a> {
                 parent.map(|parent| parent.keyword.as_str()),
                 coordinate.as_deref(),
                 info.span,
+                matches!(file.kind, ProjectFileKind::Definition(_)),
             );
         }
         if let Some(schema) = definition_schema.as_ref() {
@@ -2964,6 +3131,7 @@ impl<'a> Resolver<'a> {
         self.definitions.get(imported)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn validate_native_declaration(
         &mut self,
         declaration: &Decl,
@@ -2972,8 +3140,13 @@ impl<'a> Resolver<'a> {
         parent: Option<&str>,
         coordinate: Option<&str>,
         span: SourceSpan,
+        definition_template: bool,
     ) {
-        if schema.body_mode == BodyMode::Properties && !declaration.children.is_empty() {
+        if schema.body_mode == BodyMode::Properties
+            && declaration.children.iter().any(|child| {
+                !definition_template || !matches!(child.keyword.as_str(), "match" | "splice")
+            })
+        {
             self.error(
                 "AVENGER-RESOLVE-015",
                 "native declaration requires a property-only body",
@@ -3066,13 +3239,16 @@ impl<'a> Resolver<'a> {
                 format!("`{}` does not support `{coordinate}`", schema.key.kind),
             );
         }
-        let counts = declaration.children.iter().fold(
-            BTreeMap::<String, usize>::new(),
-            |mut counts, child| {
+        let counts = declaration
+            .children
+            .iter()
+            .filter(|child| {
+                !definition_template || !matches!(child.keyword.as_str(), "match" | "splice")
+            })
+            .fold(BTreeMap::<String, usize>::new(), |mut counts, child| {
                 *counts.entry(child.keyword.to_string()).or_default() += 1;
                 counts
-            },
-        );
+            });
         for rule in &schema.child_rules {
             let count = counts.get(&rule.role).copied().unwrap_or(0);
             if count < rule.min || rule.max.is_some_and(|maximum| count > maximum) {
@@ -3133,7 +3309,20 @@ impl<'a> Resolver<'a> {
             .map(String::as_str)
             .collect::<BTreeSet<_>>();
         for (name, _) in declaration.props.iter() {
-            if !accepted.contains(name.as_str()) {
+            let generic = match schema.kind {
+                DefinitionKind::Mark => matches!(
+                    name.as_str(),
+                    "visible"
+                        | "details"
+                        | "zindex"
+                        | "facet_data_scope"
+                        | "geometry_space"
+                        | "exclude_from_scale_domains"
+                ),
+                DefinitionKind::Transform => name.as_str() == "scope",
+                DefinitionKind::Tool => false,
+            };
+            if !accepted.contains(name.as_str()) && !generic {
                 self.error(
                     "AVENGER-RESOLVE-026",
                     "unknown definition argument",
@@ -3169,6 +3358,40 @@ impl<'a> Resolver<'a> {
                 span,
                 "add `as <name>` so output handles have a qualified owner",
             );
+        }
+        if schema.kind == DefinitionKind::Tool && declaration.name.is_none() {
+            self.error(
+                "AVENGER-RESOLVE-164",
+                "defined tool instance requires a binder",
+                span,
+                "add `as <name>` to preserve tool ownership and state identity",
+            );
+        }
+        let mut parts = BTreeSet::new();
+        for child in declaration
+            .children
+            .iter()
+            .filter(|child| child.keyword.as_str() == "part")
+        {
+            let Some(alias) = child.name.as_ref().map(ToString::to_string) else {
+                continue;
+            };
+            if schema.kind != DefinitionKind::Mark || !schema.parts.contains_key(&alias) {
+                self.error(
+                    "AVENGER-RESOLVE-165",
+                    "unknown definition part override",
+                    span,
+                    format!("definition does not export a mark part named `{alias}`"),
+                );
+            }
+            if !parts.insert(alias.clone()) {
+                self.error(
+                    "AVENGER-RESOLVE-166",
+                    "duplicate definition part override",
+                    span,
+                    format!("part `{alias}` is overridden more than once"),
+                );
+            }
         }
     }
 
@@ -3524,6 +3747,7 @@ impl<'a> Resolver<'a> {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn normalize_definition_arguments(
         &mut self,
         scope: ScopeId,
@@ -3894,7 +4118,14 @@ impl<'a> Resolver<'a> {
             "enum" => {
                 matches!(value, ResolvedValue::Atom(atom) if slot.enum_values.iter().any(|candidate| candidate == atom))
             }
-            "function" => matches!(value, ResolvedValue::Call { .. }),
+            "function" => match value {
+                ResolvedValue::Atom(name) => slot
+                    .function_class
+                    .as_deref()
+                    .is_some_and(|class| definition_function_class(name) == Some(class)),
+                ResolvedValue::DefinitionArgument(ResolvedTarget::DefinitionSlot { .. }) => true,
+                _ => false,
+            },
             "ref" => {
                 matches!(
                     value,
@@ -4966,13 +5197,18 @@ impl<'a> Resolver<'a> {
                 kind.to_string(),
             ))
         }) {
-            output_names.extend(schema.outputs.values().filter_map(|output| {
-                output
-                    .condition_property
-                    .as_ref()
-                    .is_none_or(|property| declaration.props.get(property).is_some())
-                    .then(|| (output.name.clone(), resolved_output_shape(&output.shape)))
-            }));
+            output_names.extend(
+                schema
+                    .outputs
+                    .values()
+                    .filter(|output| {
+                        output
+                            .condition_property
+                            .as_ref()
+                            .is_none_or(|property| declaration.props.get(property).is_some())
+                    })
+                    .map(|output| (output.name.clone(), resolved_output_shape(&output.shape))),
+            );
         }
         if let Some(definition) = definition {
             output_names.extend(
@@ -6784,14 +7020,19 @@ fn placement_allowed(parent: &str, child: &str) -> bool {
         "param" | "field" | "row" | "slot" | "channel" | "output" | "export" => false,
         "store" => matches!(child, "field" | "row"),
         "widget" => false,
-        "transform" => matches!(child, "transform" | "output"),
-        "on" => matches!(child, "set" | "on"),
+        "transform" => matches!(child, "transform" | "output" | "match" | "splice"),
+        "on" => matches!(child, "set" | "on" | "match" | "splice"),
+        "match" => child == "arm",
+        "arm" => !matches!(child, "slot" | "channel" | "output" | "export" | "arm"),
         "view" => matches!(child, "transform" | "mark" | "group"),
-        "mark" => matches!(child, "view" | "plot" | "adjust" | "derive"),
+        "mark" => matches!(
+            child,
+            "view" | "plot" | "adjust" | "derive" | "part" | "match" | "splice"
+        ),
         "table" => matches!(child, "param" | "field" | "row" | "key"),
         "catalog" => matches!(child, "schema"),
         "schema" => matches!(child, "table"),
-        _ => ordinary_plot_child(child) || matches!(child, "export" | "set"),
+        _ => ordinary_plot_child(child) || matches!(child, "export" | "set" | "match" | "splice"),
     }
 }
 
@@ -8114,6 +8355,85 @@ fn value_atom(value: &Value) -> Option<&str> {
     match value {
         Value::Atom(value) => Some(value.as_str()),
         _ => None,
+    }
+}
+
+fn definition_function_class(name: &str) -> Option<&'static str> {
+    let name = name.to_ascii_lowercase();
+    if matches!(
+        name.as_str(),
+        "avg"
+            | "count"
+            | "min"
+            | "max"
+            | "sum"
+            | "median"
+            | "approx_median"
+            | "array_agg"
+            | "bool_and"
+            | "bool_or"
+            | "covar_pop"
+            | "covar_samp"
+            | "stddev"
+            | "stddev_pop"
+            | "stddev_samp"
+            | "variance"
+            | "var_pop"
+            | "var_samp"
+    ) {
+        Some("aggregate")
+    } else if matches!(
+        name.as_str(),
+        "row_number"
+            | "rank"
+            | "dense_rank"
+            | "percent_rank"
+            | "cume_dist"
+            | "lag"
+            | "lead"
+            | "first_value"
+            | "last_value"
+            | "nth_value"
+            | "ntile"
+    ) {
+        Some("window")
+    } else if matches!(name.as_str(), "unnest" | "generate_series") {
+        Some("table")
+    } else if matches!(
+        name.as_str(),
+        "abs"
+            | "acos"
+            | "asin"
+            | "atan"
+            | "atan2"
+            | "ceil"
+            | "coalesce"
+            | "concat"
+            | "cos"
+            | "date_bin"
+            | "date_part"
+            | "date_trunc"
+            | "exp"
+            | "floor"
+            | "greatest"
+            | "least"
+            | "ln"
+            | "log"
+            | "log2"
+            | "log10"
+            | "lower"
+            | "nullif"
+            | "power"
+            | "round"
+            | "signum"
+            | "sin"
+            | "sqrt"
+            | "tan"
+            | "upper"
+    ) {
+        Some("scalar")
+    } else {
+        None
     }
 }
 

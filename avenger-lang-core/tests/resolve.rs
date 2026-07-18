@@ -820,7 +820,7 @@ async fn resolve_definition_import_dag_orders_dependencies_before_dependents() {
         &[
             (
                 "chart.avenger",
-                "avenger 1; import 'high.tool.avenger'; chart cartesian as chart { tool high {} }",
+                "avenger 1; import 'high.tool.avenger'; chart cartesian as chart { tool high as high {} }",
             ),
             (
                 "high.tool.avenger",
