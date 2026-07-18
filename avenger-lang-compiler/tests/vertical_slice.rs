@@ -353,6 +353,51 @@ async fn native_surface_statistical_compound_marks_lower_with_public_parts() {
 }
 
 #[tokio::test]
+async fn native_surface_registered_selection_tool_lowers_from_dsl() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
+          selection as picked {
+            empty: none;
+            combine: union;
+          }
+          tool point_selection as pick_points {
+            selection: picked;
+            fields: [id];
+            shift_toggle: true;
+            double_click_clear: true;
+          }
+          mark symbol as points {
+            x: "x";
+            y: "y";
+            details: [id];
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let behavior = artifact
+        .compiled_plot()
+        .tool_behaviors()
+        .iter()
+        .find(|behavior| {
+            behavior
+                .exports
+                .iter()
+                .any(|export| export.alias == "selection")
+        })
+        .expect("point-selection behavior");
+    assert!(
+        behavior
+            .exports
+            .iter()
+            .any(|export| export.alias == "enabled")
+    );
+    assert!(!artifact.compiled_plot().event_bindings().is_empty());
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

@@ -1915,12 +1915,16 @@ impl<'a> Resolver<'a> {
             return self.resolve_binding_path(scope, &path, Some(BindingKind::Store), span, false);
         }
         if value_kind == "selection" || value_kind.starts_with("selection<") {
-            let Value::Ref { kind, path } = authored else {
-                return None;
+            return match authored {
+                Value::Ref { kind, path } => self
+                    .resolve_reference(scope, *kind, path, span)
+                    .map(|reference| reference.target),
+                Value::Atom(name) => {
+                    let path = vec![name.to_string()];
+                    self.resolve_typed_reference_path(scope, &path, RefKind::Selection, span)
+                }
+                _ => None,
             };
-            return self
-                .resolve_reference(scope, *kind, path, span)
-                .map(|reference| reference.target);
         }
         None
     }
@@ -3457,6 +3461,26 @@ impl<'a> Resolver<'a> {
                     );
                 }
                 self.normalize_expression_argument(scope, resolved, span);
+            }
+            ValueShape::SelectionBinding => {
+                if let Value::Atom(name) = source {
+                    let authored_path = vec![name.to_string()];
+                    *resolved = self
+                        .resolve_typed_reference_path(
+                            scope,
+                            &authored_path,
+                            RefKind::Selection,
+                            span,
+                        )
+                        .map(|target| {
+                            ResolvedValue::Reference(ResolvedReference {
+                                target,
+                                kind: RefKind::Selection,
+                                authored_path,
+                            })
+                        })
+                        .unwrap_or(ResolvedValue::Invalid);
+                }
             }
             ValueShape::Array(inner) => {
                 if let (Value::Array(sources), ResolvedValue::Array(values)) = (source, resolved) {

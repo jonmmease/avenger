@@ -85,6 +85,7 @@ struct ProjectLowerer<'a> {
     stores: BTreeMap<StoreId, Store>,
     selections: BTreeMap<SelectionId, Selection>,
     widget_owned_params: BTreeSet<ParamId>,
+    tool_owned_selections: BTreeSet<SelectionId>,
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
 }
@@ -103,6 +104,7 @@ impl<'a> ProjectLowerer<'a> {
             stores: BTreeMap::new(),
             selections: BTreeMap::new(),
             widget_owned_params: widget_owned_params(project),
+            tool_owned_selections: tool_owned_selections(project),
             transform_outputs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
         }
@@ -480,6 +482,7 @@ impl<'a> ProjectLowerer<'a> {
         for (id, selection) in &self.project.selections {
             if belongs_to_chart(&selection.owner_ancestry, &chart.id)
                 && selection.generated_by.is_none()
+                && !self.tool_owned_selections.contains(id)
             {
                 plot.furnishings
                     .selections
@@ -2156,6 +2159,21 @@ fn widget_owned_params(project: &ResolvedProject) -> BTreeSet<ParamId> {
         .flat_map(|declaration| declaration.exports.values())
         .filter_map(|target| match target {
             ResolvedTarget::Param(id) => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn tool_owned_selections(project: &ResolvedProject) -> BTreeSet<SelectionId> {
+    project
+        .files
+        .values()
+        .flat_map(|file| &file.roots)
+        .flat_map(declarations_depth_first)
+        .filter(|declaration| declaration.keyword == "tool")
+        .flat_map(|declaration| declaration.exports.values())
+        .filter_map(|target| match target {
+            ResolvedTarget::Selection(id) => Some(id.clone()),
             _ => None,
         })
         .collect()

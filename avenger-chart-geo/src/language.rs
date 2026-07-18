@@ -1,8 +1,8 @@
 //! Avenger-language registration for geographic coordinates and marks.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
-use avenger_chart_core::{ChannelValue, IntoPlotMark};
+use avenger_chart_core::{ChannelValue, ChartTool, CoordinationScope, IntoPlotMark};
 use avenger_chart_lang_types::{
     CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
 };
@@ -14,11 +14,11 @@ use avenger_chart_marks::{
     },
 };
 use avenger_chart_schema::{
-    BodyMode, EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
-    ValueShape,
+    BodyMode, EnumValueSchema, ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace,
+    PartSchema, PropertySchema, ValueShape,
 };
 
-use crate::{Geo, GeoShape, ProjectionKind};
+use crate::{Geo, GeoPanZoom, GeoShape, ProjectionKind};
 
 const LINE_CHANNELS: &[&str] = &[
     "x",
@@ -110,6 +110,7 @@ pub fn definition() -> CoordinateLanguageDefinition<Geo> {
             uniform_raster_schema("geo"),
             lower_uniform_raster::<Geo>,
         )
+        .tool("geo_pan_zoom", geo_pan_zoom_schema(), lower_geo_pan_zoom)
 }
 
 fn coordinate_schema() -> KindSchema {
@@ -402,6 +403,191 @@ fn lower_geo_shape(
     }
     apply_common_mark_state::<Geo, _>(&mut mark, declaration)?;
     Ok(mark.into_plot_marks())
+}
+
+fn geo_pan_zoom_schema() -> KindSchema {
+    let mut schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Tool, "geo_pan_zoom"),
+        "Projected-plane pan, wheel zoom, box zoom, and reset behavior for geo plots.",
+    )
+    .property(
+        "viewport_id",
+        PropertySchema::optional(ValueShape::Identifier, "Geo viewport state id prefix."),
+    )
+    .property(
+        "sharing",
+        PropertySchema::optional(
+            ValueShape::CoordinationScope,
+            "Sharing scope for viewport parameters.",
+        ),
+    )
+    .property(
+        "drag_button",
+        PropertySchema::optional(ValueShape::Identifier, "Pointer button used for dragging."),
+    )
+    .property(
+        "scroll_zoom",
+        PropertySchema::optional(ValueShape::Boolean, "Enable wheel zoom."),
+    )
+    .property(
+        "zoom_base",
+        PropertySchema::optional(ValueShape::Number, "Multiplicative wheel-zoom base."),
+    )
+    .property(
+        "consume_wheel",
+        PropertySchema::optional(ValueShape::Boolean, "Consume handled wheel events."),
+    )
+    .property(
+        "box_zoom",
+        PropertySchema::optional(ValueShape::Boolean, "Enable drag-box zoom."),
+    )
+    .property(
+        "box_zoom_requires_shift",
+        PropertySchema::optional(ValueShape::Boolean, "Require Shift for drag-box zoom."),
+    )
+    .property(
+        "box_zoom_min_size_px",
+        PropertySchema::optional(ValueShape::Number, "Minimum accepted box size in pixels."),
+    )
+    .property(
+        "settle_exact",
+        PropertySchema::optional(ValueShape::Boolean, "Run exact evaluation after previews."),
+    )
+    .property(
+        "enabled_by_default",
+        PropertySchema::optional(ValueShape::Boolean, "Initial enabled state."),
+    )
+    .part(PartSchema {
+        alias: "selection".to_string(),
+        runtime_kind: "rect".to_string(),
+        runtime_alias: Some("selection".to_string()),
+        targetable: true,
+        docs: "Visible box-zoom overlay.".to_string(),
+    });
+    schema.compatible_coordinates.insert("geo".to_string());
+    for (alias, kind, docs) in [
+        (
+            "enabled",
+            "param<boolean>",
+            "Whether the tool handles input.",
+        ),
+        ("center_x", "param<float64>", "Projected viewport center x."),
+        ("center_y", "param<float64>", "Projected viewport center y."),
+        (
+            "units_per_pixel",
+            "param<float64>",
+            "Projected units per display pixel.",
+        ),
+        ("focus_x", "param<float64>", "Most recent zoom focus x."),
+        ("focus_y", "param<float64>", "Most recent zoom focus y."),
+        (
+            "box_active",
+            "param<boolean>",
+            "Whether box zoom is active.",
+        ),
+        ("box_x0", "param<float64>", "Box starting x coordinate."),
+        ("box_y0", "param<float64>", "Box starting y coordinate."),
+        ("box_x1", "param<float64>", "Box ending x coordinate."),
+        ("box_y1", "param<float64>", "Box ending y coordinate."),
+    ] {
+        schema = schema.export(ExportSchema {
+            alias: alias.to_string(),
+            value_kind: kind.to_string(),
+            lazy: false,
+            binding_property: None,
+            default_property: None,
+            docs: docs.to_string(),
+        });
+    }
+    schema
+}
+
+fn lower_geo_pan_zoom(
+    declaration: &ResolvedDeclaration,
+) -> Result<Arc<dyn ChartTool<Geo>>, NativeLoweringError> {
+    let mut tool = GeoPanZoom::new();
+    if let Some(name) = &declaration.source_name {
+        tool = tool.id(name.clone());
+    }
+    for (name, value) in &declaration.properties {
+        tool = match name.as_str() {
+            "viewport_id" => tool.viewport_id(language_string(name, value)?),
+            "sharing" => tool.sharing(language_scope(name, value)?),
+            "drag_button" => tool.drag_button(language_string(name, value)?),
+            "scroll_zoom" => tool.scroll_zoom(language_bool(name, value)?),
+            "zoom_base" => tool.zoom_base(language_number(name, value)?),
+            "consume_wheel" => tool.consume_wheel(language_bool(name, value)?),
+            "box_zoom" => tool.box_zoom(language_bool(name, value)?),
+            "box_zoom_requires_shift" => tool.box_zoom_requires_shift(language_bool(name, value)?),
+            "box_zoom_min_size_px" => tool.box_zoom_min_size_px(language_number(name, value)?),
+            "settle_exact" => tool.settle_exact(language_bool(name, value)?),
+            "enabled_by_default" => tool.enabled_by_default(language_bool(name, value)?),
+            _ => {
+                return Err(NativeLoweringError::InvalidPropertyType {
+                    property: name.clone(),
+                    expected: "a registered geo_pan_zoom property".to_string(),
+                });
+            }
+        };
+    }
+    Ok(Arc::new(tool))
+}
+
+fn language_string<'a>(
+    property: &str,
+    value: &'a ResolvedValue,
+) -> Result<&'a str, NativeLoweringError> {
+    let ResolvedValue::String(value) = value else {
+        return Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "identifier".to_string(),
+        });
+    };
+    Ok(value)
+}
+
+fn language_bool(property: &str, value: &ResolvedValue) -> Result<bool, NativeLoweringError> {
+    let ResolvedValue::Boolean(value) = value else {
+        return Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "boolean".to_string(),
+        });
+    };
+    Ok(*value)
+}
+
+fn language_number(property: &str, value: &ResolvedValue) -> Result<f64, NativeLoweringError> {
+    match value {
+        ResolvedValue::Number(value) => Ok(*value),
+        ResolvedValue::Integer(value) => Ok(*value as f64),
+        _ => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "number".to_string(),
+        }),
+    }
+}
+
+fn language_scope(
+    property: &str,
+    value: &ResolvedValue,
+) -> Result<CoordinationScope, NativeLoweringError> {
+    match value {
+        ResolvedValue::String(value) if value == "shared" => Ok(CoordinationScope::Shared),
+        ResolvedValue::String(value) if value == "free" => Ok(CoordinationScope::Free),
+        ResolvedValue::Integer(level) => {
+            (*level)
+                .try_into()
+                .map(CoordinationScope::Level)
+                .map_err(|_| NativeLoweringError::InvalidPropertyType {
+                    property: property.to_string(),
+                    expected: "scope level from 0 through 255".to_string(),
+                })
+        }
+        _ => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "shared, free, or level".to_string(),
+        }),
+    }
 }
 
 fn ordinary_channel(

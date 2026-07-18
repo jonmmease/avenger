@@ -982,15 +982,179 @@ Dynamic transform outputs:
 
 - PropertyNames { exclude: {"order_by", "partition_by", "scope"} }: Each user-named window expression exposes a same-named field handle.
 
-## `Tool.pan_scroll_zoom`
+## `Tool.box_selection`
 
-Pointer-drag panning and wheel zoom for Cartesian domains.
+Rectangular interval selection with a visible Cartesian overlay.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `channels` | property | false | Exactly two channel names, horizontal then vertical. |
+| `double_click_clear` | property | false | Clear on double click. |
+| `drag_button` | property | false | Pointer button used for dragging. |
+| `enabled_by_default` | property | false | Initial enabled state. |
+| `facet_scope` | property | false | Facet scope of generated clauses. |
+| `repeat_cell_chrome` | property | false | Draw one overlay per repeat cell. |
+| `resolve` | property | false | Multi-box selection resolution. |
+| `selection` | property | true | Selection state updated by this tool. |
+| `unit_aspect_box` | property | false | Optional aspect constraint for the interaction box. |
+| `x_channel` | property | false | Horizontal scale channel. |
+| `x_dimension` | property | false | Horizontal selection expression. |
+| `y_channel` | property | false | Vertical scale channel. |
+| `y_dimension` | property | false | Vertical selection expression. |
 
 Exports:
 
-- `x_domain` (`param<fixed_size_list(float64,2)>`): The tool-owned current x domain.
+- `enabled` (`param<boolean>`): Whether this tool currently handles input.
 
-- `y_domain` (`param<fixed_size_list(float64,2)>`): The tool-owned current y domain.
+- `selection` (`selection`): Selection state owned and updated by this tool.
+
+- `store` (`store`): Hidden interval-row backing store.
+
+## `Tool.box_zoom`
+
+Rectangular drag zoom for Cartesian scale domains.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `channels` | property | false | Exactly two channel names, horizontal then vertical. |
+| `drag_button` | property | false | Pointer button used for dragging. |
+| `enabled_by_default` | property | false | Initial enabled state. |
+| `min_size_px` | property | false | Minimum accepted drag-box size. |
+| `unit_aspect_box` | property | false | Optional aspect constraint for the interaction box. |
+| `x_channel` | property | false | Horizontal scale channel. |
+| `x_domain_param` | property | false | Existing x-domain parameter. |
+| `x_sharing` | property | false | Explicit x-domain sharing scope. |
+| `y_channel` | property | false | Vertical scale channel. |
+| `y_domain_param` | property | false | Existing y-domain parameter. |
+| `y_sharing` | property | false | Explicit y-domain sharing scope. |
+
+Exports:
+
+- `active` (`param<boolean>`): Whether a box gesture is active.
+
+- `box_x0` (`param<float64>`): Overlay starting x coordinate.
+
+- `box_x1` (`param<float64>`): Overlay ending x coordinate.
+
+- `box_y0` (`param<float64>`): Overlay starting y coordinate.
+
+- `box_y1` (`param<float64>`): Overlay ending y coordinate.
+
+- `enabled` (`param<boolean>`): Whether this tool currently handles input.
+
+- `x_domain` (`param<fixed_size_list(float64,2)>`): Current x domain.
+
+- `y_domain` (`param<fixed_size_list(float64,2)>`): Current y domain.
+
+## `Tool.geo_pan_zoom`
+
+Projected-plane pan, wheel zoom, box zoom, and reset behavior for geo plots.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `box_zoom` | property | false | Enable drag-box zoom. |
+| `box_zoom_min_size_px` | property | false | Minimum accepted box size in pixels. |
+| `box_zoom_requires_shift` | property | false | Require Shift for drag-box zoom. |
+| `consume_wheel` | property | false | Consume handled wheel events. |
+| `drag_button` | property | false | Pointer button used for dragging. |
+| `enabled_by_default` | property | false | Initial enabled state. |
+| `scroll_zoom` | property | false | Enable wheel zoom. |
+| `settle_exact` | property | false | Run exact evaluation after previews. |
+| `sharing` | property | false | Sharing scope for viewport parameters. |
+| `viewport_id` | property | false | Geo viewport state id prefix. |
+| `zoom_base` | property | false | Multiplicative wheel-zoom base. |
+
+Exports:
+
+- `box_active` (`param<boolean>`): Whether box zoom is active.
+
+- `box_x0` (`param<float64>`): Box starting x coordinate.
+
+- `box_x1` (`param<float64>`): Box ending x coordinate.
+
+- `box_y0` (`param<float64>`): Box starting y coordinate.
+
+- `box_y1` (`param<float64>`): Box ending y coordinate.
+
+- `center_x` (`param<float64>`): Projected viewport center x.
+
+- `center_y` (`param<float64>`): Projected viewport center y.
+
+- `enabled` (`param<boolean>`): Whether the tool handles input.
+
+- `focus_x` (`param<float64>`): Most recent zoom focus x.
+
+- `focus_y` (`param<float64>`): Most recent zoom focus y.
+
+- `units_per_pixel` (`param<float64>`): Projected units per display pixel.
+
+## `Tool.lasso_selection`
+
+Freehand polygon selection over rendered mark geometry.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `double_click_clear` | property | false | Clear on double click. |
+| `drag_button` | property | false | Pointer button used for lassoing. |
+| `enabled_by_default` | property | false | Initial enabled state. |
+| `event_path_min_distance_px` | property | false | Minimum sampled distance between event-path points. |
+| `facet_scope` | property | false | Facet scope of generated clauses. |
+| `fields` | property | true | Selection field names evaluated against same-named datum fields. |
+| `marks` | property | false | Optional target mark ids. |
+| `selection` | property | true | Selection state updated by this tool. |
+
+Exports:
+
+- `enabled` (`param<boolean>`): Whether this tool currently handles input.
+
+- `selection` (`selection`): Selection state owned and updated by this tool.
+
+## `Tool.pan_scroll_zoom`
+
+Pointer-drag panning and wheel zoom for Cartesian scale domains.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `consume_wheel` | property | false | Consume handled wheel events. |
+| `drag_button` | property | false | Pointer button used for panning. |
+| `enabled_by_default` | property | false | Initial enabled state. |
+| `scroll_zoom` | property | false | Enable wheel zoom. |
+| `settle_exact` | property | false | Run an exact evaluation after previews. |
+| `x_channel` | property | false | Horizontal scale channel name. |
+| `x_domain_param` | property | false | Existing x-domain parameter. |
+| `x_sharing` | property | false | Explicit x-domain sharing scope. |
+| `y_channel` | property | false | Vertical scale channel name. |
+| `y_domain_param` | property | false | Existing y-domain parameter. |
+| `y_sharing` | property | false | Explicit y-domain sharing scope. |
+| `zoom_base` | property | false | Multiplicative wheel-zoom base. |
+
+Exports:
+
+- `enabled` (`param<boolean>`): Whether this tool currently handles input.
+
+- `x_domain` (`param<fixed_size_list(float64,2)>`): Current x-domain override.
+
+- `y_domain` (`param<fixed_size_list(float64,2)>`): Current y-domain override.
+
+## `Tool.point_selection`
+
+Click-driven equality selection over one or more datum fields.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `clause_id` | property | false | Clause identity expression required for multiple dimensions. |
+| `double_click_clear` | property | false | Clear on double click. |
+| `enabled_by_default` | property | false | Initial enabled state. |
+| `facet_scope` | property | false | Facet scope of generated clauses. |
+| `fields` | property | true | Selection field names evaluated against same-named datum fields. |
+| `selection` | property | true | Selection state updated by this tool. |
+| `shift_toggle` | property | false | Enable shift-click clause toggling. |
+
+Exports:
+
+- `enabled` (`param<boolean>`): Whether this tool currently handles input.
+
+- `selection` (`selection`): Selection state owned and updated by this tool.
 
 ## `Widget.button`
 

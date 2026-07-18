@@ -1188,7 +1188,7 @@ mod tests {
 
     use avenger_chart::prelude::{
         Auto, Cartesian, CompiledWidget, CoordinationScope, FacetColumn,
-        FacetColumnSubplotChannels, IntoPlotMark, PanScrollZoom, Scale, Subplot, Symbol,
+        FacetColumnSubplotChannels, IntoPlotMark, PanScrollZoom, Scale, Selection, Subplot, Symbol,
         ToolExportTarget, WidgetItemRow, WidgetItems,
     };
     use avenger_chart_core::ParamRef;
@@ -1380,6 +1380,90 @@ mod tests {
             .property("background_padding", ResolvedValue::Expr(lit(8.0)));
         let lowered = registry.lower_object(&key, &declaration).unwrap();
         assert!(lowered.downcast::<avenger_chart_core::Legend>().is_ok());
+    }
+
+    #[tokio::test]
+    async fn native_surface_stock_tools_expand_with_stable_public_exports() {
+        fn selection_tool(kind: &str, name: &str) -> ResolvedDeclaration {
+            ResolvedDeclaration::new(kind)
+                .source_name(name)
+                .property(
+                    "selection",
+                    ResolvedValue::Selection(Selection::new(format!("{name}_selection"))),
+                )
+                .property(
+                    "fields",
+                    ResolvedValue::Array(vec![ResolvedValue::String("x".to_string())]),
+                )
+        }
+
+        let registry = builtins::bootstrap_registry().unwrap();
+        let context = SessionContext::new();
+        let mut plot = ResolvedPlot::new("cartesian");
+        plot.data = Some(context.sql("SELECT 1.0 AS x, 2.0 AS y").await.unwrap());
+        plot.marks.push(symbol().into());
+        plot.tools.push(selection_tool("point_selection", "points"));
+        plot.tools.push(selection_tool("lasso_selection", "lasso"));
+        plot.tools.push(
+            ResolvedDeclaration::new("box_selection")
+                .source_name("brush")
+                .property(
+                    "selection",
+                    ResolvedValue::Selection(Selection::new("brush_selection")),
+                ),
+        );
+        let compiled = registry.compile_root(&plot, &context).await.unwrap();
+        for kind in [
+            "pan_scroll_zoom",
+            "point_selection",
+            "lasso_selection",
+            "box_selection",
+            "box_zoom",
+        ] {
+            assert!(
+                registry
+                    .snapshot()
+                    .entries
+                    .contains_key(&NativeKindKey::new(NativeKindNamespace::Tool, kind)),
+                "{kind}"
+            );
+        }
+        let aliases = compiled
+            .tool_behaviors()
+            .iter()
+            .flat_map(|behavior| behavior.exports.iter())
+            .map(|export| export.alias.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(aliases.contains("selection"));
+        assert!(aliases.contains("store"));
+
+        for (kind, name) in [("pan_scroll_zoom", "navigation"), ("box_zoom", "zoom_box")] {
+            let mut plot = ResolvedPlot::new("cartesian");
+            plot.data = Some(context.sql("SELECT 1.0 AS x, 2.0 AS y").await.unwrap());
+            plot.marks.push(symbol().into());
+            plot.tools
+                .push(ResolvedDeclaration::new(kind).source_name(name));
+            let compiled = registry.compile_root(&plot, &context).await.unwrap();
+            assert!(
+                compiled
+                    .tool_behaviors()
+                    .iter()
+                    .flat_map(|behavior| &behavior.exports)
+                    .any(|export| export.alias == "x_domain")
+            );
+        }
+
+        let mut geo = ResolvedPlot::new("geo");
+        geo.tools
+            .push(ResolvedDeclaration::new("geo_pan_zoom").source_name("map_nav"));
+        let compiled = registry.compile_root(&geo, &context).await.unwrap();
+        assert!(
+            compiled
+                .tool_behaviors()
+                .iter()
+                .flat_map(|behavior| &behavior.exports)
+                .any(|export| export.alias == "center_x")
+        );
     }
 
     #[test]

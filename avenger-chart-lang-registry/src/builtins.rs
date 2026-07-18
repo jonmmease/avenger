@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::{Cartesian, PanScrollZoom},
+    prelude::Cartesian,
 };
 use avenger_chart_schema::{
-    ExportSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
+    KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
 use datafusion::logical_expr::{Expr, lit};
 
@@ -69,46 +69,17 @@ pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
             lowerer(declaration).map_err(RegistryError::from)
         });
     }
-    pack.tool(
-        "pan_scroll_zoom",
-        pan_scroll_zoom_schema(),
-        lower_pan_scroll_zoom,
-    )
-}
-
-fn pan_scroll_zoom_schema() -> KindSchema {
-    let mut tool = KindSchema::new(
-        NativeKindKey::new(NativeKindNamespace::Tool, "pan_scroll_zoom"),
-        "Pointer-drag panning and wheel zoom for Cartesian domains.",
-    )
-    .export(ExportSchema {
-        alias: "x_domain".to_string(),
-        value_kind: "param<fixed_size_list(float64,2)>".to_string(),
-        lazy: false,
-        binding_property: None,
-        default_property: None,
-        docs: "The tool-owned current x domain.".to_string(),
-    })
-    .export(ExportSchema {
-        alias: "y_domain".to_string(),
-        value_kind: "param<fixed_size_list(float64,2)>".to_string(),
-        lazy: false,
-        binding_property: None,
-        default_property: None,
-        docs: "The tool-owned current y domain.".to_string(),
-    });
-    tool.compatible_coordinates.insert("cartesian".to_string());
-    tool
-}
-
-fn lower_pan_scroll_zoom(
-    declaration: &crate::ResolvedDeclaration,
-) -> Result<Arc<dyn avenger_chart::prelude::ChartTool<Cartesian>>, RegistryError> {
-    let mut tool = PanScrollZoom::cartesian();
-    if let Some(source_name) = &declaration.source_name {
-        tool = tool.id(source_name.clone());
+    for definition in avenger_chart_tools::language::definitions() {
+        let avenger_chart_lang_types::ToolLanguageDefinition {
+            kind,
+            schema,
+            lowerer,
+        } = definition;
+        pack = pack.tool(kind, schema, move |declaration| {
+            lowerer(declaration).map_err(RegistryError::from)
+        });
     }
-    Ok(Arc::new(tool))
+    pack
 }
 
 fn register_transforms(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {

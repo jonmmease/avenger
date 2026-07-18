@@ -1,5 +1,7 @@
 //! Built-in chart tools.
 
+pub mod language;
+
 use avenger_chart_cartesian::{Cartesian, CartesianRectPositionChannels};
 use avenger_chart_core::{
     AvengerChartError, ChannelConfig, ChartEventBinding, ChartEventStream, ChartEventType,
@@ -326,6 +328,7 @@ pub struct PointSelection {
     facet_scope: CoordinationScope,
     facet_context_fields: Vec<(String, Expr)>,
     empty: EmptySelectionBehavior,
+    combine: SelectionCombine,
     shift_toggle: bool,
     double_click_clear: bool,
     enabled_by_default: bool,
@@ -348,6 +351,7 @@ impl PointSelection {
             facet_scope: CoordinationScope::Free,
             facet_context_fields: Vec::new(),
             empty: EmptySelectionBehavior::SelectNothing,
+            combine: SelectionCombine::Union,
             shift_toggle: true,
             double_click_clear: true,
             enabled_by_default: true,
@@ -398,6 +402,11 @@ impl PointSelection {
         self
     }
 
+    pub fn combine(mut self, combine: SelectionCombine) -> Self {
+        self.combine = combine;
+        self
+    }
+
     pub fn shift_toggle(mut self, enabled: bool) -> Self {
         self.shift_toggle = enabled;
         self
@@ -422,8 +431,7 @@ impl PointSelection {
     }
 
     fn selection(&self) -> Selection {
-        let mut selection =
-            Selection::new(&self.selection_id).combine(avenger_chart_core::SelectionCombine::Union);
+        let mut selection = Selection::new(&self.selection_id).combine(self.combine);
         selection = match self.empty {
             EmptySelectionBehavior::SelectAll => selection.empty_selects_all(),
             EmptySelectionBehavior::SelectNothing => selection.empty_selects_nothing(),
@@ -483,8 +491,8 @@ impl<C: CoordinateSystemCore> ChartTool<C> for PointSelection {
         let clause = self.clause()?;
         let shared = ToolParamSharing::Explicit(CoordinationScope::Shared);
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
-            .param(enabled.clone(), shared.clone())
-            .selection(self.selection())
+            .param_as("enabled", enabled.clone(), shared.clone())
+            .selection_as("selection", self.selection())
             .event_binding(point_selection_replace_binding(
                 &enabled.name,
                 &self.selection_id,
@@ -596,6 +604,7 @@ pub struct LassoSelection {
     facet_scope: CoordinationScope,
     facet_context_fields: Vec<(String, Expr)>,
     empty: EmptySelectionBehavior,
+    combine: SelectionCombine,
     drag_button: String,
     event_path_min_distance_px: f32,
     double_click_clear: bool,
@@ -620,6 +629,7 @@ impl LassoSelection {
             facet_scope: CoordinationScope::Free,
             facet_context_fields: Vec::new(),
             empty: EmptySelectionBehavior::SelectNothing,
+            combine: SelectionCombine::Union,
             drag_button: "left".to_string(),
             event_path_min_distance_px:
                 avenger_chart_core::event::DEFAULT_EVENT_PATH_MIN_DISTANCE_PX,
@@ -692,6 +702,11 @@ impl LassoSelection {
         self
     }
 
+    pub fn combine(mut self, combine: SelectionCombine) -> Self {
+        self.combine = combine;
+        self
+    }
+
     pub fn drag_button(mut self, button: impl Into<String>) -> Self {
         self.drag_button = button.into();
         self
@@ -721,8 +736,7 @@ impl LassoSelection {
     }
 
     fn selection(&self) -> Selection {
-        let mut selection =
-            Selection::new(&self.selection_id).combine(avenger_chart_core::SelectionCombine::Union);
+        let mut selection = Selection::new(&self.selection_id).combine(self.combine);
         selection = match self.empty {
             EmptySelectionBehavior::SelectAll => selection.empty_selects_all(),
             EmptySelectionBehavior::SelectNothing => selection.empty_selects_nothing(),
@@ -782,11 +796,12 @@ impl<C: CoordinateSystemCore> ChartTool<C> for LassoSelection {
             ScalarValue::Boolean(Some(self.enabled_by_default)),
         );
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
-            .param(
+            .param_as(
+                "enabled",
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
             )
-            .selection(self.selection())
+            .selection_as("selection", self.selection())
             .event_binding(lasso_selection_drag_binding(
                 &enabled.name,
                 &self.selection_id,
@@ -1204,12 +1219,13 @@ impl ChartTool<Cartesian> for BoxSelection {
         );
         let store = self.store();
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
-            .param(
+            .param_as(
+                "enabled",
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
             )
-            .store(store.clone())
-            .selection(self.selection())
+            .store_as("store", store.clone())
+            .selection_as("selection", self.selection())
             .event_binding(box_selection_drag_binding(
                 &enabled.name,
                 &self.selection_id,
@@ -1511,32 +1527,38 @@ impl ChartTool<Cartesian> for BoxZoom {
         ];
 
         Ok(ToolBehaviorExpansion::new(ctx.instance_id.clone())
-            .param(
+            .param_as(
+                "enabled",
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
             )
-            .param(
+            .param_as(
+                "active",
                 active.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Free),
             )
-            .param(
+            .param_as(
+                "box_x0",
                 box_x0.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Free),
             )
-            .param(
+            .param_as(
+                "box_y0",
                 box_y0.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Free),
             )
-            .param(
+            .param_as(
+                "box_x1",
                 box_x1.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Free),
             )
-            .param(
+            .param_as(
+                "box_y1",
                 box_y1.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Free),
             )
-            .param(x_domain.clone(), x_sharing)
-            .param(y_domain.clone(), y_sharing)
+            .param_as("x_domain", x_domain.clone(), x_sharing)
+            .param_as("y_domain", y_domain.clone(), y_sharing)
             .scale_edit(ToolScaleEdit::raw_domain(
                 self.x_channel.clone(),
                 x_domain.name.clone(),

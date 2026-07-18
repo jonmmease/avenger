@@ -7217,24 +7217,798 @@
     {
       "key": {
         "namespace": "tool",
-        "kind": "pan_scroll_zoom"
+        "kind": "box_selection"
       },
-      "docs": "Pointer-drag panning and wheel zoom for Cartesian domains.",
-      "properties": {},
+      "docs": "Rectangular interval selection with a visible Cartesian overlay.",
+      "properties": {
+        "channels": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Exactly two channel names, horizontal then vertical."
+        },
+        "double_click_clear": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clear on double click."
+        },
+        "drag_button": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Pointer button used for dragging."
+        },
+        "enabled_by_default": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Initial enabled state."
+        },
+        "facet_scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Facet scope of generated clauses."
+        },
+        "repeat_cell_chrome": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Draw one overlay per repeat cell."
+        },
+        "resolve": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "global",
+                  "docs": "Replace one global box clause."
+                },
+                {
+                  "value": "union",
+                  "docs": "Union keyed box clauses."
+                },
+                {
+                  "value": "intersect",
+                  "docs": "Intersect keyed box clauses."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Multi-box selection resolution."
+        },
+        "selection": {
+          "shape": {
+            "shape": "selection_binding"
+          },
+          "required": true,
+          "docs": "Selection state updated by this tool."
+        },
+        "unit_aspect_box": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate_metric",
+                  "docs": "Preserve coordinate-system unit aspect."
+                },
+                {
+                  "value": "viewport",
+                  "docs": "Preserve viewport pixel aspect."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Optional aspect constraint for the interaction box."
+        },
+        "x_channel": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Horizontal scale channel."
+        },
+        "x_dimension": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Horizontal selection expression."
+        },
+        "y_channel": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Vertical scale channel."
+        },
+        "y_dimension": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Vertical selection expression."
+        }
+      },
       "channels": {},
-      "parts": {},
+      "parts": {
+        "selection": {
+          "alias": "selection",
+          "runtime_kind": "rect",
+          "runtime_alias": "selection",
+          "targetable": true,
+          "docs": "Visible rectangular interaction overlay."
+        }
+      },
       "exports": {
+        "enabled": {
+          "alias": "enabled",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether this tool currently handles input."
+        },
+        "selection": {
+          "alias": "selection",
+          "value_kind": "selection",
+          "lazy": false,
+          "binding_property": "selection",
+          "docs": "Selection state owned and updated by this tool."
+        },
+        "store": {
+          "alias": "store",
+          "value_kind": "store",
+          "lazy": false,
+          "docs": "Hidden interval-row backing store."
+        }
+      },
+      "outputs": {},
+      "compatible_coordinates": [
+        "cartesian"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "tool",
+        "kind": "box_zoom"
+      },
+      "docs": "Rectangular drag zoom for Cartesian scale domains.",
+      "properties": {
+        "channels": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Exactly two channel names, horizontal then vertical."
+        },
+        "drag_button": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Pointer button used for dragging."
+        },
+        "enabled_by_default": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Initial enabled state."
+        },
+        "min_size_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum accepted drag-box size."
+        },
+        "unit_aspect_box": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate_metric",
+                  "docs": "Preserve coordinate-system unit aspect."
+                },
+                {
+                  "value": "viewport",
+                  "docs": "Preserve viewport pixel aspect."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Optional aspect constraint for the interaction box."
+        },
+        "x_channel": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Horizontal scale channel."
+        },
+        "x_domain_param": {
+          "shape": {
+            "shape": "scalar_binding"
+          },
+          "required": false,
+          "docs": "Existing x-domain parameter."
+        },
+        "x_sharing": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Explicit x-domain sharing scope."
+        },
+        "y_channel": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Vertical scale channel."
+        },
+        "y_domain_param": {
+          "shape": {
+            "shape": "scalar_binding"
+          },
+          "required": false,
+          "docs": "Existing y-domain parameter."
+        },
+        "y_sharing": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Explicit y-domain sharing scope."
+        }
+      },
+      "channels": {},
+      "parts": {
+        "selection": {
+          "alias": "selection",
+          "runtime_kind": "rect",
+          "runtime_alias": "selection",
+          "targetable": true,
+          "docs": "Visible rectangular interaction overlay."
+        }
+      },
+      "exports": {
+        "active": {
+          "alias": "active",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether a box gesture is active."
+        },
+        "box_x0": {
+          "alias": "box_x0",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Overlay starting x coordinate."
+        },
+        "box_x1": {
+          "alias": "box_x1",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Overlay ending x coordinate."
+        },
+        "box_y0": {
+          "alias": "box_y0",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Overlay starting y coordinate."
+        },
+        "box_y1": {
+          "alias": "box_y1",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Overlay ending y coordinate."
+        },
+        "enabled": {
+          "alias": "enabled",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether this tool currently handles input."
+        },
         "x_domain": {
           "alias": "x_domain",
           "value_kind": "param<fixed_size_list(float64,2)>",
           "lazy": false,
-          "docs": "The tool-owned current x domain."
+          "docs": "Current x domain."
         },
         "y_domain": {
           "alias": "y_domain",
           "value_kind": "param<fixed_size_list(float64,2)>",
           "lazy": false,
-          "docs": "The tool-owned current y domain."
+          "docs": "Current y domain."
+        }
+      },
+      "outputs": {},
+      "compatible_coordinates": [
+        "cartesian"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "tool",
+        "kind": "geo_pan_zoom"
+      },
+      "docs": "Projected-plane pan, wheel zoom, box zoom, and reset behavior for geo plots.",
+      "properties": {
+        "box_zoom": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Enable drag-box zoom."
+        },
+        "box_zoom_min_size_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum accepted box size in pixels."
+        },
+        "box_zoom_requires_shift": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Require Shift for drag-box zoom."
+        },
+        "consume_wheel": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Consume handled wheel events."
+        },
+        "drag_button": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Pointer button used for dragging."
+        },
+        "enabled_by_default": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Initial enabled state."
+        },
+        "scroll_zoom": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Enable wheel zoom."
+        },
+        "settle_exact": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Run exact evaluation after previews."
+        },
+        "sharing": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Sharing scope for viewport parameters."
+        },
+        "viewport_id": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Geo viewport state id prefix."
+        },
+        "zoom_base": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Multiplicative wheel-zoom base."
+        }
+      },
+      "channels": {},
+      "parts": {
+        "selection": {
+          "alias": "selection",
+          "runtime_kind": "rect",
+          "runtime_alias": "selection",
+          "targetable": true,
+          "docs": "Visible box-zoom overlay."
+        }
+      },
+      "exports": {
+        "box_active": {
+          "alias": "box_active",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether box zoom is active."
+        },
+        "box_x0": {
+          "alias": "box_x0",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Box starting x coordinate."
+        },
+        "box_x1": {
+          "alias": "box_x1",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Box ending x coordinate."
+        },
+        "box_y0": {
+          "alias": "box_y0",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Box starting y coordinate."
+        },
+        "box_y1": {
+          "alias": "box_y1",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Box ending y coordinate."
+        },
+        "center_x": {
+          "alias": "center_x",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Projected viewport center x."
+        },
+        "center_y": {
+          "alias": "center_y",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Projected viewport center y."
+        },
+        "enabled": {
+          "alias": "enabled",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether the tool handles input."
+        },
+        "focus_x": {
+          "alias": "focus_x",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Most recent zoom focus x."
+        },
+        "focus_y": {
+          "alias": "focus_y",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Most recent zoom focus y."
+        },
+        "units_per_pixel": {
+          "alias": "units_per_pixel",
+          "value_kind": "param<float64>",
+          "lazy": false,
+          "docs": "Projected units per display pixel."
+        }
+      },
+      "outputs": {},
+      "compatible_coordinates": [
+        "geo"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "tool",
+        "kind": "lasso_selection"
+      },
+      "docs": "Freehand polygon selection over rendered mark geometry.",
+      "properties": {
+        "double_click_clear": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clear on double click."
+        },
+        "drag_button": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Pointer button used for lassoing."
+        },
+        "enabled_by_default": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Initial enabled state."
+        },
+        "event_path_min_distance_px": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum sampled distance between event-path points."
+        },
+        "facet_scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Facet scope of generated clauses."
+        },
+        "fields": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": true,
+          "docs": "Selection field names evaluated against same-named datum fields."
+        },
+        "marks": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Optional target mark ids."
+        },
+        "selection": {
+          "shape": {
+            "shape": "selection_binding"
+          },
+          "required": true,
+          "docs": "Selection state updated by this tool."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {
+        "enabled": {
+          "alias": "enabled",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether this tool currently handles input."
+        },
+        "selection": {
+          "alias": "selection",
+          "value_kind": "selection",
+          "lazy": false,
+          "binding_property": "selection",
+          "docs": "Selection state owned and updated by this tool."
+        }
+      },
+      "outputs": {},
+      "compatible_coordinates": [
+        "cartesian"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "tool",
+        "kind": "pan_scroll_zoom"
+      },
+      "docs": "Pointer-drag panning and wheel zoom for Cartesian scale domains.",
+      "properties": {
+        "consume_wheel": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Consume handled wheel events."
+        },
+        "drag_button": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Pointer button used for panning."
+        },
+        "enabled_by_default": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Initial enabled state."
+        },
+        "scroll_zoom": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Enable wheel zoom."
+        },
+        "settle_exact": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Run an exact evaluation after previews."
+        },
+        "x_channel": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Horizontal scale channel name."
+        },
+        "x_domain_param": {
+          "shape": {
+            "shape": "scalar_binding"
+          },
+          "required": false,
+          "docs": "Existing x-domain parameter."
+        },
+        "x_sharing": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Explicit x-domain sharing scope."
+        },
+        "y_channel": {
+          "shape": {
+            "shape": "identifier"
+          },
+          "required": false,
+          "docs": "Vertical scale channel name."
+        },
+        "y_domain_param": {
+          "shape": {
+            "shape": "scalar_binding"
+          },
+          "required": false,
+          "docs": "Existing y-domain parameter."
+        },
+        "y_sharing": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Explicit y-domain sharing scope."
+        },
+        "zoom_base": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Multiplicative wheel-zoom base."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {
+        "enabled": {
+          "alias": "enabled",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether this tool currently handles input."
+        },
+        "x_domain": {
+          "alias": "x_domain",
+          "value_kind": "param<fixed_size_list(float64,2)>",
+          "lazy": false,
+          "docs": "Current x-domain override."
+        },
+        "y_domain": {
+          "alias": "y_domain",
+          "value_kind": "param<fixed_size_list(float64,2)>",
+          "lazy": false,
+          "docs": "Current y-domain override."
+        }
+      },
+      "outputs": {},
+      "compatible_coordinates": [
+        "cartesian"
+      ],
+      "stateless": false,
+      "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "tool",
+        "kind": "point_selection"
+      },
+      "docs": "Click-driven equality selection over one or more datum fields.",
+      "properties": {
+        "clause_id": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Clause identity expression required for multiple dimensions."
+        },
+        "double_click_clear": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Clear on double click."
+        },
+        "enabled_by_default": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Initial enabled state."
+        },
+        "facet_scope": {
+          "shape": {
+            "shape": "coordination_scope"
+          },
+          "required": false,
+          "docs": "Facet scope of generated clauses."
+        },
+        "fields": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": true,
+          "docs": "Selection field names evaluated against same-named datum fields."
+        },
+        "selection": {
+          "shape": {
+            "shape": "selection_binding"
+          },
+          "required": true,
+          "docs": "Selection state updated by this tool."
+        },
+        "shift_toggle": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Enable shift-click clause toggling."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {
+        "enabled": {
+          "alias": "enabled",
+          "value_kind": "param<boolean>",
+          "lazy": false,
+          "docs": "Whether this tool currently handles input."
+        },
+        "selection": {
+          "alias": "selection",
+          "value_kind": "selection",
+          "lazy": false,
+          "binding_property": "selection",
+          "docs": "Selection state owned and updated by this tool."
         }
       },
       "outputs": {},

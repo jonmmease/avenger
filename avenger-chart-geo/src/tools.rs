@@ -215,27 +215,33 @@ impl ChartTool<Geo> for GeoPanZoom {
         };
 
         let mut expansion = ToolBehaviorExpansion::new(ctx.instance_id.clone())
-            .param(
+            .param_as(
+                "enabled",
                 enabled.clone(),
                 ToolParamSharing::Explicit(CoordinationScope::Shared),
             )
-            .param(
+            .param_as(
+                "center_x",
                 viewport.center_x.clone(),
                 ToolParamSharing::Explicit(self.sharing),
             )
-            .param(
+            .param_as(
+                "center_y",
                 viewport.center_y.clone(),
                 ToolParamSharing::Explicit(self.sharing),
             )
-            .param(
+            .param_as(
+                "units_per_pixel",
                 viewport.units_per_pixel.clone(),
                 ToolParamSharing::Explicit(self.sharing),
             )
-            .param(
+            .param_as(
+                "focus_x",
                 viewport.focus_x.clone(),
                 ToolParamSharing::Explicit(self.sharing),
             )
-            .param(
+            .param_as(
+                "focus_y",
                 viewport.focus_y.clone(),
                 ToolParamSharing::Explicit(self.sharing),
             )
@@ -280,23 +286,28 @@ impl ChartTool<Geo> for GeoPanZoom {
                 .zindex(10_000);
 
             expansion = expansion
-                .param(
+                .param_as(
+                    "box_active",
                     active.clone(),
                     ToolParamSharing::Explicit(CoordinationScope::Free),
                 )
-                .param(
+                .param_as(
+                    "box_x0",
                     box_x0.clone(),
                     ToolParamSharing::Explicit(CoordinationScope::Free),
                 )
-                .param(
+                .param_as(
+                    "box_y0",
                     box_y0.clone(),
                     ToolParamSharing::Explicit(CoordinationScope::Free),
                 )
-                .param(
+                .param_as(
+                    "box_x1",
                     box_x1.clone(),
                     ToolParamSharing::Explicit(CoordinationScope::Free),
                 )
-                .param(
+                .param_as(
+                    "box_y1",
                     box_y1.clone(),
                     ToolParamSharing::Explicit(CoordinationScope::Free),
                 )
