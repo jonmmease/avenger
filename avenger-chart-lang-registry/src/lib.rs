@@ -2213,6 +2213,105 @@ mod tests {
         assert_eq!(lowered, registered);
     }
 
+    #[tokio::test]
+    async fn native_surface_schema_generated_smoke_compiles_every_mark_coordinate_pair() {
+        let registry = builtins::stock_registry().unwrap();
+        let context = SessionContext::new();
+        let data = context
+            .sql(
+                "SELECT 1.0 AS x, 2.0 AS y, 1.0 AS value, \
+                 'root' AS region, 'leaf' AS category, 'label' AS label",
+            )
+            .await
+            .unwrap();
+        let schemas = registry
+            .snapshot()
+            .entries
+            .values()
+            .filter(|schema| schema.key.namespace == NativeKindNamespace::Mark)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut lowered = BTreeSet::new();
+
+        for schema in schemas {
+            let coordinate = schema.key.coordinate.clone().unwrap();
+            let coordinate_schema = registry
+                .snapshot()
+                .entries
+                .get(&NativeKindKey::new(
+                    NativeKindNamespace::Coordinate,
+                    coordinate.clone(),
+                ))
+                .unwrap();
+            let mut plot = ResolvedPlot::new(coordinate.clone());
+            plot.coordinate = schema_smoke_declaration(coordinate_schema);
+            plot.data = Some(data.clone());
+            if coordinate == "parallel" {
+                plot.coordinate
+                    .children
+                    .push(ResolvedDeclaration::new("dimension").source_name("x"));
+                plot.coordinate
+                    .children
+                    .push(ResolvedDeclaration::new("dimension").source_name("y"));
+            } else if coordinate == "treemap" {
+                plot.coordinate.properties.insert(
+                    "path".to_string(),
+                    ResolvedValue::Array(vec![
+                        ResolvedValue::Expr(col("region")),
+                        ResolvedValue::Expr(col("category")),
+                    ]),
+                );
+                plot.coordinate
+                    .properties
+                    .insert("value".to_string(), ResolvedValue::Expr(col("value")));
+            }
+
+            let mut declaration = schema_smoke_declaration(&schema);
+            if schema.key.kind == "uniform_raster_2d" {
+                declaration.properties.insert(
+                    "x".to_string(),
+                    ResolvedValue::RasterDimensionChannel {
+                        dimension: RasterDim::new("x"),
+                        channel: Box::new(col("x").into()),
+                    },
+                );
+                declaration.properties.insert(
+                    "y".to_string(),
+                    ResolvedValue::RasterDimensionChannel {
+                        dimension: RasterDim::new("y"),
+                        channel: Box::new(col("y").into()),
+                    },
+                );
+            }
+            let mark = if schema.child_rules.iter().any(|rule| rule.role == "plot") {
+                ResolvedMark::NativeWithChild {
+                    declaration,
+                    child: Box::new(ResolvedPlot::new("zerod")),
+                }
+            } else {
+                ResolvedMark::Native(declaration)
+            };
+            plot.marks.push(mark);
+            let key = (coordinate, schema.key.kind.clone());
+            registry
+                .compile_root(&plot, &context)
+                .await
+                .unwrap_or_else(|error| {
+                    panic!("schema-generated {}/{} smoke failed: {error}", key.0, key.1)
+                });
+            lowered.insert(key);
+        }
+
+        let registered = registry
+            .snapshot()
+            .entries
+            .keys()
+            .filter(|key| key.namespace == NativeKindNamespace::Mark)
+            .map(|key| (key.coordinate.clone().unwrap(), key.kind.clone()))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(lowered, registered);
+    }
+
     #[test]
     fn bootstrap_widget_schema_records_authoring_runtime_mapping() {
         let registry = builtins::bootstrap_registry().unwrap();
