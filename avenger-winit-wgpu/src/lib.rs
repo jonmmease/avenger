@@ -21,12 +21,16 @@ use avenger_wgpu::{
     canvas::{Canvas, CanvasFrameOverlay, WindowCanvas},
     error::AvengerWgpuError,
 };
-use std::sync::{
-    atomic::{AtomicU64, Ordering},
-    Arc,
-};
 #[cfg(not(target_arch = "wasm32"))]
-use std::{collections::HashMap, sync::Mutex};
+use std::collections::HashMap;
+use std::{
+    collections::VecDeque,
+    fmt,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+};
 #[cfg(not(target_arch = "wasm32"))]
 use winit::dpi::PhysicalPosition;
 use winit::{
@@ -62,6 +66,82 @@ pub struct FileWatcher;
 pub enum WinitWgpuEvent {
     App(AvengerWindowEvent),
     RenderInvalidated(RenderInvalidation),
+    HostUpdateReady,
+}
+
+/// A fully prepared application generation for event-loop-thread installation.
+pub struct PreparedHostUpdate<State>
+where
+    State: Clone + Send + Sync + 'static,
+{
+    pub generation: u64,
+    pub app: AvengerApp<State>,
+    pub render_invalidation_hub: Option<RenderInvalidationHub>,
+    pub window_title: Option<String>,
+}
+
+/// Thread-safe producer for prepared native host updates.
+#[derive(Clone)]
+pub struct HostUpdateSender<State>
+where
+    State: Clone + Send + Sync + 'static,
+{
+    event_proxy: EventLoopProxy<WinitWgpuEvent>,
+    queue: Arc<Mutex<VecDeque<PreparedHostUpdate<State>>>>,
+}
+
+impl<State> HostUpdateSender<State>
+where
+    State: Clone + Send + Sync + 'static,
+{
+    pub fn submit(&self, update: PreparedHostUpdate<State>) -> Result<(), HostUpdateSubmitError> {
+        self.queue
+            .lock()
+            .map_err(|_| HostUpdateSubmitError::QueuePoisoned)?
+            .push_back(update);
+        self.event_proxy
+            .send_event(WinitWgpuEvent::HostUpdateReady)
+            .map_err(|_| HostUpdateSubmitError::EventLoopClosed)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostUpdateSubmitError {
+    QueuePoisoned,
+    EventLoopClosed,
+}
+
+impl fmt::Display for HostUpdateSubmitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::QueuePoisoned => f.write_str("prepared host-update queue is poisoned"),
+            Self::EventLoopClosed => f.write_str("winit event loop is closed"),
+        }
+    }
+}
+
+impl std::error::Error for HostUpdateSubmitError {}
+
+fn take_latest_host_update<State>(
+    queue: &mut VecDeque<PreparedHostUpdate<State>>,
+    installed_generation: u64,
+) -> Option<PreparedHostUpdate<State>>
+where
+    State: Clone + Send + Sync + 'static,
+{
+    let mut latest: Option<PreparedHostUpdate<State>> = None;
+    while let Some(candidate) = queue.pop_front() {
+        if candidate.generation <= installed_generation {
+            continue;
+        }
+        if latest
+            .as_ref()
+            .is_none_or(|current| candidate.generation > current.generation)
+        {
+            latest = Some(candidate);
+        }
+    }
+    latest
 }
 
 fn send_render_invalidation_event(
@@ -573,6 +653,8 @@ where
     canvas_frame: Option<CanvasFrameState>,
     canvas_config: CanvasConfig,
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
+    prepared_host_updates: Arc<Mutex<VecDeque<PreparedHostUpdate<State>>>>,
+    installed_host_generation: u64,
     _render_invalidation_subscription: Option<RenderInvalidationSubscription>,
     /// The hub itself, kept for startup replay: proxy events sent before the
     /// event loop runs are dropped by winit, so invalidations that fire
@@ -646,6 +728,7 @@ where
             .build()
             .expect("Failed to build event loop");
         let event_proxy = event_loop.create_proxy();
+        let prepared_host_updates = Arc::new(Mutex::new(VecDeque::new()));
         let render_invalidation_subscription =
             options.render_invalidation_hub.as_ref().map(|hub| {
                 let event_proxy_for_subscription = event_proxy.clone();
@@ -691,6 +774,8 @@ where
             canvas_frame: options.canvas_frame.map(CanvasFrameState::new),
             canvas_config: options.canvas_config,
             event_proxy,
+            prepared_host_updates,
+            installed_host_generation: 0,
             _render_invalidation_subscription: render_invalidation_subscription,
             render_invalidation_hub: options.render_invalidation_hub,
             avenger_app: std::rc::Rc::new(std::cell::RefCell::new(avenger_app)),
@@ -722,6 +807,70 @@ where
         };
 
         (winit_app, event_loop)
+    }
+
+    /// Return a thread-safe handle for publishing fully prepared replacement
+    /// applications to this host's event-loop thread.
+    pub fn host_update_sender(&self) -> HostUpdateSender<State> {
+        HostUpdateSender {
+            event_proxy: self.event_proxy.clone(),
+            queue: Arc::clone(&self.prepared_host_updates),
+        }
+    }
+
+    fn install_latest_prepared_host_update(&mut self) {
+        let update = {
+            let Ok(mut queue) = self.prepared_host_updates.lock() else {
+                log::error!("prepared host-update queue is poisoned");
+                return;
+            };
+            take_latest_host_update(&mut queue, self.installed_host_generation)
+        };
+        let Some(update) = update else {
+            return;
+        };
+
+        let scene_graph = update.app.scene_graph_arc();
+        if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
+            if let Err(error) = install_scene_graph(
+                canvas,
+                &scene_graph,
+                self.window_scene_sizing,
+                self.scale,
+                self.canvas_frame.as_mut(),
+            ) {
+                log::error!("failed to install prepared host update: {error:?}");
+                return;
+            }
+            if let Some(title) = update.window_title.as_deref() {
+                canvas.window().set_title(title);
+            }
+        } else if let Some(title) = update.window_title.as_deref() {
+            self.window_attributes = self.window_attributes.clone().with_title(title);
+        }
+
+        *self.avenger_app.borrow_mut() = update.app;
+        self._render_invalidation_subscription = None;
+        self.render_invalidation_hub = update.render_invalidation_hub;
+        self.last_requested_render_invalidation_epoch = 0;
+        self.last_rendered_render_invalidation_epoch = 0;
+        self.hub_epoch_at_last_evaluation_start = 0;
+        self.pending_startup_render_invalidation = None;
+        self.render_invalidation_pending = false;
+        self.installed_host_generation = update.generation;
+
+        if let Some(hub) = self.render_invalidation_hub.as_ref() {
+            let proxy = self.event_proxy.clone();
+            self._render_invalidation_subscription = Some(hub.subscribe(Arc::new({
+                let proxy = proxy.clone();
+                move |invalidation| {
+                    send_render_invalidation_event(proxy.clone(), invalidation);
+                }
+            })));
+            if let Some(invalidation) = hub.latest_invalidation() {
+                send_render_invalidation_event(proxy, invalidation);
+            }
+        }
     }
 
     fn dispatch_avenger_event(&mut self, event: AvengerWindowEvent, force: bool) {
@@ -1549,6 +1698,9 @@ where
             WinitWgpuEvent::RenderInvalidated(invalidation) => {
                 self.handle_render_invalidation(invalidation);
             }
+            WinitWgpuEvent::HostUpdateReady => {
+                self.install_latest_prepared_host_update();
+            }
         }
     }
 
@@ -1835,6 +1987,65 @@ fn winit_event_kind_label(event: &WindowEvent) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestSceneBuilder(f32);
+
+    #[async_trait::async_trait]
+    impl avenger_app::app::SceneGraphBuilder<()> for TestSceneBuilder {
+        async fn build(
+            &self,
+            _state: &mut (),
+        ) -> Result<avenger_scenegraph::scene_graph::SceneGraph, avenger_app::error::AvengerAppError>
+        {
+            Ok(avenger_scenegraph::scene_graph::SceneGraph {
+                marks: Vec::new(),
+                width: self.0,
+                height: 100.0,
+                origin: [0.0, 0.0],
+            })
+        }
+    }
+
+    fn test_app(width: f32) -> AvengerApp<()> {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(AvengerApp::try_new(
+                (),
+                Arc::new(TestSceneBuilder(width)),
+                Vec::new(),
+            ))
+            .unwrap()
+    }
+
+    #[test]
+    fn prepared_updates_select_only_the_latest_new_generation() {
+        let mut queue = VecDeque::from([
+            PreparedHostUpdate {
+                generation: 2,
+                app: test_app(200.0),
+                render_invalidation_hub: None,
+                window_title: None,
+            },
+            PreparedHostUpdate {
+                generation: 1,
+                app: test_app(100.0),
+                render_invalidation_hub: None,
+                window_title: None,
+            },
+            PreparedHostUpdate {
+                generation: 4,
+                app: test_app(400.0),
+                render_invalidation_hub: None,
+                window_title: None,
+            },
+        ]);
+
+        let update = take_latest_host_update(&mut queue, 1).unwrap();
+        assert_eq!(update.generation, 4);
+        assert_eq!(update.app.scene_graph().width, 400.0);
+        assert!(queue.is_empty());
+    }
 
     fn frame_state(resize_width: bool, resize_height: bool) -> CanvasFrameState {
         let mut state = CanvasFrameState::new(CanvasFrameOptions {
