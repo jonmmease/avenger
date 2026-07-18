@@ -463,7 +463,10 @@ pub enum ResolvedHelperArgument {
     Name(String),
     String(String),
     Number(String),
-    Target(ResolvedTarget),
+    Target {
+        target: ResolvedTarget,
+        authored_path: Vec<String>,
+    },
     DefinitionChannel {
         target: ResolvedTarget,
         family_suffix: String,
@@ -2301,7 +2304,10 @@ impl<'a> Resolver<'a> {
                             format!("`{}` is not a valid {:?} target", path.join("."), class),
                         );
                     }
-                    resolved = ResolvedHelperArgument::Target(target);
+                    resolved = ResolvedHelperArgument::Target {
+                        target,
+                        authored_path: path,
+                    };
                 } else if index == 0
                     && helper_uses_channel_argument(&call.name)
                     && let Some(path) = helper_argument_path(argument)

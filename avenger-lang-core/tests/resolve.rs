@@ -964,9 +964,10 @@ chart cartesian as chart {
         avenger_lang_core::ResolvedValue::Expression(expression)
             if matches!(
                 expression.helpers[0].arguments[0],
-                avenger_lang_core::ResolvedHelperArgument::Target(
-                    ResolvedTarget::Declaration(_)
-                )
+                avenger_lang_core::ResolvedHelperArgument::Target {
+                    target: ResolvedTarget::Declaration(_),
+                    ..
+                }
             )
     ));
 
@@ -1706,9 +1707,10 @@ chart cartesian as helpers {
         helper.name == "selection_contains"
             && matches!(
                 helper.arguments.first(),
-                Some(avenger_lang_core::ResolvedHelperArgument::Target(
-                    ResolvedTarget::Selection(_)
-                ))
+                Some(avenger_lang_core::ResolvedHelperArgument::Target {
+                    target: ResolvedTarget::Selection(_),
+                    ..
+                })
             )
     }));
     assert!(filter.helpers.iter().any(|helper| helper.name == "datum"));

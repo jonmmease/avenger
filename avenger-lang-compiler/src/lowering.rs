@@ -9,6 +9,7 @@ use std::{
 };
 
 use arrow::{
+    array::{FixedSizeListArray, StructArray},
     datatypes::{
         DataType, Field, Fields, IntervalUnit as ArrowIntervalUnit, Schema,
         TimeUnit as ArrowTimeUnit,
@@ -29,6 +30,7 @@ use avenger_chart_core::{
     SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate,
     SelectionSceneQuery, SelectionUpdate, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate,
     StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
+    item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -390,23 +392,7 @@ impl<'a> ProjectLowerer<'a> {
                     )
                 });
         }
-        let result = match value {
-            ResolvedValue::Null => ScalarValue::try_new_null(data_type),
-            ResolvedValue::String(value)
-            | ResolvedValue::Number(value)
-            | ResolvedValue::Atom(value) => ScalarValue::try_from_string(value.clone(), data_type),
-            ResolvedValue::Boolean(value) => {
-                ScalarValue::try_from_string(value.to_string(), data_type)
-            }
-            _ => {
-                return Err(lowerer_error_at(
-                    param.declaration.clone(),
-                    self.project,
-                    "Phase 5 parameter defaults must currently be typed literals or earlier parameter bindings",
-                ));
-            }
-        };
-        result.map_err(|error| {
+        scalar_literal(value, data_type).map_err(|error| {
             lowerer_error_at(
                 param.declaration.clone(),
                 self.project,
@@ -2927,6 +2913,21 @@ impl<'a> ProjectLowerer<'a> {
             }
             ResolvedValue::Binding(binding) => self.event_binding_expr(binding, declaration),
             ResolvedValue::Call { function, args } => {
+                if matches!(function.as_str(), "span" | "span_ordered") {
+                    let [left, right] = args.as_slice() else {
+                        return Err(lowerer_error(
+                            declaration,
+                            format!("event helper `{function}` requires two arguments"),
+                        ));
+                    };
+                    let left = self.event_expression_value(left, data, declaration)?;
+                    let right = self.event_expression_value(right, data, declaration)?;
+                    return Ok(if function == "span" {
+                        event::interval(left, right)
+                    } else {
+                        event::interval_ordered(left, right)
+                    });
+                }
                 let helper = avenger_lang_core::ResolvedHelper {
                     name: function.clone(),
                     class: HelperClass::Event,
@@ -2995,29 +2996,13 @@ impl<'a> ProjectLowerer<'a> {
         };
         let mut sql = expression.sql.clone();
         let mut replacements = BTreeMap::new();
+        let mut source_replacements = Vec::<(String, String)>::new();
 
-        for (index, helper) in expression.helpers.iter().enumerate() {
-            let (expr, seed) = self.event_helper_expr(helper, data, declaration)?;
-            let authored = helper_spelling(helper, declaration)?;
-            let synthetic = format!("__avenger_event_helper_{index:08}");
-            let replacement = format!("\"{synthetic}\"");
-            let rewritten = sql.replacen(&authored, &replacement, 1);
-            if rewritten == sql {
-                return Err(lowerer_error(
-                    declaration,
-                    format!("could not rewrite resolved event helper `{authored}`"),
-                ));
-            }
-            sql = rewritten;
-            parse_data = parse_data
-                .with_column(&synthetic, lit(seed))
-                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-            replacements.insert(synthetic, expr);
-        }
         for (index, binding) in expression.bindings.iter().enumerate() {
             let synthetic = format!("__avenger_event_binding_{index:08}");
             let authored = binding_spelling(binding);
-            sql = sql.replace(&authored, &format!("\"{synthetic}\""));
+            let replacement = format!("\"{synthetic}\"");
+            sql = sql.replace(&authored, &replacement);
             let param = match &binding.target {
                 ResolvedTarget::Param(id) => self.params.get(id).ok_or_else(|| {
                     lowerer_error(declaration, "resolved parameter is unavailable")
@@ -3040,6 +3025,38 @@ impl<'a> ProjectLowerer<'a> {
                     BindingTime::Previous => event::previous_param(param),
                 },
             );
+            source_replacements.push((authored, replacement));
+        }
+
+        // sqlparser reports helper calls in pre-order. Lower them in reverse so
+        // nested calls become synthetic columns before their parents are
+        // planned. Parent SQL arguments can then refer to those columns.
+        for (index, helper) in expression.helpers.iter().enumerate().rev() {
+            let authored = helper_spelling(helper, declaration)?;
+            let current = rewrite_source_fragment(&authored, &source_replacements);
+            let (expr, seed) = self.event_helper_expr_with_context(
+                helper,
+                data,
+                &parse_data,
+                &source_replacements,
+                &expression.helpers,
+                declaration,
+            )?;
+            let synthetic = format!("__avenger_event_helper_{index:08}");
+            let replacement = format!("\"{synthetic}\"");
+            let rewritten = sql.replacen(&current, &replacement, 1);
+            if rewritten == sql {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("could not rewrite resolved event helper `{authored}`"),
+                ));
+            }
+            sql = rewritten;
+            parse_data = parse_data
+                .with_column(&synthetic, lit(seed))
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            replacements.insert(synthetic, expr);
+            source_replacements.push((authored, replacement));
         }
         let parsed = parse_data
             .parse_sql_expr(&sql)
@@ -3065,9 +3082,39 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<(Expr, ScalarValue), Diagnostic> {
+        let parse_data = match data {
+            Some(data) => data.clone(),
+            None => self
+                .context
+                .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(vec![
+                    Field::new("__avenger_event_parse", DataType::Boolean, true),
+                ]))))
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?,
+        };
+        self.event_helper_expr_with_context(
+            helper,
+            data,
+            &parse_data,
+            &[],
+            std::slice::from_ref(helper),
+            declaration,
+        )
+    }
+
+    fn event_helper_expr_with_context(
+        &self,
+        helper: &avenger_lang_core::ResolvedHelper,
+        data: Option<&DataFrame>,
+        parse_data: &DataFrame,
+        source_replacements: &[(String, String)],
+        all_helpers: &[avenger_lang_core::ResolvedHelper],
+        declaration: &ResolvedDeclaration,
+    ) -> Result<(Expr, ScalarValue), Diagnostic> {
         use ResolvedHelperArgument::{Name, Number, String as StringArg};
         let float = || ScalarValue::Float64(None);
         let utf8 = || ScalarValue::Utf8(None);
+        let boolean = || ScalarValue::Boolean(None);
+        let list = || ScalarValue::new_null_list(DataType::Float64, true, 1);
         let result = match (helper.name.as_str(), helper.arguments.as_slice()) {
             ("event_coord", [Name(channel)]) => (event::event_coord(channel), float()),
             ("start_coord", [Name(channel)]) => (event::start_coord(channel), float()),
@@ -3090,8 +3137,69 @@ impl<'a> ProjectLowerer<'a> {
                     .unwrap_or_else(utf8);
                 (event::datum(field), seed)
             }
+            ("item_channel", [Name(channel)]) => (col(item_channel_column_name(channel)), float()),
+            ("item_data", [StringArg(field)]) => {
+                let seed = data
+                    .and_then(|data| data.schema().field_with_unqualified_name(field).ok())
+                    .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
+                    .unwrap_or_else(utf8);
+                (col(item_data_column_name(field)), seed)
+            }
+            ("item_bbox", [Name(edge)]) => (col(item_bbox_column_name(edge)), float()),
             ("legend_value", []) => (event::legend_value(), utf8()),
-            ("event_path", []) => (event::event_path(), utf8()),
+            ("event_path", []) => (event::event_path(), list()),
+            (
+                "selection_contains",
+                [
+                    ResolvedHelperArgument::Target {
+                        target: ResolvedTarget::Selection(selection_id),
+                        ..
+                    },
+                    ResolvedHelperArgument::Sql(value_sql),
+                ],
+            ) => {
+                let field = all_helpers
+                    .iter()
+                    .find_map(|candidate| {
+                        if candidate.name != "datum"
+                            || helper_spelling(candidate, declaration).ok().as_deref()
+                                != Some(value_sql.as_str())
+                        {
+                            return None;
+                        }
+                        match candidate.arguments.as_slice() {
+                            [StringArg(field)] => Some(field.as_str()),
+                            _ => None,
+                        }
+                    })
+                    .ok_or_else(|| {
+                        lowerer_error(
+                            declaration,
+                            "selection_contains currently requires datum('field') as its value",
+                        )
+                    })?;
+                let selection = self.selections.get(selection_id).ok_or_else(|| {
+                    lowerer_error(declaration, "resolved selection is unavailable")
+                })?;
+                (
+                    selection.contains_equality_value(col(field), event::datum(field)),
+                    boolean(),
+                )
+            }
+            ("span", [left, right]) => (
+                event::interval(
+                    helper_argument_expr(left, parse_data, source_replacements, declaration)?,
+                    helper_argument_expr(right, parse_data, source_replacements, declaration)?,
+                ),
+                list(),
+            ),
+            ("span_ordered", [left, right]) => (
+                event::interval_ordered(
+                    helper_argument_expr(left, parse_data, source_replacements, declaration)?,
+                    helper_argument_expr(right, parse_data, source_replacements, declaration)?,
+                ),
+                list(),
+            ),
             _ => {
                 return Err(lowerer_error(
                     declaration,
@@ -3149,7 +3257,10 @@ impl<'a> ProjectLowerer<'a> {
         let mut replacements = BTreeMap::new();
         for (index, helper) in expression.helpers.iter().enumerate() {
             let [
-                ResolvedHelperArgument::Target(ResolvedTarget::Declaration(view_id)),
+                ResolvedHelperArgument::Target {
+                    target: ResolvedTarget::Declaration(view_id),
+                    ..
+                },
                 ResolvedHelperArgument::Name(field),
             ] = helper.arguments.as_slice()
             else {
@@ -3917,16 +4028,54 @@ fn helper_spelling(
                 Ok(value.clone())
             }
             ResolvedHelperArgument::String(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
-            _ => Err(lowerer_error(
+            ResolvedHelperArgument::Target { authored_path, .. } => Ok(authored_path.join(".")),
+            ResolvedHelperArgument::Sql(value) => Ok(value.clone()),
+            ResolvedHelperArgument::DefinitionChannel {
+                target: _,
+                family_suffix,
+            } => Err(lowerer_error(
                 declaration,
                 format!(
-                    "helper `{}` has an unsupported resolved argument",
-                    helper.name
+                    "helper `{}` cannot reconstruct definition channel suffix `{family_suffix}`",
+                    helper.name,
                 ),
             )),
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(format!("{}({})", helper.name, args.join(", ")))
+}
+
+fn rewrite_source_fragment(source: &str, replacements: &[(String, String)]) -> String {
+    replacements
+        .iter()
+        .fold(source.to_owned(), |source, (authored, replacement)| {
+            source.replace(authored, replacement)
+        })
+}
+
+fn helper_argument_expr(
+    argument: &ResolvedHelperArgument,
+    parse_data: &DataFrame,
+    source_replacements: &[(String, String)],
+    declaration: &ResolvedDeclaration,
+) -> Result<Expr, Diagnostic> {
+    let source = match argument {
+        ResolvedHelperArgument::Name(value) | ResolvedHelperArgument::Number(value) => {
+            value.clone()
+        }
+        ResolvedHelperArgument::String(value) => format!("'{}'", value.replace('\'', "''")),
+        ResolvedHelperArgument::Sql(value) => value.clone(),
+        ResolvedHelperArgument::Target { .. }
+        | ResolvedHelperArgument::DefinitionChannel { .. } => {
+            return Err(lowerer_error(
+                declaration,
+                "a resolved target cannot be used as a scalar helper argument",
+            ));
+        }
+    };
+    parse_data
+        .parse_sql_expr(&rewrite_source_fragment(&source, source_replacements))
+        .map_err(|error| lowerer_error(declaration, error.to_string()))
 }
 
 fn sharing(value: StateSharing) -> avenger_chart_core::CoordinationScope {
@@ -4027,13 +4176,93 @@ fn scalar_literal(value: &ResolvedValue, data_type: &DataType) -> Result<ScalarV
         ResolvedValue::Null => {
             ScalarValue::try_new_null(data_type).map_err(|error| error.to_string())
         }
+        ResolvedValue::Atom(value) if value.eq_ignore_ascii_case("null") => {
+            ScalarValue::try_new_null(data_type).map_err(|error| error.to_string())
+        }
         ResolvedValue::String(value)
         | ResolvedValue::Number(value)
         | ResolvedValue::Atom(value) => ScalarValue::try_from_string(value.clone(), data_type)
             .map_err(|error| error.to_string()),
         ResolvedValue::Boolean(value) => ScalarValue::try_from_string(value.to_string(), data_type)
             .map_err(|error| error.to_string()),
-        _ => Err("store row values must be typed literals in Phase 5".to_string()),
+        ResolvedValue::Array(values) => match data_type {
+            DataType::List(field) => {
+                let values = values
+                    .iter()
+                    .map(|value| scalar_literal(value, field.data_type()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(ScalarValue::List(ScalarValue::new_list(
+                    &values,
+                    field.data_type(),
+                    field.is_nullable(),
+                )))
+            }
+            DataType::LargeList(field) => {
+                let values = values
+                    .iter()
+                    .map(|value| scalar_literal(value, field.data_type()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(ScalarValue::LargeList(ScalarValue::new_large_list(
+                    &values,
+                    field.data_type(),
+                )))
+            }
+            DataType::FixedSizeList(field, length) => {
+                if values.len() != *length as usize {
+                    return Err(format!(
+                        "fixed-size list requires {length} values, found {}",
+                        values.len()
+                    ));
+                }
+                let values = values
+                    .iter()
+                    .map(|value| scalar_literal(value, field.data_type()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let values =
+                    ScalarValue::iter_to_array(values).map_err(|error| error.to_string())?;
+                let array = FixedSizeListArray::try_new(field.clone(), *length, values, None)
+                    .map_err(|error| error.to_string())?;
+                Ok(ScalarValue::FixedSizeList(Arc::new(array)))
+            }
+            _ => Err(format!(
+                "array literal is not valid for Arrow type {data_type}"
+            )),
+        },
+        ResolvedValue::Object { properties, .. } => {
+            let DataType::Struct(fields) = data_type else {
+                return Err(format!(
+                    "object literal is not valid for Arrow type {data_type}"
+                ));
+            };
+            let columns = fields
+                .iter()
+                .map(|field| {
+                    let value = properties.get(field.name()).unwrap_or(&ResolvedValue::Null);
+                    scalar_literal(value, field.data_type())?
+                        .to_array_of_size(1)
+                        .map_err(|error| error.to_string())
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let unknown = properties
+                .keys()
+                .filter(|name| fields.find(name).is_none())
+                .cloned()
+                .collect::<Vec<_>>();
+            if !unknown.is_empty() {
+                return Err(format!(
+                    "struct literal has unknown field(s): {}",
+                    unknown.join(", ")
+                ));
+            }
+            Ok(ScalarValue::Struct(Arc::new(StructArray::new(
+                fields.clone(),
+                columns,
+                None,
+            ))))
+        }
+        _ => Err(format!(
+            "value `{value:?}` is not a typed Arrow scalar literal"
+        )),
     }
 }
 

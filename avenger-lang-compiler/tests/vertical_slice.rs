@@ -943,6 +943,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
         chart cartesian as chart {
           param as enabled { type: boolean; default: true; }
           param as drag_x { type: float64; default: 0.0; sharing: free; }
+          param as drag_domain { type: list(float64); default: [0.0, 0.0]; }
           store as hovered {
             field id: utf8;
             field x: float64;
@@ -953,7 +954,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
           mark symbol as points { x: "x"; y: "y"; }
           on cursor_moved as drag {
             target: mark points;
-            filter: $enabled;
+            filter: $enabled AND (selection_contains(picked, datum('x')) OR true);
             throttle_ms: 16;
             consume: true;
             mode: preview;
@@ -995,6 +996,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               sharing: free;
             }
             set selection picked = delete_clauses { ids: ['point']; }
+            set param drag_domain = span_ordered(event_coord(x), start_coord(x));
             set cursor = 'crosshair';
           }
         }"#;
@@ -1010,7 +1012,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
     assert!(binding.consume);
     assert!(binding.between.is_some());
     let steps = binding.action.ordered_steps();
-    assert_eq!(steps.len(), 7);
+    assert_eq!(steps.len(), 8);
     assert!(matches!(
         &steps[0],
         avenger_chart_core::ChartActionStep::SetParam(action)
@@ -1058,8 +1060,50 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
     ));
     assert!(matches!(
         &steps[6],
+        avenger_chart_core::ChartActionStep::SetParam(action)
+            if action.param_name == "drag_domain"
+    ));
+    assert!(matches!(
+        &steps[7],
         avenger_chart_core::ChartActionStep::SetCursor(_)
     ));
+}
+
+#[tokio::test]
+async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
+    let source = r#"avenger 1;
+        chart zerod as chart {
+          param as pointer {
+            type: struct(
+              field('position', struct(field('x', float64), field('y', float64))),
+              field('labels', list(utf8))
+            );
+            default: { position: { x: 1; y: NULL; } labels: ['a', 'b']; }
+          }
+          param as empty_pointer {
+            type: struct(field('x', float64));
+            default: NULL;
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let defaults = artifact.compiled_plot().get_default_params();
+    let pointer = defaults.get("pointer").expect("pointer default");
+    assert!(matches!(pointer, ScalarValue::Struct(_)) && !pointer.is_null());
+    assert!(matches!(
+        pointer.data_type(),
+        DataType::Struct(ref fields)
+            if matches!(fields[0].data_type(), DataType::Struct(_))
+                && matches!(fields[1].data_type(), DataType::List(_))
+    ));
+    assert!(
+        defaults
+            .get("empty_pointer")
+            .expect("typed null struct default")
+            .is_null()
+    );
 }
 
 #[tokio::test]
