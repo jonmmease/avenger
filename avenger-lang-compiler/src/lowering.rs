@@ -1756,7 +1756,9 @@ impl<'a> ProjectLowerer<'a> {
                         }
                         return Err(lowerer_error(
                             child,
-                            format!("Phase 5 cannot lower `{other}` declarations yet"),
+                            format!(
+                                "registered native surface cannot lower `{other}` declarations"
+                            ),
                         ));
                     }
                 }
