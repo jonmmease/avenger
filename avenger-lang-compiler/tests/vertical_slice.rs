@@ -906,6 +906,28 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
 }
 
 #[tokio::test]
+async fn native_surface_inline_view_raster_fixture_preserves_materialization_contract() {
+    let root = fixture("07_inline_view_raster");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    for expected in [
+        "CompiledCartesianUniformRaster2D",
+        "\"type\":\"rasterize_2d\"",
+        "RetargetCached",
+        "\"raster_name\":\"raster\"",
+    ] {
+        assert!(json.contains(expected), "missing {expected}: {json}");
+    }
+    assert_eq!(artifact.compiled_plot().marks().len(), 1);
+}
+
+#[tokio::test]
 async fn native_surface_geo_tile_resources_lower_through_typed_references() {
     let source = r#"avenger 1;
         chart geo as chart {

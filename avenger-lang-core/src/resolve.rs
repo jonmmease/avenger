@@ -2656,6 +2656,42 @@ impl<'a> Resolver<'a> {
 
         let value_scope = info.child_scope.unwrap_or(info.containing_scope);
         let event_context = in_event || declaration.keyword.as_str() == "on";
+        let public_path = declaration_public_path(declaration, parent_public_path, inside_private);
+        let child_inside_private = match declaration.visibility {
+            Visibility::Private => true,
+            Visibility::Public => false,
+            Visibility::Default => inside_private,
+        };
+        let mut resolved_children = vec![None; declaration.children.len()];
+
+        // A mark-owned inline view is the producer for raster/materialization
+        // output handles consumed by the owning mark's properties. Resolve that
+        // one child first, then publish only its transform outputs into the mark
+        // value scope. The view itself and its local names remain non-public.
+        if declaration.keyword.as_str() == "mark" {
+            for (index, child) in declaration.children.iter().enumerate() {
+                if child.keyword.as_str() != "view" {
+                    continue;
+                }
+                let mut child_path = path.to_vec();
+                child_path.push(index);
+                let resolved = self.resolve_declaration(
+                    file,
+                    child,
+                    &child_path,
+                    coordinate.as_deref(),
+                    public_path.as_deref().or(parent_public_path),
+                    child_inside_private,
+                    event_context,
+                );
+                for (source, output) in child.children.iter().zip(&resolved.children) {
+                    if source.keyword.as_str() == "transform" {
+                        self.install_sequential_transform(value_scope, source, output, info.span);
+                    }
+                }
+                resolved_children[index] = Some(resolved);
+            }
+        }
         let mut properties = BTreeMap::new();
         let mut property_channels = BTreeMap::new();
         for (name, value) in declaration.props.iter() {
@@ -2766,12 +2802,6 @@ impl<'a> Resolver<'a> {
         let event_binding = (declaration.keyword.as_str() == "on")
             .then(|| self.resolve_event_binding(value_scope, declaration, &properties, info.span));
 
-        let public_path = declaration_public_path(declaration, parent_public_path, inside_private);
-        let child_inside_private = match declaration.visibility {
-            Visibility::Private => true,
-            Visibility::Public => false,
-            Visibility::Default => inside_private,
-        };
         self.resolve_state_declaration(file, declaration, &info, &properties);
 
         let pipeline = declaration.keyword.as_str() == "transform"
@@ -2785,9 +2815,11 @@ impl<'a> Resolver<'a> {
                 pipeline && declaration.children[*index].keyword.as_str() == "output"
             }))
             .collect::<Vec<_>>();
-        let mut resolved_children = vec![None; declaration.children.len()];
         let mut transform_outputs = BTreeMap::new();
         for index in resolution_order {
+            if resolved_children[index].is_some() {
+                continue;
+            }
             let child = &declaration.children[index];
             let mut child_path = path.to_vec();
             child_path.push(index);

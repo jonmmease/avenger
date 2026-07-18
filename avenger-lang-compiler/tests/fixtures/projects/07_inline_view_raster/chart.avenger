@@ -1,0 +1,45 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: {
+    values: [
+      { x: 0.0; y: 0.0; },
+      { x: 0.2; y: 0.8; },
+      { x: 0.4; y: 0.3; },
+      { x: 0.6; y: 0.7; },
+      { x: 0.8; y: 0.2; },
+      { x: 1.0; y: 1.0; }
+    ];
+  }
+
+  mark uniform_raster_2d as density {
+    view cartesian as viewport {
+      x_domain: "x";
+      y_domain: "y";
+      stale_policy: retarget_cached;
+      throttle_ms: 16;
+
+      transform rasterize_2d as pixels {
+        x: "x";
+        y: "y";
+        agg: count;
+        x_dim: {
+          extent: [view_x(viewport, domain_start), view_x(viewport, domain_end)];
+          bins: 32;
+        }
+        y_dim: {
+          extent: [view_y(viewport, domain_start), view_y(viewport, domain_end)];
+          bins: 32;
+        }
+      }
+    }
+
+    raster: pixels.raster;
+    x: dim pixels.x_dim { axis: { title: 'X'; } }
+    y: dim pixels.y_dim { axis: { title: 'Y'; } }
+    opacity_by_total: {
+      scale: linear { range: [0.15, 1.0]; }
+    }
+    smooth: true;
+  }
+}

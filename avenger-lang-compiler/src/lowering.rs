@@ -1746,11 +1746,29 @@ impl<'a> ProjectLowerer<'a> {
                 }
             };
 
-            let params = self
+            let mut params = self
                 .params
                 .values()
                 .map(|param| (param.name.clone(), param.default.clone()))
                 .collect::<IndexMap<_, _>>();
+            // View-scoped transforms are applied once during compilation to
+            // propagate their output schema. Reserved view placeholders have
+            // no live viewport yet, so install type-correct representative
+            // values for that planning pass. Runtime materialization replaces
+            // them with the evaluated view domain/range/pixel state.
+            for view in self.view_refs.values() {
+                for axis in [view.x(), view.y()] {
+                    for (field, value) in [
+                        ("domain_start", ScalarValue::Float64(Some(0.0))),
+                        ("domain_end", ScalarValue::Float64(Some(1.0))),
+                        ("range_start", ScalarValue::Float64(Some(0.0))),
+                        ("range_end", ScalarValue::Float64(Some(1.0))),
+                        ("pixels", ScalarValue::UInt32(Some(1))),
+                    ] {
+                        params.entry(axis.param_name(field)).or_insert(value);
+                    }
+                }
+            }
             let execution = DataTransformExecutionContext {
                 session_context: self.context,
                 params: &params,
