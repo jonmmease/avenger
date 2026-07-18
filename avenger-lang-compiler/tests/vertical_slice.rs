@@ -3,6 +3,7 @@ use std::{path::PathBuf, sync::Arc};
 use avenger_chart::prelude::{
     Cartesian, CompiledWidget, FacetColumn, FacetColumnSubplotChannels, IntoPlotMark, Subplot,
 };
+use avenger_chart_app::{ChartAppOptions, chart_avenger_app};
 use avenger_chart_external_test::{
     external_compound_mark::ExternalMeanPoint,
     external_coord_system::{Cube, Isometric},
@@ -14,6 +15,10 @@ use avenger_chart_lang_registry::{
 use avenger_chart_schema::{
     BodyMode, ChannelSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
     ValueShape,
+};
+use avenger_common::{cursor::CursorStyle, time::Instant};
+use avenger_eventstream::window::{
+    ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
 };
 use avenger_lang_compiler::{
     ArtifactSerializationError, CompiledChartArtifact, Compiler, CompilerBuilder,
@@ -1104,6 +1109,61 @@ async fn native_surface_parameter_defaults_preserve_nested_arrow_types() {
             .expect("typed null struct default")
             .is_null()
     );
+}
+
+#[tokio::test]
+async fn native_surface_interactive_brush_fixture_runs_headless_event_actions() {
+    let root = fixture("03_interactive_brush");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let compiled = match Arc::try_unwrap(artifact.compiled) {
+        Ok(compiled) => compiled,
+        Err(_) => panic!("fixture owns its compiled plot"),
+    };
+    let mut app = chart_avenger_app(
+        compiled,
+        Arc::new(datafusion::prelude::SessionContext::new()),
+        ChartAppOptions::default(),
+    )
+    .await
+    .unwrap();
+
+    app.update_state(
+        &WindowEvent::CursorMoved(WindowCursorMoved {
+            position: [80.0, 80.0],
+        }),
+        Instant::now(),
+    )
+    .await;
+    app.update_state(
+        &WindowEvent::MouseInput(WindowMouseInput {
+            state: ElementState::Pressed,
+            button: MouseButton::Left,
+        }),
+        Instant::now(),
+    )
+    .await;
+    let status = app
+        .update_state(
+            &WindowEvent::CursorMoved(WindowCursorMoved {
+                position: [160.0, 80.0],
+            }),
+            Instant::now(),
+        )
+        .await;
+
+    assert_eq!(status.cursor, Some(CursorStyle::Crosshair));
+    let state = app.app_state_mut().clone();
+    assert_ne!(state.param_f64("drag_x"), Some(0.0));
+    let metrics = state.event_metrics().await;
+    assert_eq!(metrics.param_patch_events, 1);
+    assert_eq!(metrics.store_patch_events, 1);
+    assert_eq!(metrics.evaluation_errors, 0);
 }
 
 #[tokio::test]

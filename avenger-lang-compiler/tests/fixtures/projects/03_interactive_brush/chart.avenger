@@ -1,0 +1,57 @@
+avenger 1;
+
+chart cartesian as chart {
+  param as drag_x {
+    type: float64;
+    default: 0.0;
+    sharing: free;
+  }
+
+  store as hovered {
+    field id: utf8;
+    field x: float64;
+    primary_key: [id];
+  }
+
+  selection as picked {
+    empty: none;
+    combine: union;
+  }
+
+  data: {
+    values: [
+      { id: 'a'; x: 1.0; y: 2.0; },
+      { id: 'b'; x: 3.0; y: 4.0; }
+    ];
+  }
+
+  mark symbol as points {
+    x: "x";
+    y: "y";
+  }
+
+  on cursor_moved as drag {
+    between: {
+      start: mouse_down {}
+      end: mouse_up {}
+    }
+
+    set param drag_x at start = event_coord(x);
+    set store hovered = insert_rows {
+      row { id: 'drag'; x: event_coord(x); }
+    }
+    set selection picked = upsert_clauses {
+      clause {
+        id: 'drag';
+        interval {
+          dimension as x {
+            field: "x";
+            from: start_coord(x);
+            to: event_coord(x);
+          }
+        }
+      }
+    }
+    set cursor = 'crosshair';
+  }
+}

@@ -24,8 +24,10 @@ thiserror = { workspace = true }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 
 [dev-dependencies]
+avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-chart-external-test = { path = "../avenger-chart-external-test" }
 avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 image = { workspace = true }
