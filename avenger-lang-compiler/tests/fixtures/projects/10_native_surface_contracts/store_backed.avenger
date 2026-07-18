@@ -1,0 +1,19 @@
+avenger 1;
+
+chart cartesian as store_backed {
+  store as points {
+    field id: utf8;
+    field x: float64;
+    field y: float64;
+    primary_key: [id];
+    row { id: 'a'; x: 1.0; y: 2.0; }
+    row { id: 'b'; x: 3.0; y: 4.0; }
+  }
+
+  mark symbol as dots {
+    data: $points;
+    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
+    size: value 80.0;
+  }
+}

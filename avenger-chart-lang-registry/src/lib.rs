@@ -47,6 +47,7 @@ pub struct ResolvedMarkGroup {
     pub id: Option<String>,
     pub component_kind: Option<String>,
     pub data: Option<DataFrame>,
+    pub store_data: Option<avenger_chart_core::StoreData>,
     pub transforms: Vec<ResolvedTransformStage>,
     pub view: Option<ResolvedViewScope>,
     pub marks: Vec<ResolvedMark>,
@@ -56,6 +57,7 @@ pub struct ResolvedMarkGroup {
 pub struct ResolvedViewScope {
     pub spec: avenger_chart_core::CompiledViewSpec,
     pub data: Option<DataFrame>,
+    pub store_data: Option<avenger_chart_core::StoreData>,
     pub transforms: Vec<ResolvedTransformStage>,
 }
 
@@ -65,6 +67,7 @@ impl ResolvedMarkGroup {
             id: None,
             component_kind: None,
             data: None,
+            store_data: None,
             transforms: Vec::new(),
             view: None,
             marks: Vec::new(),
@@ -444,11 +447,18 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                 (entry.lowerer)(declaration, registry.lower_child_plot(child)?)
             }
             ResolvedMark::Group(resolved) => {
-                let mut data = resolved
-                    .data
-                    .clone()
-                    .map(DataContext::new)
-                    .unwrap_or_default();
+                let mut data = match (&resolved.data, &resolved.store_data) {
+                    (Some(data), None) => DataContext::new(data.clone()),
+                    (None, Some(store)) => DataContext::store_data(store.clone()),
+                    (None, None) => DataContext::default(),
+                    (Some(_), Some(_)) => {
+                        return Err(RegistryError::Lowering {
+                            kind: self.kind.clone(),
+                            message: "mark group cannot have both dataframe and store data"
+                                .to_string(),
+                        });
+                    }
+                };
                 for stage in &resolved.transforms {
                     data = data.with_transform_stage(stage.scope, stage.transform.clone());
                 }
@@ -461,7 +471,18 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                     group = group.component_kind(component_kind.clone());
                 }
                 if let Some(view) = &resolved.view {
-                    let mut view_data = view.data.clone().map(DataContext::new).unwrap_or_default();
+                    let mut view_data = match (&view.data, &view.store_data) {
+                        (Some(data), None) => DataContext::new(data.clone()),
+                        (None, Some(store)) => DataContext::store_data(store.clone()),
+                        (None, None) => DataContext::default(),
+                        (Some(_), Some(_)) => {
+                            return Err(RegistryError::Lowering {
+                                kind: self.kind.clone(),
+                                message: "inline view cannot have both dataframe and store data"
+                                    .to_string(),
+                            });
+                        }
+                    };
                     for stage in &view.transforms {
                         view_data =
                             view_data.with_transform_stage(stage.scope, stage.transform.clone());

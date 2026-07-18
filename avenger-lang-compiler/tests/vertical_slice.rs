@@ -645,6 +645,29 @@ async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
 }
 
 #[tokio::test]
+async fn native_surface_store_backed_mark_uses_runtime_relation_without_metadata_columns() {
+    let root = fixture("10_native_surface_contracts");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("store_backed.avenger"))
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("\"store_data\":{"), "{json}");
+    assert!(!json.contains("__avenger_store_owner_key"), "{json}");
+    assert!(!json.contains("__avenger_store_revision"), "{json}");
+
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.groups().is_empty());
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

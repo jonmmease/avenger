@@ -28,8 +28,8 @@ use avenger_chart_core::{
     DataTransformStage, FormattingContext, Param as ChartParam, PatternAnchor, PatternChannelValue,
     PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SceneGeometryHitPolicy,
     SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate,
-    SelectionSceneQuery, SelectionUpdate, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate,
-    StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
+    SelectionSceneQuery, SelectionUpdate, StoreData, StoreFieldPatch, StoreKey, StoreRow,
+    StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
     item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
@@ -1403,18 +1403,23 @@ impl<'a> ProjectLowerer<'a> {
         Box<dyn std::future::Future<Output = Result<ResolvedMarkGroup, Diagnostic>> + 'b>,
     > {
         Box::pin(async move {
-            let explicit_data = match container.properties.get("data") {
+            let (explicit_data, explicit_store) = match container.properties.get("data") {
                 Some(value) if container.keyword != "chart" => {
-                    Some(self.lower_data(value, container).await?)
+                    if let Some((planning, store)) = self.store_data_binding(value, container)? {
+                        (Some(planning), Some(store))
+                    } else {
+                        (Some(self.lower_data(value, container).await?), None)
+                    }
                 }
-                _ => None,
+                _ => (None, None),
             };
             let mut current_data = explicit_data.as_ref().or(inherited_data).cloned();
             if let Some(data) = &explicit_data {
                 self.record_schema(container, data);
             }
             let mut group = ResolvedMarkGroup::new();
-            group.data = explicit_data;
+            group.data = explicit_store.is_none().then_some(explicit_data).flatten();
+            group.store_data = explicit_store;
             if container.keyword == "group" {
                 group.id = container.name.clone();
                 group.component_kind = container.component_kind.clone();
@@ -1449,9 +1454,17 @@ impl<'a> ProjectLowerer<'a> {
                         group.marks.push(ResolvedMark::Group(Box::new(view_group)));
                     }
                     "mark" => {
-                        let mark_data = match child.properties.get("data") {
-                            Some(value) => Some(self.lower_data(value, child).await?),
-                            None => None,
+                        let (mark_data, mark_store) = match child.properties.get("data") {
+                            Some(value) => {
+                                if let Some((planning, store)) =
+                                    self.store_data_binding(value, child)?
+                                {
+                                    (Some(planning), Some(store))
+                                } else {
+                                    (Some(self.lower_data(value, child).await?), None)
+                                }
+                            }
+                            None => (None, None),
                         };
                         let planning_data = mark_data.as_ref().or(current_data.as_ref());
                         let view = child
@@ -1504,12 +1517,14 @@ impl<'a> ProjectLowerer<'a> {
                             ResolvedMark::Native(declaration)
                         };
                         if let Some(mut wrapper) = view_group.take() {
-                            wrapper.data = mark_data;
+                            wrapper.data = mark_store.is_none().then_some(mark_data).flatten();
+                            wrapper.store_data = mark_store;
                             wrapper.marks.push(native);
                             group.marks.push(ResolvedMark::Group(Box::new(wrapper)));
-                        } else if let Some(data) = mark_data {
+                        } else if mark_data.is_some() {
                             let mut wrapper = ResolvedMarkGroup::new();
-                            wrapper.data = Some(data);
+                            wrapper.data = mark_store.is_none().then_some(mark_data).flatten();
+                            wrapper.store_data = mark_store;
                             wrapper.marks.push(native);
                             group.marks.push(ResolvedMark::Group(Box::new(wrapper)));
                         } else {
@@ -1665,10 +1680,12 @@ impl<'a> ProjectLowerer<'a> {
                 .lower_container(declaration, inherited_data, plot)
                 .await?;
             let data = group.data.take();
+            let store_data = group.store_data.take();
             let transforms = std::mem::take(&mut group.transforms);
             group.view = Some(ResolvedViewScope {
                 spec: *spec,
                 data,
+                store_data,
                 transforms,
             });
             Ok(group)
@@ -3553,6 +3570,37 @@ impl<'a> ProjectLowerer<'a> {
             },
             data,
         ))
+    }
+
+    fn store_data_binding(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Option<(DataFrame, StoreData)>, Diagnostic> {
+        let ResolvedValue::Binding(ResolvedBinding {
+            target: ResolvedTarget::Store(id),
+            time: BindingTime::Current,
+            ..
+        }) = value
+        else {
+            return Ok(None);
+        };
+        let store = self
+            .stores
+            .get(id)
+            .ok_or_else(|| lowerer_error(declaration, "resolved store is unavailable"))?;
+        let schema = Arc::new(Schema::new(
+            store
+                .fields
+                .iter()
+                .map(avenger_chart_core::StoreFieldSpec::to_field_ref)
+                .collect::<Vec<_>>(),
+        ));
+        let planning = self
+            .context
+            .read_batch(RecordBatch::new_empty(schema))
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        Ok(Some((planning, StoreData::new(store.name.clone()))))
     }
 
     async fn lower_data(
