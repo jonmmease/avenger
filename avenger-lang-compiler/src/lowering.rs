@@ -348,6 +348,11 @@ impl<'a> ProjectLowerer<'a> {
             };
             return format!("{id}__{role}");
         }
+        if declaration.keyword == "tool"
+            && let Some(id) = declaration.name.as_deref()
+        {
+            return format!("__tool_{id}__{}", origin.export_role);
+        }
         param.source_name.clone()
     }
 

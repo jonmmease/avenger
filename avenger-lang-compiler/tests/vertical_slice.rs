@@ -403,6 +403,74 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
 }
 
 #[tokio::test]
+async fn native_surface_tool_instances_own_distinct_generated_state_and_exports() {
+    let root = fixture("05_custom_tool");
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+
+    let behaviors = artifact
+        .compiled_plot()
+        .tool_behaviors()
+        .iter()
+        .filter(|behavior| matches!(behavior.source_id.as_str(), "first" | "second"))
+        .collect::<Vec<_>>();
+    assert_eq!(behaviors.len(), 2);
+    assert_ne!(behaviors[0].instance_id, behaviors[1].instance_id);
+
+    let mut generated_runtime_ids = std::collections::BTreeSet::new();
+    let mut generated_migration_keys = std::collections::BTreeSet::new();
+    let mut selection_runtime_ids = std::collections::BTreeSet::new();
+    for instance in ["first", "second"] {
+        let enabled = format!("chart.{instance}.enabled");
+        let enabled_runtime_id = artifact
+            .interface
+            .public_targets
+            .get(&enabled)
+            .unwrap_or_else(|| panic!("missing {enabled}: {:?}", artifact.interface));
+        assert!(generated_runtime_ids.insert(enabled_runtime_id.clone()));
+        let binding = artifact
+            .interface
+            .params
+            .values()
+            .find(|binding| &binding.runtime_id == enabled_runtime_id)
+            .expect("generated enabled param binding");
+        assert!(
+            generated_migration_keys.insert(
+                binding
+                    .migration_key
+                    .clone()
+                    .expect("generated tool state migration key")
+            )
+        );
+
+        let selection = format!("chart.{instance}.selection");
+        let selection_runtime_id = artifact
+            .interface
+            .public_targets
+            .get(&selection)
+            .unwrap_or_else(|| panic!("missing {selection}: {:?}", artifact.interface));
+        assert!(selection_runtime_ids.insert(selection_runtime_id.clone()));
+    }
+    assert_eq!(generated_runtime_ids.len(), 2);
+    assert_eq!(generated_migration_keys.len(), 2);
+    assert_eq!(selection_runtime_ids.len(), 2);
+
+    for behavior in behaviors {
+        let aliases = behavior
+            .exports
+            .iter()
+            .map(|export| export.alias.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(aliases, ["enabled", "selection"].into());
+    }
+}
+
+#[tokio::test]
 async fn native_surface_concat_cells_lower_as_mixed_coordinate_subplots() {
     let source = r#"avenger 1;
         chart hconcat as chart {

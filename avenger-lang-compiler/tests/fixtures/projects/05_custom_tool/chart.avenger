@@ -1,0 +1,28 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
+
+  selection as first_selection {
+    empty: none;
+  }
+  selection as second_selection {
+    empty: none;
+  }
+
+  tool point_selection as first {
+    selection: first_selection;
+    fields: [id];
+  }
+  tool point_selection as second {
+    selection: second_selection;
+    fields: [id];
+  }
+
+  mark symbol as point {
+    visible: $first.enabled AND $second.enabled;
+    x: "x" { scale: linear { domain: [0.0, 3.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 3.0]; } }
+    details: [id];
+  }
+}
