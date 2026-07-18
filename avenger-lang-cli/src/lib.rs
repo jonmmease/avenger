@@ -295,7 +295,7 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<(), CliError> {
     let (change_tx, change_rx) = mpsc::channel();
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let targets = Arc::new(Mutex::new(BTreeSet::new()));
-    let change_epoch = Arc::new(AtomicU64::new(1));
+    let change_epoch = Arc::new(AtomicU64::new(0));
     let callback_targets = targets.clone();
     let callback_epoch = change_epoch.clone();
     thread::Builder::new()
@@ -327,6 +327,7 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<(), CliError> {
             };
             let mut watched_anchors = BTreeSet::new();
             let mut last_good = dependency_targets(&worker.chart, &worker.initial_dependencies);
+            let mut generation = 1_u64;
             if let Err(error) =
                 update_watch_set(&mut watcher, &mut watched_anchors, &targets, &last_good)
             {
@@ -337,7 +338,8 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<(), CliError> {
 
             while change_rx.recv().is_ok() {
                 while change_rx.recv_timeout(worker.debounce).is_ok() {}
-                let generation = change_epoch.load(Ordering::Acquire);
+                generation = generation.saturating_add(1);
+                let compile_epoch = change_epoch.load(Ordering::Acquire);
                 let before = worker.cache.as_ref().map(|cache| cache.metrics());
                 let started = Instant::now();
                 let attempt = worker.runtime.block_on(
@@ -345,7 +347,7 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<(), CliError> {
                         .compiler
                         .compile_file_generation_attempt(&worker.chart, generation),
                 );
-                if generation != change_epoch.load(Ordering::Acquire) {
+                if compile_epoch != change_epoch.load(Ordering::Acquire) {
                     continue;
                 }
                 let attempt_targets = dependency_targets(&worker.chart, &attempt.dependencies);
@@ -359,7 +361,7 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<(), CliError> {
                                 ChartAppOptions::default(),
                             ),
                         );
-                        if generation != change_epoch.load(Ordering::Acquire) {
+                        if compile_epoch != change_epoch.load(Ordering::Acquire) {
                             continue;
                         }
                         match bundle {
@@ -395,6 +397,20 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<(), CliError> {
                                 );
                             }
                             Err(error) => {
+                                let effective = last_good
+                                    .union(&attempt_targets)
+                                    .cloned()
+                                    .collect::<BTreeSet<_>>();
+                                if let Err(watch_error) = update_watch_set(
+                                    &mut watcher,
+                                    &mut watched_anchors,
+                                    &targets,
+                                    &effective,
+                                ) {
+                                    eprintln!(
+                                        "avenger watch: failed to update watch set: {watch_error}"
+                                    );
+                                }
                                 let _ = worker.host_updates.set_window_title(format!(
                                     "{} [runtime error]",
                                     worker.normal_title
