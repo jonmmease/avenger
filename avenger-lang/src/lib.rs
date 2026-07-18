@@ -9,11 +9,11 @@ use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryBuilder, Registr
 
 pub use avenger_lang_compiler::{
     ArtifactCacheKey, COMPILER_PHASE, CatalogFactory, CatalogFactoryRegistry, CompileAttempt,
-    CompileFailure, CompiledChartArtifact, CompiledChartInterface, CompiledDependency,
-    CompiledProject, Compiler, CompilerBuildError, CompilerBuilder, CompilerOptions,
-    DatasetLineageIndex, DatasetSchemaIndex, DefaultSourceLoader, DependencyFingerprint,
-    DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis, ProjectChartId,
-    ProjectDatasetId, ProjectFingerprint, SourceLoaderLimits,
+    CompileFailure, CompiledChartArtifact, CompiledChartGeneration, CompiledChartInterface,
+    CompiledDependency, CompiledProject, Compiler, CompilerBuildError, CompilerBuilder,
+    CompilerOptions, DatasetLineageIndex, DatasetSchemaIndex, DefaultSourceLoader,
+    DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis,
+    ProjectChartId, ProjectDatasetId, ProjectFingerprint, SourceLoaderLimits,
 };
 pub use avenger_lang_core::{
     AmbientDataDeclaration, ByteSpan, ContentVersion, DataCapabilities, DefinitionKind, Diagnostic,

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use avenger_chart::{
     physical_cache::{
         CacheMetricsSnapshot, EvaluationCache, EvaluationCacheConfig, cached_session_context,
-        install_physical_cache, physical_cache_from_ctx,
+        install_physical_cache, install_shared_physical_cache, physical_cache_from_ctx,
     },
     plot::CompiledPlot,
     prelude::*,
@@ -616,6 +616,18 @@ async fn install_composes_with_existing_builder() {
         compiled.evaluate(&ctx, None).await.expect("evaluate");
     }
     assert!(cache.metrics().hits > 0, "{:?}", cache.metrics());
+}
+
+#[test]
+fn shared_install_uses_the_caller_owned_cache() {
+    let cache = EvaluationCache::new(EvaluationCacheConfig::default());
+    let builder = install_shared_physical_cache(
+        SessionStateBuilder::new().with_default_features(),
+        cache.clone(),
+    );
+    let ctx = SessionContext::new_with_state(builder.build());
+    let found = physical_cache_from_ctx(&ctx).expect("cache discoverable from ctx");
+    assert!(Arc::ptr_eq(&found, &cache));
 }
 
 #[tokio::test]

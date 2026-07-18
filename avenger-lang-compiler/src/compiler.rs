@@ -74,6 +74,13 @@ pub struct CompileAttempt<T> {
     pub dependencies: DiscoveredDependencySet,
 }
 
+#[derive(Clone)]
+pub struct CompiledChartGeneration {
+    pub generation: u64,
+    pub artifact: CompiledChartArtifact,
+    pub environment: crate::CompileEnvironment,
+}
+
 #[derive(Clone, Debug)]
 pub struct CompileFailure {
     pub diagnostics: Vec<Diagnostic>,
@@ -127,13 +134,25 @@ impl Compiler {
         &self,
         path: impl AsRef<Path>,
     ) -> CompileAttempt<CompiledChartArtifact> {
+        let attempt = self.compile_file_generation_attempt(path, 0).await;
+        CompileAttempt {
+            result: attempt.result.map(|generation| generation.artifact),
+            dependencies: attempt.dependencies,
+        }
+    }
+
+    pub async fn compile_file_generation_attempt(
+        &self,
+        path: impl AsRef<Path>,
+        generation: u64,
+    ) -> CompileAttempt<CompiledChartGeneration> {
         let attempt = self.resolve_file_project_attempt(path).await;
         let dependencies = attempt.dependencies;
         let result = match attempt.result {
             Ok(project) => self
-                .lower_resolved_project(&project)
+                .lower_resolved_project(&project, generation)
                 .await
-                .and_then(|mut lowered| {
+                .and_then(|(mut lowered, environment)| {
                     if lowered.charts.len() != 1 {
                         return Err(CompileFailure {
                             diagnostics: vec![Diagnostic::error(
@@ -146,7 +165,11 @@ impl Compiler {
                             )],
                         });
                     }
-                    Ok(lowered.charts.remove(0).artifact)
+                    Ok(CompiledChartGeneration {
+                        generation,
+                        artifact: lowered.charts.remove(0).artifact,
+                        environment,
+                    })
                 }),
             Err(error) => Err(error),
         };
@@ -170,13 +193,17 @@ impl Compiler {
         let attempt = self.resolve_project_graph_attempt(root).await;
         let dependencies = attempt.dependencies;
         let result = match attempt.result {
-            Ok(project) => self.lower_resolved_project(&project).await.map(|lowered| {
-                compiled_project_from_lowered(
-                    &project,
-                    self.options.native_registry.as_ref(),
-                    lowered,
-                )
-            }),
+            Ok(project) => {
+                self.lower_resolved_project(&project, 0)
+                    .await
+                    .map(|(lowered, _environment)| {
+                        compiled_project_from_lowered(
+                            &project,
+                            self.options.native_registry.as_ref(),
+                            lowered,
+                        )
+                    })
+            }
             Err(error) => Err(error),
         };
         CompileAttempt {
@@ -197,7 +224,7 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let project = self.resolve_project_graph_attempt(root).await.result?;
-        let lowered = self.lower_resolved_project(&project).await?;
+        let (lowered, _environment) = self.lower_resolved_project(&project, 0).await?;
         let mut analysis = ProjectAnalysis::empty(
             project.sources.clone(),
             self.options.native_registry.profile_id().clone(),
@@ -472,9 +499,10 @@ impl Compiler {
     async fn lower_resolved_project(
         &self,
         project: &ResolvedProject,
-    ) -> Result<LoweredProject, CompileFailure> {
+        generation: u64,
+    ) -> Result<(LoweredProject, crate::CompileEnvironment), CompileFailure> {
         let request = CompileEnvironmentRequest {
-            generation: 0,
+            generation,
             native_registry_profile: self
                 .options
                 .native_registry
@@ -493,7 +521,7 @@ impl Compiler {
                     SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
                 )],
             })?;
-        lower_project(
+        let lowered = lower_project(
             project,
             self.options.native_registry.as_ref(),
             environment.session_context(),
@@ -501,7 +529,8 @@ impl Compiler {
             &self.options.import_capabilities,
         )
         .await
-        .map_err(|diagnostics| CompileFailure { diagnostics })
+        .map_err(|diagnostics| CompileFailure { diagnostics })?;
+        Ok((lowered, environment))
     }
 }
 

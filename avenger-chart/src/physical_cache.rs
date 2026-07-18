@@ -65,18 +65,31 @@ pub fn physical_cache_disabled_by_env() -> bool {
 ///
 /// [`SessionConfig`]: datafusion::prelude::SessionConfig
 pub fn install_physical_cache(
-    mut builder: SessionStateBuilder,
+    builder: SessionStateBuilder,
     config: EvaluationCacheConfig,
 ) -> (SessionStateBuilder, Arc<EvaluationCache>) {
     let cache = EvaluationCache::new(config);
+    let builder = install_shared_physical_cache(builder, Arc::clone(&cache));
+    (builder, cache)
+}
+
+/// Install a caller-owned physical result cache on a session-state builder.
+///
+/// This is the hot-reload primitive: each generation receives a fresh
+/// `SessionContext`, while every context installs the same process-owned cache
+/// before constructing any `DataFrame`. Callers that disable caching should
+/// omit this helper entirely so no dormant optimizer rule is installed.
+pub fn install_shared_physical_cache(
+    mut builder: SessionStateBuilder,
+    cache: Arc<EvaluationCache>,
+) -> SessionStateBuilder {
     let planner = EvaluationCachePlanner::new(Arc::clone(&cache));
 
     let config_slot = builder.config();
     let session_config = config_slot.take().unwrap_or_default();
     *config_slot = Some(session_config.with_extension(Arc::clone(&cache)));
 
-    let builder = builder.with_physical_optimizer_rule(Arc::new(planner));
-    (builder, cache)
+    builder.with_physical_optimizer_rule(Arc::new(planner))
 }
 
 /// Build a `SessionContext` with default features and the physical result

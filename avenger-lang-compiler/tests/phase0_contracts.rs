@@ -1,11 +1,16 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use arrow::datatypes::{DataType, Field, Schema};
 use avenger_chart_lang_registry::{NativeRegistryBuilder, ResolvedDeclaration, builtins};
 use avenger_chart_schema::{KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot};
 use avenger_lang_compiler::{
-    AnalyzedDataset, ArtifactCacheKey, Compiler, DatasetProvenance, DatasetSchemaIndex,
-    DatasetStageId, DatasetStageKind, DependencyFingerprint, ProjectDatasetId,
+    AnalyzedDataset, ArtifactCacheKey, CompileEnvironment, CompileEnvironmentError,
+    CompileEnvironmentFactory, CompileEnvironmentRequest, Compiler, DatasetProvenance,
+    DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DependencyFingerprint, ProjectDatasetId,
 };
 use avenger_lang_core::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceFile, SourceId, SourceLoader,
@@ -175,6 +180,67 @@ async fn compile_attempt_retains_discovered_dependencies_on_success() {
         dependencies[0].content_version.as_deref(),
         Some("sha256:test")
     );
+}
+
+#[derive(Default)]
+struct RecordingEnvironmentFactory {
+    requests: Mutex<Vec<CompileEnvironmentRequest>>,
+}
+
+impl CompileEnvironmentFactory for RecordingEnvironmentFactory {
+    fn create(
+        &self,
+        request: &CompileEnvironmentRequest,
+    ) -> Result<CompileEnvironment, CompileEnvironmentError> {
+        self.requests.lock().unwrap().push(request.clone());
+        Ok(CompileEnvironment::new(
+            datafusion::prelude::SessionContext::new(),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn generation_compile_retains_its_environment_and_generation() {
+    let origin = SourceOrigin::File("/project/chart.avenger".into());
+    let loader = Arc::new(
+        InMemorySourceLoader::default().with_source(LoadedSource::new(
+            origin,
+            "avenger 1; chart cartesian as chart {}",
+            ContentVersion::new("sha256:generation"),
+        )),
+    );
+    let factory = Arc::new(RecordingEnvironmentFactory::default());
+    let compiler = Compiler::builder()
+        .project_root("/project")
+        .source_loader(loader as Arc<dyn SourceLoader>)
+        .environment_factory(factory.clone())
+        .build()
+        .unwrap();
+
+    let compiled = compiler
+        .compile_file_generation_attempt("chart.avenger", 42)
+        .await
+        .result
+        .unwrap();
+
+    assert_eq!(compiled.generation, 42);
+    assert_eq!(
+        factory.requests.lock().unwrap().as_slice(),
+        &[CompileEnvironmentRequest {
+            generation: 42,
+            native_registry_profile: compiler
+                .options()
+                .native_registry
+                .profile_id()
+                .as_str()
+                .to_string(),
+        }]
+    );
+    let context = compiled.environment.session_context_arc();
+    assert!(std::ptr::eq(
+        context.as_ref(),
+        compiled.environment.session_context()
+    ));
 }
 
 #[test]

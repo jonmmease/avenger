@@ -24,8 +24,8 @@ pub use artifact::{
     InterfaceStateBinding, ProjectChartId, ProjectFingerprint,
 };
 pub use compiler::{
-    CompileAttempt, CompileFailure, CompiledDependency, Compiler, CompilerBuildError,
-    CompilerBuilder, DependencyRole, DiscoveredDependencySet, ExpandedSource,
+    CompileAttempt, CompileFailure, CompiledChartGeneration, CompiledDependency, Compiler,
+    CompilerBuildError, CompilerBuilder, DependencyRole, DiscoveredDependencySet, ExpandedSource,
 };
 pub use options::{
     CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment,

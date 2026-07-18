@@ -5,6 +5,7 @@ use avenger_chart_lang_registry::NativeRegistry;
 use avenger_lang_core::{DataCapabilities, EnvironmentProvider, ImportCapabilities, SourceLoader};
 use datafusion::{catalog::CatalogProvider, prelude::SessionContext};
 
+#[derive(Clone)]
 pub struct CompileEnvironment {
     session_context: Arc<SessionContext>,
 }
@@ -19,9 +20,13 @@ impl CompileEnvironment {
     pub fn session_context(&self) -> &SessionContext {
         &self.session_context
     }
+
+    pub fn session_context_arc(&self) -> Arc<SessionContext> {
+        Arc::clone(&self.session_context)
+    }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CompileEnvironmentRequest {
     pub generation: u64,
     pub native_registry_profile: String,
