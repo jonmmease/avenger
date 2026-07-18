@@ -37,6 +37,10 @@ pub enum ResolvedValue {
     Query(String),
     Array(Vec<ResolvedValue>),
     Object(IndexMap<String, ResolvedValue>),
+    Call {
+        function: String,
+        args: Vec<ResolvedValue>,
+    },
     DataFrame(Box<DataFrame>),
     Param(Param),
     Selection(Selection),
@@ -62,6 +66,11 @@ impl fmt::Debug for ResolvedValue {
             Self::Query(value) => f.debug_tuple("Query").field(value).finish(),
             Self::Array(value) => f.debug_tuple("Array").field(value).finish(),
             Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
+            Self::Call { function, args } => f
+                .debug_struct("Call")
+                .field("function", function)
+                .field("args", args)
+                .finish(),
             Self::DataFrame(_) => f.write_str("DataFrame(..)"),
             Self::Param(value) => f.debug_tuple("Param").field(&value.name).finish(),
             Self::Selection(value) => f.debug_tuple("Selection").field(&value.id).finish(),

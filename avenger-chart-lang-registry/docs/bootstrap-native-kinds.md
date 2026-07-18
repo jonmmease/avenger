@@ -23,6 +23,28 @@ A geographic map projection with an optional authored viewport.
 | `viewport_id` | property | false | Runtime viewport state id prefix. |
 | `zoom` | property | false | Initial slippy-style zoom level. |
 
+## `Coordinate.grid_concat`
+
+An explicitly placed two-dimensional grid of child plot cells.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `axis_guide_visibility` | property | false | Axis label and title compaction policy across grid cells. |
+| `column_widths` | property | false | Per-column plot-area track sizing. |
+| `columns` | property | true | Positive number of grid columns. |
+| `row_heights` | property | false | Per-row plot-area track sizing. |
+| `rows` | property | true | Positive number of grid rows. |
+| `spacing` | property | false | Minimum gap between adjacent plot areas. |
+
+## `Coordinate.hconcat`
+
+A horizontal ordered concatenation of child plot cells.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `spacing` | property | false | Minimum gap between adjacent plot areas. |
+| `widths` | property | false | Per-cell horizontal plot-area track sizing. |
+
 ## `Coordinate.parallel`
 
 A wide-form parallel-coordinate frame with user-named dimensions.
@@ -45,6 +67,26 @@ A hierarchical treemap layout coordinate system.
 | `path` | property | true | Ordered hierarchy-level expressions from root to leaf. |
 | `root_path_id` | property | false | Initial visible hierarchy root path id. |
 | `value` | property | true | Non-negative leaf weight expression used for area allocation. |
+
+## `Coordinate.vconcat`
+
+A vertical ordered concatenation of child plot cells.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `heights` | property | false | Per-cell vertical plot-area track sizing. |
+| `spacing` | property | false | Minimum gap between adjacent plot areas. |
+
+## `Coordinate.wrap_concat`
+
+A row-major wrapping concatenation of child plot cells.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `axis_guide_visibility` | property | false | Axis label and title compaction policy across wrapped cells. |
+| `columns` | property | false | Expression yielding the fixed number of columns. |
+| `responsive_columns` | property | false | Expression yielding the target minimum cell width in pixels. |
+| `spacing` | property | false | Minimum gap between adjacent plot areas. |
 
 ## `Coordinate.zerod`
 

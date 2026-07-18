@@ -639,10 +639,15 @@ impl<'a> ProjectLowerer<'a> {
             if let Some(data) = &explicit_data {
                 self.record_schema(declaration, data);
             }
-            plot.data = explicit_data.clone();
-            let planning_data = explicit_data.as_ref().or(inherited_data);
+            // A nested plot is compiled as an independently typed child plot.
+            // Preserve lexical data inheritance by installing the current
+            // DataFrame when the child does not author an override; otherwise
+            // the child compiler would have no schema or runtime relation even
+            // though its DSL scope correctly resolved inherited columns.
+            plot.data = explicit_data.clone().or_else(|| inherited_data.cloned());
+            let planning_data = plot.data.clone();
             let root_group = self
-                .lower_container(declaration, planning_data, &mut plot)
+                .lower_container(declaration, planning_data.as_ref(), &mut plot)
                 .await?;
             if !root_group.marks.is_empty() || !root_group.transforms.is_empty() {
                 plot.marks.push(ResolvedMark::Group(Box::new(root_group)));
@@ -983,6 +988,7 @@ impl<'a> ProjectLowerer<'a> {
             // path below: forwarding them here would resolve output handles
             // before the preceding child stages have installed those outputs.
             if namespace == NativeKindNamespace::Coordinate
+                && !matches!(child.keyword.as_str(), "cell" | "plot")
                 && schema
                     .child_rules
                     .iter()
@@ -1388,6 +1394,13 @@ impl<'a> ProjectLowerer<'a> {
                     })
                     .collect::<Result<_, Diagnostic>>()?,
             ),
+            ResolvedValue::Call { function, args } => NativeValue::Call {
+                function: function.clone(),
+                args: args
+                    .iter()
+                    .map(|value| self.native_value(value, data, declaration))
+                    .collect::<Result<_, _>>()?,
+            },
             ResolvedValue::Dimension(dimension) => NativeValue::Output(
                 self.transform_outputs
                     .get(&dimension.target)
@@ -1420,8 +1433,7 @@ impl<'a> ProjectLowerer<'a> {
                     },
                 )?)
             }
-            ResolvedValue::Call { .. }
-            | ResolvedValue::Reference(_)
+            ResolvedValue::Reference(_)
             | ResolvedValue::Pattern(_)
             | ResolvedValue::Environment(_)
             | ResolvedValue::None

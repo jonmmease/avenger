@@ -112,6 +112,7 @@ pub mod event;
 pub mod facet;
 pub mod fonts;
 pub mod guide;
+pub mod language;
 pub mod layout;
 pub mod legend;
 pub mod marks;

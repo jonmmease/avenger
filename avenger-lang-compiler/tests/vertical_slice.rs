@@ -398,6 +398,71 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
 }
 
 #[tokio::test]
+async fn native_surface_concat_cells_lower_as_mixed_coordinate_subplots() {
+    let source = r#"avenger 1;
+        chart hconcat as chart {
+          data: { values: [{ x: 1.0; y: 2.0; }]; }
+          spacing: 12;
+          widths: [fr(2), px(180)];
+
+          cell cartesian as left {
+            label: 'Left cell';
+            mark symbol { x: "x"; y: "y"; }
+          }
+          cell polar as right {
+            mark symbol { theta: "x"; r: "y"; size: value 100; }
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert_eq!(artifact.compiled_plot().marks().len(), 2);
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("\"key\":\"left\""), "{json}");
+    assert!(json.contains("\"type\":\"HConcat\""), "{json}");
+}
+
+#[tokio::test]
+async fn native_surface_vconcat_grid_and_wrap_lower_through_registered_packs() {
+    for (coordinate, properties, placement, expected_type) in [
+        ("vconcat", "spacing: 4; heights: [auto];", "", "VConcat"),
+        (
+            "grid_concat",
+            "rows: 1; columns: 1; column_widths: [fr(1)]; row_heights: [px(120)];",
+            "at { row: 0; column: 0; }",
+            "GridConcat",
+        ),
+        (
+            "wrap_concat",
+            "columns: 1; axis_guide_visibility: outer_edges;",
+            "",
+            "WrapConcat",
+        ),
+    ] {
+        let source = format!(
+            r#"avenger 1;
+            chart {coordinate} as chart {{
+              data: {{ values: [{{ x: 1.0; y: 2.0; }}]; }}
+              {properties}
+              cell cartesian {placement} {{
+                mark symbol {{ x: "x"; y: "y"; }}
+              }}
+            }}"#
+        );
+        let artifact = source_compiler(&source, None)
+            .compile_file("chart.avenger")
+            .await
+            .unwrap_or_else(|error| panic!("{coordinate}: {error:?}"));
+        let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+        assert!(
+            json.contains(&format!("\"type\":\"{expected_type}\"")),
+            "{coordinate}: {json}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

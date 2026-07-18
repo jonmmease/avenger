@@ -33,10 +33,12 @@ avenger-color = { path = "../avenger-color" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-chart-core = { path = "../avenger-chart-core" }
+avenger-chart-lang-types = { path = "../avenger-chart-lang-types" }
 avenger-chart-legend = { path = "../avenger-chart-legend" }
 avenger-chart-marks = { path = "../avenger-chart-marks" }
 avenger-chart-marks-statistical = { path = "../avenger-chart-marks-statistical" }
 avenger-chart-scales = { path = "../avenger-chart-scales" }
+avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-chart-tools = { path = "../avenger-chart-tools" }
 avenger-chart-transforms = { path = "../avenger-chart-transforms" }
 avenger-datafusion-partial-eval = { path = "../avenger-datafusion-partial-eval" }

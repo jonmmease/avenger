@@ -175,6 +175,137 @@
     {
       "key": {
         "namespace": "coordinate",
+        "kind": "grid_concat"
+      },
+      "docs": "An explicitly placed two-dimensional grid of child plot cells.",
+      "properties": {
+        "axis_guide_visibility": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "auto",
+                  "docs": "Use the container's default compaction behavior."
+                },
+                {
+                  "value": "all",
+                  "docs": "Show labels and titles on every child axis."
+                },
+                {
+                  "value": "outer_edges",
+                  "docs": "Show labels and titles only on physical outer edges."
+                },
+                {
+                  "value": "outer_for_equivalent_domain_groups",
+                  "docs": "Compact only for semantically equivalent aligned domains."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Axis label and title compaction policy across grid cells."
+        },
+        "column_widths": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Per-column plot-area track sizing."
+        },
+        "columns": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": true,
+          "docs": "Positive number of grid columns."
+        },
+        "row_heights": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Per-row plot-area track sizing."
+        },
+        "rows": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": true,
+          "docs": "Positive number of grid rows."
+        },
+        "spacing": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum gap between adjacent plot areas."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "An ordered child plot cell."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "hconcat"
+      },
+      "docs": "A horizontal ordered concatenation of child plot cells.",
+      "properties": {
+        "spacing": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum gap between adjacent plot areas."
+        },
+        "widths": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Per-cell horizontal plot-area track sizing."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "An ordered child plot cell."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
         "kind": "parallel"
       },
       "docs": "A wide-form parallel-coordinate frame with user-named dimensions.",
@@ -268,6 +399,117 @@
       "body_mode": "mixed",
       "stateless": false,
       "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "vconcat"
+      },
+      "docs": "A vertical ordered concatenation of child plot cells.",
+      "properties": {
+        "heights": {
+          "shape": {
+            "shape": "array",
+            "detail": {
+              "shape": "any"
+            }
+          },
+          "required": false,
+          "docs": "Per-cell vertical plot-area track sizing."
+        },
+        "spacing": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum gap between adjacent plot areas."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "An ordered child plot cell."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "wrap_concat"
+      },
+      "docs": "A row-major wrapping concatenation of child plot cells.",
+      "properties": {
+        "axis_guide_visibility": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "auto",
+                  "docs": "Use the container's default compaction behavior."
+                },
+                {
+                  "value": "all",
+                  "docs": "Show labels and titles on every child axis."
+                },
+                {
+                  "value": "outer_edges",
+                  "docs": "Show labels and titles only on physical outer edges."
+                },
+                {
+                  "value": "outer_for_equivalent_domain_groups",
+                  "docs": "Compact only for semantically equivalent aligned domains."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Axis label and title compaction policy across wrapped cells."
+        },
+        "columns": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression yielding the fixed number of columns."
+        },
+        "responsive_columns": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression yielding the target minimum cell width in pixels."
+        },
+        "spacing": {
+          "shape": {
+            "shape": "number"
+          },
+          "required": false,
+          "docs": "Minimum gap between adjacent plot areas."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "An ordered child plot cell."
+        }
+      ]
     },
     {
       "key": {

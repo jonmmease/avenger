@@ -7,7 +7,10 @@ use std::sync::Arc;
 
 use avenger_chart::{
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::Cartesian,
+    prelude::{Cartesian, Plot, Subplot},
+};
+use avenger_chart_core::{
+    CoordinateSystem, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
@@ -43,7 +46,82 @@ pub fn register_bootstrap_builtins(
     builder.register_coordinate_pack(CoordinatePack::from_language_definition(
         avenger_chart_marks::language::zero_d_definition(),
     ))?;
+    register_concat_coordinates(builder)?;
     register_bootstrap_noncoordinate_builtins(builder)
+}
+
+fn register_concat_coordinates(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::hconcat_definition())
+            .child_plots(lower_concat_child),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::vconcat_definition())
+            .child_plots(lower_concat_child),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::grid_concat_definition())
+            .child_plots(lower_concat_child),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::wrap_concat_definition())
+            .child_plots(lower_concat_child),
+    )?;
+    Ok(())
+}
+
+fn lower_concat_child<C: CoordinateSystem + SubplotContainerCoordinateSystem>(
+    plot: Plot<C>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+) -> Result<Plot<C>, RegistryError> {
+    let mut subplot = Subplot::<C>::new(child);
+    if let Some(name) = &placement.source_name {
+        subplot = subplot.name(name.clone());
+    }
+    if let Some(label) = placement.properties.get("label") {
+        subplot = subplot.caption(native_expr(label, "label")?);
+    }
+    let row = optional_usize(placement, "row")?;
+    let column = optional_usize(placement, "column")?;
+    match (row, column) {
+        (Some(row), Some(column)) => subplot = subplot.at(row, column),
+        (None, None) => {}
+        _ => {
+            return Err(RegistryError::Lowering {
+                kind: "cell".to_string(),
+                message: "grid placement requires both row and column".to_string(),
+            });
+        }
+    }
+    if let Some(span) = optional_usize(placement, "row_span")? {
+        subplot = subplot.grid_row_span(span);
+    }
+    if let Some(span) = optional_usize(placement, "column_span")? {
+        subplot = subplot.grid_column_span(span);
+    }
+    Ok(plot.mark(subplot))
+}
+
+fn optional_usize(
+    declaration: &crate::ResolvedDeclaration,
+    property: &str,
+) -> Result<Option<usize>, RegistryError> {
+    let Some(value) = declaration.properties.get(property) else {
+        return Ok(None);
+    };
+    let ResolvedValue::Integer(value) = value else {
+        return Err(RegistryError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "a non-negative integer".to_string(),
+        });
+    };
+    usize::try_from(*value)
+        .map(Some)
+        .map_err(|_| RegistryError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "a non-negative integer".to_string(),
+        })
 }
 
 /// Register the coordinate-independent bootstrap families. Downstream hosts

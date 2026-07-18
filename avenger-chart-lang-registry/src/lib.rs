@@ -1036,7 +1036,7 @@ fn validate_value_shape(
         (_, ValueShape::Any) => true,
         (ResolvedValue::Boolean(_), ValueShape::Boolean) => true,
         (ResolvedValue::Integer(_), ValueShape::Integer) => true,
-        (ResolvedValue::Number(_), ValueShape::Number) => true,
+        (ResolvedValue::Integer(_) | ResolvedValue::Number(_), ValueShape::Number) => true,
         (
             ResolvedValue::String(_),
             ValueShape::String | ValueShape::Identifier | ValueShape::ScalarBinding,
