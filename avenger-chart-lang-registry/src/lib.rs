@@ -105,6 +105,7 @@ pub struct ResolvedRootFurnishings {
     pub params: Vec<(Param, CoordinationScope)>,
     pub selections: Vec<Selection>,
     pub stores: Vec<Store>,
+    pub event_bindings: Vec<ChartEventBinding>,
 }
 
 #[derive(Clone, Debug)]
@@ -634,6 +635,9 @@ impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
         }
         for store in &plot.furnishings.stores {
             chart = chart.store(store.clone());
+        }
+        for binding in &plot.furnishings.event_bindings {
+            chart = chart.event_binding(binding.clone());
         }
         Ok(chart.compile(session_context).await?)
     }

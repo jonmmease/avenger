@@ -23,9 +23,10 @@ use avenger_chart::{
     },
 };
 use avenger_chart_core::{
-    DataTransformExecutionContext, DataTransformStage, FormattingContext, Param as ChartParam,
-    PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
-    PatternLayerOperation, StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart,
+    ChartEventBinding, ChartEventStream, ChartEventType, DataTransformExecutionContext,
+    DataTransformStage, FormattingContext, Param as ChartParam, PatternAnchor, PatternChannelValue,
+    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, StripeDash, StripePatternLayer,
+    Theme, TimeContext, ViewRef, WeekStart, event,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -35,12 +36,12 @@ use avenger_chart_lang_registry::{
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
     DeclarationId, Diagnostic, HelperClass, ImportCapabilities, IntervalUnit, ParamId,
-    PhysicalField, PhysicalType, ResolvedBinding, ResolvedDeclaration, ResolvedExpression,
-    ResolvedHelperArgument, ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam,
-    ResolvedProject, ResolvedQuery, ResolvedSelection, ResolvedSelectionCombine,
-    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue,
-    SelectionId, SourceLabel, SourceLoader, SourceSpan, StateSharing, StoreId, TimeUnit,
-    ast::BindingTime, project::resolve_import_origin,
+    PhysicalField, PhysicalType, ResolvedActionRoute, ResolvedBinding, ResolvedDeclaration,
+    ResolvedEventScope, ResolvedEventSurface, ResolvedExpression, ResolvedHelperArgument,
+    ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedProject, ResolvedQuery,
+    ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference,
+    ResolvedStore, ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader,
+    SourceSpan, StateSharing, StoreId, TimeUnit, ast::BindingTime, project::resolve_import_origin,
 };
 use datafusion::{
     common::{
@@ -564,11 +565,23 @@ impl<'a> ProjectLowerer<'a> {
                     .push(self.selections[id].clone());
             }
         }
+        for binding in chart.children.iter().filter(|child| child.keyword == "on") {
+            plot.furnishings
+                .event_bindings
+                .push(self.lower_event_binding(chart, binding, data.as_ref())?);
+        }
 
-        let root_group = self
+        let mut root_group = self
             .lower_container(chart, data.as_ref(), &mut plot)
             .await?;
-        if !root_group.marks.is_empty() || !root_group.transforms.is_empty() {
+        if root_group.data.is_none()
+            && root_group.transforms.is_empty()
+            && root_group.view.is_none()
+            && root_group.id.is_none()
+            && root_group.component_kind.is_none()
+        {
+            plot.marks.append(&mut root_group.marks);
+        } else if !root_group.marks.is_empty() || !root_group.transforms.is_empty() {
             plot.marks.push(ResolvedMark::Group(Box::new(root_group)));
         }
         Ok(plot)
@@ -632,6 +645,226 @@ impl<'a> ProjectLowerer<'a> {
             context = context.datetime_timezone(value);
         }
         Ok(context)
+    }
+
+    fn lower_event_binding(
+        &self,
+        chart: &ResolvedDeclaration,
+        declaration: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+    ) -> Result<ChartEventBinding, Diagnostic> {
+        let resolved = declaration
+            .event_binding
+            .as_ref()
+            .ok_or_else(|| lowerer_error(declaration, "event binding metadata was not resolved"))?;
+        let mut binding = ChartEventBinding::on(
+            chart_event_type(&resolved.event_type)
+                .ok_or_else(|| lowerer_error(declaration, "unsupported chart event type"))?,
+        );
+        if let Some(value) = declaration.properties.get("filter") {
+            binding = binding.filter(self.event_expression_value(value, data, declaration)?);
+        }
+        if let Some(ResolvedValue::Number(value)) = declaration.properties.get("throttle_ms") {
+            binding = binding.throttle_ms(value.parse::<u64>().map_err(|_| {
+                lowerer_error(declaration, "throttle_ms must be a non-negative integer")
+            })?);
+        }
+        if let Some(ResolvedValue::Boolean(consume)) = declaration.properties.get("consume") {
+            binding = binding.consume(*consume);
+        }
+        if matches!(
+            declaration.properties.get("mode"),
+            Some(ResolvedValue::Atom(value)) if value == "preview"
+        ) {
+            binding = binding.preview();
+        } else if matches!(
+            declaration.properties.get("mode"),
+            Some(ResolvedValue::Atom(value)) if value == "exact"
+        ) {
+            binding = binding.exact();
+        }
+        if matches!(
+            declaration.properties.get("settle_exact"),
+            Some(ResolvedValue::Boolean(true))
+        ) {
+            binding = binding.settle_exact();
+        }
+
+        let mark_paths = resolved
+            .targets
+            .iter()
+            .map(|target| self.event_target_path(chart, target, declaration))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !mark_paths.is_empty() {
+            binding = binding.marks(mark_paths);
+        }
+        if let ResolvedEventScope::Subplots { targets, .. } = &resolved.scope {
+            let paths = targets
+                .iter()
+                .map(|target| self.event_target_path(chart, target, declaration))
+                .collect::<Result<Vec<_>, _>>()?;
+            binding = binding.within_subplots(paths);
+        }
+        binding = match &resolved.surface {
+            ResolvedEventSurface::All(_) => binding.all_surfaces(),
+            ResolvedEventSurface::Plot(_) => binding.with_plot_surface_target(),
+            ResolvedEventSurface::Legend { channel, .. } => {
+                binding.with_legend_surface_target(vec![channel.clone()], Vec::new())
+            }
+        };
+
+        if let Some(value) = declaration.properties.get("between") {
+            let ResolvedValue::Object { properties, .. } = value else {
+                return Err(lowerer_error(declaration, "between must be a stream block"));
+            };
+            let start = properties
+                .get("start")
+                .ok_or_else(|| lowerer_error(declaration, "between requires a start stream"))?;
+            let end = properties
+                .get("end")
+                .ok_or_else(|| lowerer_error(declaration, "between requires an end stream"))?;
+            binding = binding.between(
+                self.lower_event_stream(chart, start, data, declaration)?,
+                self.lower_event_stream(chart, end, data, declaration)?,
+            );
+        }
+
+        for action in &declaration.children {
+            if action.keyword != "set" {
+                continue;
+            }
+            let value = action
+                .properties
+                .get("value")
+                .ok_or_else(|| lowerer_error(action, "state action requires a value"))?;
+            match action.kind.as_deref() {
+                Some("cursor") => {
+                    binding = binding.set_cursor(self.event_expression_value(value, data, action)?);
+                }
+                Some("param") => {
+                    let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
+                        lowerer_error(action, "parameter action target was not resolved")
+                    })?;
+                    let ResolvedTarget::Param(id) = &lvalue.target else {
+                        return Err(lowerer_error(
+                            action,
+                            "definition-owned parameter actions require Phase 7 expansion",
+                        ));
+                    };
+                    let param = self.params.get(id).ok_or_else(|| {
+                        lowerer_error(action, "resolved parameter is unavailable")
+                    })?;
+                    let expr = self.event_expression_value(value, data, action)?;
+                    binding = match (lvalue.route, lvalue.replacing_scopes) {
+                        (ResolvedActionRoute::Current, false) => binding.set_param(param, expr),
+                        (ResolvedActionRoute::Current, true) => {
+                            binding.set_param_replacing_scopes(param, expr)
+                        }
+                        (ResolvedActionRoute::Start, false) => {
+                            binding.set_param_at_start_scope(param, expr)
+                        }
+                        (ResolvedActionRoute::Start, true) => {
+                            binding.set_param_at_start_scope_replacing_scopes(param, expr)
+                        }
+                    };
+                }
+                Some(kind @ ("store" | "selection")) => {
+                    return Err(lowerer_error(
+                        action,
+                        format!("event `{kind}` update lowering is not implemented yet"),
+                    ));
+                }
+                _ => return Err(lowerer_error(action, "unsupported event action kind")),
+            }
+        }
+        binding
+            .validate()
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        Ok(binding)
+    }
+
+    fn lower_event_stream(
+        &self,
+        chart: &ResolvedDeclaration,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ChartEventStream, Diagnostic> {
+        let ResolvedValue::Object {
+            kind, properties, ..
+        } = value
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "between stream must be an event block",
+            ));
+        };
+        let kind = kind
+            .as_deref()
+            .ok_or_else(|| lowerer_error(declaration, "event stream type was not resolved"))?;
+        let mut stream = ChartEventStream::on(
+            chart_event_type(kind)
+                .ok_or_else(|| lowerer_error(declaration, "unsupported event stream type"))?,
+        );
+        if let Some(value) = properties.get("filter") {
+            stream = stream.filter(self.event_expression_value(value, data, declaration)?);
+        }
+        if let Some(target) = properties.get("target") {
+            let targets = match target {
+                ResolvedValue::Reference(reference) => vec![reference.target.clone()],
+                ResolvedValue::Array(values) => values
+                    .iter()
+                    .filter_map(|value| match value {
+                        ResolvedValue::Reference(reference) => Some(reference.target.clone()),
+                        _ => None,
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            let paths = targets
+                .iter()
+                .map(|target| self.event_target_path(chart, target, declaration))
+                .collect::<Result<Vec<_>, _>>()?;
+            if !paths.is_empty() {
+                stream = stream.marks(paths);
+            }
+        }
+        Ok(stream)
+    }
+
+    fn event_target_path(
+        &self,
+        chart: &ResolvedDeclaration,
+        target: &ResolvedTarget,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<String, Diagnostic> {
+        fn find(
+            owner: &ResolvedDeclaration,
+            target: &ResolvedTarget,
+            prefix: &[String],
+        ) -> Option<String> {
+            let mut path = prefix.to_vec();
+            if owner.keyword != "chart"
+                && let Some(name) = &owner.name
+            {
+                path.push(name.clone());
+            }
+            if owner.runtime_target.as_ref() == Some(target) {
+                return Some(path.join("."));
+            }
+            if let ResolvedTarget::Part { declaration, alias } = target
+                && &owner.id == declaration
+            {
+                path.push(alias.clone());
+                return Some(path.join("."));
+            }
+            owner
+                .children
+                .iter()
+                .find_map(|child| find(child, target, &path))
+        }
+        find(chart, target, &[])
+            .ok_or_else(|| lowerer_error(declaration, "event target has no runtime authoring path"))
     }
 
     fn lower_container<'b>(
@@ -2061,6 +2294,193 @@ impl<'a> ProjectLowerer<'a> {
         }
     }
 
+    fn event_expression_value(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Expr, Diagnostic> {
+        match value {
+            ResolvedValue::Expression(expression) => {
+                self.planned_event_expression(expression, data, declaration)
+            }
+            ResolvedValue::Binding(binding) => self.event_binding_expr(binding, declaration),
+            ResolvedValue::Call { function, args } => {
+                let helper = avenger_lang_core::ResolvedHelper {
+                    name: function.clone(),
+                    class: HelperClass::Event,
+                    arguments: args
+                        .iter()
+                        .map(|value| match value {
+                            ResolvedValue::Atom(value) => {
+                                Ok(ResolvedHelperArgument::Name(value.clone()))
+                            }
+                            ResolvedValue::String(value) => {
+                                Ok(ResolvedHelperArgument::String(value.clone()))
+                            }
+                            ResolvedValue::Number(value) => {
+                                Ok(ResolvedHelperArgument::Number(value.clone()))
+                            }
+                            _ => Err(lowerer_error(
+                                declaration,
+                                "event helper call has an unsupported argument",
+                            )),
+                        })
+                        .collect::<Result<Vec<_>, _>>()?,
+                };
+                self.event_helper_expr(&helper, data, declaration)
+                    .map(|(expr, _)| expr)
+            }
+            _ => self.expression_value(value, data, declaration),
+        }
+    }
+
+    fn event_binding_expr(
+        &self,
+        binding: &ResolvedBinding,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Expr, Diagnostic> {
+        let ResolvedTarget::Param(id) = &binding.target else {
+            return Err(lowerer_error(
+                declaration,
+                "event scalar expressions require parameter bindings",
+            ));
+        };
+        let param = self
+            .params
+            .get(id)
+            .ok_or_else(|| lowerer_error(declaration, "resolved parameter is unavailable"))?;
+        Ok(match binding.time {
+            BindingTime::Current => param.expr(),
+            BindingTime::Start => event::start_param(param),
+            BindingTime::Previous => event::previous_param(param),
+        })
+    }
+
+    fn planned_event_expression(
+        &self,
+        expression: &ResolvedExpression,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Expr, Diagnostic> {
+        let mut parse_data = match data {
+            Some(data) => data.clone(),
+            None => self
+                .context
+                .read_batch(RecordBatch::new_empty(Arc::new(Schema::new(vec![
+                    Field::new("__avenger_event_parse", DataType::Boolean, true),
+                ]))))
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?,
+        };
+        let mut sql = expression.sql.clone();
+        let mut replacements = BTreeMap::new();
+
+        for (index, helper) in expression.helpers.iter().enumerate() {
+            let (expr, seed) = self.event_helper_expr(helper, data, declaration)?;
+            let authored = helper_spelling(helper, declaration)?;
+            let synthetic = format!("__avenger_event_helper_{index:08}");
+            let replacement = format!("\"{synthetic}\"");
+            let rewritten = sql.replacen(&authored, &replacement, 1);
+            if rewritten == sql {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("could not rewrite resolved event helper `{authored}`"),
+                ));
+            }
+            sql = rewritten;
+            parse_data = parse_data
+                .with_column(&synthetic, lit(seed))
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            replacements.insert(synthetic, expr);
+        }
+        for (index, binding) in expression.bindings.iter().enumerate() {
+            let synthetic = format!("__avenger_event_binding_{index:08}");
+            let authored = binding_spelling(binding);
+            sql = sql.replace(&authored, &format!("\"{synthetic}\""));
+            let param = match &binding.target {
+                ResolvedTarget::Param(id) => self.params.get(id).ok_or_else(|| {
+                    lowerer_error(declaration, "resolved parameter is unavailable")
+                })?,
+                _ => {
+                    return Err(lowerer_error(
+                        declaration,
+                        "table bindings in event scalar subqueries are not implemented yet",
+                    ));
+                }
+            };
+            parse_data = parse_data
+                .with_column(&synthetic, lit(param.default.clone()))
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            replacements.insert(
+                synthetic,
+                match binding.time {
+                    BindingTime::Current => param.expr(),
+                    BindingTime::Start => event::start_param(param),
+                    BindingTime::Previous => event::previous_param(param),
+                },
+            );
+        }
+        let parsed = parse_data
+            .parse_sql_expr(&sql)
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        parsed
+            .transform_up(|candidate| {
+                if let Expr::Column(column) = &candidate
+                    && let Some(replacement) = replacements.get(&column.name)
+                {
+                    return Ok(Transformed::yes(replacement.clone()));
+                }
+                Ok(Transformed::no(candidate))
+            })
+            .map(|result| result.data)
+            .map_err(|error: datafusion::error::DataFusionError| {
+                lowerer_error(declaration, error.to_string())
+            })
+    }
+
+    fn event_helper_expr(
+        &self,
+        helper: &avenger_lang_core::ResolvedHelper,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<(Expr, ScalarValue), Diagnostic> {
+        use ResolvedHelperArgument::{Name, Number, String as StringArg};
+        let float = || ScalarValue::Float64(None);
+        let utf8 = || ScalarValue::Utf8(None);
+        let result = match (helper.name.as_str(), helper.arguments.as_slice()) {
+            ("event_coord", [Name(channel)]) => (event::event_coord(channel), float()),
+            ("start_coord", [Name(channel)]) => (event::start_coord(channel), float()),
+            ("event_domain_start", [Name(channel)]) => {
+                (event::interval_start(event::event_domain(channel)), float())
+            }
+            ("event_domain_end", [Name(channel)]) => {
+                (event::interval_end(event::event_domain(channel)), float())
+            }
+            ("event_facet_value", [Number(index)]) => {
+                let index = index
+                    .parse::<usize>()
+                    .map_err(|_| lowerer_error(declaration, "event facet index is invalid"))?;
+                (event::event_facet_value(index), utf8())
+            }
+            ("datum", [StringArg(field)]) => {
+                let seed = data
+                    .and_then(|data| data.schema().field_with_unqualified_name(field).ok())
+                    .and_then(|field| ScalarValue::try_new_null(field.data_type()).ok())
+                    .unwrap_or_else(utf8);
+                (event::datum(field), seed)
+            }
+            ("legend_value", []) => (event::legend_value(), utf8()),
+            ("event_path", []) => (event::event_path(), utf8()),
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("event helper `{}` is not lowered yet", helper.name),
+                ));
+            }
+        };
+        Ok(result)
+    }
+
     fn binding_expr(
         &self,
         binding: &ResolvedBinding,
@@ -2823,6 +3243,53 @@ fn is_core_property(keyword: &str, name: &str) -> bool {
             | ("transform", "scope")
             | ("tool", "id")
     )
+}
+
+fn chart_event_type(value: &str) -> Option<ChartEventType> {
+    Some(match value {
+        "mouse_down" => ChartEventType::MouseDown,
+        "mouse_up" => ChartEventType::MouseUp,
+        "click" => ChartEventType::Click,
+        "double_click" => ChartEventType::DoubleClick,
+        "mouse_wheel" => ChartEventType::MouseWheel,
+        "key_press" => ChartEventType::KeyPress,
+        "key_release" => ChartEventType::KeyRelease,
+        "cursor_moved" => ChartEventType::CursorMoved,
+        "mark_mouse_enter" => ChartEventType::MarkMouseEnter,
+        "mark_mouse_leave" => ChartEventType::MarkMouseLeave,
+        "window_resize" => ChartEventType::WindowResize,
+        "window_resize_settled" => ChartEventType::WindowResizeSettled,
+        "canvas_resize" => ChartEventType::CanvasResize,
+        "canvas_resize_settled" => ChartEventType::CanvasResizeSettled,
+        "window_moved" => ChartEventType::WindowMoved,
+        "window_focused" => ChartEventType::WindowFocused,
+        "window_close_requested" => ChartEventType::WindowCloseRequested,
+        _ => return None,
+    })
+}
+
+fn helper_spelling(
+    helper: &avenger_lang_core::ResolvedHelper,
+    declaration: &ResolvedDeclaration,
+) -> Result<String, Diagnostic> {
+    let args = helper
+        .arguments
+        .iter()
+        .map(|argument| match argument {
+            ResolvedHelperArgument::Name(value) | ResolvedHelperArgument::Number(value) => {
+                Ok(value.clone())
+            }
+            ResolvedHelperArgument::String(value) => Ok(format!("'{}'", value.replace('\'', "''"))),
+            _ => Err(lowerer_error(
+                declaration,
+                format!(
+                    "helper `{}` has an unsupported resolved argument",
+                    helper.name
+                ),
+            )),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(format!("{}({})", helper.name, args.join(", ")))
 }
 
 fn sharing(value: StateSharing) -> avenger_chart_core::CoordinationScope {

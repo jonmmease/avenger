@@ -901,6 +901,54 @@ async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
 }
 
 #[tokio::test]
+async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_lower() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          param as enabled { type: boolean; default: true; }
+          param as drag_x { type: float64; default: 0.0; sharing: free; }
+          data: { values: [{ x: 1.0; y: 2.0; }]; }
+          mark symbol as points { x: "x"; y: "y"; }
+          on cursor_moved as drag {
+            target: mark points;
+            filter: $enabled;
+            throttle_ms: 16;
+            consume: true;
+            mode: preview;
+            settle_exact: true;
+            between: {
+              start: mouse_down { filter: $enabled; }
+              end: mouse_up { filter: $enabled; }
+            }
+            set param drag_x at start = event_coord(x);
+            set cursor = 'crosshair';
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let bindings = artifact.compiled_plot().event_bindings();
+    assert_eq!(bindings.len(), 1);
+    let binding = &bindings[0];
+    assert_eq!(binding.mark_ids(), &["points"]);
+    assert_eq!(binding.throttle_ms, Some(16));
+    assert!(binding.consume);
+    assert!(binding.between.is_some());
+    let steps = binding.action.ordered_steps();
+    assert_eq!(steps.len(), 2);
+    assert!(matches!(
+        &steps[0],
+        avenger_chart_core::ChartActionStep::SetParam(action)
+            if action.param_name == "drag_x"
+                && action.scope == avenger_chart_core::ChartEventAssignmentScope::Start
+    ));
+    assert!(matches!(
+        &steps[1],
+        avenger_chart_core::ChartActionStep::SetCursor(_)
+    ));
+}
+
+#[tokio::test]
 async fn native_surface_text_input_editing_exports_are_reference_driven() {
     let unused = r#"avenger 1;
         chart zerod as chart {
