@@ -2,8 +2,17 @@
 
 ## Status
 
-Future-work requirements and implementation plan for the first Avenger command
-line workflow.
+The first playable implementation landed on 2026-07-18 in
+`avenger-lang-cli`, with supporting generation-aware compiler/cache seams in
+`avenger-lang-compiler` and `avenger-chart`, and a prepared-update seam in
+`avenger-winit-wgpu`. It has been exercised in a native window through a
+successful edit, a syntax-error/last-good cycle, repair, and a reload that
+reused physical-plan cache entries.
+
+This document remains the requirements and hardening plan. The exhaustive
+fake-watcher/coordinator integration matrix, visual baselines, coordinated
+worker shutdown, definition/catalog dependency breadth, and typed interaction
+state migration are not implied complete by the playable implementation.
 
 The initial user-facing command is:
 
