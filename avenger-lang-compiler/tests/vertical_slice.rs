@@ -671,6 +671,31 @@ async fn native_surface_chart_theme_time_and_format_context_lower() {
     ] {
         assert!(json.contains(expected), "missing {expected}: {json}");
     }
+
+    let file_source = r#"avenger 1;
+        chart cartesian as chart {
+          theme css from 'theme.css';
+          data: { values: [{ x: 1.0; y: 2.0; }]; }
+          mark symbol { x: "x"; y: "y"; }
+        }"#;
+    let root = std::env::temp_dir().join(format!("avenger-theme-test-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("chart.avenger"), file_source).unwrap();
+    std::fs::write(
+        root.join("theme.css"),
+        "chart { font-family: 'Theme File'; }",
+    )
+    .unwrap();
+    let artifact = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("Theme File"), "{json}");
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[tokio::test]

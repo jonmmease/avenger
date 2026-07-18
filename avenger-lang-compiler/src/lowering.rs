@@ -34,11 +34,12 @@ use avenger_chart_lang_registry::{
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
-    DeclarationId, Diagnostic, IntervalUnit, ParamId, PhysicalField, PhysicalType, ResolvedBinding,
-    ResolvedDeclaration, ResolvedExpression, ResolvedOutputHandle, ResolvedOutputShape,
-    ResolvedParam, ResolvedProject, ResolvedQuery, ResolvedSelection, ResolvedSelectionCombine,
-    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue,
-    SelectionId, SourceLabel, SourceSpan, StateSharing, StoreId, TimeUnit, ast::BindingTime,
+    DeclarationId, Diagnostic, ImportCapabilities, IntervalUnit, ParamId, PhysicalField,
+    PhysicalType, ResolvedBinding, ResolvedDeclaration, ResolvedExpression, ResolvedOutputHandle,
+    ResolvedOutputShape, ResolvedParam, ResolvedProject, ResolvedQuery, ResolvedSelection,
+    ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
+    ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader, SourceSpan,
+    StateSharing, StoreId, TimeUnit, ast::BindingTime, project::resolve_import_origin,
 };
 use datafusion::{
     common::{
@@ -69,8 +70,10 @@ pub(crate) async fn lower_project(
     project: &ResolvedProject,
     registry: &NativeRegistry,
     context: &SessionContext,
+    source_loader: &dyn SourceLoader,
+    capabilities: &ImportCapabilities,
 ) -> Result<LoweredProject, Vec<Diagnostic>> {
-    let mut lowerer = ProjectLowerer::new(project, registry, context);
+    let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
     match lowerer.lower().await {
         Ok(project) => Ok(project),
         Err(diagnostic) => Err(vec![diagnostic]),
@@ -81,6 +84,8 @@ struct ProjectLowerer<'a> {
     project: &'a ResolvedProject,
     registry: &'a NativeRegistry,
     context: &'a SessionContext,
+    source_loader: &'a dyn SourceLoader,
+    capabilities: &'a ImportCapabilities,
     params: BTreeMap<ParamId, Param>,
     stores: BTreeMap<StoreId, Store>,
     selections: BTreeMap<SelectionId, Selection>,
@@ -95,11 +100,15 @@ impl<'a> ProjectLowerer<'a> {
         project: &'a ResolvedProject,
         registry: &'a NativeRegistry,
         context: &'a SessionContext,
+        source_loader: &'a dyn SourceLoader,
+        capabilities: &'a ImportCapabilities,
     ) -> Self {
         Self {
             project,
             registry,
             context,
+            source_loader,
+            capabilities,
             params: BTreeMap::new(),
             stores: BTreeMap::new(),
             selections: BTreeMap::new(),
@@ -475,10 +484,43 @@ impl<'a> ProjectLowerer<'a> {
             .iter()
             .filter(|child| child.keyword == "theme")
         {
-            let Some(ResolvedValue::String(css)) = declaration.properties.get("css") else {
+            let loaded_css;
+            let css = if let Some(ResolvedValue::String(css)) = declaration.properties.get("css") {
+                css.as_str()
+            } else if let Some(ResolvedValue::String(path)) = declaration.properties.get("from") {
+                let declaring_origin = &self
+                    .project
+                    .sources
+                    .get(declaration.source)
+                    .ok_or_else(|| lowerer_error(declaration, "theme source file is unavailable"))?
+                    .origin;
+                let origin =
+                    resolve_import_origin(declaring_origin, path, &self.capabilities.project_root)
+                        .map_err(|error| lowerer_error(declaration, error))?;
+                loaded_css = self
+                    .source_loader
+                    .load(&origin, self.capabilities)
+                    .await
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                if let Some(ResolvedValue::String(expected)) = declaration.properties.get("sha256")
+                {
+                    use sha2::{Digest, Sha256};
+                    let actual = format!("{:x}", Sha256::digest(loaded_css.text.as_bytes()));
+                    let expected = expected.strip_prefix("sha256:").unwrap_or(expected);
+                    if !actual.eq_ignore_ascii_case(expected) {
+                        return Err(lowerer_error(
+                            declaration,
+                            format!(
+                                "theme CSS sha256 mismatch: expected {expected}, found {actual}"
+                            ),
+                        ));
+                    }
+                }
+                loaded_css.text.as_ref()
+            } else {
                 return Err(lowerer_error(
                     declaration,
-                    "theme css from requires project resource loading, which is not available in this lowering context",
+                    "theme css requires a string or `from` path",
                 ));
             };
             match &mut theme {

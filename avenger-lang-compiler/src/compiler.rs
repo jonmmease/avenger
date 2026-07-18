@@ -497,6 +497,8 @@ impl Compiler {
             project,
             self.options.native_registry.as_ref(),
             environment.session_context(),
+            self.options.source_loader.as_ref(),
+            &self.options.import_capabilities,
         )
         .await
         .map_err(|diagnostics| CompileFailure { diagnostics })
@@ -783,6 +785,18 @@ fn discover_declaration_resources(
                 dependencies,
             )?;
         }
+    }
+    if declaration.keyword.as_str() == "theme"
+        && let Some(Value::Str(path)) = declaration.props.get("from")
+    {
+        discover_resource(
+            path,
+            source,
+            declaring_origin,
+            project_root,
+            capabilities,
+            dependencies,
+        )?;
     }
     for child in &declaration.children {
         discover_declaration_resources(
