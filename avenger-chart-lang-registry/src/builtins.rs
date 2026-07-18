@@ -1,7 +1,7 @@
-//! Bootstrap built-ins used to prove the public registry mechanism end to end.
+//! Canonical stock Avenger v1 built-ins.
 //!
-//! This is intentionally not the complete Avenger v1 inventory. The language
-//! compiler plan owns the family-by-family expansion from this slice.
+//! Native owners contribute their schema/lowerer pairs here; compiler hosts
+//! consume the finalized registry without duplicating the inventory.
 
 use std::sync::Arc;
 
@@ -28,17 +28,26 @@ use datafusion::logical_expr::{Expr, lit};
 
 use crate::{CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue};
 
+pub const STOCK_V1_PROFILE_LABEL: &str = "stock-v1";
+
+pub fn stock_registry() -> Result<NativeRegistry, RegistryError> {
+    let mut builder = NativeRegistryBuilder::new(1, STOCK_V1_PROFILE_LABEL);
+    register_stock_builtins(&mut builder)?;
+    builder.build()
+}
+
+/// Legacy profile label retained for callers that intentionally pin the
+/// original bootstrap identity.
 pub const BOOTSTRAP_PROFILE_LABEL: &str = "bootstrap-vertical-slice";
 
+/// Compatibility constructor for the pre-Phase-6 profile identity.
 pub fn bootstrap_registry() -> Result<NativeRegistry, RegistryError> {
     let mut builder = NativeRegistryBuilder::new(1, BOOTSTRAP_PROFILE_LABEL);
     register_bootstrap_builtins(&mut builder)?;
     builder.build()
 }
 
-pub fn register_bootstrap_builtins(
-    builder: &mut NativeRegistryBuilder,
-) -> Result<(), RegistryError> {
+pub fn register_stock_builtins(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
     builder.register_coordinate_pack(cartesian_pack().child_mark(
         "subplot",
         avenger_chart_cartesian::language::subplot_schema(),
@@ -67,7 +76,14 @@ pub fn register_bootstrap_builtins(
     register_concat_coordinates(builder)?;
     register_facet_coordinates(builder)?;
     register_repeat_coordinates(builder)?;
-    register_bootstrap_noncoordinate_builtins(builder)
+    register_stock_noncoordinate_builtins(builder)
+}
+
+/// Compatibility alias for hosts that used the former bootstrap name.
+pub fn register_bootstrap_builtins(
+    builder: &mut NativeRegistryBuilder,
+) -> Result<(), RegistryError> {
+    register_stock_builtins(builder)
 }
 
 fn lower_cartesian_subplot(
@@ -668,7 +684,7 @@ fn optional_usize(
 
 /// Register the coordinate-independent bootstrap families. Downstream hosts
 /// can use this when assembling a custom coordinate-pack set manually.
-pub fn register_bootstrap_noncoordinate_builtins(
+pub fn register_stock_noncoordinate_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
     register_transforms(builder)?;

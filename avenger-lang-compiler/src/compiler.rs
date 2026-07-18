@@ -569,7 +569,7 @@ impl CompilerBuilder {
             std::fs::canonicalize(&project_root).unwrap_or_else(|_| normalize_path(&project_root));
         let registry = match self.native_registry {
             Some(registry) => registry,
-            None => Arc::new(builtins::bootstrap_registry()?),
+            None => Arc::new(builtins::stock_registry()?),
         };
         let source_loader = self.source_loader.map(Ok).unwrap_or_else(|| {
             DefaultSourceLoader::new(&project_root)

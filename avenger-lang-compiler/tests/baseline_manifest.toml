@@ -2,5 +2,6 @@
 # never updates entries or reviewed artifacts.
 
 [phase0]
-schema_version = "tests/baselines/bootstrap-schema-version.json"
+schema_version = "tests/baselines/full-v1-schema-version.json"
+semantic_schema = "tests/baselines/full-v1-semantic-schema.json"
 visual_owner = "../../avenger-chart/tests/baselines/symbol/simple_scatter_plot.png"

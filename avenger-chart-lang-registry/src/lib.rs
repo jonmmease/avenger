@@ -1485,17 +1485,17 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_schema_is_deterministic_and_profile_is_schema_derived() {
-        let left = builtins::bootstrap_registry().unwrap();
-        let right = builtins::bootstrap_registry().unwrap();
+    fn stock_v1_schema_is_deterministic_and_profile_is_schema_derived() {
+        let left = builtins::stock_registry().unwrap();
+        let right = builtins::stock_registry().unwrap();
         assert_eq!(
             left.canonical_schema_json().unwrap(),
             right.canonical_schema_json().unwrap()
         );
         assert_eq!(left.profile_id(), right.profile_id());
 
-        let mut builder = NativeRegistryBuilder::new(1, builtins::BOOTSTRAP_PROFILE_LABEL);
-        builtins::register_bootstrap_builtins(&mut builder).unwrap();
+        let mut builder = NativeRegistryBuilder::new(1, builtins::STOCK_V1_PROFILE_LABEL);
+        builtins::register_stock_builtins(&mut builder).unwrap();
         builder
             .register_mark::<Cartesian>(
                 "cartesian",
@@ -1512,8 +1512,8 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_vertical_slice_every_schema_entry_has_a_paired_lowerer() {
-        let registry = builtins::bootstrap_registry().unwrap();
+    fn stock_v1_every_schema_entry_has_a_paired_lowerer() {
+        let registry = builtins::stock_registry().unwrap();
         let paired = registry
             .coordinates
             .values()
@@ -1722,28 +1722,29 @@ mod tests {
     }
 
     #[test]
-    fn checked_bootstrap_schema_and_documentation_do_not_drift() {
-        let registry = builtins::bootstrap_registry().unwrap();
+    fn checked_full_v1_schema_and_documentation_do_not_drift() {
+        let registry = builtins::stock_registry().unwrap();
         if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
             let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
             fs::write(
-                root.join("snapshots/bootstrap-schema.json"),
+                root.join("snapshots/full-v1-authoring-schema.json"),
                 serde_json::to_string_pretty(registry.snapshot()).unwrap() + "\n",
             )
             .unwrap();
             fs::write(
-                root.join("docs/bootstrap-native-kinds.md"),
+                root.join("docs/full-v1-native-kinds.md"),
                 registry.snapshot().markdown_reference(),
             )
             .unwrap();
             return;
         }
         let checked: NativeSchemaSnapshot =
-            serde_json::from_str(include_str!("../snapshots/bootstrap-schema.json")).unwrap();
+            serde_json::from_str(include_str!("../snapshots/full-v1-authoring-schema.json"))
+                .unwrap();
         assert_eq!(registry.snapshot(), &checked);
         assert_eq!(
             registry.snapshot().markdown_reference(),
-            include_str!("../docs/bootstrap-native-kinds.md")
+            include_str!("../docs/full-v1-native-kinds.md")
         );
     }
 

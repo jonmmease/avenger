@@ -13,10 +13,10 @@ use avenger_lang_core::{
 };
 
 #[test]
-fn bootstrap_schema_round_trips_and_matches_version_snapshot() {
-    let registry = builtins::bootstrap_registry().unwrap();
+fn full_v1_schema_round_trips_and_matches_version_snapshot() {
+    let registry = builtins::stock_registry().unwrap();
     let checked: NativeSchemaSnapshot = serde_json::from_str(include_str!(
-        "../../avenger-chart-lang-registry/snapshots/bootstrap-schema.json"
+        "../../avenger-chart-lang-registry/snapshots/full-v1-authoring-schema.json"
     ))
     .unwrap();
 
@@ -32,25 +32,40 @@ fn bootstrap_schema_round_trips_and_matches_version_snapshot() {
     let rendered = serde_json::to_string_pretty(&version_snapshot).unwrap() + "\n";
     if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/baselines/bootstrap-schema-version.json");
+            .join("tests/baselines/full-v1-schema-version.json");
         fs::write(&path, &rendered).unwrap();
         eprintln!("updated {}", path.display());
     } else {
         assert_eq!(
             rendered,
-            include_str!("baselines/bootstrap-schema-version.json")
+            include_str!("baselines/full-v1-schema-version.json")
         );
+    }
+}
+
+#[test]
+fn full_v1_semantic_json_schema_is_reviewed() {
+    let registry = Arc::new(builtins::stock_registry().unwrap());
+    let schema = avenger_lang_compiler::LanguageHost::new(registry).semantic_json_schema();
+    let rendered = serde_json::to_string_pretty(schema.as_value()).unwrap() + "\n";
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/baselines/full-v1-semantic-schema.json");
+    if std::env::var_os("AVENGER_LANG_UPDATE_BASELINES").is_some() {
+        fs::write(&path, &rendered).unwrap();
+        eprintln!("updated {}", path.display());
+    } else {
+        assert_eq!(rendered, fs::read_to_string(&path).unwrap());
     }
 }
 
 #[tokio::test]
 async fn registry_profile_is_stable_distinct_and_propagated() {
-    let left = Arc::new(builtins::bootstrap_registry().unwrap());
-    let right = builtins::bootstrap_registry().unwrap();
+    let left = Arc::new(builtins::stock_registry().unwrap());
+    let right = builtins::stock_registry().unwrap();
     assert_eq!(left.profile_id(), right.profile_id());
 
-    let mut builder = NativeRegistryBuilder::new(1, builtins::BOOTSTRAP_PROFILE_LABEL);
-    builtins::register_bootstrap_builtins(&mut builder).unwrap();
+    let mut builder = NativeRegistryBuilder::new(1, builtins::STOCK_V1_PROFILE_LABEL);
+    builtins::register_stock_builtins(&mut builder).unwrap();
     builder
         .register_object(
             KindSchema::new(

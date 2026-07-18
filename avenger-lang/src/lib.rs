@@ -27,15 +27,13 @@ pub use avenger_lang_core::{
 
 /// Build the current canonical stock language registry.
 ///
-/// Phase 0 contains the bootstrap inventory; Phase 6 expands the same function
-/// to the complete built-in v1 inventory without changing compiler hosts.
 pub fn stock_registry() -> Result<NativeRegistry, RegistryError> {
-    builtins::bootstrap_registry()
+    builtins::stock_registry()
 }
 
 /// Register the current stock built-ins into an explicitly composed host.
 pub fn register_builtins(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
-    builtins::register_bootstrap_builtins(builder)
+    builtins::register_stock_builtins(builder)
 }
 
 #[derive(Debug, thiserror::Error)]
