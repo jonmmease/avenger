@@ -37,7 +37,7 @@ fn project_fixture(name: &str) -> PathBuf {
 }
 
 #[tokio::test]
-async fn compiler_phase_four_resolves_projects_and_preserves_dependency_attempts() {
+async fn compiler_resolves_projects_and_preserves_dependency_attempts() {
     let root = fixture_dir("phase-four");
     write(
         root.join("chart.avenger"),
@@ -62,7 +62,7 @@ async fn compiler_phase_four_resolves_projects_and_preserves_dependency_attempts
     write(
         root.join("chart.avenger"),
         r#"avenger 1; chart cartesian as chart {
-            mark symbol as points { x: "x"; }
+            resource tiles as missing_url { kind: xyz; }
         }"#,
     );
     let invalid = compiler.resolve_file_project_attempt("chart.avenger").await;
