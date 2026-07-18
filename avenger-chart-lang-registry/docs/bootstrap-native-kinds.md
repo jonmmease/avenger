@@ -82,6 +82,41 @@ A wide-form parallel-coordinate frame with user-named dimensions.
 
 A radial and angular two-dimensional coordinate system.
 
+## `Coordinate.repeat_columns`
+
+A repeat_columns container instantiated from ordered repeat variables.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+
+## `Coordinate.repeat_grid`
+
+A repeat_grid container instantiated from ordered repeat variables.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `axis_guide_visibility` | property | false | Axis label and title compaction across repeat-grid cells. |
+| `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+
+## `Coordinate.repeat_rows`
+
+A repeat_rows container instantiated from ordered repeat variables.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+
+## `Coordinate.repeat_wrap`
+
+A repeat_wrap container instantiated from ordered repeat variables.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `columns` | property | false | Expression yielding the fixed number of physical columns. |
+| `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+| `responsive_columns` | property | false | Expression yielding the target minimum repeated-cell width in pixels. |
+
 ## `Coordinate.treemap`
 
 A hierarchical treemap layout coordinate system.

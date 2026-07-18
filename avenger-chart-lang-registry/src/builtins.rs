@@ -11,11 +11,14 @@ use avenger_chart::{
         FacetRowSubplotChannels, FacetWrapChannelConfig, FacetWrapSubplotChannels,
     },
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::{Cartesian, FacetColumn, FacetRow, FacetWrap, Plot, Subplot},
+    prelude::{
+        Cartesian, FacetColumn, FacetRow, FacetWrap, Plot, RepeatColumns, RepeatGrid, RepeatRows,
+        RepeatWrap, Subplot,
+    },
 };
 use avenger_chart_core::{
-    AxisGuideVisibilityPolicy, CoordinateSystem, CoordinationScope, FacetEmptyCellPolicy,
-    SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
+    AxisGuideVisibilityPolicy, ChildPlotFurnishings, CoordinateSystem, CoordinationScope,
+    FacetEmptyCellPolicy, SubplotChildPlotSpec, SubplotContainerCoordinateSystem, TitleSpec,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
@@ -53,7 +56,121 @@ pub fn register_bootstrap_builtins(
     ))?;
     register_concat_coordinates(builder)?;
     register_facet_coordinates(builder)?;
+    register_repeat_coordinates(builder)?;
     register_bootstrap_noncoordinate_builtins(builder)
+}
+
+fn register_repeat_coordinates(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::repeat_rows_definition())
+            .child_plots(lower_repeat_rows_child)
+            .children_use_parent_data_context(),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(
+            avenger_chart::language::repeat_columns_definition(),
+        )
+        .child_plots(lower_repeat_columns_child)
+        .children_use_parent_data_context(),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::repeat_grid_definition())
+            .child_plots(lower_repeat_grid_child)
+            .children_use_parent_data_context(),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::repeat_wrap_definition())
+            .child_plots(lower_repeat_wrap_child)
+            .children_use_parent_data_context(),
+    )?;
+    Ok(())
+}
+
+fn lower_repeat_rows_child(
+    plot: Plot<RepeatRows>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<RepeatRows>, RegistryError> {
+    validate_repeat_defaults(parent)?;
+    let (when, furnishings) = repeat_cell_options(placement)?;
+    Ok(plot.configure_coord(|coordinate| match when {
+        Some(when) => coordinate.cell_when_erased(when, child, furnishings),
+        None => coordinate.cell_erased(child, furnishings),
+    }))
+}
+
+fn lower_repeat_columns_child(
+    plot: Plot<RepeatColumns>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<RepeatColumns>, RegistryError> {
+    validate_repeat_defaults(parent)?;
+    let (when, furnishings) = repeat_cell_options(placement)?;
+    Ok(plot.configure_coord(|coordinate| match when {
+        Some(when) => coordinate.cell_when_erased(when, child, furnishings),
+        None => coordinate.cell_erased(child, furnishings),
+    }))
+}
+
+fn lower_repeat_grid_child(
+    plot: Plot<RepeatGrid>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<RepeatGrid>, RegistryError> {
+    validate_repeat_defaults(parent)?;
+    let (when, furnishings) = repeat_cell_options(placement)?;
+    Ok(plot.configure_coord(|coordinate| match when {
+        Some(when) => coordinate.cell_when_erased(when, child, furnishings),
+        None => coordinate.cell_erased(child, furnishings),
+    }))
+}
+
+fn lower_repeat_wrap_child(
+    plot: Plot<RepeatWrap>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<RepeatWrap>, RegistryError> {
+    validate_repeat_defaults(parent)?;
+    let (when, furnishings) = repeat_cell_options(placement)?;
+    Ok(plot.configure_coord(|coordinate| match when {
+        Some(when) => coordinate.cell_when_erased(when, child, furnishings),
+        None => coordinate.cell_erased(child, furnishings),
+    }))
+}
+
+fn validate_repeat_defaults(parent: &crate::ResolvedPlot) -> Result<(), RegistryError> {
+    if parent
+        .children
+        .iter()
+        .filter(|child| !child.placement.properties.contains_key("when"))
+        .count()
+        > 1
+    {
+        return Err(RegistryError::Lowering {
+            kind: parent.coordinate.kind.clone(),
+            message: "repeat containers accept at most one unguarded default cell".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn repeat_cell_options(
+    placement: &crate::ResolvedDeclaration,
+) -> Result<(Option<Expr>, ChildPlotFurnishings), RegistryError> {
+    let when = placement
+        .properties
+        .get("when")
+        .map(|value| native_expr(value, "when"))
+        .transpose()?;
+    let mut furnishings = ChildPlotFurnishings::default();
+    if let Some(label) = placement.properties.get("label") {
+        furnishings.caption = Some(TitleSpec::new(native_expr(label, "label")?));
+    }
+    Ok((when, furnishings))
 }
 
 fn register_concat_coordinates(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {

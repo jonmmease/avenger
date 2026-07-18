@@ -893,6 +893,235 @@
     {
       "key": {
         "namespace": "coordinate",
+        "kind": "repeat_columns"
+      },
+      "docs": "A repeat_columns container instantiated from ordered repeat variables.",
+      "properties": {
+        "domain_coordination": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "independent",
+                  "docs": "Infer domains independently for every repeated cell."
+                },
+                {
+                  "value": "matrix",
+                  "docs": "Coordinate domains by repeat variable across cells."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Domain coordination policy for repeated cells."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "variable",
+          "min": 1,
+          "docs": "An ordered `column` repeat variable with expr, title, and optional type hint."
+        },
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "A default or predicate-guarded repeated child plot template."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "repeat_grid"
+      },
+      "docs": "A repeat_grid container instantiated from ordered repeat variables.",
+      "properties": {
+        "axis_guide_visibility": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "auto",
+                  "docs": "Use the container's default compaction behavior."
+                },
+                {
+                  "value": "all",
+                  "docs": "Show labels and titles on every child axis."
+                },
+                {
+                  "value": "outer_edges",
+                  "docs": "Show labels and titles only on physical outer edges."
+                },
+                {
+                  "value": "outer_for_equivalent_domain_groups",
+                  "docs": "Compact only for semantically equivalent aligned domains."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Axis label and title compaction across repeat-grid cells."
+        },
+        "domain_coordination": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "independent",
+                  "docs": "Infer domains independently for every repeated cell."
+                },
+                {
+                  "value": "matrix",
+                  "docs": "Coordinate domains by repeat variable across cells."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Domain coordination policy for repeated cells."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "variable",
+          "min": 2,
+          "docs": "An ordered `row or column` repeat variable with expr, title, and optional type hint."
+        },
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "A default or predicate-guarded repeated child plot template."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "repeat_rows"
+      },
+      "docs": "A repeat_rows container instantiated from ordered repeat variables.",
+      "properties": {
+        "domain_coordination": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "independent",
+                  "docs": "Infer domains independently for every repeated cell."
+                },
+                {
+                  "value": "matrix",
+                  "docs": "Coordinate domains by repeat variable across cells."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Domain coordination policy for repeated cells."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "variable",
+          "min": 1,
+          "docs": "An ordered `row` repeat variable with expr, title, and optional type hint."
+        },
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "A default or predicate-guarded repeated child plot template."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "repeat_wrap"
+      },
+      "docs": "A repeat_wrap container instantiated from ordered repeat variables.",
+      "properties": {
+        "columns": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression yielding the fixed number of physical columns."
+        },
+        "domain_coordination": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "independent",
+                  "docs": "Infer domains independently for every repeated cell."
+                },
+                {
+                  "value": "matrix",
+                  "docs": "Coordinate domains by repeat variable across cells."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Domain coordination policy for repeated cells."
+        },
+        "responsive_columns": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Expression yielding the target minimum repeated-cell width in pixels."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "variable",
+          "min": 1,
+          "docs": "An ordered `item` repeat variable with expr, title, and optional type hint."
+        },
+        {
+          "role": "cell",
+          "min": 1,
+          "docs": "A default or predicate-guarded repeated child plot template."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
         "kind": "treemap"
       },
       "docs": "A hierarchical treemap layout coordinate system.",

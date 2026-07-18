@@ -2785,13 +2785,16 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
             let repeat_context = RepeatContext::new()
                 .with_column(column, column_index, column_count)
                 .with_domain_coordination(repeat.domain_coordination_config().clone());
-            let cell = repeat.cell_templates().select(
+            let Some(cell) = repeat.cell_templates().select(
                 "RepeatColumns",
                 &key,
                 &repeat_context,
                 session_context,
-            )?;
-            Ok(Arc::new(
+            )?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(Arc::new(
                 Subplot::<HConcat>::new(RepeatResolvedChildPlotSpec::new(
                     cell.plot,
                     repeat_context,
@@ -2800,9 +2803,12 @@ fn lower_repeat_columns_plot<C: CoordinateSystem>(
                 .name(key)
                 .id(id)
                 .label(label),
-            ) as Arc<dyn Mark<HConcat>>)
+            ) as Arc<dyn Mark<HConcat>>))
         })
-        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        .collect::<Result<Vec<_>, AvengerChartError>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     let parts = split_repeat_plot(plot, "RepeatColumns")?;
     Ok(finish_lowered_repeat_plot(
         parts,
@@ -2829,13 +2835,16 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
             let repeat_context = RepeatContext::new()
                 .with_row(row, row_index, row_count)
                 .with_domain_coordination(repeat.domain_coordination_config().clone());
-            let cell = repeat.cell_templates().select(
+            let Some(cell) = repeat.cell_templates().select(
                 "RepeatRows",
                 &key,
                 &repeat_context,
                 session_context,
-            )?;
-            Ok(Arc::new(
+            )?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(Arc::new(
                 Subplot::<VConcat>::new(RepeatResolvedChildPlotSpec::new(
                     cell.plot,
                     repeat_context,
@@ -2844,9 +2853,12 @@ fn lower_repeat_rows_plot<C: CoordinateSystem>(
                 .name(key)
                 .id(id)
                 .label(label),
-            ) as Arc<dyn Mark<VConcat>>)
+            ) as Arc<dyn Mark<VConcat>>))
         })
-        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        .collect::<Result<Vec<_>, AvengerChartError>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     let parts = split_repeat_plot(plot, "RepeatRows")?;
     Ok(finish_lowered_repeat_plot(
         parts,
@@ -2880,12 +2892,15 @@ fn lower_repeat_grid_plot<C: CoordinateSystem>(
                 .with_column(column.clone(), column_index, column_count)
                 .with_domain_coordination(repeat.domain_coordination_config().clone())
                 .with_matrix_axis_defaults(repeat.matrix_axis_defaults());
-            let cell = repeat.cell_templates().select(
+            let Some(cell) = repeat.cell_templates().select(
                 "RepeatGrid",
                 &key,
                 &repeat_context,
                 session_context,
-            )?;
+            )?
+            else {
+                continue;
+            };
             marks.push(Arc::new(
                 Subplot::<GridConcat>::new(RepeatResolvedChildPlotSpec::new(
                     cell.plot,
@@ -2932,13 +2947,16 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
             let repeat_context = RepeatContext::new()
                 .with_item(item, item_index, item_count)
                 .with_domain_coordination(repeat.domain_coordination_config().clone());
-            let cell = repeat.cell_templates().select(
+            let Some(cell) = repeat.cell_templates().select(
                 "RepeatWrap",
                 &key,
                 &repeat_context,
                 session_context,
-            )?;
-            Ok(Arc::new(
+            )?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(Arc::new(
                 Subplot::<WrapConcat>::new(RepeatResolvedChildPlotSpec::new(
                     cell.plot,
                     repeat_context,
@@ -2947,9 +2965,12 @@ fn lower_repeat_wrap_plot<C: CoordinateSystem>(
                 .name(key)
                 .id(id)
                 .label(label),
-            ) as Arc<dyn Mark<WrapConcat>>)
+            ) as Arc<dyn Mark<WrapConcat>>))
         })
-        .collect::<Result<Vec<_>, AvengerChartError>>()?;
+        .collect::<Result<Vec<_>, AvengerChartError>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     let parts = split_repeat_plot(plot, "RepeatWrap")?;
     Ok(finish_lowered_repeat_plot(
         parts,

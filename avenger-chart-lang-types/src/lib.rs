@@ -100,6 +100,9 @@ impl fmt::Debug for ResolvedValue {
 #[derive(Clone, Debug)]
 pub struct ResolvedDeclaration {
     pub kind: String,
+    /// Optional source-level declaration variant following the structural
+    /// role, such as `row` in `variable row as mpg { ... }`.
+    pub variant: Option<String>,
     /// Stable source-level name, separate from schema properties so lowerers
     /// can preserve identity without inventing a kind-specific `id` field.
     pub source_name: Option<String>,
@@ -117,6 +120,7 @@ impl ResolvedDeclaration {
     pub fn new(kind: impl Into<String>) -> Self {
         Self {
             kind: kind.into(),
+            variant: None,
             source_name: None,
             properties: IndexMap::new(),
             children: Vec::new(),

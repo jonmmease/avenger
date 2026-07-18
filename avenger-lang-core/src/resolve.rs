@@ -6593,7 +6593,7 @@ fn core_property(declaration: &Decl, property: &str) -> bool {
         "chart" | "plot" => {
             matches!(property, "data" | "title" | "subtitle" | "layout" | "theme")
         }
-        "cell" => matches!(property, "at" | "data" | "label"),
+        "cell" => matches!(property, "at" | "data" | "label" | "when"),
         "view" => property == "data",
         "group" => matches!(property, "data" | "component_kind" | "label"),
         "mark" => matches!(property, "data"),

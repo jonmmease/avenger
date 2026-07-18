@@ -605,6 +605,21 @@ impl<'a> ProjectLowerer<'a> {
                     }
                     "param" | "store" | "selection" | "on" => {}
                     other => {
+                        let coordinate_key = NativeKindKey::new(
+                            NativeKindNamespace::Coordinate,
+                            plot.coordinate.kind.clone(),
+                        );
+                        if self
+                            .registry
+                            .snapshot()
+                            .entries
+                            .get(&coordinate_key)
+                            .is_some_and(|schema| {
+                                schema.child_rules.iter().any(|rule| rule.role == other)
+                            })
+                        {
+                            continue;
+                        }
                         return Err(lowerer_error(
                             child,
                             format!("Phase 5 cannot lower `{other}` declarations yet"),
@@ -841,6 +856,12 @@ impl<'a> ProjectLowerer<'a> {
             placement.properties.insert(
                 "label".to_string(),
                 self.native_value(label, data, declaration)?,
+            );
+        }
+        if let Some(predicate) = declaration.properties.get("when") {
+            placement.properties.insert(
+                "when".to_string(),
+                NativeValue::Expr(self.expression_value(predicate, data, declaration)?),
             );
         }
         Ok(placement)
@@ -1170,6 +1191,7 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
     ) -> Result<NativeDeclaration, Diagnostic> {
         let mut native = NativeDeclaration::new(declaration.keyword.clone());
+        native.variant.clone_from(&declaration.kind);
         native.source_name.clone_from(&declaration.name);
         for (name, value) in &declaration.properties {
             native
@@ -1838,35 +1860,49 @@ impl<'a> ProjectLowerer<'a> {
         let mut parse_data = data.clone();
         let mut replacements = BTreeMap::new();
         for (index, reference) in expression.references.iter().enumerate() {
-            let ResolvedTarget::Output(handle) = &reference.target else {
-                continue;
-            };
-            let output = self.transform_outputs.get(handle).ok_or_else(|| {
-                lowerer_error(
-                    declaration,
-                    format!(
-                        "transform output `{}` is unavailable at this dataflow position",
-                        reference.authored_path.join(".")
-                    ),
-                )
-            })?;
-            let expr = match output {
-                NativeOutputValue::Expr(expr) => expr.clone(),
-                NativeOutputValue::Channel(channel) => channel.data_expr().clone(),
-                NativeOutputValue::RasterDim(_) | NativeOutputValue::Opaque(_) => {
-                    return Err(lowerer_error(
-                        declaration,
-                        format!(
-                            "transform output `{}` cannot be used in a SQL expression",
-                            reference.authored_path.join(".")
-                        ),
-                    ));
+            let (expr, planning_seed) = match &reference.target {
+                ResolvedTarget::Output(handle) => {
+                    let output = self.transform_outputs.get(handle).ok_or_else(|| {
+                        lowerer_error(
+                            declaration,
+                            format!(
+                                "transform output `{}` is unavailable at this dataflow position",
+                                reference.authored_path.join(".")
+                            ),
+                        )
+                    })?;
+                    let expr = match output {
+                        NativeOutputValue::Expr(expr) => expr.clone(),
+                        NativeOutputValue::Channel(channel) => channel.data_expr().clone(),
+                        NativeOutputValue::RasterDim(_) | NativeOutputValue::Opaque(_) => {
+                            return Err(lowerer_error(
+                                declaration,
+                                format!(
+                                    "transform output `{}` cannot be used in a SQL expression",
+                                    reference.authored_path.join(".")
+                                ),
+                            ));
+                        }
+                    };
+                    (expr.clone(), expr)
                 }
+                ResolvedTarget::Reserved { namespace, path } if namespace == "repeat" => {
+                    repeat_reference_expr(path).ok_or_else(|| {
+                        lowerer_error(
+                            declaration,
+                            format!(
+                                "unsupported repeat reference `{}`",
+                                reference.authored_path.join(".")
+                            ),
+                        )
+                    })?
+                }
+                _ => continue,
             };
             let synthetic = format!("__avenger_output_{index:08}");
             sql = rewrite_reference_sql(sql, reference, &synthetic);
             parse_data = parse_data
-                .with_column(&synthetic, expr.clone())
+                .with_column(&synthetic, planning_seed)
                 .map_err(|error| lowerer_error(declaration, error.to_string()))?;
             replacements.insert(synthetic, expr);
         }
@@ -2201,6 +2237,34 @@ impl<'a> ProjectLowerer<'a> {
     }
 }
 
+fn repeat_reference_expr(path: &[String]) -> Option<(Expr, Expr)> {
+    use avenger_chart_core::repeat;
+
+    let [name] = path else {
+        return None;
+    };
+    let (resolved, seed) = match name.as_str() {
+        "row" => (repeat::row().into_data_expr(), lit(0.0_f64)),
+        "column" => (repeat::column().into_data_expr(), lit(0.0_f64)),
+        "item" => (repeat::item().into_data_expr(), lit(0.0_f64)),
+        "row_name" => (lit(repeat::row_name()), lit("")),
+        "column_name" => (lit(repeat::column_name()), lit("")),
+        "item_name" => (lit(repeat::item_name()), lit("")),
+        "row_index" => (repeat::row_index(), lit(0_i64)),
+        "column_index" => (repeat::column_index(), lit(0_i64)),
+        "item_index" => (repeat::item_index(), lit(0_i64)),
+        "cell_id" => (repeat::cell_id(), lit("")),
+        "row_id" => (repeat::row_id(), lit("")),
+        "column_id" => (repeat::column_id(), lit("")),
+        "item_id" => (repeat::item_id(), lit("")),
+        "row_title" => (repeat::row_title(), lit("")),
+        "column_title" => (repeat::column_title(), lit("")),
+        "item_title" => (repeat::item_title(), lit("")),
+        _ => return None,
+    };
+    Some((resolved, seed))
+}
+
 pub(crate) fn compiled_project_from_lowered(
     project: &ResolvedProject,
     registry: &NativeRegistry,
@@ -2450,7 +2514,7 @@ fn is_core_property(keyword: &str, name: &str) -> bool {
         (
             "chart" | "plot",
             "data" | "title" | "subtitle" | "layout" | "theme"
-        ) | ("cell", "at" | "data" | "label")
+        ) | ("cell", "at" | "data" | "label" | "when")
             | ("group", "data" | "component_kind" | "label")
             | ("mark", "data")
             | ("transform", "scope")

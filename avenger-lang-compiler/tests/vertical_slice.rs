@@ -519,6 +519,51 @@ async fn native_surface_facets_lower_configured_dimensions_and_nested_cells() {
 }
 
 #[tokio::test]
+async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
+    let grid = r#"avenger 1;
+        chart repeat_grid as chart {
+          data: { values: [{ mpg: 21.0; hp: 110.0; weight: 2500.0; accel: 12.0; }]; }
+          variable row as mpg { expr: "mpg"; title: 'MPG'; }
+          variable row as hp { expr: "hp"; title: 'Horsepower'; }
+          variable column as weight { expr: "weight"; title: 'Weight'; }
+          variable column as accel { expr: "accel"; title: 'Acceleration'; }
+          domain_coordination: matrix;
+
+          cell cartesian {
+            when: repeat.row_id <> repeat.column_id;
+            mark symbol { x: repeat.column; y: repeat.row; }
+          }
+          cell zerod {
+            when: repeat.row_id = repeat.column_id;
+            mark text { text: repeat.row_title; }
+          }
+        }"#;
+    let artifact = source_compiler(grid, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("\"origin\":\"repeat_grid\""), "{json}");
+
+    let wrap = r#"avenger 1;
+        chart repeat_wrap as chart {
+          data: { values: [{ mpg: 21.0; hp: 110.0; }]; }
+          variable item as mpg { expr: "mpg"; }
+          variable item as hp { expr: "hp"; }
+          responsive_columns: 180;
+          cell cartesian {
+            mark symbol { x: repeat.item; y: repeat.item; }
+          }
+        }"#;
+    let artifact = source_compiler(wrap, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    assert!(json.contains("\"origin\":\"repeat_wrap\""), "{json}");
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

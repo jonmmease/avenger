@@ -113,12 +113,12 @@ impl RepeatCellTemplates {
         cell_key: &str,
         repeat_context: &CoreRepeatContext,
         session_context: &SessionContext,
-    ) -> Result<ErasedRepeatCell, AvengerChartError> {
-        let Some(default) = self.default.as_ref() else {
+    ) -> Result<Option<ErasedRepeatCell>, AvengerChartError> {
+        if self.default.is_none() && self.branches.is_empty() {
             return Err(AvengerChartError::InvalidArgument(format!(
-                "{kind} requires a default repeated child plot via `.cell(...)`"
+                "{kind} requires a default repeated child plot or at least one guarded cell"
             )));
-        };
+        }
 
         for (branch_index, branch) in self.branches.iter().enumerate() {
             let predicate = branch.predicate.to_default_expr(session_context)?;
@@ -129,11 +129,11 @@ impl RepeatCellTemplates {
                     ))
                 })?;
             if matches {
-                return Ok(branch.cell.clone());
+                return Ok(Some(branch.cell.clone()));
             }
         }
 
-        Ok(default.clone())
+        Ok(self.default.clone())
     }
 }
 
@@ -169,6 +169,29 @@ impl RepeatColumns {
         P: Into<RepeatCell<C>>,
     {
         self.cells.add_branch(predicate, cell.into().into_erased());
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_erased(
+        mut self,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .set_default(ErasedRepeatCell { plot, furnishings });
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_when_erased(
+        mut self,
+        predicate: impl IntoExpr,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .add_branch(predicate, ErasedRepeatCell { plot, furnishings });
         self
     }
 
@@ -222,6 +245,29 @@ impl RepeatRows {
         P: Into<RepeatCell<C>>,
     {
         self.cells.add_branch(predicate, cell.into().into_erased());
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_erased(
+        mut self,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .set_default(ErasedRepeatCell { plot, furnishings });
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_when_erased(
+        mut self,
+        predicate: impl IntoExpr,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .add_branch(predicate, ErasedRepeatCell { plot, furnishings });
         self
     }
 
@@ -283,6 +329,29 @@ impl RepeatGrid {
         P: Into<RepeatCell<C>>,
     {
         self.cells.add_branch(predicate, cell.into().into_erased());
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_erased(
+        mut self,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .set_default(ErasedRepeatCell { plot, furnishings });
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_when_erased(
+        mut self,
+        predicate: impl IntoExpr,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .add_branch(predicate, ErasedRepeatCell { plot, furnishings });
         self
     }
 
@@ -400,6 +469,29 @@ impl RepeatWrap {
         P: Into<RepeatCell<C>>,
     {
         self.cells.add_branch(predicate, cell.into().into_erased());
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_erased(
+        mut self,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .set_default(ErasedRepeatCell { plot, furnishings });
+        self
+    }
+
+    #[doc(hidden)]
+    pub fn cell_when_erased(
+        mut self,
+        predicate: impl IntoExpr,
+        plot: Box<dyn SubplotChildPlotSpec>,
+        furnishings: ChildPlotFurnishings,
+    ) -> Self {
+        self.cells
+            .add_branch(predicate, ErasedRepeatCell { plot, furnishings });
         self
     }
 

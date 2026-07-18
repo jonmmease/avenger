@@ -1,6 +1,9 @@
 //! Avenger-language schemas and owner lowerers for facade-owned chart surface.
 
 use avenger_chart_core::AxisGuideVisibilityPolicy;
+use avenger_chart_core::{
+    CoordinationScope, RepeatDomainCoordination, RepeatTypeHint, RepeatVariable,
+};
 use avenger_chart_lang_types::{
     CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
 };
@@ -12,6 +15,7 @@ use avenger_chart_schema::{
 use crate::{
     concat::{GridConcat, HConcat, TrackSizing, VConcat, WrapConcat},
     facet::coord::{FacetColumn, FacetRow, FacetWrap},
+    repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap},
 };
 
 pub fn hconcat_definition() -> CoordinateLanguageDefinition<HConcat> {
@@ -43,6 +47,219 @@ pub fn facet_column_definition() -> CoordinateLanguageDefinition<FacetColumn> {
 
 pub fn facet_wrap_definition() -> CoordinateLanguageDefinition<FacetWrap> {
     CoordinateLanguageDefinition::new("facet_wrap", facet_wrap_schema(), |_| Ok(FacetWrap))
+}
+
+pub fn repeat_rows_definition() -> CoordinateLanguageDefinition<RepeatRows> {
+    CoordinateLanguageDefinition::new(
+        "repeat_rows",
+        repeat_schema("repeat_rows", "row", false),
+        |declaration| {
+            let mut coordinate = RepeatRows::new().rows(repeat_variables(declaration, "row")?);
+            coordinate =
+                coordinate.with_repeat_domain_coordination(repeat_coordination(declaration)?);
+            Ok(coordinate)
+        },
+    )
+}
+
+pub fn repeat_columns_definition() -> CoordinateLanguageDefinition<RepeatColumns> {
+    CoordinateLanguageDefinition::new(
+        "repeat_columns",
+        repeat_schema("repeat_columns", "column", false),
+        |declaration| {
+            let mut coordinate =
+                RepeatColumns::new().columns(repeat_variables(declaration, "column")?);
+            coordinate =
+                coordinate.with_repeat_domain_coordination(repeat_coordination(declaration)?);
+            Ok(coordinate)
+        },
+    )
+}
+
+pub fn repeat_grid_definition() -> CoordinateLanguageDefinition<RepeatGrid> {
+    CoordinateLanguageDefinition::new(
+        "repeat_grid",
+        repeat_schema("repeat_grid", "row or column", true),
+        |declaration| {
+            let rows = repeat_variables(declaration, "row")?;
+            let columns = repeat_variables(declaration, "column")?;
+            if rows.is_empty() || columns.is_empty() {
+                return Err(NativeLoweringError::Lowering {
+                    kind: "repeat_grid".to_string(),
+                    message: "repeat_grid requires at least one row and one column variable"
+                        .to_string(),
+                });
+            }
+            let mut coordinate = RepeatGrid::new().rows(rows).columns(columns);
+            let coordination = repeat_coordination(declaration)?;
+            coordinate = coordinate.with_repeat_domain_coordination(coordination);
+            if let Some(value) = declaration.properties.get("axis_guide_visibility") {
+                coordinate = coordinate
+                    .axis_guide_visibility(visibility_policy("axis_guide_visibility", value)?);
+            } else if matches!(
+                declaration.properties.get("domain_coordination"),
+                Some(ResolvedValue::String(value)) if value == "matrix"
+            ) {
+                coordinate = coordinate.matrix_axes();
+            }
+            Ok(coordinate)
+        },
+    )
+}
+
+pub fn repeat_wrap_definition() -> CoordinateLanguageDefinition<RepeatWrap> {
+    CoordinateLanguageDefinition::new("repeat_wrap", repeat_wrap_schema(), |declaration| {
+        let mut coordinate = RepeatWrap::new().items(repeat_variables(declaration, "item")?);
+        coordinate = coordinate.with_repeat_domain_coordination(repeat_coordination(declaration)?);
+        if declaration.properties.contains_key("columns")
+            && declaration.properties.contains_key("responsive_columns")
+        {
+            return Err(NativeLoweringError::Lowering {
+                kind: "repeat_wrap".to_string(),
+                message: "columns and responsive_columns are mutually exclusive".to_string(),
+            });
+        }
+        if let Some(value) = declaration.properties.get("columns") {
+            coordinate = coordinate.columns(expr("columns", value)?);
+        }
+        if let Some(value) = declaration.properties.get("responsive_columns") {
+            coordinate = coordinate.responsive_columns(expr("responsive_columns", value)?);
+        }
+        Ok(coordinate)
+    })
+}
+
+fn repeat_schema(kind: &str, variable_role: &str, grid: bool) -> KindSchema {
+    let mut schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Coordinate, kind),
+        format!("A {kind} container instantiated from ordered repeat variables."),
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "domain_coordination",
+        PropertySchema::optional(
+            atom(&[
+                (
+                    "independent",
+                    "Infer domains independently for every repeated cell.",
+                ),
+                (
+                    "matrix",
+                    "Coordinate domains by repeat variable across cells.",
+                ),
+            ]),
+            "Domain coordination policy for repeated cells.",
+        ),
+    )
+    .child_rule(ChildRule {
+        role: "variable".to_string(),
+        min: if grid { 2 } else { 1 },
+        max: None,
+        docs: format!(
+            "An ordered `{variable_role}` repeat variable with expr, title, and optional type hint."
+        ),
+    })
+    .child_rule(ChildRule {
+        role: "cell".to_string(),
+        min: 1,
+        max: None,
+        docs: "A default or predicate-guarded repeated child plot template.".to_string(),
+    });
+    if grid {
+        schema = schema.property(
+            "axis_guide_visibility",
+            axis_visibility("Axis label and title compaction across repeat-grid cells."),
+        );
+    }
+    schema
+}
+
+fn repeat_wrap_schema() -> KindSchema {
+    repeat_schema("repeat_wrap", "item", false)
+        .property(
+            "columns",
+            PropertySchema::optional(
+                ValueShape::SqlExpression,
+                "Expression yielding the fixed number of physical columns.",
+            ),
+        )
+        .property(
+            "responsive_columns",
+            PropertySchema::optional(
+                ValueShape::SqlExpression,
+                "Expression yielding the target minimum repeated-cell width in pixels.",
+            ),
+        )
+}
+
+fn repeat_variables(
+    declaration: &ResolvedDeclaration,
+    role: &str,
+) -> Result<Vec<RepeatVariable>, NativeLoweringError> {
+    declaration
+        .children
+        .iter()
+        .filter(|child| child.kind == "variable" && child.variant.as_deref() == Some(role))
+        .map(|child| {
+            let id = child
+                .source_name
+                .as_ref()
+                .ok_or_else(|| NativeLoweringError::Lowering {
+                    kind: declaration.kind.clone(),
+                    message: format!("repeat {role} variable is missing its stable id"),
+                })?;
+            let value =
+                child
+                    .properties
+                    .get("expr")
+                    .ok_or_else(|| NativeLoweringError::Lowering {
+                        kind: declaration.kind.clone(),
+                        message: format!("repeat {role} variable `{id}` requires `expr`"),
+                    })?;
+            let mut variable = match value {
+                ResolvedValue::String(field) => {
+                    RepeatVariable::new(id, datafusion::prelude::col(field))
+                }
+                _ => RepeatVariable::new(id, expr("expr", value)?),
+            };
+            if let Some(ResolvedValue::String(title)) = child.properties.get("title") {
+                variable = variable.title(title);
+            }
+            if let Some(ResolvedValue::String(type_hint)) = child.properties.get("type") {
+                variable = variable.type_hint(match type_hint.as_str() {
+                    "quantitative" => RepeatTypeHint::Quantitative,
+                    "temporal" => RepeatTypeHint::Temporal,
+                    "ordinal" => RepeatTypeHint::Ordinal,
+                    "nominal" => RepeatTypeHint::Nominal,
+                    _ => {
+                        return Err(NativeLoweringError::InvalidPropertyType {
+                            property: "type".to_string(),
+                            expected: "quantitative, temporal, ordinal, or nominal".to_string(),
+                        });
+                    }
+                });
+            }
+            Ok(variable)
+        })
+        .collect()
+}
+
+fn repeat_coordination(
+    declaration: &ResolvedDeclaration,
+) -> Result<RepeatDomainCoordination, NativeLoweringError> {
+    match declaration.properties.get("domain_coordination") {
+        None => Ok(RepeatDomainCoordination::Independent),
+        Some(ResolvedValue::String(value)) if value == "independent" => {
+            Ok(RepeatDomainCoordination::Independent)
+        }
+        Some(ResolvedValue::String(value)) if value == "matrix" => Ok(
+            RepeatDomainCoordination::by_variable(CoordinationScope::Shared),
+        ),
+        Some(_) => Err(NativeLoweringError::InvalidPropertyType {
+            property: "domain_coordination".to_string(),
+            expected: "independent or matrix".to_string(),
+        }),
+    }
 }
 
 fn facet_dimension_fields(wrap: bool) -> std::collections::BTreeMap<String, PropertySchema> {
