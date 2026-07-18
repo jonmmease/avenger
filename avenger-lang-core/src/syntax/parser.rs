@@ -532,7 +532,8 @@ impl Parser {
             "part" | "layer" => self.named_body()?,
             "level" => self.level()?,
             "adjust" => self.adjust()?,
-            "row" | "when" | "key" | "fields" | "scale_edit" | "scale_hint" => self.plain_body()?,
+            "row" | "when" | "key" | "fields" | "scale_edit" | "scale_hint" | "clause"
+            | "equality" | "interval" | "id" => self.plain_body()?,
             "field" => self.field()?,
             "slot" => self.slot()?,
             "channel" => self.channel()?,

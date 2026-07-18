@@ -929,7 +929,14 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
             set store hovered = insert_rows {
               row { id: 'point'; x: event_coord(x); }
             }
-            set selection picked = clear;
+            set selection picked = toggle_clauses {
+              clause {
+                id: 'point';
+                equality {
+                  dimension as x { field: "x"; value: event_coord(x); }
+                }
+              }
+            }
             set cursor = 'crosshair';
           }
         }"#;
@@ -961,6 +968,11 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
         &steps[2],
         avenger_chart_core::ChartActionStep::SetSelection(action)
             if action.selection_id == "picked"
+                && matches!(
+                    action.update,
+                    avenger_chart_core::SelectionUpdate::ToggleClauses { ref clauses }
+                        if clauses.len() == 1
+                )
     ));
     assert!(matches!(
         &steps[3],

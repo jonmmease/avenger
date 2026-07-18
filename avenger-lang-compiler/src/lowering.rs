@@ -25,9 +25,9 @@ use avenger_chart::{
 use avenger_chart_core::{
     ChartEventBinding, ChartEventStream, ChartEventType, DataTransformExecutionContext,
     DataTransformStage, FormattingContext, Param as ChartParam, PatternAnchor, PatternChannelValue,
-    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SelectionUpdate, StoreFieldPatch,
-    StoreKey, StoreRow, StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef,
-    WeekStart, event,
+    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SelectionClauseUpdate,
+    SelectionUpdate, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
+    StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -811,7 +811,7 @@ impl<'a> ProjectLowerer<'a> {
                     let selection = self.selections.get(id).ok_or_else(|| {
                         lowerer_error(action, "resolved selection is unavailable")
                     })?;
-                    let update = self.lower_selection_update(value, action)?;
+                    let update = self.lower_selection_update(value, data, action)?;
                     binding = match lvalue.route {
                         ResolvedActionRoute::Current => {
                             binding.set_selection(selection.id.clone(), update)
@@ -929,6 +929,7 @@ impl<'a> ProjectLowerer<'a> {
     fn lower_selection_update(
         &self,
         value: &ResolvedValue,
+        data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<SelectionUpdate, Diagnostic> {
         match value {
@@ -945,6 +946,68 @@ impl<'a> ProjectLowerer<'a> {
                     self.coordination_scope(scope, declaration)?,
                 ))
             }
+            ResolvedValue::Object {
+                kind: Some(kind),
+                properties,
+                children,
+                ..
+            } if matches!(
+                kind.as_str(),
+                "replace_all_clauses"
+                    | "replace_clauses_in_scope"
+                    | "upsert_clauses"
+                    | "toggle_clauses"
+            ) =>
+            {
+                let clauses = children
+                    .iter()
+                    .filter(|child| child.keyword == "clause")
+                    .map(|clause| self.lower_selection_clause(clause, data, declaration))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(match kind.as_str() {
+                    "replace_all_clauses" => SelectionUpdate::replace_all_clauses(clauses),
+                    "replace_clauses_in_scope" => {
+                        let scope = properties.get("scope").ok_or_else(|| {
+                            lowerer_error(declaration, "replace_clauses_in_scope requires scope")
+                        })?;
+                        SelectionUpdate::replace_clauses_in_scope(
+                            self.coordination_scope(scope, declaration)?,
+                            clauses,
+                        )
+                    }
+                    "upsert_clauses" => SelectionUpdate::upsert_clauses(clauses),
+                    "toggle_clauses" => SelectionUpdate::toggle_clauses(clauses),
+                    _ => unreachable!("guarded selection clause update kind"),
+                })
+            }
+            ResolvedValue::Object {
+                kind: Some(kind),
+                properties,
+                children,
+                ..
+            } if matches!(kind.as_str(), "delete_clauses" | "delete_clauses_in_scope") => {
+                let ids = children
+                    .iter()
+                    .filter(|child| child.keyword == "id")
+                    .map(|id| {
+                        let value = id.properties.get("value").ok_or_else(|| {
+                            lowerer_error(declaration, "selection delete id requires value")
+                        })?;
+                        self.event_expression_value(value, data, declaration)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(if kind == "delete_clauses" {
+                    SelectionUpdate::delete_clauses(ids)
+                } else {
+                    let scope = properties.get("scope").ok_or_else(|| {
+                        lowerer_error(declaration, "delete_clauses_in_scope requires scope")
+                    })?;
+                    SelectionUpdate::delete_clauses_in_scope(
+                        self.coordination_scope(scope, declaration)?,
+                        ids,
+                    )
+                })
+            }
             ResolvedValue::Object { kind, .. } => Err(lowerer_error(
                 declaration,
                 format!(
@@ -955,6 +1018,117 @@ impl<'a> ProjectLowerer<'a> {
             _ => Err(lowerer_error(
                 declaration,
                 "invalid selection update payload",
+            )),
+        }
+    }
+
+    fn lower_selection_clause(
+        &self,
+        clause: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<SelectionClauseUpdate, Diagnostic> {
+        let id = clause
+            .properties
+            .get("id")
+            .ok_or_else(|| lowerer_error(declaration, "selection clause requires id"))?;
+        let id = self.event_expression_value(id, data, declaration)?;
+        let predicate = clause
+            .children
+            .iter()
+            .find(|child| matches!(child.keyword.as_str(), "equality" | "interval"))
+            .ok_or_else(|| {
+                lowerer_error(
+                    declaration,
+                    "selection clause requires equality or interval predicate",
+                )
+            })?;
+
+        let mut update = if predicate.keyword == "equality" {
+            let mut builder = SelectionClauseUpdate::equality(id);
+            for dimension in predicate
+                .children
+                .iter()
+                .filter(|child| child.keyword == "dimension")
+            {
+                let name = dimension.name.as_deref().ok_or_else(|| {
+                    lowerer_error(declaration, "selection dimension requires a name")
+                })?;
+                let field = dimension.properties.get("field").ok_or_else(|| {
+                    lowerer_error(declaration, "equality dimension requires field")
+                })?;
+                let value = dimension.properties.get("value").ok_or_else(|| {
+                    lowerer_error(declaration, "equality dimension requires value")
+                })?;
+                builder = builder.dimension_named(
+                    name,
+                    self.selection_field_expr(field, data, declaration)?,
+                    self.event_expression_value(value, data, declaration)?,
+                );
+            }
+            builder.build()
+        } else {
+            let mut builder = SelectionClauseUpdate::interval(id);
+            for dimension in predicate
+                .children
+                .iter()
+                .filter(|child| child.keyword == "dimension")
+            {
+                let name = dimension.name.as_deref().ok_or_else(|| {
+                    lowerer_error(declaration, "selection dimension requires a name")
+                })?;
+                let field = dimension.properties.get("field").ok_or_else(|| {
+                    lowerer_error(declaration, "interval dimension requires field")
+                })?;
+                let from = dimension.properties.get("from").ok_or_else(|| {
+                    lowerer_error(declaration, "interval dimension requires from")
+                })?;
+                let to = dimension
+                    .properties
+                    .get("to")
+                    .ok_or_else(|| lowerer_error(declaration, "interval dimension requires to"))?;
+                builder = builder
+                    .dimension_named(name, self.selection_field_expr(field, data, declaration)?)
+                    .endpoints(
+                        self.event_expression_value(from, data, declaration)?,
+                        self.event_expression_value(to, data, declaration)?,
+                    );
+            }
+            builder.build()
+        };
+        if let Some(scope) = clause.properties.get("scope") {
+            update = update.facet_scope(self.coordination_scope(scope, declaration)?);
+        }
+        Ok(update)
+    }
+
+    fn selection_field_expr(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<Expr, Diagnostic> {
+        match value {
+            ResolvedValue::String(name)
+            | ResolvedValue::Atom(name)
+            | ResolvedValue::Column(name) => {
+                let data = data.ok_or_else(|| {
+                    lowerer_error(
+                        declaration,
+                        format!("selection field `{name}` has no data schema in scope"),
+                    )
+                })?;
+                data.schema()
+                    .field_with_unqualified_name(name)
+                    .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+                Ok(col(name))
+            }
+            ResolvedValue::Expression(expression) => {
+                self.planned_event_expression(expression, data, declaration)
+            }
+            _ => Err(lowerer_error(
+                declaration,
+                "selection field must be a column name or SQL expression",
             )),
         }
     }
