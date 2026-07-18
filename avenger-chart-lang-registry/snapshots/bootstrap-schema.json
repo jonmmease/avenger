@@ -13730,6 +13730,152 @@
       "compatible_coordinates": [],
       "stateless": false,
       "child_rules": []
+    },
+    {
+      "key": {
+        "namespace": "view",
+        "kind": "cartesian"
+      },
+      "docs": "A Cartesian inline view whose domains drive view-local transforms.",
+      "properties": {
+        "debounce_ms": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Quiet interval before evaluation in milliseconds."
+        },
+        "stale_policy": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "hide_until_ready",
+                  "docs": "Hide results until the current evaluation is ready."
+                },
+                {
+                  "value": "retarget_cached",
+                  "docs": "Retarget the last ready result through current scales."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Behavior while a newer view-local result is pending."
+        },
+        "throttle_ms": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Minimum interval between evaluations in milliseconds."
+        },
+        "x_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Expression whose values define the horizontal view domain."
+        },
+        "y_domain": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": true,
+          "docs": "Expression whose values define the vertical view domain."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "transform",
+          "min": 0,
+          "docs": "A view-local transform stage."
+        },
+        {
+          "role": "mark",
+          "min": 0,
+          "docs": "A primitive mark rendered from the view-local relation."
+        },
+        {
+          "role": "group",
+          "min": 0,
+          "docs": "A group rendered from the view-local relation."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "view",
+        "kind": "pixel_frame"
+      },
+      "docs": "A scale-free logical-pixel inline view.",
+      "properties": {
+        "debounce_ms": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Quiet interval before evaluation in milliseconds."
+        },
+        "stale_policy": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "hide_until_ready",
+                  "docs": "Hide results until the current evaluation is ready."
+                },
+                {
+                  "value": "retarget_cached",
+                  "docs": "Retarget the last ready result through current scales."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Behavior while a newer view-local result is pending."
+        },
+        "throttle_ms": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Minimum interval between evaluations in milliseconds."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "transform",
+          "min": 0,
+          "docs": "A view-local transform stage."
+        },
+        {
+          "role": "mark",
+          "min": 0,
+          "docs": "A primitive mark rendered from the view-local relation."
+        },
+        {
+          "role": "group",
+          "min": 0,
+          "docs": "A group rendered from the view-local relation."
+        }
+      ]
     }
   ]
 }

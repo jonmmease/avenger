@@ -942,6 +942,8 @@ avenger 1;
 chart cartesian as chart {
   group as owner {
     view cartesian as viewport {
+      x_domain: "x";
+      y_domain: "y";
       transform filter as visible { predicate: view_x(viewport, pixels) > 0; }
       mark symbol as points { x: "x"; y: "y"; }
     }
@@ -975,6 +977,8 @@ avenger 1;
 chart cartesian {
   group {
     view cartesian as viewport {
+      x_domain: "x";
+      y_domain: "y";
       mark symbol { x: "x"; y: "y"; }
     }
     mark symbol { x: view_x(viewport, pixels) + 0; y: "y"; }

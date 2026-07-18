@@ -828,6 +828,79 @@ async fn native_surface_all_six_builtin_widgets_lower_through_one_schema_contrac
 }
 
 #[tokio::test]
+async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          data: {
+            values: [
+              { x: 1.0; y: 2.0; },
+              { x: 3.0; y: 4.0; }
+            ];
+          }
+          group as viewed_points {
+            view cartesian as viewport {
+              x_domain: "x";
+              y_domain: "y";
+              stale_policy: retarget_cached;
+              throttle_ms: 16;
+              transform filter {
+                predicate: view_x(viewport, pixels) > 0;
+              }
+              mark symbol { x: "x"; y: "y"; }
+            }
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    for expected in [
+        "\"kind\":\"cartesian\"",
+        "\"source_name\":\"viewport\"",
+        "\"stale_policy\":\"RetargetCached\"",
+    ] {
+        assert!(json.contains(expected), "missing {expected}: {json}");
+    }
+
+    let mark_owned = source.replace(
+        r#"group as viewed_points {
+            view cartesian as viewport {
+              x_domain: "x";
+              y_domain: "y";
+              stale_policy: retarget_cached;
+              throttle_ms: 16;
+              transform filter {
+                predicate: view_x(viewport, pixels) > 0;
+              }
+              mark symbol { x: "x"; y: "y"; }
+            }
+          }"#,
+        r#"mark symbol as viewed_point {
+            x: "x";
+            y: "y";
+            view cartesian as viewport {
+              x_domain: "x";
+              y_domain: "y";
+              transform filter {
+                predicate: view_x(viewport, pixels) > 0;
+              }
+            }
+          }"#,
+    );
+    let mark_artifact = source_compiler(&mark_owned, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let mark_json = serde_json::to_string(mark_artifact.compiled_plot()).unwrap();
+    assert!(mark_json.contains("viewed_point"), "{mark_json}");
+    assert!(
+        mark_json.contains("\"source_name\":\"viewport\""),
+        "{mark_json}"
+    );
+}
+
+#[tokio::test]
 async fn native_surface_text_input_editing_exports_are_reference_driven() {
     let unused = r#"avenger 1;
         chart zerod as chart {

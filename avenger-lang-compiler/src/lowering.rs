@@ -25,21 +25,22 @@ use avenger_chart::{
 use avenger_chart_core::{
     DataTransformExecutionContext, DataTransformStage, FormattingContext, Param as ChartParam,
     PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
-    PatternLayerOperation, StripeDash, StripePatternLayer, Theme, TimeContext, WeekStart,
+    PatternLayerOperation, StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
     ResolvedDeclaration as NativeDeclaration, ResolvedMark, ResolvedMarkGroup, ResolvedPlot,
-    ResolvedTransformStage, ResolvedValue as NativeValue,
+    ResolvedTransformStage, ResolvedValue as NativeValue, ResolvedViewScope,
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
-    DeclarationId, Diagnostic, ImportCapabilities, IntervalUnit, ParamId, PhysicalField,
-    PhysicalType, ResolvedBinding, ResolvedDeclaration, ResolvedExpression, ResolvedOutputHandle,
-    ResolvedOutputShape, ResolvedParam, ResolvedProject, ResolvedQuery, ResolvedSelection,
-    ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore,
-    ResolvedTarget, ResolvedValue, SelectionId, SourceLabel, SourceLoader, SourceSpan,
-    StateSharing, StoreId, TimeUnit, ast::BindingTime, project::resolve_import_origin,
+    DeclarationId, Diagnostic, HelperClass, ImportCapabilities, IntervalUnit, ParamId,
+    PhysicalField, PhysicalType, ResolvedBinding, ResolvedDeclaration, ResolvedExpression,
+    ResolvedHelperArgument, ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam,
+    ResolvedProject, ResolvedQuery, ResolvedSelection, ResolvedSelectionCombine,
+    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStore, ResolvedTarget, ResolvedValue,
+    SelectionId, SourceLabel, SourceLoader, SourceSpan, StateSharing, StoreId, TimeUnit,
+    ast::BindingTime, project::resolve_import_origin,
 };
 use datafusion::{
     common::{
@@ -92,6 +93,7 @@ struct ProjectLowerer<'a> {
     widget_owned_params: BTreeSet<ParamId>,
     tool_owned_selections: BTreeSet<SelectionId>,
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
+    view_refs: BTreeMap<DeclarationId, ViewRef>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
 }
 
@@ -115,6 +117,7 @@ impl<'a> ProjectLowerer<'a> {
             widget_owned_params: widget_owned_params(project),
             tool_owned_selections: tool_owned_selections(project),
             transform_outputs: BTreeMap::new(),
+            view_refs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
         }
     }
@@ -679,12 +682,27 @@ impl<'a> ProjectLowerer<'a> {
                             .await?;
                         group.marks.push(ResolvedMark::Group(Box::new(child_group)));
                     }
+                    "view" => {
+                        let view_group = self
+                            .lower_view_scope(child, current_data.as_ref(), plot)
+                            .await?;
+                        group.marks.push(ResolvedMark::Group(Box::new(view_group)));
+                    }
                     "mark" => {
                         let mark_data = match child.properties.get("data") {
                             Some(value) => Some(self.lower_data(value, child).await?),
                             None => None,
                         };
                         let planning_data = mark_data.as_ref().or(current_data.as_ref());
+                        let view = child
+                            .children
+                            .iter()
+                            .find(|nested| nested.keyword == "view");
+                        let mut view_group = if let Some(view) = view {
+                            Some(self.lower_view_scope(view, planning_data, plot).await?)
+                        } else {
+                            None
+                        };
                         let declaration = self.native_declaration(
                             child,
                             planning_data,
@@ -725,7 +743,11 @@ impl<'a> ProjectLowerer<'a> {
                         } else {
                             ResolvedMark::Native(declaration)
                         };
-                        if let Some(data) = mark_data {
+                        if let Some(mut wrapper) = view_group.take() {
+                            wrapper.data = mark_data;
+                            wrapper.marks.push(native);
+                            group.marks.push(ResolvedMark::Group(Box::new(wrapper)));
+                        } else if let Some(data) = mark_data {
                             let mut wrapper = ResolvedMarkGroup::new();
                             wrapper.data = Some(data);
                             wrapper.marks.push(native);
@@ -835,6 +857,61 @@ impl<'a> ProjectLowerer<'a> {
                 plot.marks.push(ResolvedMark::Group(Box::new(root_group)));
             }
             Ok(plot)
+        })
+    }
+
+    fn lower_view_scope<'b>(
+        &'b mut self,
+        declaration: &'b ResolvedDeclaration,
+        inherited_data: Option<&'b DataFrame>,
+        plot: &'b mut ResolvedPlot,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<ResolvedMarkGroup, Diagnostic>> + 'b>,
+    > {
+        Box::pin(async move {
+            let source_name = declaration
+                .name
+                .clone()
+                .unwrap_or_else(|| declaration.id.as_str().to_string());
+            let mut native =
+                self.native_declaration(declaration, inherited_data, NativeKindNamespace::View)?;
+            native.source_name = Some(source_name);
+            // Domain strings use the same field shorthand as encoding
+            // channels: `x_domain: "x"` means the data column, not a scalar
+            // string literal.
+            for property in ["x_domain", "y_domain"] {
+                if let Some(ResolvedValue::String(field)) = declaration.properties.get(property) {
+                    native
+                        .properties
+                        .insert(property.to_string(), NativeValue::Expr(col(field)));
+                }
+            }
+            let key = NativeKindKey::new(NativeKindNamespace::View, native.kind.clone());
+            let spec = self
+                .registry
+                .lower_object(&key, &native)
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?
+                .downcast::<avenger_chart_core::CompiledViewSpec>()
+                .map_err(|_| {
+                    lowerer_error(
+                        declaration,
+                        "registered view lowerer did not return CompiledViewSpec",
+                    )
+                })?;
+            self.view_refs
+                .insert(declaration.id.clone(), spec.view_ref());
+
+            let mut group = self
+                .lower_container(declaration, inherited_data, plot)
+                .await?;
+            let data = group.data.take();
+            let transforms = std::mem::take(&mut group.transforms);
+            group.view = Some(ResolvedViewScope {
+                spec: *spec,
+                data,
+                transforms,
+            });
+            Ok(group)
         })
     }
 
@@ -2013,10 +2090,14 @@ impl<'a> ProjectLowerer<'a> {
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
     ) -> Result<Expr, Diagnostic> {
-        if !expression.helpers.is_empty() {
+        if expression
+            .helpers
+            .iter()
+            .any(|helper| helper.class != HelperClass::View)
+        {
             return Err(lowerer_error(
                 declaration,
-                "reserved SQL helpers in native expressions are not in the Phase 5 slice",
+                "this reserved SQL helper is not valid in a native data expression",
             ));
         }
         let data = data.ok_or_else(|| {
@@ -2025,6 +2106,62 @@ impl<'a> ProjectLowerer<'a> {
         let mut sql = expression.sql.clone();
         let mut parse_data = data.clone();
         let mut replacements = BTreeMap::new();
+        for (index, helper) in expression.helpers.iter().enumerate() {
+            let [
+                ResolvedHelperArgument::Target(ResolvedTarget::Declaration(view_id)),
+                ResolvedHelperArgument::Name(field),
+            ] = helper.arguments.as_slice()
+            else {
+                return Err(lowerer_error(
+                    declaration,
+                    "resolved view helper has invalid arguments",
+                ));
+            };
+            let view = self
+                .view_refs
+                .get(view_id)
+                .ok_or_else(|| lowerer_error(declaration, "resolved inline view is unavailable"))?;
+            let axis = match helper.name.as_str() {
+                "view_x" => view.x(),
+                "view_y" => view.y(),
+                _ => {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("unsupported view helper `{}`", helper.name),
+                    ));
+                }
+            };
+            let expr = match field.as_str() {
+                "domain_start" => axis.domain_start(),
+                "domain_end" => axis.domain_end(),
+                "pixels" => axis.pixels(),
+                _ => {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("unsupported view helper field `{field}`"),
+                    ));
+                }
+            };
+            let synthetic = format!("__avenger_view_helper_{index:08}");
+            let canonical = format!("{}({}, {})", helper.name, view.id(), field);
+            let compact = format!("{}({},{})", helper.name, view.id(), field);
+            let replacement = format!("\"{synthetic}\"");
+            let mut rewritten = sql.replacen(&canonical, &replacement, 1);
+            if rewritten == sql {
+                rewritten = sql.replacen(&compact, &replacement, 1);
+            }
+            if rewritten == sql {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("could not rewrite resolved view helper `{canonical}`"),
+                ));
+            }
+            sql = rewritten;
+            parse_data = parse_data
+                .with_column(&synthetic, expr.clone())
+                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+            replacements.insert(synthetic, expr);
+        }
         for (index, reference) in expression.references.iter().enumerate() {
             let (expr, planning_seed) = match &reference.target {
                 ResolvedTarget::Output(handle) => {

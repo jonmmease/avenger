@@ -2866,9 +2866,8 @@ impl<'a> Resolver<'a> {
     ) -> Option<KindSchema> {
         let kind = declaration.kind.as_ref()?.as_str();
         let key = match declaration.keyword.as_str() {
-            "chart" | "cell" | "plot" | "view" => {
-                NativeKindKey::new(NativeKindNamespace::Coordinate, kind)
-            }
+            "chart" | "cell" | "plot" => NativeKindKey::new(NativeKindNamespace::Coordinate, kind),
+            "view" => NativeKindKey::new(NativeKindNamespace::View, kind),
             "mark" => {
                 if let Some(coordinate) = coordinate {
                     NativeKindKey::mark(coordinate, kind)

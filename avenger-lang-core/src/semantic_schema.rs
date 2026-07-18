@@ -538,11 +538,12 @@ fn value_ref() -> Value {
 
 fn namespace_keywords(namespace: NativeKindNamespace) -> &'static [&'static str] {
     match namespace {
-        NativeKindNamespace::Coordinate => &["chart", "cell", "plot", "view"],
+        NativeKindNamespace::Coordinate => &["chart", "cell", "plot"],
         NativeKindNamespace::Mark => &["mark"],
         NativeKindNamespace::Transform => &["transform"],
         NativeKindNamespace::Tool => &["tool"],
         NativeKindNamespace::Widget => &["widget"],
+        NativeKindNamespace::View => &["view"],
         // These namespaces are currently represented in configured value
         // blocks rather than top-level declaration nodes.
         NativeKindNamespace::Scale

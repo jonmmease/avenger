@@ -242,6 +242,26 @@ impl<C: CoordinateSystemCore> MarkGroup<C> {
         self.view.as_ref()
     }
 
+    /// Install an already compiled inline-view scope.
+    ///
+    /// This is the registry/compiler boundary equivalent of [`Self::try_view`].
+    /// Language lowerers have already validated and compiled the owner-provided
+    /// view specification, so they must not reconstruct a concrete `ViewSpec`.
+    #[doc(hidden)]
+    pub fn with_compiled_view_scope(
+        mut self,
+        spec: crate::CompiledViewSpec,
+        data: DataContext,
+    ) -> Result<Self, AvengerChartError> {
+        if self.view.is_some() {
+            return Err(AvengerChartError::InvalidArgument(
+                "Nested group view(...) scopes are not supported".to_string(),
+            ));
+        }
+        self.view = Some(ViewScopeState::new(spec, data));
+        Ok(self)
+    }
+
     /// Control how this group's inherited data is selected in faceted plots.
     pub fn facet_data_scope(mut self, scope: FacetDataScope) -> Self {
         self.facet_data_scope = scope;

@@ -1791,3 +1791,25 @@ The default chart frame layout.
 | `canvas` | property | false | Canvas width/height constraints or `auto`. |
 | `margins` | property | false | Fixed chart margins. |
 | `plot` | property | false | Plot-area width/height constraints or `auto`. |
+
+## `View.cartesian`
+
+A Cartesian inline view whose domains drive view-local transforms.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `debounce_ms` | property | false | Quiet interval before evaluation in milliseconds. |
+| `stale_policy` | property | false | Behavior while a newer view-local result is pending. |
+| `throttle_ms` | property | false | Minimum interval between evaluations in milliseconds. |
+| `x_domain` | property | true | Expression whose values define the horizontal view domain. |
+| `y_domain` | property | true | Expression whose values define the vertical view domain. |
+
+## `View.pixel_frame`
+
+A scale-free logical-pixel inline view.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `debounce_ms` | property | false | Quiet interval before evaluation in milliseconds. |
+| `stale_policy` | property | false | Behavior while a newer view-local result is pending. |
+| `throttle_ms` | property | false | Minimum interval between evaluations in milliseconds. |

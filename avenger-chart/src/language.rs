@@ -1,11 +1,15 @@
 //! Avenger-language schemas and owner lowerers for facade-owned chart surface.
 
+use std::time::Duration;
+
 use avenger_chart_core::AxisGuideVisibilityPolicy;
 use avenger_chart_core::{
-    CoordinationScope, RepeatDomainCoordination, RepeatTypeHint, RepeatVariable,
+    CoordinationScope, RepeatDomainCoordination, RepeatTypeHint, RepeatVariable, View, ViewSpec,
+    ViewStalePolicy,
 };
 use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, NativeLoweringError, ResolvedDeclaration, ResolvedValue,
+    CoordinateLanguageDefinition, NativeLoweringError, ObjectLanguageDefinition,
+    ResolvedDeclaration, ResolvedValue,
 };
 use avenger_chart_schema::{
     BodyMode, ChildRule, EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace,
@@ -17,6 +21,184 @@ use crate::{
     facet::coord::{FacetColumn, FacetRow, FacetWrap},
     repeat::{RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap},
 };
+
+pub fn cartesian_view_definition() -> ObjectLanguageDefinition {
+    ObjectLanguageDefinition {
+        schema: view_schema("cartesian", true),
+        lowerer: lower_cartesian_view,
+    }
+}
+
+pub fn pixel_frame_view_definition() -> ObjectLanguageDefinition {
+    ObjectLanguageDefinition {
+        schema: view_schema("pixel_frame", false),
+        lowerer: lower_pixel_frame_view,
+    }
+}
+
+fn view_schema(kind: &str, domains: bool) -> KindSchema {
+    let mut schema = KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::View, kind),
+        if domains {
+            "A Cartesian inline view whose domains drive view-local transforms."
+        } else {
+            "A scale-free logical-pixel inline view."
+        },
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "stale_policy",
+        PropertySchema::optional(
+            atom(&[
+                (
+                    "hide_until_ready",
+                    "Hide results until the current evaluation is ready.",
+                ),
+                (
+                    "retarget_cached",
+                    "Retarget the last ready result through current scales.",
+                ),
+            ]),
+            "Behavior while a newer view-local result is pending.",
+        ),
+    )
+    .property(
+        "throttle_ms",
+        PropertySchema::optional(
+            ValueShape::Integer,
+            "Minimum interval between evaluations in milliseconds.",
+        ),
+    )
+    .property(
+        "debounce_ms",
+        PropertySchema::optional(
+            ValueShape::Integer,
+            "Quiet interval before evaluation in milliseconds.",
+        ),
+    )
+    .child_rule(ChildRule {
+        role: "transform".to_string(),
+        min: 0,
+        max: None,
+        docs: "A view-local transform stage.".to_string(),
+    })
+    .child_rule(ChildRule {
+        role: "mark".to_string(),
+        min: 0,
+        max: None,
+        docs: "A primitive mark rendered from the view-local relation.".to_string(),
+    })
+    .child_rule(ChildRule {
+        role: "group".to_string(),
+        min: 0,
+        max: None,
+        docs: "A group rendered from the view-local relation.".to_string(),
+    });
+    if domains {
+        schema = schema
+            .property(
+                "x_domain",
+                PropertySchema::required(
+                    ValueShape::SqlExpression,
+                    "Expression whose values define the horizontal view domain.",
+                ),
+            )
+            .property(
+                "y_domain",
+                PropertySchema::required(
+                    ValueShape::SqlExpression,
+                    "Expression whose values define the vertical view domain.",
+                ),
+            );
+    }
+    schema
+}
+
+fn lower_cartesian_view(
+    declaration: &ResolvedDeclaration,
+) -> Result<Box<dyn std::any::Any + Send + Sync>, NativeLoweringError> {
+    let id = declaration
+        .source_name
+        .as_ref()
+        .ok_or_else(|| NativeLoweringError::Lowering {
+            kind: declaration.kind.clone(),
+            message: "inline view requires a compiler-assigned identity".to_string(),
+        })?;
+    let view = View::cartesian()
+        .id(id)
+        .x_domain(expr("x_domain", declaration.get("x_domain")?)?)
+        .y_domain(expr("y_domain", declaration.get("y_domain")?)?);
+    let view = apply_cartesian_view_policy(declaration, view)?;
+    let (compiled, _) = view.into_compiled_and_ref()?;
+    Ok(Box::new(compiled))
+}
+
+fn lower_pixel_frame_view(
+    declaration: &ResolvedDeclaration,
+) -> Result<Box<dyn std::any::Any + Send + Sync>, NativeLoweringError> {
+    let id = declaration
+        .source_name
+        .as_ref()
+        .ok_or_else(|| NativeLoweringError::Lowering {
+            kind: declaration.kind.clone(),
+            message: "inline view requires a compiler-assigned identity".to_string(),
+        })?;
+    let mut view = View::pixel_frame().id(id);
+    if let Some(ResolvedValue::String(policy)) = declaration.properties.get("stale_policy") {
+        view = view.stale_policy(parse_stale_policy(policy)?);
+    }
+    if let Some(duration) = view_duration(declaration, "throttle_ms")? {
+        view = view.throttle(duration);
+    }
+    if let Some(duration) = view_duration(declaration, "debounce_ms")? {
+        view = view.debounce(duration);
+    }
+    let (compiled, _) = view.into_compiled_and_ref()?;
+    Ok(Box::new(compiled))
+}
+
+fn apply_cartesian_view_policy(
+    declaration: &ResolvedDeclaration,
+    mut view: avenger_chart_core::CartesianView,
+) -> Result<avenger_chart_core::CartesianView, NativeLoweringError> {
+    if let Some(ResolvedValue::String(policy)) = declaration.properties.get("stale_policy") {
+        view = view.stale_policy(parse_stale_policy(policy)?);
+    }
+    if let Some(duration) = view_duration(declaration, "throttle_ms")? {
+        view = view.throttle(duration);
+    }
+    if let Some(duration) = view_duration(declaration, "debounce_ms")? {
+        view = view.debounce(duration);
+    }
+    Ok(view)
+}
+
+fn parse_stale_policy(value: &str) -> Result<ViewStalePolicy, NativeLoweringError> {
+    match value {
+        "hide_until_ready" => Ok(ViewStalePolicy::HideUntilReady),
+        "retarget_cached" => Ok(ViewStalePolicy::RetargetCached),
+        _ => Err(NativeLoweringError::InvalidPropertyType {
+            property: "stale_policy".to_string(),
+            expected: "hide_until_ready or retarget_cached".to_string(),
+        }),
+    }
+}
+
+fn view_duration(
+    declaration: &ResolvedDeclaration,
+    property: &str,
+) -> Result<Option<Duration>, NativeLoweringError> {
+    match declaration.properties.get(property) {
+        None => Ok(None),
+        Some(ResolvedValue::Integer(value)) if *value >= 0 => {
+            Ok(Some(Duration::from_millis(*value as u64)))
+        }
+        Some(_) => Err(NativeLoweringError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "non-negative integer milliseconds".to_string(),
+        }),
+    }
+}
 
 pub fn hconcat_definition() -> CoordinateLanguageDefinition<HConcat> {
     CoordinateLanguageDefinition::new("hconcat", hconcat_schema(), lower_hconcat)

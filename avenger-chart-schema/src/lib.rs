@@ -31,6 +31,7 @@ pub enum NativeKindNamespace {
     Axis,
     Legend,
     Layout,
+    View,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -52,6 +53,7 @@ pub type ScaleSchema = KindSchema;
 pub type AxisSchema = KindSchema;
 pub type LegendSchema = KindSchema;
 pub type LayoutSchema = KindSchema;
+pub type ViewSchema = KindSchema;
 
 impl NativeKindKey {
     pub fn new(namespace: NativeKindNamespace, kind: impl Into<String>) -> Self {

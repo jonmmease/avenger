@@ -48,7 +48,15 @@ pub struct ResolvedMarkGroup {
     pub component_kind: Option<String>,
     pub data: Option<DataFrame>,
     pub transforms: Vec<ResolvedTransformStage>,
+    pub view: Option<ResolvedViewScope>,
     pub marks: Vec<ResolvedMark>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedViewScope {
+    pub spec: avenger_chart_core::CompiledViewSpec,
+    pub data: Option<DataFrame>,
+    pub transforms: Vec<ResolvedTransformStage>,
 }
 
 impl ResolvedMarkGroup {
@@ -58,6 +66,7 @@ impl ResolvedMarkGroup {
             component_kind: None,
             data: None,
             transforms: Vec::new(),
+            view: None,
             marks: Vec::new(),
         }
     }
@@ -449,6 +458,16 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                 }
                 if let Some(component_kind) = &resolved.component_kind {
                     group = group.component_kind(component_kind.clone());
+                }
+                if let Some(view) = &resolved.view {
+                    let mut view_data = view.data.clone().map(DataContext::new).unwrap_or_default();
+                    for stage in &view.transforms {
+                        view_data =
+                            view_data.with_transform_stage(stage.scope, stage.transform.clone());
+                    }
+                    group = group
+                        .with_compiled_view_scope(view.spec.clone(), view_data)
+                        .map_err(RegistryError::from)?;
                 }
                 for child in &resolved.marks {
                     for mark in self.lower_mark(registry, child)? {
@@ -857,6 +876,7 @@ impl NativeRegistryBuilder {
                 | NativeKindNamespace::Axis
                 | NativeKindNamespace::Legend
                 | NativeKindNamespace::Layout
+                | NativeKindNamespace::View
         ) {
             return Err(RegistryError::SchemaLowererMismatch(key));
         }
