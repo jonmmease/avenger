@@ -25,8 +25,9 @@ use avenger_chart::{
 use avenger_chart_core::{
     ChartEventBinding, ChartEventStream, ChartEventType, DataTransformExecutionContext,
     DataTransformStage, FormattingContext, Param as ChartParam, PatternAnchor, PatternChannelValue,
-    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, StripeDash, StripePatternLayer,
-    Theme, TimeContext, ViewRef, WeekStart, event,
+    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SelectionUpdate, StoreFieldPatch,
+    StoreKey, StoreRow, StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef,
+    WeekStart, event,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -768,11 +769,57 @@ impl<'a> ProjectLowerer<'a> {
                         }
                     };
                 }
-                Some(kind @ ("store" | "selection")) => {
-                    return Err(lowerer_error(
-                        action,
-                        format!("event `{kind}` update lowering is not implemented yet"),
-                    ));
+                Some("store") => {
+                    let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
+                        lowerer_error(action, "store action target was not resolved")
+                    })?;
+                    let ResolvedTarget::Store(id) = &lvalue.target else {
+                        return Err(lowerer_error(
+                            action,
+                            "definition-owned store actions require Phase 7 expansion",
+                        ));
+                    };
+                    let store = self
+                        .stores
+                        .get(id)
+                        .ok_or_else(|| lowerer_error(action, "resolved store is unavailable"))?;
+                    let update = self.lower_store_update(value, data, action)?;
+                    binding = match (lvalue.route, lvalue.replacing_scopes) {
+                        (ResolvedActionRoute::Current, false) => {
+                            binding.set_store(store.name.clone(), update)
+                        }
+                        (ResolvedActionRoute::Current, true) => {
+                            binding.set_store_replacing_scopes(store.name.clone(), update)
+                        }
+                        (ResolvedActionRoute::Start, false) => {
+                            binding.set_store_at_start_scope(store.name.clone(), update)
+                        }
+                        (ResolvedActionRoute::Start, true) => binding
+                            .set_store_at_start_scope_replacing_scopes(store.name.clone(), update),
+                    };
+                }
+                Some("selection") => {
+                    let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
+                        lowerer_error(action, "selection action target was not resolved")
+                    })?;
+                    let ResolvedTarget::Selection(id) = &lvalue.target else {
+                        return Err(lowerer_error(
+                            action,
+                            "definition-owned selection actions require Phase 7 expansion",
+                        ));
+                    };
+                    let selection = self.selections.get(id).ok_or_else(|| {
+                        lowerer_error(action, "resolved selection is unavailable")
+                    })?;
+                    let update = self.lower_selection_update(value, action)?;
+                    binding = match lvalue.route {
+                        ResolvedActionRoute::Current => {
+                            binding.set_selection(selection.id.clone(), update)
+                        }
+                        ResolvedActionRoute::Start => {
+                            binding.set_selection_at_start_scope(selection.id.clone(), update)
+                        }
+                    };
                 }
                 _ => return Err(lowerer_error(action, "unsupported event action kind")),
             }
@@ -781,6 +828,135 @@ impl<'a> ProjectLowerer<'a> {
             .validate()
             .map_err(|error| lowerer_error(declaration, error.to_string()))?;
         Ok(binding)
+    }
+
+    fn lower_store_update(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<StoreUpdate, Diagnostic> {
+        if matches!(value, ResolvedValue::Atom(kind) if kind == "clear") {
+            return Ok(StoreUpdate::clear());
+        }
+        let ResolvedValue::Object { kind, children, .. } = value else {
+            return Err(lowerer_error(declaration, "invalid store update payload"));
+        };
+        let kind = kind.as_deref().ok_or_else(|| {
+            lowerer_error(
+                declaration,
+                "store update payload requires an operation kind",
+            )
+        })?;
+        let rows = || {
+            children
+                .iter()
+                .filter(|child| child.keyword == "row")
+                .map(|row| {
+                    row.properties
+                        .iter()
+                        .try_fold(StoreRow::new(), |row, (name, value)| {
+                            Ok(row.field(
+                                name,
+                                self.event_expression_value(value, data, declaration)?,
+                            ))
+                        })
+                })
+                .collect::<Result<Vec<_>, Diagnostic>>()
+        };
+        Ok(match kind {
+            "replace_rows" => StoreUpdate::replace_rows(rows()?),
+            "insert_rows" => StoreUpdate::insert_rows(rows()?),
+            "upsert_rows" => StoreUpdate::upsert_rows(rows()?),
+            "toggle_rows" => StoreUpdate::toggle_rows(rows()?),
+            "update_by_key" => {
+                let key = children
+                    .iter()
+                    .find(|child| child.keyword == "key")
+                    .ok_or_else(|| {
+                        lowerer_error(declaration, "update_by_key requires a key payload")
+                    })?;
+                let fields = children
+                    .iter()
+                    .find(|child| child.keyword == "fields")
+                    .ok_or_else(|| {
+                        lowerer_error(declaration, "update_by_key requires a fields payload")
+                    })?;
+                StoreUpdate::update_by_key(
+                    self.lower_store_key(key, data, declaration)?,
+                    fields.properties.iter().try_fold(
+                        StoreFieldPatch::new(),
+                        |patch, (name, value)| {
+                            Ok(patch.field(
+                                name,
+                                self.event_expression_value(value, data, declaration)?,
+                            ))
+                        },
+                    )?,
+                )
+            }
+            "delete_by_key" => {
+                let key = children
+                    .iter()
+                    .find(|child| child.keyword == "key")
+                    .ok_or_else(|| {
+                        lowerer_error(declaration, "delete_by_key requires a key payload")
+                    })?;
+                StoreUpdate::delete_by_key(self.lower_store_key(key, data, declaration)?)
+            }
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    format!("unsupported store update `{kind}`"),
+                ));
+            }
+        })
+    }
+
+    fn lower_store_key(
+        &self,
+        key: &ResolvedDeclaration,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<StoreKey, Diagnostic> {
+        key.properties
+            .iter()
+            .try_fold(StoreKey::new(), |key, (name, value)| {
+                Ok(key.field(name, self.event_expression_value(value, data, declaration)?))
+            })
+    }
+
+    fn lower_selection_update(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<SelectionUpdate, Diagnostic> {
+        match value {
+            ResolvedValue::Atom(kind) if kind == "clear" => Ok(SelectionUpdate::clear()),
+            ResolvedValue::Object {
+                kind: Some(kind),
+                properties,
+                ..
+            } if kind == "clear_in_scope" => {
+                let scope = properties
+                    .get("scope")
+                    .ok_or_else(|| lowerer_error(declaration, "clear_in_scope requires scope"))?;
+                Ok(SelectionUpdate::clear_in_scope(
+                    self.coordination_scope(scope, declaration)?,
+                ))
+            }
+            ResolvedValue::Object { kind, .. } => Err(lowerer_error(
+                declaration,
+                format!(
+                    "selection update `{}` is not implemented yet",
+                    kind.as_deref().unwrap_or("<missing>")
+                ),
+            )),
+            _ => Err(lowerer_error(
+                declaration,
+                "invalid selection update payload",
+            )),
+        }
     }
 
     fn lower_event_stream(

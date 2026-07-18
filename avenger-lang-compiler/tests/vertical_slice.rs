@@ -906,6 +906,12 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
         chart cartesian as chart {
           param as enabled { type: boolean; default: true; }
           param as drag_x { type: float64; default: 0.0; sharing: free; }
+          store as hovered {
+            field id: utf8;
+            field x: float64;
+            primary_key: [id];
+          }
+          selection as picked { empty: none; combine: union; }
           data: { values: [{ x: 1.0; y: 2.0; }]; }
           mark symbol as points { x: "x"; y: "y"; }
           on cursor_moved as drag {
@@ -920,6 +926,10 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
               end: mouse_up { filter: $enabled; }
             }
             set param drag_x at start = event_coord(x);
+            set store hovered = insert_rows {
+              row { id: 'point'; x: event_coord(x); }
+            }
+            set selection picked = clear;
             set cursor = 'crosshair';
           }
         }"#;
@@ -935,7 +945,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
     assert!(binding.consume);
     assert!(binding.between.is_some());
     let steps = binding.action.ordered_steps();
-    assert_eq!(steps.len(), 2);
+    assert_eq!(steps.len(), 4);
     assert!(matches!(
         &steps[0],
         avenger_chart_core::ChartActionStep::SetParam(action)
@@ -944,6 +954,16 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
     ));
     assert!(matches!(
         &steps[1],
+        avenger_chart_core::ChartActionStep::SetStore(action)
+            if action.store_name == "hovered"
+    ));
+    assert!(matches!(
+        &steps[2],
+        avenger_chart_core::ChartActionStep::SetSelection(action)
+            if action.selection_id == "picked"
+    ));
+    assert!(matches!(
+        &steps[3],
         avenger_chart_core::ChartActionStep::SetCursor(_)
     ));
 }
