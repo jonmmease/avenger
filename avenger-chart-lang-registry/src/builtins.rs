@@ -12,14 +12,15 @@ use avenger_chart::{
     },
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
     prelude::{
-        Cartesian, FacetColumn, FacetRow, FacetWrap, Plot, RepeatColumns, RepeatGrid, RepeatRows,
-        RepeatWrap, Subplot,
+        Cartesian, CartesianSubplotPositionChannels, FacetColumn, FacetRow, FacetWrap,
+        IntoPlotMark, Plot, RepeatColumns, RepeatGrid, RepeatRows, RepeatWrap, Subplot,
     },
 };
 use avenger_chart_core::{
     AxisGuideVisibilityPolicy, ChildPlotFurnishings, CoordinateSystem, CoordinationScope,
     FacetEmptyCellPolicy, SubplotChildPlotSpec, SubplotContainerCoordinateSystem, TitleSpec,
 };
+use avenger_chart_polar::PolarSubplotPositionChannels;
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
@@ -38,10 +39,19 @@ pub fn bootstrap_registry() -> Result<NativeRegistry, RegistryError> {
 pub fn register_bootstrap_builtins(
     builder: &mut NativeRegistryBuilder,
 ) -> Result<(), RegistryError> {
-    builder.register_coordinate_pack(cartesian_pack())?;
-    builder.register_coordinate_pack(CoordinatePack::from_language_definition(
-        avenger_chart_polar::language::definition(),
+    builder.register_coordinate_pack(cartesian_pack().child_mark(
+        "subplot",
+        avenger_chart_cartesian::language::subplot_schema(),
+        lower_cartesian_subplot,
     ))?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart_polar::language::definition())
+            .child_mark(
+                "subplot",
+                avenger_chart_polar::language::subplot_schema(),
+                lower_polar_subplot,
+            ),
+    )?;
     builder.register_coordinate_pack(CoordinatePack::from_language_definition(
         avenger_chart_parallel::language::definition(),
     ))?;
@@ -58,6 +68,99 @@ pub fn register_bootstrap_builtins(
     register_facet_coordinates(builder)?;
     register_repeat_coordinates(builder)?;
     register_bootstrap_noncoordinate_builtins(builder)
+}
+
+fn lower_cartesian_subplot(
+    declaration: &crate::ResolvedDeclaration,
+    child: Box<dyn SubplotChildPlotSpec>,
+) -> Result<Vec<avenger_chart_core::PlotMark<Cartesian>>, RegistryError> {
+    let mut subplot = Subplot::<Cartesian>::new(child);
+    if let Some(name) = &declaration.source_name {
+        subplot = subplot.id(name.clone());
+    }
+    for (name, value) in &declaration.properties {
+        subplot = match name.as_str() {
+            "x" => subplot.subplot_x(native_channel(value, name)?),
+            "y" => subplot.subplot_y(native_channel(value, name)?),
+            "key" => subplot.partition_by(native_channel(value, name)?),
+            "width" => subplot.plot_width(native_expr(value, name)?),
+            "height" => subplot.plot_height(native_expr(value, name)?),
+            "zindex" => subplot.zindex(native_i32(value, name)?),
+            other if is_common_subplot_property(other) => subplot,
+            other => {
+                return Err(RegistryError::Lowering {
+                    kind: declaration.kind.clone(),
+                    message: format!("unsupported Cartesian subplot property `{other}`"),
+                });
+            }
+        };
+    }
+    Ok(subplot.into_plot_marks())
+}
+
+fn lower_polar_subplot(
+    declaration: &crate::ResolvedDeclaration,
+    child: Box<dyn SubplotChildPlotSpec>,
+) -> Result<Vec<avenger_chart_core::PlotMark<avenger_chart_polar::Polar>>, RegistryError> {
+    let mut subplot = Subplot::<avenger_chart_polar::Polar>::new(child);
+    if let Some(name) = &declaration.source_name {
+        subplot = subplot.id(name.clone());
+    }
+    for (name, value) in &declaration.properties {
+        subplot = match name.as_str() {
+            "r" => subplot.r(native_channel(value, name)?),
+            "theta" => subplot.theta(native_channel(value, name)?),
+            "key" => subplot.partition_by(native_channel(value, name)?),
+            "width" => subplot.plot_width(native_expr(value, name)?),
+            "height" => subplot.plot_height(native_expr(value, name)?),
+            "zindex" => subplot.zindex(native_i32(value, name)?),
+            other if is_common_subplot_property(other) => subplot,
+            other => {
+                return Err(RegistryError::Lowering {
+                    kind: declaration.kind.clone(),
+                    message: format!("unsupported polar subplot property `{other}`"),
+                });
+            }
+        };
+    }
+    Ok(subplot.into_plot_marks())
+}
+
+fn native_channel(
+    value: &ResolvedValue,
+    property: &str,
+) -> Result<avenger_chart_core::ChannelValue, RegistryError> {
+    match value {
+        ResolvedValue::Channel(channel) => Ok(channel.channel_value().clone()),
+        _ => Err(RegistryError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "a configured channel".to_string(),
+        }),
+    }
+}
+
+fn native_i32(value: &ResolvedValue, property: &str) -> Result<i32, RegistryError> {
+    let ResolvedValue::Integer(value) = value else {
+        return Err(RegistryError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "a signed 32-bit integer".to_string(),
+        });
+    };
+    i32::try_from(*value).map_err(|_| RegistryError::InvalidPropertyType {
+        property: property.to_string(),
+        expected: "a signed 32-bit integer".to_string(),
+    })
+}
+
+fn is_common_subplot_property(name: &str) -> bool {
+    matches!(
+        name,
+        "visible"
+            | "details"
+            | "facet_data_scope"
+            | "geometry_space"
+            | "exclude_from_scale_domains"
+    )
 }
 
 fn register_repeat_coordinates(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {

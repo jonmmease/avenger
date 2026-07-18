@@ -3377,6 +3377,260 @@
     {
       "key": {
         "namespace": "mark",
+        "kind": "subplot",
+        "coordinate": "cartesian"
+      },
+      "docs": "A data-driven child plot positioned in Cartesian coordinates.",
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "height": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Child plot-area height."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "width": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Child plot-area width."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
+      "channels": {
+        "key": {
+          "name": "key",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `key` encoding channel."
+        },
+        "x": {
+          "name": "x",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `x` encoding channel."
+        },
+        "y": {
+          "name": "y",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `y` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "plot",
+          "min": 1,
+          "max": 1,
+          "docs": "The embedded mixed-coordinate child plot."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
+        "kind": "subplot",
+        "coordinate": "polar"
+      },
+      "docs": "A data-driven child plot positioned in polar coordinates.",
+      "properties": {
+        "details": {
+          "shape": {
+            "shape": "one_or_many",
+            "detail": {
+              "shape": "identifier"
+            }
+          },
+          "required": false,
+          "docs": "Data field names retained for interaction details and path partitioning."
+        },
+        "exclude_from_scale_domains": {
+          "shape": {
+            "shape": "boolean"
+          },
+          "required": false,
+          "docs": "Exclude this mark's channels from inferred scale domains."
+        },
+        "facet_data_scope": {
+          "shape": {
+            "shape": "facet_data_scope"
+          },
+          "required": false,
+          "docs": "Facet visibility scope: filtered, broadcast, or level(n)."
+        },
+        "geometry_space": {
+          "shape": {
+            "shape": "atom",
+            "detail": {
+              "values": [
+                {
+                  "value": "coordinate",
+                  "docs": "Build geometry before coordinate projection."
+                },
+                {
+                  "value": "display",
+                  "docs": "Build geometry after projection in display space."
+                }
+              ]
+            }
+          },
+          "required": false,
+          "docs": "Space in which the mark constructs geometry."
+        },
+        "height": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Child plot-area height."
+        },
+        "visible": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Scalar boolean expression controlling whether the mark is rendered."
+        },
+        "width": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Child plot-area width."
+        },
+        "zindex": {
+          "shape": {
+            "shape": "integer"
+          },
+          "required": false,
+          "docs": "Integer rendering order."
+        }
+      },
+      "channels": {
+        "key": {
+          "name": "key",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `key` encoding channel."
+        },
+        "r": {
+          "name": "r",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `r` encoding channel."
+        },
+        "theta": {
+          "name": "theta",
+          "required": false,
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "docs": "The `theta` encoding channel."
+        }
+      },
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "view",
+          "min": 0,
+          "max": 1,
+          "docs": "Optional inline data view owned by this mark."
+        },
+        {
+          "role": "plot",
+          "min": 1,
+          "max": 1,
+          "docs": "The embedded mixed-coordinate child plot."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "mark",
         "kind": "symbol",
         "coordinate": "cartesian"
       },

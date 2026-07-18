@@ -564,6 +564,48 @@ async fn native_surface_repeat_grid_and_wrap_lower_reserved_repeat_values() {
 }
 
 #[tokio::test]
+async fn native_surface_positioned_subplot_marks_embed_mixed_coordinate_plots() {
+    for (coordinate, placement, child_coordinate, child_channels) in [
+        (
+            "cartesian",
+            r#"x: avg("x"); y: avg("y"); key: "category"; width: 120; height: 90;"#,
+            "polar",
+            r#"r: "r"; theta: "theta";"#,
+        ),
+        (
+            "polar",
+            r#"r: avg("r"); theta: avg("theta"); key: "category"; width: 100; height: 80;"#,
+            "cartesian",
+            r#"x: "x"; y: "y";"#,
+        ),
+    ] {
+        let source = format!(
+            r#"avenger 1;
+            chart {coordinate} as chart {{
+              data: {{ values: [{{ x: 1.0; y: 2.0; r: 3.0; theta: 0.5; category: 'a'; }}]; }}
+              mark subplot as inset {{
+                {placement}
+                plot {child_coordinate} {{
+                  mark symbol {{
+                    {child_channels}
+                  }}
+                }}
+              }}
+            }}"#
+        );
+        let artifact = source_compiler(&source, None)
+            .compile_file("chart.avenger")
+            .await
+            .unwrap_or_else(|error| panic!("{coordinate}: {error:?}"));
+        let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+        assert!(
+            json.contains("CompiledPositionedSubplot"),
+            "{coordinate}: {json}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

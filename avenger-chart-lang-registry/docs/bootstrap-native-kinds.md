@@ -442,6 +442,42 @@ A Cartesian rule mark.
 | `y` | channel | false | The `y` encoding channel. |
 | `y2` | channel | false | The `y2` encoding channel. |
 
+## `Mark.cartesian.subplot`
+
+A data-driven child plot positioned in Cartesian coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `height` | property | false | Child plot-area height. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `width` | property | false | Child plot-area width. |
+| `zindex` | property | false | Integer rendering order. |
+| `key` | channel | false | The `key` encoding channel. |
+| `x` | channel | false | The `x` encoding channel. |
+| `y` | channel | false | The `y` encoding channel. |
+
+## `Mark.polar.subplot`
+
+A data-driven child plot positioned in polar coordinates.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `details` | property | false | Data field names retained for interaction details and path partitioning. |
+| `exclude_from_scale_domains` | property | false | Exclude this mark's channels from inferred scale domains. |
+| `facet_data_scope` | property | false | Facet visibility scope: filtered, broadcast, or level(n). |
+| `geometry_space` | property | false | Space in which the mark constructs geometry. |
+| `height` | property | false | Child plot-area height. |
+| `visible` | property | false | Scalar boolean expression controlling whether the mark is rendered. |
+| `width` | property | false | Child plot-area width. |
+| `zindex` | property | false | Integer rendering order. |
+| `key` | channel | false | The `key` encoding channel. |
+| `r` | channel | false | The `r` encoding channel. |
+| `theta` | channel | false | The `theta` encoding channel. |
+
 ## `Mark.cartesian.symbol`
 
 A point symbol in Cartesian coordinates.

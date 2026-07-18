@@ -10,8 +10,8 @@ use avenger_chart_marks::language::{
     uniform_raster_schema,
 };
 use avenger_chart_schema::{
-    BodyMode, EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
-    ValueShape,
+    BodyMode, ChildRule, EnumValueSchema, KindSchema, NativeKindKey, NativeKindNamespace,
+    PropertySchema, ValueShape,
 };
 use avenger_text::types::TextSyntaxMode;
 
@@ -190,6 +190,30 @@ pub fn definition() -> CoordinateLanguageDefinition<Cartesian> {
             uniform_raster_schema("cartesian"),
             lower_uniform_raster::<Cartesian>,
         )
+}
+
+pub fn subplot_schema() -> KindSchema {
+    primitive_schema(
+        "cartesian",
+        "subplot",
+        "A data-driven child plot positioned in Cartesian coordinates.",
+        [channel("x"), channel("y"), channel("key")],
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "width",
+        PropertySchema::optional(ValueShape::SqlExpression, "Child plot-area width."),
+    )
+    .property(
+        "height",
+        PropertySchema::optional(ValueShape::SqlExpression, "Child plot-area height."),
+    )
+    .child_rule(ChildRule {
+        role: "plot".to_string(),
+        min: 1,
+        max: Some(1),
+        docs: "The embedded mixed-coordinate child plot.".to_string(),
+    })
 }
 
 fn coordinate_schema() -> KindSchema {

@@ -8,7 +8,7 @@ use avenger_chart_marks::language::{
     channel, lower_line, lower_symbol, lower_text, primitive_schema, primitive_text_schema,
 };
 use avenger_chart_schema::{
-    BodyMode, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
+    BodyMode, ChildRule, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
 };
 
 use crate::{Polar, PolarAxis};
@@ -98,6 +98,30 @@ pub fn definition() -> CoordinateLanguageDefinition<Polar> {
             ),
             lower_text::<Polar>,
         )
+}
+
+pub fn subplot_schema() -> KindSchema {
+    primitive_schema(
+        "polar",
+        "subplot",
+        "A data-driven child plot positioned in polar coordinates.",
+        [channel("r"), channel("theta"), channel("key")],
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "width",
+        PropertySchema::optional(ValueShape::SqlExpression, "Child plot-area width."),
+    )
+    .property(
+        "height",
+        PropertySchema::optional(ValueShape::SqlExpression, "Child plot-area height."),
+    )
+    .child_rule(ChildRule {
+        role: "plot".to_string(),
+        min: 1,
+        max: Some(1),
+        docs: "The embedded mixed-coordinate child plot.".to_string(),
+    })
 }
 
 fn coordinate_schema() -> KindSchema {

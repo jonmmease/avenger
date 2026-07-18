@@ -558,7 +558,41 @@ impl<'a> ProjectLowerer<'a> {
                             planning_data,
                             NativeKindNamespace::Mark,
                         )?;
-                        let native = ResolvedMark::Native(declaration);
+                        let key = NativeKindKey::mark(
+                            child.coordinate.as_deref().unwrap_or(""),
+                            child.kind.as_deref().unwrap_or(""),
+                        );
+                        let owns_plot_child = self
+                            .registry
+                            .snapshot()
+                            .entries
+                            .get(&key)
+                            .is_some_and(|schema| {
+                                schema.child_rules.iter().any(|rule| rule.role == "plot")
+                            });
+                        let native = if owns_plot_child {
+                            let mut plots = child
+                                .children
+                                .iter()
+                                .filter(|nested| nested.keyword == "plot");
+                            let nested = plots.next().ok_or_else(|| {
+                                lowerer_error(child, "registered child mark requires one `plot`")
+                            })?;
+                            if plots.next().is_some() {
+                                return Err(lowerer_error(
+                                    child,
+                                    "registered child mark accepts only one `plot`",
+                                ));
+                            }
+                            ResolvedMark::NativeWithChild {
+                                declaration,
+                                child: Box::new(
+                                    self.lower_nested_plot(nested, planning_data).await?,
+                                ),
+                            }
+                        } else {
+                            ResolvedMark::Native(declaration)
+                        };
                         if let Some(data) = mark_data {
                             let mut wrapper = ResolvedMarkGroup::new();
                             wrapper.data = Some(data);

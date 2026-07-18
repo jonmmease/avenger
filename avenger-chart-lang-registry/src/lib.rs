@@ -72,6 +72,10 @@ impl Default for ResolvedMarkGroup {
 #[derive(Clone, Debug)]
 pub enum ResolvedMark {
     Native(ResolvedDeclaration),
+    NativeWithChild {
+        declaration: ResolvedDeclaration,
+        child: Box<ResolvedPlot>,
+    },
     Group(Box<ResolvedMarkGroup>),
 }
 
@@ -153,6 +157,14 @@ pub type NativeObjectLowerer = Arc<
 
 type NativeMarkLowerer<C> =
     Arc<dyn Fn(&ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError> + Send + Sync>;
+type NativeChildMarkLowerer<C> = Arc<
+    dyn Fn(
+            &ResolvedDeclaration,
+            Box<dyn SubplotChildPlotSpec>,
+        ) -> Result<Vec<PlotMark<C>>, RegistryError>
+        + Send
+        + Sync,
+>;
 type NativeToolLowerer<C> =
     Arc<dyn Fn(&ResolvedDeclaration) -> Result<Arc<dyn ChartTool<C>>, RegistryError> + Send + Sync>;
 type CoordinateLowerer<C> =
@@ -175,6 +187,11 @@ struct TypedMarkEntry<C: CoordinateSystem> {
     lowerer: NativeMarkLowerer<C>,
 }
 
+struct TypedChildMarkEntry<C: CoordinateSystem> {
+    schema: KindSchema,
+    lowerer: NativeChildMarkLowerer<C>,
+}
+
 struct TypedToolEntry<C: CoordinateSystem> {
     schema: KindSchema,
     lowerer: NativeToolLowerer<C>,
@@ -187,6 +204,7 @@ pub struct CoordinatePack<C: CoordinateSystem> {
     schema: KindSchema,
     coordinate_lowerer: CoordinateLowerer<C>,
     marks: BTreeMap<String, TypedMarkEntry<C>>,
+    child_marks: BTreeMap<String, TypedChildMarkEntry<C>>,
     tools: BTreeMap<String, TypedToolEntry<C>>,
     child_plot_lowerer: Option<ChildPlotLowerer<C>>,
     children_use_parent_data_context: bool,
@@ -229,6 +247,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             schema,
             coordinate_lowerer: Arc::new(lowerer),
             marks: BTreeMap::new(),
+            child_marks: BTreeMap::new(),
             tools: BTreeMap::new(),
             child_plot_lowerer: None,
             children_use_parent_data_context: false,
@@ -252,6 +271,35 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             .insert(
                 kind,
                 TypedMarkEntry {
+                    schema: schema.clone(),
+                    lowerer: Arc::new(lowerer),
+                },
+            )
+            .is_some()
+        {
+            self.duplicate_keys.push(schema.key);
+        }
+        self
+    }
+
+    pub fn child_mark(
+        mut self,
+        kind: impl Into<String>,
+        schema: KindSchema,
+        lowerer: impl Fn(
+            &ResolvedDeclaration,
+            Box<dyn SubplotChildPlotSpec>,
+        ) -> Result<Vec<PlotMark<C>>, RegistryError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        let kind = kind.into();
+        if self
+            .child_marks
+            .insert(
+                kind,
+                TypedChildMarkEntry {
                     schema: schema.clone(),
                     lowerer: Arc::new(lowerer),
                 },
@@ -360,6 +408,25 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                 registry.validate(&entry.schema.key, declaration)?;
                 (entry.lowerer)(declaration)
             }
+            ResolvedMark::NativeWithChild { declaration, child } => {
+                let entry = self.child_marks.get(&declaration.kind).ok_or_else(|| {
+                    RegistryError::UnknownMarkPair {
+                        coordinate: self.kind.clone(),
+                        mark: declaration.kind.clone(),
+                    }
+                })?;
+                registry.validate(&entry.schema.key, declaration)?;
+                let mut inherited_child;
+                let child = if child.data_is_inherited {
+                    inherited_child = child.as_ref().clone();
+                    inherited_child.data = None;
+                    inherited_child.data_is_inherited = false;
+                    &inherited_child
+                } else {
+                    child.as_ref()
+                };
+                (entry.lowerer)(declaration, registry.lower_child_plot(child)?)
+            }
             ResolvedMark::Group(resolved) => {
                 let mut data = resolved
                     .data
@@ -460,6 +527,7 @@ impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
     fn schemas(&self) -> Vec<KindSchema> {
         std::iter::once(self.schema.clone())
             .chain(self.marks.values().map(|entry| entry.schema.clone()))
+            .chain(self.child_marks.values().map(|entry| entry.schema.clone()))
             .chain(self.tools.values().map(|entry| entry.schema.clone()))
             .collect()
     }
@@ -475,6 +543,14 @@ impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
             ));
         }
         for (kind, entry) in &self.marks {
+            let expected = NativeKindKey::mark(&self.kind, kind);
+            if entry.schema.key != expected {
+                return Err(RegistryError::SchemaLowererMismatch(
+                    entry.schema.key.clone(),
+                ));
+            }
+        }
+        for (kind, entry) in &self.child_marks {
             let expected = NativeKindKey::mark(&self.kind, kind);
             if entry.schema.key != expected {
                 return Err(RegistryError::SchemaLowererMismatch(

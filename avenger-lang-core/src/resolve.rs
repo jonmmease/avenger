@@ -6549,7 +6549,7 @@ fn placement_allowed(parent: &str, child: &str) -> bool {
         "transform" => matches!(child, "transform" | "output"),
         "on" => matches!(child, "set" | "on"),
         "view" => matches!(child, "transform" | "mark" | "group"),
-        "mark" => matches!(child, "view"),
+        "mark" => matches!(child, "view" | "plot"),
         "table" => matches!(child, "param" | "field" | "row" | "key"),
         "catalog" => matches!(child, "schema"),
         "schema" => matches!(child, "table"),
