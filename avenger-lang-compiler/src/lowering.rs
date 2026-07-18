@@ -24,17 +24,17 @@ use avenger_chart::{
     },
 };
 use avenger_chart_core::{
-    ChartEventBinding, ChartEventStream, ChartEventType, DataTransformExecutionContext,
-    DataTransformStage, DerivedPrimitiveMarkSpec, DerivedRectMarkSpec, DerivedRuleMarkSpec,
-    DerivedSymbolMarkSpec, DerivedTextMarkSpec, Dodge, ExpressionMarkAdjustmentSpec,
-    FormattingContext, ItemChannelAssignment, Jitter, MarkAdjustmentCompileContext,
-    MarkAdjustmentSpec, MarkAdjustmentTransform, Nudge, Param as ChartParam, PatternAnchor,
-    PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation,
-    PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery, SceneQueryClauseId,
-    SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery, SelectionUpdate, StoreData,
-    StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash, StripePatternLayer, Theme,
-    TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event, item_bbox_column_name,
-    item_channel_column_name, item_data_column_name,
+    ChartAction, ChartEventBinding, ChartEventStream, ChartEventType,
+    DataTransformExecutionContext, DataTransformStage, DerivedPrimitiveMarkSpec,
+    DerivedRectMarkSpec, DerivedRuleMarkSpec, DerivedSymbolMarkSpec, DerivedTextMarkSpec, Dodge,
+    ExpressionMarkAdjustmentSpec, FormattingContext, ItemChannelAssignment, Jitter,
+    MarkAdjustmentCompileContext, MarkAdjustmentSpec, MarkAdjustmentTransform, Nudge,
+    Param as ChartParam, PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
+    PatternLayerOperation, PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery,
+    SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery,
+    SelectionUpdate, StoreData, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
+    StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event,
+    item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -104,6 +104,7 @@ struct ProjectLowerer<'a> {
     transform_outputs: BTreeMap<ResolvedOutputHandle, NativeOutputValue>,
     view_refs: BTreeMap<DeclarationId, ViewRef>,
     analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
+    active_chart_id: Option<DeclarationId>,
     active_chart_path: Option<String>,
 }
 
@@ -129,6 +130,7 @@ impl<'a> ProjectLowerer<'a> {
             transform_outputs: BTreeMap::new(),
             view_refs: BTreeMap::new(),
             analysis_schemas: Vec::new(),
+            active_chart_id: None,
             active_chart_path: None,
         }
     }
@@ -149,6 +151,7 @@ impl<'a> ProjectLowerer<'a> {
                 .public_path
                 .clone()
                 .or_else(|| declaration.name.clone());
+            self.active_chart_id = Some(declaration.id.clone());
             let plot = self.lower_chart(declaration).await?;
             let compiled = self
                 .registry
@@ -167,6 +170,7 @@ impl<'a> ProjectLowerer<'a> {
             charts.push(LoweredChart { artifact });
         }
         self.active_chart_path = None;
+        self.active_chart_id = None;
         Ok(LoweredProject {
             charts,
             analysis_schemas: std::mem::take(&mut self.analysis_schemas),
@@ -831,6 +835,121 @@ impl<'a> ProjectLowerer<'a> {
             .validate()
             .map_err(|error| lowerer_error(declaration, error.to_string()))?;
         Ok(binding)
+    }
+
+    fn lower_param_change_action(
+        &self,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<ChartAction, Diagnostic> {
+        let ResolvedValue::Object {
+            head: None,
+            kind: None,
+            properties,
+            children,
+        } = value
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "parameter-change action must be an unheaded action block",
+            ));
+        };
+        if !properties.is_empty() {
+            return Err(lowerer_error(
+                declaration,
+                "parameter-change action blocks contain only ordered `set` declarations",
+            ));
+        }
+
+        let chart_id = self.active_chart_id.as_ref().ok_or_else(|| {
+            lowerer_error(declaration, "parameter-change action has no active chart")
+        })?;
+        let chart = find_declaration(self.project, chart_id)
+            .ok_or_else(|| lowerer_error(declaration, "active chart declaration is unavailable"))?;
+        let mut lowered = ChartAction::new();
+        for action in children {
+            if action.keyword != "set" {
+                return Err(lowerer_error(
+                    action,
+                    "parameter-change action blocks contain only `set` declarations",
+                ));
+            }
+            let value = action
+                .properties
+                .get("value")
+                .ok_or_else(|| lowerer_error(action, "state action requires a value"))?;
+            let lvalue = action.state_lvalue.as_ref().ok_or_else(|| {
+                lowerer_error(action, "parameter-change action target was not resolved")
+            })?;
+            if lvalue.route != ResolvedActionRoute::Current || lvalue.replacing_scopes {
+                return Err(lowerer_error(
+                    action,
+                    "parameter-change actions cannot use event-only state routing",
+                ));
+            }
+            match action.kind.as_deref() {
+                Some("param") => {
+                    let ResolvedTarget::Param(id) = &lvalue.target else {
+                        return Err(lowerer_error(
+                            action,
+                            "definition-owned parameter actions require Phase 7 expansion",
+                        ));
+                    };
+                    let param = self.params.get(id).ok_or_else(|| {
+                        lowerer_error(action, "resolved parameter is unavailable")
+                    })?;
+                    lowered = lowered.set_param(param, self.expression_value(value, data, action)?);
+                }
+                Some("store") => {
+                    let ResolvedTarget::Store(id) = &lvalue.target else {
+                        return Err(lowerer_error(
+                            action,
+                            "definition-owned store actions require Phase 7 expansion",
+                        ));
+                    };
+                    let store = self
+                        .stores
+                        .get(id)
+                        .ok_or_else(|| lowerer_error(action, "resolved store is unavailable"))?;
+                    lowered = lowered.set_store(
+                        store.name.clone(),
+                        self.lower_store_update(value, data, action)?,
+                    );
+                }
+                Some("selection") => {
+                    let ResolvedTarget::Selection(id) = &lvalue.target else {
+                        return Err(lowerer_error(
+                            action,
+                            "definition-owned selection actions require Phase 7 expansion",
+                        ));
+                    };
+                    let selection = self.selections.get(id).ok_or_else(|| {
+                        lowerer_error(action, "resolved selection is unavailable")
+                    })?;
+                    lowered = lowered.set_selection(
+                        selection.id.clone(),
+                        self.lower_selection_update(chart, value, data, action)?,
+                    );
+                }
+                Some("cursor") => {
+                    return Err(lowerer_error(
+                        action,
+                        "parameter-change actions cannot publish a cursor",
+                    ));
+                }
+                _ => {
+                    return Err(lowerer_error(
+                        action,
+                        "unsupported parameter-change action kind",
+                    ));
+                }
+            }
+        }
+        lowered
+            .validate()
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        Ok(lowered)
     }
 
     fn lower_store_update(
@@ -1566,10 +1685,23 @@ impl<'a> ProjectLowerer<'a> {
                                 .or(current_data.as_ref()),
                             NativeKindNamespace::Widget,
                         )?;
-                        if let Some((items, _)) = widget_data {
-                            declaration
-                                .properties
-                                .insert("data".to_string(), NativeValue::WidgetItems(items));
+                        if let Some((items, _)) = &widget_data {
+                            declaration.properties.insert(
+                                "data".to_string(),
+                                NativeValue::WidgetItems(items.clone()),
+                            );
+                        }
+                        if let Some(action) = child.properties.get("action") {
+                            declaration.param_change_action = Some(
+                                self.lower_param_change_action(
+                                    action,
+                                    widget_data
+                                        .as_ref()
+                                        .map(|(_, data)| data)
+                                        .or(current_data.as_ref()),
+                                    child,
+                                )?,
+                            );
                         }
                         self.install_native_state_bindings(child, &mut declaration)?;
                         plot.widgets.push(declaration);
@@ -1961,6 +2093,12 @@ impl<'a> ProjectLowerer<'a> {
             // Widget data is lowered asynchronously at the container call
             // site and installed after this synchronous schema-directed pass.
             if property_shape == Some(&ValueShape::WidgetData) {
+                continue;
+            }
+            // Ordered action children are lowered to `ChartAction`, not an
+            // untyped native object. The owner-facing declaration carries the
+            // result separately so authored order cannot be lost in a map.
+            if property_shape == Some(&ValueShape::ParamChangeAction) {
                 continue;
             }
             // A mark declaration contains both encoding channels and ordinary

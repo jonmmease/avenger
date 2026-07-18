@@ -9,7 +9,7 @@
 use std::{any::Any, collections::BTreeMap, fmt, sync::Arc};
 
 use avenger_chart_core::{
-    ChannelExpr, ChannelValue, ChartTool, CompiledDataTransform, CoordinateSystem,
+    ChannelExpr, ChannelValue, ChartAction, ChartTool, CompiledDataTransform, CoordinateSystem,
     DataTransformCompileContext, DataTransformStage, Param, PatternChannelValue, PlotMark,
     PrimitiveMarkEffects, RasterDim, Selection, WidgetAttachment, WidgetItems,
 };
@@ -120,6 +120,9 @@ pub struct ResolvedDeclaration {
     /// Ordered render-stage adjustments and derived primitive marks lowered
     /// from core `adjust`/`derive` children.
     pub mark_effects: PrimitiveMarkEffects,
+    /// Ordered parameter-change action owned by a native declaration, such as
+    /// the action attached to a Button activation count.
+    pub param_change_action: Option<ChartAction>,
     pub properties: IndexMap<String, ResolvedValue>,
     /// Ordered schema-owned child declarations. Core containers remain in the
     /// compiler IR; native owners receive only children declared by their
@@ -140,6 +143,7 @@ impl ResolvedDeclaration {
             public_aliases: Vec::new(),
             component_part_alias: None,
             mark_effects: PrimitiveMarkEffects::default(),
+            param_change_action: None,
             properties: IndexMap::new(),
             children: Vec::new(),
             live_exports: std::collections::BTreeSet::new(),

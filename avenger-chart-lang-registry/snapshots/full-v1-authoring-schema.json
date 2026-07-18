@@ -11517,6 +11517,13 @@
       "runtime_kind": "button",
       "docs": "A momentary button with a monotonic activation count.",
       "properties": {
+        "action": {
+          "shape": {
+            "shape": "param_change_action"
+          },
+          "required": false,
+          "docs": "Ordered shared-state mutations run atomically after each activation."
+        },
         "activation_param": {
           "shape": {
             "shape": "scalar_binding"

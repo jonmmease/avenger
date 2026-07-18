@@ -155,6 +155,13 @@ fn button_schema() -> KindSchema {
             "Existing UInt64 parameter bound to the activation count.",
         ),
     )
+    .property(
+        "action",
+        PropertySchema::optional(
+            ValueShape::ParamChangeAction,
+            "Ordered shared-state mutations run atomically after each activation.",
+        ),
+    )
     .export(ExportSchema {
         alias: "activations".to_string(),
         value_kind: "param<uint64>".to_string(),
@@ -409,6 +416,9 @@ fn lower_button(
     }
     if let Some(ResolvedValue::Param(param)) = declaration.properties.get("activation_param") {
         widget = widget.with_activation_param(param.clone());
+    }
+    if let Some(action) = &declaration.param_change_action {
+        widget = widget.action(action.clone());
     }
     Ok(WidgetAttachment::composed(
         widget.position(position(declaration)?),

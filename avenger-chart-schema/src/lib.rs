@@ -121,6 +121,12 @@ pub enum ValueShape {
     /// A widget item relation authored as inline `data.values` or another
     /// ordered data source.
     WidgetData,
+    /// An ordered block of state mutations triggered by a parameter change.
+    ///
+    /// This is intentionally a semantic shape rather than an arbitrary
+    /// object: the compiler preserves authored `set` order and lowers the
+    /// block to one atomic `ChartAction` owned by the native declaration.
+    ParamChangeAction,
     TypedReference {
         namespaces: BTreeSet<NativeKindNamespace>,
     },

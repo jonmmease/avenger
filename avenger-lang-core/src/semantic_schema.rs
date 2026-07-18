@@ -395,6 +395,13 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         }),
         ValueShape::Object(fields) => object_value_schema(fields),
         ValueShape::Any => value_ref(),
+        ValueShape::ParamChangeAction => {
+            let mut schema = tagged_schema("block");
+            schema["description"] =
+                json!("An ordered block of shared-state mutation declarations.");
+            schema["x-avenger-value-shape"] = json!("param_change_action");
+            schema
+        }
     }
 }
 

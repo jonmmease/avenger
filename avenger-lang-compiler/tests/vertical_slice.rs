@@ -1101,6 +1101,65 @@ async fn native_surface_all_six_builtin_widgets_lower_through_one_schema_contrac
 }
 
 #[tokio::test]
+async fn native_surface_button_actions_preserve_order_and_shared_state_targets() {
+    let source = r#"avenger 1;
+        chart zerod as chart {
+          param as query {
+            type: utf8;
+            default: 'initial';
+          }
+          store as history {
+            field id: utf8;
+            primary_key: [id];
+          }
+          selection as picked {
+            empty: none;
+            combine: union;
+          }
+          widget button as clear {
+            position: right;
+            label: 'Clear';
+            action: {
+              set param query = '';
+              set store history = insert_rows {
+                row { id: 'clear'; }
+              }
+              set selection picked = clear;
+            }
+          }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let bindings = artifact.compiled_plot().param_change_bindings();
+    assert_eq!(bindings.len(), 1);
+    assert_eq!(bindings[0].source_param_name, "clear__activations");
+    let steps = bindings[0].action.ordered_steps();
+    assert_eq!(steps.len(), 3);
+    assert!(matches!(
+        &steps[0],
+        avenger_chart_core::ChartActionStep::SetParam(assignment)
+            if assignment.param_name == "query"
+    ));
+    assert!(matches!(
+        &steps[1],
+        avenger_chart_core::ChartActionStep::SetStore(assignment)
+            if assignment.store_name == "history"
+    ));
+    assert!(matches!(
+        &steps[2],
+        avenger_chart_core::ChartActionStep::SetSelection(assignment)
+            if assignment.selection_id == "picked"
+    ));
+
+    let bytes = artifact.to_bytes().unwrap();
+    let registry = builtins::stock_registry().unwrap();
+    let restored = CompiledChartArtifact::from_bytes(&bytes, &registry).unwrap();
+    assert_eq!(restored.compiled_plot().param_change_bindings(), bindings);
+}
+
+#[tokio::test]
 async fn native_surface_inline_view_helpers_and_local_transforms_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {

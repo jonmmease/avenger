@@ -6898,6 +6898,14 @@ fn contains_descendant(declaration: &Decl, keyword: &str) -> bool {
 fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
     match shape {
         ValueShape::Any => !matches!(value, ResolvedValue::Invalid),
+        ValueShape::ParamChangeAction => matches!(
+            value,
+            ResolvedValue::Object {
+                head: None,
+                kind: None,
+                ..
+            }
+        ),
         ValueShape::Boolean => matches!(value, ResolvedValue::Boolean(_)),
         ValueShape::Integer => {
             matches!(value, ResolvedValue::Number(value) if value.parse::<i64>().is_ok())
@@ -7341,6 +7349,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::TableBinding => "store binding",
         ValueShape::SelectionBinding => "selection reference",
         ValueShape::WidgetData => "widget data source",
+        ValueShape::ParamChangeAction => "ordered parameter-change action block",
         ValueShape::TypedReference { .. } => "typed reference",
         ValueShape::Union(_) => "one of the allowed shapes",
         ValueShape::OneOrMany(_) => "value or array",

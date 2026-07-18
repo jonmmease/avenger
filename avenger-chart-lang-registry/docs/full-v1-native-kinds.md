@@ -1426,6 +1426,7 @@ A momentary button with a monotonic activation count.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `action` | property | false | Ordered shared-state mutations run atomically after each activation. |
 | `activation_param` | property | false | Existing UInt64 parameter bound to the activation count. |
 | `label` | property | true | Nonempty visible label. |
 | `position` | property | true | Containing chart guide-slot edge. |

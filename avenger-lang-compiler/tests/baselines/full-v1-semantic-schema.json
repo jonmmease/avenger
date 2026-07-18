@@ -66040,6 +66040,18 @@
               "props": {
                 "additionalProperties": false,
                 "properties": {
+                  "action": {
+                    "additionalProperties": false,
+                    "description": "An ordered block of shared-state mutation declarations.",
+                    "properties": {
+                      "block": {}
+                    },
+                    "required": [
+                      "block"
+                    ],
+                    "type": "object",
+                    "x-avenger-value-shape": "param_change_action"
+                  },
                   "activation_param": {
                     "additionalProperties": false,
                     "properties": {
@@ -67569,7 +67581,7 @@
   "title": "Avenger AST interchange form, full semantic schema",
   "type": "object",
   "x-avenger-language-major": 1,
-  "x-avenger-native-profile": "avenger-native-1-8d470198e402aec96e55316400bd008bc8d0a0f08f9342215049f514a6fc53d8",
+  "x-avenger-native-profile": "avenger-native-1-497ed7d3ce7af8399cd6b4ab86f8c9277237ec1bfef43db3331955869ec1d499",
   "x-avenger-native-schema": {
     "entries": [
       {
@@ -79122,6 +79134,13 @@
           }
         },
         "properties": {
+          "action": {
+            "docs": "Ordered shared-state mutations run atomically after each activation.",
+            "required": false,
+            "shape": {
+              "shape": "param_change_action"
+            }
+          },
           "activation_param": {
             "docs": "Existing UInt64 parameter bound to the activation count.",
             "required": false,
