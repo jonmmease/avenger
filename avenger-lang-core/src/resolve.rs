@@ -6088,6 +6088,18 @@ impl<'a> Resolver<'a> {
         }
         if matches!(
             operation.as_str(),
+            "replace_clauses_in_scope" | "delete_clauses_in_scope"
+        ) && !properties.contains_key("scope")
+        {
+            self.error(
+                "AVENGER-RESOLVE-158",
+                "scoped selection update requires a scope",
+                span,
+                format!("add `scope:` to `{operation}`"),
+            );
+        }
+        if matches!(
+            operation.as_str(),
             "replace_all_clauses"
                 | "replace_clauses_in_scope"
                 | "upsert_clauses"
@@ -6140,8 +6152,34 @@ impl<'a> Resolver<'a> {
                 }
             }
         }
+        if matches!(
+            operation.as_str(),
+            "delete_clauses" | "delete_clauses_in_scope"
+        ) {
+            match (source_body.props.get("ids"), properties.get("ids")) {
+                (Some(Value::Array(source_ids)), Some(ResolvedValue::Array(ids)))
+                    if !source_ids.is_empty() && source_ids.len() == ids.len() =>
+                {
+                    for (source_id, id) in source_ids.iter().zip(ids) {
+                        self.validate_typed_boundary(
+                            &PhysicalType::Utf8,
+                            Some(source_id),
+                            id,
+                            span,
+                            "selection clause deletion id",
+                        );
+                    }
+                }
+                _ => self.error(
+                    "AVENGER-RESOLVE-159",
+                    "selection clause deletion requires ids",
+                    span,
+                    format!("`{operation}` requires a non-empty `ids: [...]` array"),
+                ),
+            }
+        }
         if operation.contains("scene_query") {
-            for required in ["geometry", "policy", "marks"] {
+            for required in ["geometry", "policy", "marks", "fields"] {
                 if !properties.contains_key(required) {
                     self.error(
                         "AVENGER-RESOLVE-140",
@@ -6150,6 +6188,53 @@ impl<'a> Resolver<'a> {
                         format!("`{operation}` requires `{required}:`"),
                     );
                 }
+            }
+            if !matches!(
+                properties.get("geometry"),
+                Some(ResolvedValue::Call { function, args })
+                    if matches!(
+                        (function.as_str(), args.len()),
+                        ("polygon", 1) | ("rect", 4) | ("circle", 3)
+                    )
+            ) {
+                self.error(
+                    "AVENGER-RESOLVE-160",
+                    "scene-query geometry is invalid",
+                    span,
+                    "use `polygon(points)`, `rect(x0, y0, x1, y1)`, or `circle(cx, cy, radius)`",
+                );
+            }
+            if !matches!(
+                properties.get("policy"),
+                Some(ResolvedValue::Atom(value) | ResolvedValue::String(value))
+                    if matches!(
+                        value.as_str(),
+                        "intersects"
+                            | "geometry_intersects"
+                            | "envelope_intersects"
+                            | "contained"
+                            | "geometry_contained"
+                            | "anchor_inside"
+                            | "centroid_inside"
+                    )
+            ) {
+                self.error(
+                    "AVENGER-RESOLVE-161",
+                    "scene-query hit policy is invalid",
+                    span,
+                    "use intersects, envelope_intersects, contained, anchor_inside, or centroid_inside",
+                );
+            }
+            if !matches!(
+                properties.get("fields"),
+                Some(ResolvedValue::Array(fields)) if !fields.is_empty()
+            ) {
+                self.error(
+                    "AVENGER-RESOLVE-162",
+                    "scene-query selection requires captured fields",
+                    span,
+                    "add one or more `{ id: 'name'; field: \"column\"; }` entries to `fields:`",
+                );
             }
             if let Some(source_marks) = source_body.props.get("marks") {
                 properties.insert(

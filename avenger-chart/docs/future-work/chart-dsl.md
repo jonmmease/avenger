@@ -2218,8 +2218,9 @@ set selection picked = toggle_clauses {
 Update kinds mirror `StoreUpdate` and `SelectionUpdate`; `replace_all_clauses`,
 `replace_clauses_in_scope`, and `upsert_clauses` follow the same shape as
 `toggle_clauses`, while `delete_clauses` and `delete_clauses_in_scope` take
-clause ids. Clause predicates support `equality` and `interval`
-dimensions (`interval x { from: start_coord(x); to: event_coord(x); }`), and
+clause ids through a non-empty `ids: [...]` array (and the scoped form also
+requires `scope:`). Clause predicates support `equality` and `interval`
+dimensions (`dimension as x { field: "x"; from: start_coord(x); to: event_coord(x); }`), and
 geometry-driven selection uses the scene-query update kinds —
 `replace_all_from_scene_query`, `replace_from_scene_query_in_scope`,
 `upsert_from_scene_query`, and `toggle_from_scene_query`, the primitives
@@ -2230,8 +2231,19 @@ set selection picked = replace_all_from_scene_query {
   geometry: polygon(event_path());
   policy: intersects;
   marks: [points];
+  fields: [{ id: 'id'; datum: 'id'; field: "id"; }];
+  unique_by: ['id'];
 }
 ```
+
+Scene-query `geometry:` accepts `polygon(points)`,
+`rect(x0, y0, x1, y1)`, or `circle(cx, cy, radius)`. `policy:` accepts
+`intersects`, `envelope_intersects`, `contained`, `anchor_inside`, or
+`centroid_inside`. The required non-empty `fields:` array maps stable selection
+dimension ids to mark datum fields and data-field expressions; `datum:`
+defaults to the field `id`, while `unique_by:` defaults to all captured field
+ids in order. Optional `max_hits:`, `sharing:`, and `clause_id:` configure the
+native scene query without exposing renderer-internal row metadata.
 
 Selection predicate evaluation follows the current Rust/DataFusion lowering.
 Dimensions within one equality or interval clause combine with `AND`. Complete

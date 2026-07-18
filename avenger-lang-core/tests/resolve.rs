@@ -1777,6 +1777,7 @@ chart cartesian as events {
       geometry: polygon(event_path());
       policy: intersects;
       marks: [overview.points, detail.points];
+      fields: [{ id: 'x'; datum: 'x'; field: "x"; }];
     }
     set cursor = crosshair;
   }

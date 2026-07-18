@@ -974,6 +974,27 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
                 }
               }
             }
+            set selection picked = upsert_clauses {
+              clause {
+                id: 'range';
+                interval {
+                  dimension as x {
+                    field: "x";
+                    from: start_coord(x);
+                    to: event_coord(x);
+                  }
+                }
+              }
+            }
+            set selection picked = replace_all_from_scene_query {
+              geometry: polygon(event_path());
+              policy: intersects;
+              marks: [points];
+              fields: [{ id: 'x'; datum: 'x'; field: "x"; }];
+              unique_by: ['x'];
+              sharing: free;
+            }
+            set selection picked = delete_clauses { ids: ['point']; }
             set cursor = 'crosshair';
           }
         }"#;
@@ -989,7 +1010,7 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
     assert!(binding.consume);
     assert!(binding.between.is_some());
     let steps = binding.action.ordered_steps();
-    assert_eq!(steps.len(), 4);
+    assert_eq!(steps.len(), 7);
     assert!(matches!(
         &steps[0],
         avenger_chart_core::ChartActionStep::SetParam(action)
@@ -1013,6 +1034,30 @@ async fn native_surface_event_filters_between_and_ordered_param_cursor_actions_l
     ));
     assert!(matches!(
         &steps[3],
+        avenger_chart_core::ChartActionStep::SetSelection(action)
+            if matches!(
+                action.update,
+                avenger_chart_core::SelectionUpdate::UpsertClauses { .. }
+            )
+    ));
+    assert!(matches!(
+        &steps[4],
+        avenger_chart_core::ChartActionStep::SetSelection(action)
+            if matches!(
+                action.update,
+                avenger_chart_core::SelectionUpdate::ReplaceAllFromSceneQuery { .. }
+            )
+    ));
+    assert!(matches!(
+        &steps[5],
+        avenger_chart_core::ChartActionStep::SetSelection(action)
+            if matches!(
+                action.update,
+                avenger_chart_core::SelectionUpdate::DeleteClauses { .. }
+            )
+    ));
+    assert!(matches!(
+        &steps[6],
         avenger_chart_core::ChartActionStep::SetCursor(_)
     ));
 }

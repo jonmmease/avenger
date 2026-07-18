@@ -25,9 +25,10 @@ use avenger_chart::{
 use avenger_chart_core::{
     ChartEventBinding, ChartEventStream, ChartEventType, DataTransformExecutionContext,
     DataTransformStage, FormattingContext, Param as ChartParam, PatternAnchor, PatternChannelValue,
-    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SelectionClauseUpdate,
-    SelectionUpdate, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
-    StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
+    PatternFill, PatternInk, PatternLayer, PatternLayerOperation, SceneGeometryHitPolicy,
+    SceneGeometryQuery, SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate,
+    SelectionSceneQuery, SelectionUpdate, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate,
+    StripeDash, StripePatternLayer, Theme, TimeContext, ViewRef, WeekStart, event,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -811,7 +812,7 @@ impl<'a> ProjectLowerer<'a> {
                     let selection = self.selections.get(id).ok_or_else(|| {
                         lowerer_error(action, "resolved selection is unavailable")
                     })?;
-                    let update = self.lower_selection_update(value, data, action)?;
+                    let update = self.lower_selection_update(chart, value, data, action)?;
                     binding = match lvalue.route {
                         ResolvedActionRoute::Current => {
                             binding.set_selection(selection.id.clone(), update)
@@ -928,6 +929,7 @@ impl<'a> ProjectLowerer<'a> {
 
     fn lower_selection_update(
         &self,
+        chart: &ResolvedDeclaration,
         value: &ResolvedValue,
         data: Option<&DataFrame>,
         declaration: &ResolvedDeclaration,
@@ -983,18 +985,20 @@ impl<'a> ProjectLowerer<'a> {
             ResolvedValue::Object {
                 kind: Some(kind),
                 properties,
-                children,
                 ..
             } if matches!(kind.as_str(), "delete_clauses" | "delete_clauses_in_scope") => {
-                let ids = children
+                let ResolvedValue::Array(values) = properties.get("ids").ok_or_else(|| {
+                    lowerer_error(declaration, "selection clause deletion requires ids")
+                })?
+                else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "selection clause deletion ids must be an array",
+                    ));
+                };
+                let ids = values
                     .iter()
-                    .filter(|child| child.keyword == "id")
-                    .map(|id| {
-                        let value = id.properties.get("value").ok_or_else(|| {
-                            lowerer_error(declaration, "selection delete id requires value")
-                        })?;
-                        self.event_expression_value(value, data, declaration)
-                    })
+                    .map(|value| self.event_expression_value(value, data, declaration))
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(if kind == "delete_clauses" {
                     SelectionUpdate::delete_clauses(ids)
@@ -1006,6 +1010,27 @@ impl<'a> ProjectLowerer<'a> {
                         self.coordination_scope(scope, declaration)?,
                         ids,
                     )
+                })
+            }
+            ResolvedValue::Object {
+                kind: Some(kind), ..
+            } if kind.contains("scene_query") => {
+                let query = self.lower_selection_scene_query(chart, value, data, declaration)?;
+                Ok(match kind.as_str() {
+                    "replace_all_from_scene_query" => {
+                        SelectionUpdate::replace_all_from_scene_query(query)
+                    }
+                    "replace_from_scene_query_in_scope" => {
+                        SelectionUpdate::replace_from_scene_query_in_scope(query)
+                    }
+                    "upsert_from_scene_query" => SelectionUpdate::upsert_from_scene_query(query),
+                    "toggle_from_scene_query" => SelectionUpdate::toggle_from_scene_query(query),
+                    _ => {
+                        return Err(lowerer_error(
+                            declaration,
+                            format!("unsupported scene-query selection update `{kind}`"),
+                        ));
+                    }
                 })
             }
             ResolvedValue::Object { kind, .. } => Err(lowerer_error(
@@ -1131,6 +1156,172 @@ impl<'a> ProjectLowerer<'a> {
                 "selection field must be a column name or SQL expression",
             )),
         }
+    }
+
+    fn lower_selection_scene_query(
+        &self,
+        chart: &ResolvedDeclaration,
+        value: &ResolvedValue,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<SelectionSceneQuery, Diagnostic> {
+        let ResolvedValue::Object { properties, .. } = value else {
+            return Err(lowerer_error(
+                declaration,
+                "scene-query selection update requires an object payload",
+            ));
+        };
+        let geometry = properties
+            .get("geometry")
+            .ok_or_else(|| lowerer_error(declaration, "scene query requires geometry"))?;
+        let ResolvedValue::Call { function, args } = geometry else {
+            return Err(lowerer_error(
+                declaration,
+                "scene query geometry must be polygon(...), rect(...), or circle(...)",
+            ));
+        };
+        let mut query = match (function.as_str(), args.as_slice()) {
+            ("polygon", [points]) => SceneGeometryQuery::polygon(self.event_expression_value(
+                points,
+                data,
+                declaration,
+            )?),
+            ("rect", [x0, y0, x1, y1]) => SceneGeometryQuery::rect(
+                self.event_expression_value(x0, data, declaration)?,
+                self.event_expression_value(y0, data, declaration)?,
+                self.event_expression_value(x1, data, declaration)?,
+                self.event_expression_value(y1, data, declaration)?,
+            ),
+            ("circle", [cx, cy, radius]) => SceneGeometryQuery::circle(
+                self.event_expression_value(cx, data, declaration)?,
+                self.event_expression_value(cy, data, declaration)?,
+                self.event_expression_value(radius, data, declaration)?,
+            ),
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    "scene query geometry has the wrong function or arity",
+                ));
+            }
+        };
+        let policy = match properties.get("policy") {
+            Some(ResolvedValue::Atom(value)) | Some(ResolvedValue::String(value)) => {
+                match value.as_str() {
+                    "intersects" | "geometry_intersects" => {
+                        SceneGeometryHitPolicy::GeometryIntersects
+                    }
+                    "envelope_intersects" => SceneGeometryHitPolicy::EnvelopeIntersects,
+                    "contained" | "geometry_contained" => SceneGeometryHitPolicy::GeometryContained,
+                    "anchor_inside" => SceneGeometryHitPolicy::AnchorInside,
+                    "centroid_inside" => SceneGeometryHitPolicy::CentroidInside,
+                    _ => {
+                        return Err(lowerer_error(
+                            declaration,
+                            format!("unsupported scene-query hit policy `{value}`"),
+                        ));
+                    }
+                }
+            }
+            _ => {
+                return Err(lowerer_error(
+                    declaration,
+                    "scene query requires a hit policy",
+                ));
+            }
+        };
+        query = query.hit_policy(policy);
+
+        let ResolvedValue::Array(marks) = properties
+            .get("marks")
+            .ok_or_else(|| lowerer_error(declaration, "scene query requires mark targets"))?
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "scene query marks must be an array",
+            ));
+        };
+        let marks = marks
+            .iter()
+            .map(|value| {
+                let ResolvedValue::Reference(reference) = value else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "scene query mark target was not resolved",
+                    ));
+                };
+                self.event_target_path(chart, &reference.target, declaration)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        query = query.marks(marks);
+
+        if let Some(ResolvedValue::Array(fields)) = properties.get("fields") {
+            for field in fields {
+                let ResolvedValue::Object { properties, .. } = field else {
+                    return Err(lowerer_error(
+                        declaration,
+                        "scene-query fields must be objects",
+                    ));
+                };
+                let id = resolved_text(properties.get("id"), declaration, "scene-query field id")?;
+                let datum = properties
+                    .get("datum")
+                    .map(|value| resolved_text(Some(value), declaration, "scene-query datum field"))
+                    .transpose()?
+                    .unwrap_or_else(|| id.clone());
+                let field_expr = properties.get("field").ok_or_else(|| {
+                    lowerer_error(declaration, "scene-query field requires field")
+                })?;
+                query = query.datum_field(
+                    SceneQueryDatumField::new(id)
+                        .datum(datum)
+                        .field_expr(self.selection_field_expr(field_expr, data, declaration)?),
+                );
+            }
+        }
+        if let Some(ResolvedValue::Array(values)) = properties.get("unique_by") {
+            query = query.unique_by(
+                values
+                    .iter()
+                    .map(|value| {
+                        resolved_text(Some(value), declaration, "scene-query unique field")
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            );
+        }
+        if let Some(ResolvedValue::Number(value)) = properties.get("max_hits") {
+            query = query.max_hits(value.parse::<usize>().map_err(|_| {
+                lowerer_error(
+                    declaration,
+                    "scene-query max_hits must be non-negative integer",
+                )
+            })?);
+        }
+
+        let mut query = SelectionSceneQuery::new(query);
+        if let Some(scope) = properties.get("sharing") {
+            query = query.sharing(self.coordination_scope(scope, declaration)?);
+        }
+        if let Some(clause_id) = properties.get("clause_id") {
+            let clause_id = match clause_id {
+                ResolvedValue::Atom(value) if value == "tuple" => SceneQueryClauseId::Tuple,
+                ResolvedValue::Call { function, args }
+                    if function == "field" && args.len() == 1 =>
+                {
+                    SceneQueryClauseId::field(resolved_text(
+                        args.first(),
+                        declaration,
+                        "scene-query clause-id field",
+                    )?)
+                }
+                value => SceneQueryClauseId::expr(self.event_expression_value(
+                    value,
+                    data,
+                    declaration,
+                )?),
+            };
+            query = query.clause_id(clause_id);
+        }
+        Ok(query)
     }
 
     fn lower_event_stream(
@@ -3571,6 +3762,22 @@ fn resolved_string(value: &ResolvedValue) -> Option<&str> {
         ResolvedValue::String(value) => Some(value),
         _ => None,
     }
+}
+
+fn resolved_text(
+    value: Option<&ResolvedValue>,
+    declaration: &ResolvedDeclaration,
+    property: &str,
+) -> Result<String, Diagnostic> {
+    value
+        .and_then(resolved_atom)
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            lowerer_error(
+                declaration,
+                format!("{property} must be a string or identifier"),
+            )
+        })
 }
 
 fn resolved_f32(

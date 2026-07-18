@@ -335,6 +335,14 @@ pub enum SceneQueryClauseId {
 }
 
 impl SceneQueryClauseId {
+    pub fn field(field: impl Into<String>) -> Self {
+        Self::Field(field.into())
+    }
+
+    pub fn expr(expr: impl IntoExpr) -> Self {
+        Self::Expr(expr_node(expr.into_expr(), "scene query clause id"))
+    }
+
     pub(crate) fn map_exprs(
         self,
         f: &mut impl FnMut(Expr) -> Result<Expr, AvengerChartError>,
