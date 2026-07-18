@@ -89,6 +89,10 @@ pub enum ValueShape {
     /// runtime values supply the data while scale/axis/legend metadata is
     /// authored normally.
     ChannelConfig,
+    /// A required value head followed by a schema-owned configuration block.
+    /// This models declarations such as facet dimensions, whose expression
+    /// and configuration are one authored value but are not encoding channels.
+    ConfiguredExpression(BTreeMap<String, PropertySchema>),
     /// A literal `pattern { ... }` or a configured expression whose scale
     /// range contains pattern values.
     PatternChannel,

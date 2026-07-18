@@ -328,6 +328,7 @@ fn value_shape_schema(shape: &ValueShape) -> Value {
         }),
         ValueShape::SqlQuery => tagged_schema("query"),
         ValueShape::ChannelConfig => tagged_schema("block"),
+        ValueShape::ConfiguredExpression(fields) => configured_expression_schema(fields),
         ValueShape::PatternChannel => json!({
             "oneOf": [
                 tagged_schema("pattern"),
@@ -415,6 +416,37 @@ fn object_value_schema(fields: &std::collections::BTreeMap<String, PropertySchem
                     "children": { "maxItems": 0 }
                 },
                 "required": ["props"],
+                "additionalProperties": false
+            }
+        },
+        "additionalProperties": false
+    })
+}
+
+fn configured_expression_schema(
+    fields: &std::collections::BTreeMap<String, PropertySchema>,
+) -> Value {
+    let properties = fields
+        .iter()
+        .map(|(name, field)| (name.clone(), value_shape_schema(&field.shape)))
+        .collect::<Map<_, _>>();
+    let required = fields
+        .iter()
+        .filter(|(_, field)| field.required)
+        .map(|(name, _)| json!(name))
+        .collect::<Vec<_>>();
+    json!({
+        "type": "object",
+        "required": ["block"],
+        "properties": {
+            "block": {
+                "type": "object",
+                "properties": {
+                    "head": value_shape_schema(&ValueShape::SqlExpression),
+                    "props": object_properties_schema(properties, required, true),
+                    "children": { "maxItems": 0 }
+                },
+                "required": ["head", "props"],
                 "additionalProperties": false
             }
         },

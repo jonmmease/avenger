@@ -159,7 +159,7 @@ fn composed_registry() -> Arc<NativeRegistry> {
         .body_mode(BodyMode::Mixed),
         |_| Ok(FacetColumn),
     )
-    .child_plots(|plot, child, placement| {
+    .child_plots(|plot, child, placement, _parent| {
         let column = match placement.properties.get("column") {
             Some(ResolvedValue::Expr(expr)) => expr.clone(),
             Some(ResolvedValue::String(value)) => lit(value.clone()),
@@ -459,6 +459,62 @@ async fn native_surface_vconcat_grid_and_wrap_lower_through_registered_packs() {
             json.contains(&format!("\"type\":\"{expected_type}\"")),
             "{coordinate}: {json}"
         );
+    }
+}
+
+#[tokio::test]
+async fn native_surface_facets_lower_configured_dimensions_and_nested_cells() {
+    for (coordinate, dimensions, expected_types) in [
+        (
+            "facet",
+            r#"row: "region" {
+                title: 'Region';
+                slots: shared;
+                empty_cells: hole;
+                order_by: sum("value");
+                order: desc;
+              }
+              column: "segment" {
+                slots: free;
+                empty_cells: empty_subplot;
+              }"#,
+            &["FacetRow", "FacetColumn"][..],
+        ),
+        (
+            "facet_wrap",
+            r#"facet: "region" {
+                responsive_columns: 190;
+                slots: shared;
+                order_by: median("value");
+                order: desc;
+              }"#,
+            &["FacetWrap"][..],
+        ),
+    ] {
+        let source = format!(
+            r#"avenger 1;
+            chart {coordinate} as chart {{
+              data: {{ values: [
+                {{ region: 'east'; segment: 'a'; category: 'x'; value: 2.0; }},
+                {{ region: 'west'; segment: 'b'; category: 'y'; value: 3.0; }}
+              ]; }}
+              {dimensions}
+              cell cartesian as leaf {{
+                mark rect {{ x: "category"; y: "value"; }}
+              }}
+            }}"#
+        );
+        let artifact = source_compiler(&source, None)
+            .compile_file("chart.avenger")
+            .await
+            .unwrap_or_else(|error| panic!("{coordinate}: {error:?}"));
+        let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+        for expected in expected_types {
+            assert!(
+                json.contains(expected),
+                "{coordinate}: missing {expected}: {json}"
+            );
+        }
     }
 }
 

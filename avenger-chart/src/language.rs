@@ -9,7 +9,10 @@ use avenger_chart_schema::{
     PropertySchema, ValueShape,
 };
 
-use crate::concat::{GridConcat, HConcat, TrackSizing, VConcat, WrapConcat};
+use crate::{
+    concat::{GridConcat, HConcat, TrackSizing, VConcat, WrapConcat},
+    facet::coord::{FacetColumn, FacetRow, FacetWrap},
+};
 
 pub fn hconcat_definition() -> CoordinateLanguageDefinition<HConcat> {
     CoordinateLanguageDefinition::new("hconcat", hconcat_schema(), lower_hconcat)
@@ -25,6 +28,176 @@ pub fn grid_concat_definition() -> CoordinateLanguageDefinition<GridConcat> {
 
 pub fn wrap_concat_definition() -> CoordinateLanguageDefinition<WrapConcat> {
     CoordinateLanguageDefinition::new("wrap_concat", wrap_concat_schema(), lower_wrap_concat)
+}
+
+/// The DSL's `facet` surface uses a row facet as its outer runtime container;
+/// an optional column dimension is lowered as a nested column facet by the
+/// registry-owned child adapter.
+pub fn facet_definition() -> CoordinateLanguageDefinition<FacetRow> {
+    CoordinateLanguageDefinition::new("facet", facet_schema(), |_| Ok(FacetRow))
+}
+
+pub fn facet_column_definition() -> CoordinateLanguageDefinition<FacetColumn> {
+    CoordinateLanguageDefinition::new("facet_column", facet_column_schema(), |_| Ok(FacetColumn))
+}
+
+pub fn facet_wrap_definition() -> CoordinateLanguageDefinition<FacetWrap> {
+    CoordinateLanguageDefinition::new("facet_wrap", facet_wrap_schema(), |_| Ok(FacetWrap))
+}
+
+fn facet_dimension_fields(wrap: bool) -> std::collections::BTreeMap<String, PropertySchema> {
+    let mut fields = std::collections::BTreeMap::from([
+        (
+            "title".to_string(),
+            PropertySchema::optional(
+                ValueShape::String,
+                "Facet guide title; an empty title hides it.",
+            ),
+        ),
+        (
+            "slots".to_string(),
+            PropertySchema::optional(
+                ValueShape::CoordinationScope,
+                "Facet slot sharing scope: free, shared, or level(n).",
+            ),
+        ),
+        (
+            "empty_cells".to_string(),
+            PropertySchema::optional(
+                atom(&[
+                    ("hole", "Do not render a subplot for an empty cell."),
+                    ("empty_subplot", "Render the empty subplot structure."),
+                    ("auto", "Use the runtime default empty-cell policy."),
+                ]),
+                "Rendering policy for empty facet cells.",
+            ),
+        ),
+        (
+            "order_by".to_string(),
+            PropertySchema::optional(
+                ValueShape::SqlExpression,
+                "Expression used to order facet slots.",
+            ),
+        ),
+        (
+            "order".to_string(),
+            PropertySchema::optional(
+                atom(&[("asc", "Ascending order."), ("desc", "Descending order.")]),
+                "Facet slot ordering direction.",
+            ),
+        ),
+        (
+            "position".to_string(),
+            PropertySchema::optional(ValueShape::Identifier, "Facet guide position."),
+        ),
+        (
+            "visible".to_string(),
+            PropertySchema::optional(ValueShape::Boolean, "Whether the facet guide is visible."),
+        ),
+        (
+            "axis_guide_visibility".to_string(),
+            axis_visibility("Axis label and title visibility within this facet dimension."),
+        ),
+    ]);
+    if wrap {
+        fields.insert(
+            "columns".to_string(),
+            PropertySchema::optional(
+                ValueShape::SqlExpression,
+                "Expression yielding the fixed number of physical columns.",
+            ),
+        );
+        fields.insert(
+            "responsive_columns".to_string(),
+            PropertySchema::optional(
+                ValueShape::SqlExpression,
+                "Expression yielding the target minimum leaf width in pixels.",
+            ),
+        );
+    }
+    fields
+}
+
+fn facet_schema() -> KindSchema {
+    KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Coordinate, "facet"),
+        "A row facet, optionally containing a nested column facet for a two-dimensional grid.",
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "row",
+        PropertySchema::required(
+            ValueShape::ConfiguredExpression(facet_dimension_fields(false)),
+            "Required outer row facet expression and configuration.",
+        ),
+    )
+    .property(
+        "column",
+        PropertySchema::optional(
+            ValueShape::ConfiguredExpression(facet_dimension_fields(false)),
+            "Optional nested column facet expression and configuration.",
+        ),
+    )
+    .child_rule(ChildRule {
+        role: "cell".to_string(),
+        min: 1,
+        max: Some(1),
+        docs: "The child plot instantiated for every facet cell.".to_string(),
+    })
+}
+
+fn facet_column_schema() -> KindSchema {
+    KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Coordinate, "facet_column"),
+        "A one-dimensional column facet container.",
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "column",
+        PropertySchema::required(
+            ValueShape::ConfiguredExpression(facet_dimension_fields(false)),
+            "Column facet expression and configuration.",
+        ),
+    )
+    .child_rule(ChildRule {
+        role: "cell".to_string(),
+        min: 1,
+        max: Some(1),
+        docs: "The child plot instantiated for every facet cell.".to_string(),
+    })
+}
+
+fn facet_wrap_schema() -> KindSchema {
+    KindSchema::new(
+        NativeKindKey::new(NativeKindNamespace::Coordinate, "facet_wrap"),
+        "A wrapped one-dimensional facet whose physical columns may be fixed or responsive.",
+    )
+    .body_mode(BodyMode::Mixed)
+    .property(
+        "facet",
+        PropertySchema::required(
+            ValueShape::ConfiguredExpression(facet_dimension_fields(true)),
+            "Wrapped facet expression and configuration.",
+        ),
+    )
+    .child_rule(ChildRule {
+        role: "cell".to_string(),
+        min: 1,
+        max: Some(1),
+        docs: "The child plot instantiated for every wrapped facet cell.".to_string(),
+    })
+}
+
+fn atom(values: &[(&str, &str)]) -> ValueShape {
+    ValueShape::Atom {
+        values: values
+            .iter()
+            .map(|(value, docs)| EnumValueSchema {
+                value: (*value).to_string(),
+                docs: (*docs).to_string(),
+            })
+            .collect(),
+    }
 }
 
 fn container_schema(kind: &str, docs: &str) -> KindSchema {

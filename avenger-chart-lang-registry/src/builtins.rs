@@ -6,11 +6,16 @@
 use std::sync::Arc;
 
 use avenger_chart::{
+    facet::marks::{
+        FacetColChannelConfig, FacetColumnSubplotChannels, FacetRowChannelConfig,
+        FacetRowSubplotChannels, FacetWrapChannelConfig, FacetWrapSubplotChannels,
+    },
     layout::{CanvasConstraint, LayoutSpec, Margins, PlotConstraint},
-    prelude::{Cartesian, Plot, Subplot},
+    prelude::{Cartesian, FacetColumn, FacetRow, FacetWrap, Plot, Subplot},
 };
 use avenger_chart_core::{
-    CoordinateSystem, SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
+    AxisGuideVisibilityPolicy, CoordinateSystem, CoordinationScope, FacetEmptyCellPolicy,
+    SubplotChildPlotSpec, SubplotContainerCoordinateSystem,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema, ValueShape,
@@ -47,6 +52,7 @@ pub fn register_bootstrap_builtins(
         avenger_chart_marks::language::zero_d_definition(),
     ))?;
     register_concat_coordinates(builder)?;
+    register_facet_coordinates(builder)?;
     register_bootstrap_noncoordinate_builtins(builder)
 }
 
@@ -70,10 +76,326 @@ fn register_concat_coordinates(builder: &mut NativeRegistryBuilder) -> Result<()
     Ok(())
 }
 
+fn register_facet_coordinates(builder: &mut NativeRegistryBuilder) -> Result<(), RegistryError> {
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::facet_definition())
+            .child_plots(lower_facet_child)
+            .children_use_parent_data_context(),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(
+            avenger_chart::language::facet_column_definition(),
+        )
+        .child_plots(lower_facet_column_child)
+        .children_use_parent_data_context(),
+    )?;
+    builder.register_coordinate_pack(
+        CoordinatePack::from_language_definition(avenger_chart::language::facet_wrap_definition())
+            .child_plots(lower_facet_wrap_child)
+            .children_use_parent_data_context(),
+    )?;
+    Ok(())
+}
+
+fn lower_facet_child(
+    plot: Plot<FacetRow>,
+    mut child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<FacetRow>, RegistryError> {
+    if let Some(column) = parent.coordinate.properties.get("column") {
+        let (expr, config) = configured_facet_dimension("column", column)?;
+        let inner = Subplot::<FacetColumn>::new(child)
+            .column_with(expr, |options| apply_facet_col(options, config));
+        child = Box::new(Plot::<FacetColumn>::new().mark(inner));
+    }
+    let row = parent
+        .coordinate
+        .properties
+        .get("row")
+        .ok_or_else(|| missing_property("facet", "row"))?;
+    let (expr, config) = configured_facet_dimension("row", row)?;
+    let subplot = apply_subplot_identity(
+        Subplot::<FacetRow>::new(child).row_with(expr, |options| apply_facet_row(options, config)),
+        placement,
+    )?;
+    Ok(plot.mark(subplot))
+}
+
+fn lower_facet_column_child(
+    plot: Plot<FacetColumn>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<FacetColumn>, RegistryError> {
+    let column = parent
+        .coordinate
+        .properties
+        .get("column")
+        .ok_or_else(|| missing_property("facet_column", "column"))?;
+    let (expr, config) = configured_facet_dimension("column", column)?;
+    let subplot = apply_subplot_identity(
+        Subplot::<FacetColumn>::new(child)
+            .column_with(expr, |options| apply_facet_col(options, config)),
+        placement,
+    )?;
+    Ok(plot.mark(subplot))
+}
+
+fn lower_facet_wrap_child(
+    plot: Plot<FacetWrap>,
+    child: Box<dyn SubplotChildPlotSpec>,
+    placement: &crate::ResolvedDeclaration,
+    parent: &crate::ResolvedPlot,
+) -> Result<Plot<FacetWrap>, RegistryError> {
+    let facet = parent
+        .coordinate
+        .properties
+        .get("facet")
+        .ok_or_else(|| missing_property("facet_wrap", "facet"))?;
+    let (expr, config) = configured_facet_dimension("facet", facet)?;
+    if config.contains_key("columns") && config.contains_key("responsive_columns") {
+        return Err(RegistryError::Lowering {
+            kind: "facet_wrap".to_string(),
+            message: "facet columns and responsive_columns are mutually exclusive".to_string(),
+        });
+    }
+    let subplot = apply_subplot_identity(
+        Subplot::<FacetWrap>::new(child)
+            .wrap_with(expr, |options| apply_facet_wrap(options, config)),
+        placement,
+    )?;
+    Ok(plot.mark(subplot))
+}
+
+fn apply_subplot_identity<C: CoordinateSystem>(
+    mut subplot: Subplot<C>,
+    placement: &crate::ResolvedDeclaration,
+) -> Result<Subplot<C>, RegistryError> {
+    if let Some(name) = &placement.source_name {
+        subplot = subplot.name(name.clone());
+    }
+    if let Some(label) = placement.properties.get("label") {
+        subplot = subplot.caption(native_expr(label, "label")?);
+    }
+    Ok(subplot)
+}
+
+fn configured_facet_dimension<'a>(
+    property: &str,
+    value: &'a ResolvedValue,
+) -> Result<
+    (
+        avenger_chart_core::ChannelValue,
+        &'a indexmap::IndexMap<String, ResolvedValue>,
+    ),
+    RegistryError,
+> {
+    let ResolvedValue::Configured { head, properties } = value else {
+        return Err(RegistryError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "a configured facet expression".to_string(),
+        });
+    };
+    let ResolvedValue::Channel(channel) = head.as_ref() else {
+        return Err(RegistryError::InvalidPropertyType {
+            property: property.to_string(),
+            expected: "a configured facet channel".to_string(),
+        });
+    };
+    Ok((channel.channel_value().clone(), properties))
+}
+
+fn apply_facet_row(
+    mut options: FacetRowChannelConfig,
+    config: &indexmap::IndexMap<String, ResolvedValue>,
+) -> FacetRowChannelConfig {
+    if let Some(scope) = facet_scope(config.get("slots")) {
+        options = options.with_slot_sharing(scope);
+    }
+    if let Some(policy) = empty_cell_policy(config.get("empty_cells")) {
+        options = options.empty_cell_policy(policy);
+    }
+    if let Some(expr) = config.get("order_by").and_then(resolved_expr) {
+        options = options.order_by(expr);
+    }
+    if config.get("order").and_then(resolved_string) == Some("desc") {
+        options = options.order_desc();
+    }
+    if let Some(policy) = config
+        .get("axis_guide_visibility")
+        .and_then(resolved_string)
+    {
+        options = options.axis_guide_visibility(facet_axis_visibility(policy));
+    }
+    apply_row_guide(options, config)
+}
+
+fn apply_row_guide(
+    options: FacetRowChannelConfig,
+    config: &indexmap::IndexMap<String, ResolvedValue>,
+) -> FacetRowChannelConfig {
+    options.guide(|mut guide| {
+        if let Some(title) = config.get("title").and_then(resolved_string) {
+            guide = guide.title(title);
+        }
+        if let Some(position) = config.get("position").and_then(resolved_string) {
+            guide = guide.position(position);
+        }
+        if let Some(visible) = config.get("visible").and_then(resolved_bool) {
+            guide = guide.visible(visible);
+        }
+        guide
+    })
+}
+
+fn apply_facet_col(
+    mut options: FacetColChannelConfig,
+    config: &indexmap::IndexMap<String, ResolvedValue>,
+) -> FacetColChannelConfig {
+    if let Some(scope) = facet_scope(config.get("slots")) {
+        options = options.with_slot_sharing(scope);
+    }
+    if let Some(policy) = empty_cell_policy(config.get("empty_cells")) {
+        options = options.empty_cell_policy(policy);
+    }
+    if let Some(expr) = config.get("order_by").and_then(resolved_expr) {
+        options = options.order_by(expr);
+    }
+    if config.get("order").and_then(resolved_string) == Some("desc") {
+        options = options.order_desc();
+    }
+    if let Some(policy) = config
+        .get("axis_guide_visibility")
+        .and_then(resolved_string)
+    {
+        options = options.axis_guide_visibility(facet_axis_visibility(policy));
+    }
+    options.guide(|mut guide| {
+        if let Some(title) = config.get("title").and_then(resolved_string) {
+            guide = guide.title(title);
+        }
+        if let Some(position) = config.get("position").and_then(resolved_string) {
+            guide = guide.position(position);
+        }
+        if let Some(visible) = config.get("visible").and_then(resolved_bool) {
+            guide = guide.visible(visible);
+        }
+        guide
+    })
+}
+
+fn apply_facet_wrap(
+    mut options: FacetWrapChannelConfig,
+    config: &indexmap::IndexMap<String, ResolvedValue>,
+) -> FacetWrapChannelConfig {
+    if let Some(scope) = facet_scope(config.get("slots")) {
+        options = options.with_slot_sharing(scope);
+    }
+    if let Some(policy) = empty_cell_policy(config.get("empty_cells")) {
+        options = options.empty_cell_policy(policy);
+    }
+    if let Some(expr) = config.get("order_by").and_then(resolved_expr) {
+        options = options.order_by(expr);
+    }
+    if config.get("order").and_then(resolved_string) == Some("desc") {
+        options = options.order_desc();
+    }
+    if let Some(expr) = config.get("columns").and_then(resolved_expr) {
+        options = options.columns(expr);
+    }
+    if let Some(expr) = config.get("responsive_columns").and_then(resolved_expr) {
+        options = options.responsive_columns(expr);
+    }
+    if let Some(policy) = config
+        .get("axis_guide_visibility")
+        .and_then(resolved_string)
+    {
+        options = options.axis_guide_visibility(facet_axis_visibility(policy));
+    }
+    options.guide(|mut guide| {
+        if let Some(title) = config.get("title").and_then(resolved_string) {
+            guide = guide.title(title);
+        }
+        if let Some(position) = config.get("position").and_then(resolved_string) {
+            guide = guide.position(position);
+        }
+        if let Some(visible) = config.get("visible").and_then(resolved_bool) {
+            guide = guide.visible(visible);
+        }
+        guide
+    })
+}
+
+fn facet_scope(value: Option<&ResolvedValue>) -> Option<CoordinationScope> {
+    match value {
+        Some(ResolvedValue::String(value)) if value == "shared" => Some(CoordinationScope::Shared),
+        Some(ResolvedValue::String(value)) if value == "free" => Some(CoordinationScope::Free),
+        Some(ResolvedValue::Integer(level)) => {
+            u8::try_from(*level).ok().map(CoordinationScope::Level)
+        }
+        _ => None,
+    }
+}
+
+fn empty_cell_policy(value: Option<&ResolvedValue>) -> Option<FacetEmptyCellPolicy> {
+    match value.and_then(resolved_string) {
+        Some("hole") => Some(FacetEmptyCellPolicy::Hole),
+        Some("empty_subplot") => Some(FacetEmptyCellPolicy::EmptySubplot),
+        Some("auto") => Some(FacetEmptyCellPolicy::Auto),
+        _ => None,
+    }
+}
+
+fn facet_axis_visibility(value: &str) -> AxisGuideVisibilityPolicy {
+    match value {
+        "all" => AxisGuideVisibilityPolicy::All,
+        "outer_edges" => AxisGuideVisibilityPolicy::OuterEdges,
+        "outer_for_equivalent_domain_groups" => {
+            AxisGuideVisibilityPolicy::OuterForEquivalentDomainGroups
+        }
+        _ => AxisGuideVisibilityPolicy::Auto,
+    }
+}
+
+fn resolved_expr(value: &ResolvedValue) -> Option<Expr> {
+    match value {
+        ResolvedValue::Expr(expr) => Some(expr.clone()),
+        ResolvedValue::Scalar(value) => Some(lit(value.clone())),
+        ResolvedValue::Integer(value) => Some(lit(*value)),
+        ResolvedValue::Number(value) => Some(lit(*value)),
+        ResolvedValue::String(value) => Some(lit(value.clone())),
+        ResolvedValue::Boolean(value) => Some(lit(*value)),
+        _ => None,
+    }
+}
+
+fn resolved_string(value: &ResolvedValue) -> Option<&str> {
+    match value {
+        ResolvedValue::String(value) => Some(value),
+        _ => None,
+    }
+}
+
+fn resolved_bool(value: &ResolvedValue) -> Option<bool> {
+    match value {
+        ResolvedValue::Boolean(value) => Some(*value),
+        _ => None,
+    }
+}
+
+fn missing_property(kind: &str, property: &str) -> RegistryError {
+    RegistryError::Lowering {
+        kind: kind.to_string(),
+        message: format!("missing required `{property}` property"),
+    }
+}
+
 fn lower_concat_child<C: CoordinateSystem + SubplotContainerCoordinateSystem>(
     plot: Plot<C>,
     child: Box<dyn SubplotChildPlotSpec>,
     placement: &crate::ResolvedDeclaration,
+    _parent: &crate::ResolvedPlot,
 ) -> Result<Plot<C>, RegistryError> {
     let mut subplot = Subplot::<C>::new(child);
     if let Some(name) = &placement.source_name {

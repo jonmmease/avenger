@@ -3386,6 +3386,17 @@ impl<'a> Resolver<'a> {
         }
         if value_matches_shape(value, shape) {
             match (value, shape) {
+                (
+                    ResolvedValue::Object {
+                        head: Some(head),
+                        properties,
+                        ..
+                    },
+                    ValueShape::ConfiguredExpression(fields),
+                ) => {
+                    self.validate_value_shape(head, &ValueShape::SqlExpression, property, span);
+                    self.validate_object_fields(properties, fields, property, span);
+                }
                 (ResolvedValue::Object { properties, .. }, ValueShape::Object(fields)) => {
                     self.validate_object_fields(properties, fields, property, span);
                 }
@@ -3461,6 +3472,45 @@ impl<'a> Resolver<'a> {
                     );
                 }
                 self.normalize_expression_argument(scope, resolved, span);
+            }
+            ValueShape::ConfiguredExpression(fields) => {
+                if let (
+                    Value::Block {
+                        head: Some(source_head),
+                        body,
+                    },
+                    ResolvedValue::Object {
+                        head: Some(resolved_head),
+                        properties,
+                        ..
+                    },
+                ) = (source, resolved)
+                {
+                    self.normalize_definition_arguments(
+                        scope,
+                        source_head,
+                        resolved_head,
+                        &ValueShape::SqlExpression,
+                        span,
+                        in_event,
+                        owner,
+                    );
+                    for (name, field) in fields {
+                        if let (Some(source), Some(value)) =
+                            (body.props.get(name), properties.get_mut(name))
+                        {
+                            self.normalize_definition_arguments(
+                                scope,
+                                source,
+                                value,
+                                &field.shape,
+                                span,
+                                in_event,
+                                owner,
+                            );
+                        }
+                    }
+                }
             }
             ValueShape::SelectionBinding => {
                 if let Value::Atom(name) = source {
@@ -6639,6 +6689,15 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
                 ..
             }
         ),
+        ValueShape::ConfiguredExpression(_) => matches!(
+            value,
+            ResolvedValue::Object {
+                head: Some(_),
+                kind: None,
+                children,
+                ..
+            } if children.is_empty()
+        ),
         ValueShape::PatternChannel => {
             matches!(value, ResolvedValue::Pattern(_))
                 || value_matches_shape(value, &ValueShape::SqlExpression)
@@ -7001,6 +7060,7 @@ fn shape_name(shape: &ValueShape) -> &'static str {
         ValueShape::SqlExpression => "SQL expression",
         ValueShape::SqlQuery => "SQL query",
         ValueShape::ChannelConfig => "configuration-only channel block",
+        ValueShape::ConfiguredExpression(_) => "configured SQL expression",
         ValueShape::PatternChannel => "pattern literal or configured pattern channel",
         ValueShape::CoordinationScope => "coordination scope",
         ValueShape::FacetDataScope => "facet data scope",

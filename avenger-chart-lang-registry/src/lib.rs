@@ -95,6 +95,10 @@ pub struct ResolvedRootFurnishings {
 pub struct ResolvedPlot {
     pub coordinate: ResolvedDeclaration,
     pub data: Option<DataFrame>,
+    /// True when `data` exists only to plan and lower a lexically inherited
+    /// relation. Parent-context containers such as facets remove it before
+    /// constructing the runtime child plot so filtered parent data can flow.
+    pub data_is_inherited: bool,
     pub marks: Vec<ResolvedMark>,
     pub tools: Vec<ResolvedDeclaration>,
     pub widgets: Vec<ResolvedDeclaration>,
@@ -107,6 +111,7 @@ impl ResolvedPlot {
         Self {
             coordinate: ResolvedDeclaration::new(coordinate_kind),
             data: None,
+            data_is_inherited: false,
             marks: Vec::new(),
             tools: Vec::new(),
             widgets: Vec::new(),
@@ -157,6 +162,7 @@ type ChildPlotLowerer<C> = Arc<
             Plot<C>,
             Box<dyn SubplotChildPlotSpec>,
             &ResolvedDeclaration,
+            &ResolvedPlot,
         ) -> Result<Plot<C>, RegistryError>
         + Send
         + Sync,
@@ -183,6 +189,7 @@ pub struct CoordinatePack<C: CoordinateSystem> {
     marks: BTreeMap<String, TypedMarkEntry<C>>,
     tools: BTreeMap<String, TypedToolEntry<C>>,
     child_plot_lowerer: Option<ChildPlotLowerer<C>>,
+    children_use_parent_data_context: bool,
     plot_property_lowerer: Option<PlotPropertyLowerer<C>>,
     duplicate_keys: Vec<NativeKindKey>,
 }
@@ -224,6 +231,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             marks: BTreeMap::new(),
             tools: BTreeMap::new(),
             child_plot_lowerer: None,
+            children_use_parent_data_context: false,
             plot_property_lowerer: None,
             duplicate_keys: Vec::new(),
         }
@@ -287,12 +295,21 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             Plot<C>,
             Box<dyn SubplotChildPlotSpec>,
             &ResolvedDeclaration,
+            &ResolvedPlot,
         ) -> Result<Plot<C>, RegistryError>
         + Send
         + Sync
         + 'static,
     ) -> Self {
         self.child_plot_lowerer = Some(Arc::new(lowerer));
+        self
+    }
+
+    /// Child plots use the container's compiled data context rather than an
+    /// attached copy of lexically inherited plot-level data. Explicit child
+    /// data remains attached so the runtime can reject it where unsupported.
+    pub fn children_use_parent_data_context(mut self) -> Self {
+        self.children_use_parent_data_context = true;
         self
     }
 
@@ -410,10 +427,21 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                         kind: self.kind.clone(),
                         message: "coordinate does not accept child plots".to_string(),
                     })?;
+            let mut child_plot;
+            let child_resolved =
+                if self.children_use_parent_data_context && child.plot.data_is_inherited {
+                    child_plot = child.plot.as_ref().clone();
+                    child_plot.data = None;
+                    child_plot.data_is_inherited = false;
+                    &child_plot
+                } else {
+                    child.plot.as_ref()
+                };
             plot = lowerer(
                 plot,
-                registry.lower_child_plot(&child.plot)?,
+                registry.lower_child_plot(child_resolved)?,
                 &child.placement,
+                resolved,
             )?;
         }
         if let Some(lowerer) = &self.plot_property_lowerer {
@@ -1063,6 +1091,20 @@ fn validate_value_shape(
         ) => true,
         (ResolvedValue::Query(_) | ResolvedValue::String(_), ValueShape::SqlQuery) => true,
         (ResolvedValue::Channel(_), ValueShape::ChannelConfig) => true,
+        (
+            ResolvedValue::Configured { head, properties },
+            ValueShape::ConfiguredExpression(fields),
+        ) => {
+            validate_value_shape(head, &ValueShape::SqlExpression, property).is_ok()
+                && properties.iter().all(|(name, value)| {
+                    fields.get(name).is_some_and(|field| {
+                        validate_value_shape(value, &field.shape, name).is_ok()
+                    })
+                })
+                && fields.iter().all(|(name, field)| {
+                    !field.required || field.default.is_some() || properties.contains_key(name)
+                })
+        }
         (ResolvedValue::Pattern(_), ValueShape::PatternChannel) => true,
         (ResolvedValue::String(_) | ResolvedValue::Integer(_), ValueShape::CoordinationScope) => {
             true
@@ -1718,6 +1760,7 @@ mod tests {
                 &ResolvedPlot {
                     coordinate: ResolvedDeclaration::new("cartesian"),
                     data: None,
+                    data_is_inherited: false,
                     marks: vec![symbol().into()],
                     tools: Vec::new(),
                     widgets: Vec::new(),
@@ -1886,7 +1929,7 @@ mod tests {
             ),
             |_| Ok(FacetColumn),
         )
-        .child_plots(|plot, child, placement| {
+        .child_plots(|plot, child, placement, _parent| {
             let column = match placement.get("column")? {
                 ResolvedValue::Expr(expr) => expr.clone(),
                 _ => {

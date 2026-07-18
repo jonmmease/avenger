@@ -443,12 +443,12 @@ impl<'a> ProjectLowerer<'a> {
             .clone()
             .ok_or_else(|| lowerer_error(chart, "chart coordinate kind was not resolved"))?;
         let mut plot = ResolvedPlot::new(coordinate);
-        plot.coordinate = self.native_declaration(chart, None, NativeKindNamespace::Coordinate)?;
-
         let data = match chart.properties.get("data") {
             Some(value) => Some(self.lower_data(value, chart).await?),
             None => None,
         };
+        plot.coordinate =
+            self.native_declaration(chart, data.as_ref(), NativeKindNamespace::Coordinate)?;
         plot.data = data.clone();
         if let Some(data) = &data {
             self.record_schema(chart, data);
@@ -627,11 +627,6 @@ impl<'a> ProjectLowerer<'a> {
                 lowerer_error(declaration, "child plot coordinate kind was not resolved")
             })?;
             let mut plot = ResolvedPlot::new(coordinate);
-            plot.coordinate = self.native_declaration(
-                declaration,
-                inherited_data,
-                NativeKindNamespace::Coordinate,
-            )?;
             let explicit_data = match declaration.properties.get("data") {
                 Some(value) => Some(self.lower_data(value, declaration).await?),
                 None => None,
@@ -645,6 +640,12 @@ impl<'a> ProjectLowerer<'a> {
             // the child compiler would have no schema or runtime relation even
             // though its DSL scope correctly resolved inherited columns.
             plot.data = explicit_data.clone().or_else(|| inherited_data.cloned());
+            plot.data_is_inherited = explicit_data.is_none() && inherited_data.is_some();
+            plot.coordinate = self.native_declaration(
+                declaration,
+                plot.data.as_ref(),
+                NativeKindNamespace::Coordinate,
+            )?;
             let planning_data = plot.data.clone();
             let root_group = self
                 .lower_container(declaration, planning_data.as_ref(), &mut plot)
@@ -901,6 +902,8 @@ impl<'a> ProjectLowerer<'a> {
                 .is_some_and(|property| property.shape == ValueShape::RasterDimensionChannel)
             {
                 self.raster_dimension_channel_value(name, value, data, declaration)?
+            } else if let Some(ValueShape::ConfiguredExpression(fields)) = property_shape {
+                self.configured_expression_value(value, fields, data, declaration)?
             } else if schema
                 .properties
                 .get(name)
@@ -998,6 +1001,61 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
         Ok(native)
+    }
+
+    fn configured_expression_value(
+        &self,
+        value: &ResolvedValue,
+        fields: &std::collections::BTreeMap<String, avenger_chart_schema::PropertySchema>,
+        data: Option<&DataFrame>,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<NativeValue, Diagnostic> {
+        let ResolvedValue::Object {
+            head: Some(head),
+            properties,
+            ..
+        } = value
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "configured expression requires a value head and property block",
+            ));
+        };
+        let properties = properties
+            .iter()
+            .map(|(name, value)| {
+                let field = fields.get(name).ok_or_else(|| {
+                    lowerer_error(
+                        declaration,
+                        format!("unsupported configured-expression property `{name}`"),
+                    )
+                })?;
+                let value = match &field.shape {
+                    ValueShape::SqlExpression => {
+                        NativeValue::Expr(self.expression_value(value, data, declaration)?)
+                    }
+                    ValueShape::CoordinationScope => {
+                        match self.coordination_scope(value, declaration)? {
+                            avenger_chart_core::CoordinationScope::Shared => {
+                                NativeValue::String("shared".to_string())
+                            }
+                            avenger_chart_core::CoordinationScope::Free => {
+                                NativeValue::String("free".to_string())
+                            }
+                            avenger_chart_core::CoordinationScope::Level(level) => {
+                                NativeValue::Integer(level.into())
+                            }
+                        }
+                    }
+                    _ => self.native_value(value, data, declaration)?,
+                };
+                Ok((name.clone(), value))
+            })
+            .collect::<Result<_, Diagnostic>>()?;
+        Ok(NativeValue::Configured {
+            head: Box::new(self.channel_value(head, data, declaration)?),
+            properties,
+        })
     }
 
     fn facet_data_scope_level(

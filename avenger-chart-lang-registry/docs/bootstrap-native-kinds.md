@@ -10,6 +10,31 @@ A two-dimensional Cartesian coordinate system.
 |---|---|---:|---|
 | `unit_aspect` | property | false | Optional positive ratio between x and y data units. |
 
+## `Coordinate.facet`
+
+A row facet, optionally containing a nested column facet for a two-dimensional grid.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `column` | property | false | Optional nested column facet expression and configuration. |
+| `row` | property | true | Required outer row facet expression and configuration. |
+
+## `Coordinate.facet_column`
+
+A one-dimensional column facet container.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `column` | property | true | Column facet expression and configuration. |
+
+## `Coordinate.facet_wrap`
+
+A wrapped one-dimensional facet whose physical columns may be fixed or responsive.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `facet` | property | true | Wrapped facet expression and configuration. |
+
 ## `Coordinate.geo`
 
 A geographic map projection with an optional authored viewport.

@@ -37,6 +37,12 @@ pub enum ResolvedValue {
     Query(String),
     Array(Vec<ResolvedValue>),
     Object(IndexMap<String, ResolvedValue>),
+    /// A value-bearing block whose head and schema-owned configuration must
+    /// remain distinct for its native owner lowerer.
+    Configured {
+        head: Box<ResolvedValue>,
+        properties: IndexMap<String, ResolvedValue>,
+    },
     Call {
         function: String,
         args: Vec<ResolvedValue>,
@@ -66,6 +72,11 @@ impl fmt::Debug for ResolvedValue {
             Self::Query(value) => f.debug_tuple("Query").field(value).finish(),
             Self::Array(value) => f.debug_tuple("Array").field(value).finish(),
             Self::Object(value) => f.debug_tuple("Object").field(value).finish(),
+            Self::Configured { head, properties } => f
+                .debug_struct("Configured")
+                .field("head", head)
+                .field("properties", properties)
+                .finish(),
             Self::Call { function, args } => f
                 .debug_struct("Call")
                 .field("function", function)

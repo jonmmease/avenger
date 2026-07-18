@@ -32,6 +32,544 @@
     {
       "key": {
         "namespace": "coordinate",
+        "kind": "facet"
+      },
+      "docs": "A row facet, optionally containing a nested column facet for a two-dimensional grid.",
+      "properties": {
+        "column": {
+          "shape": {
+            "shape": "configured_expression",
+            "detail": {
+              "axis_guide_visibility": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "auto",
+                        "docs": "Use the container's default compaction behavior."
+                      },
+                      {
+                        "value": "all",
+                        "docs": "Show labels and titles on every child axis."
+                      },
+                      {
+                        "value": "outer_edges",
+                        "docs": "Show labels and titles only on physical outer edges."
+                      },
+                      {
+                        "value": "outer_for_equivalent_domain_groups",
+                        "docs": "Compact only for semantically equivalent aligned domains."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Axis label and title visibility within this facet dimension."
+              },
+              "empty_cells": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "hole",
+                        "docs": "Do not render a subplot for an empty cell."
+                      },
+                      {
+                        "value": "empty_subplot",
+                        "docs": "Render the empty subplot structure."
+                      },
+                      {
+                        "value": "auto",
+                        "docs": "Use the runtime default empty-cell policy."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Rendering policy for empty facet cells."
+              },
+              "order": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "asc",
+                        "docs": "Ascending order."
+                      },
+                      {
+                        "value": "desc",
+                        "docs": "Descending order."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Facet slot ordering direction."
+              },
+              "order_by": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression used to order facet slots."
+              },
+              "position": {
+                "shape": {
+                  "shape": "identifier"
+                },
+                "required": false,
+                "docs": "Facet guide position."
+              },
+              "slots": {
+                "shape": {
+                  "shape": "coordination_scope"
+                },
+                "required": false,
+                "docs": "Facet slot sharing scope: free, shared, or level(n)."
+              },
+              "title": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Facet guide title; an empty title hides it."
+              },
+              "visible": {
+                "shape": {
+                  "shape": "boolean"
+                },
+                "required": false,
+                "docs": "Whether the facet guide is visible."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Optional nested column facet expression and configuration."
+        },
+        "row": {
+          "shape": {
+            "shape": "configured_expression",
+            "detail": {
+              "axis_guide_visibility": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "auto",
+                        "docs": "Use the container's default compaction behavior."
+                      },
+                      {
+                        "value": "all",
+                        "docs": "Show labels and titles on every child axis."
+                      },
+                      {
+                        "value": "outer_edges",
+                        "docs": "Show labels and titles only on physical outer edges."
+                      },
+                      {
+                        "value": "outer_for_equivalent_domain_groups",
+                        "docs": "Compact only for semantically equivalent aligned domains."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Axis label and title visibility within this facet dimension."
+              },
+              "empty_cells": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "hole",
+                        "docs": "Do not render a subplot for an empty cell."
+                      },
+                      {
+                        "value": "empty_subplot",
+                        "docs": "Render the empty subplot structure."
+                      },
+                      {
+                        "value": "auto",
+                        "docs": "Use the runtime default empty-cell policy."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Rendering policy for empty facet cells."
+              },
+              "order": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "asc",
+                        "docs": "Ascending order."
+                      },
+                      {
+                        "value": "desc",
+                        "docs": "Descending order."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Facet slot ordering direction."
+              },
+              "order_by": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression used to order facet slots."
+              },
+              "position": {
+                "shape": {
+                  "shape": "identifier"
+                },
+                "required": false,
+                "docs": "Facet guide position."
+              },
+              "slots": {
+                "shape": {
+                  "shape": "coordination_scope"
+                },
+                "required": false,
+                "docs": "Facet slot sharing scope: free, shared, or level(n)."
+              },
+              "title": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Facet guide title; an empty title hides it."
+              },
+              "visible": {
+                "shape": {
+                  "shape": "boolean"
+                },
+                "required": false,
+                "docs": "Whether the facet guide is visible."
+              }
+            }
+          },
+          "required": true,
+          "docs": "Required outer row facet expression and configuration."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "max": 1,
+          "docs": "The child plot instantiated for every facet cell."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "facet_column"
+      },
+      "docs": "A one-dimensional column facet container.",
+      "properties": {
+        "column": {
+          "shape": {
+            "shape": "configured_expression",
+            "detail": {
+              "axis_guide_visibility": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "auto",
+                        "docs": "Use the container's default compaction behavior."
+                      },
+                      {
+                        "value": "all",
+                        "docs": "Show labels and titles on every child axis."
+                      },
+                      {
+                        "value": "outer_edges",
+                        "docs": "Show labels and titles only on physical outer edges."
+                      },
+                      {
+                        "value": "outer_for_equivalent_domain_groups",
+                        "docs": "Compact only for semantically equivalent aligned domains."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Axis label and title visibility within this facet dimension."
+              },
+              "empty_cells": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "hole",
+                        "docs": "Do not render a subplot for an empty cell."
+                      },
+                      {
+                        "value": "empty_subplot",
+                        "docs": "Render the empty subplot structure."
+                      },
+                      {
+                        "value": "auto",
+                        "docs": "Use the runtime default empty-cell policy."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Rendering policy for empty facet cells."
+              },
+              "order": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "asc",
+                        "docs": "Ascending order."
+                      },
+                      {
+                        "value": "desc",
+                        "docs": "Descending order."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Facet slot ordering direction."
+              },
+              "order_by": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression used to order facet slots."
+              },
+              "position": {
+                "shape": {
+                  "shape": "identifier"
+                },
+                "required": false,
+                "docs": "Facet guide position."
+              },
+              "slots": {
+                "shape": {
+                  "shape": "coordination_scope"
+                },
+                "required": false,
+                "docs": "Facet slot sharing scope: free, shared, or level(n)."
+              },
+              "title": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Facet guide title; an empty title hides it."
+              },
+              "visible": {
+                "shape": {
+                  "shape": "boolean"
+                },
+                "required": false,
+                "docs": "Whether the facet guide is visible."
+              }
+            }
+          },
+          "required": true,
+          "docs": "Column facet expression and configuration."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "max": 1,
+          "docs": "The child plot instantiated for every facet cell."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
+        "kind": "facet_wrap"
+      },
+      "docs": "A wrapped one-dimensional facet whose physical columns may be fixed or responsive.",
+      "properties": {
+        "facet": {
+          "shape": {
+            "shape": "configured_expression",
+            "detail": {
+              "axis_guide_visibility": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "auto",
+                        "docs": "Use the container's default compaction behavior."
+                      },
+                      {
+                        "value": "all",
+                        "docs": "Show labels and titles on every child axis."
+                      },
+                      {
+                        "value": "outer_edges",
+                        "docs": "Show labels and titles only on physical outer edges."
+                      },
+                      {
+                        "value": "outer_for_equivalent_domain_groups",
+                        "docs": "Compact only for semantically equivalent aligned domains."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Axis label and title visibility within this facet dimension."
+              },
+              "columns": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression yielding the fixed number of physical columns."
+              },
+              "empty_cells": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "hole",
+                        "docs": "Do not render a subplot for an empty cell."
+                      },
+                      {
+                        "value": "empty_subplot",
+                        "docs": "Render the empty subplot structure."
+                      },
+                      {
+                        "value": "auto",
+                        "docs": "Use the runtime default empty-cell policy."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Rendering policy for empty facet cells."
+              },
+              "order": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "asc",
+                        "docs": "Ascending order."
+                      },
+                      {
+                        "value": "desc",
+                        "docs": "Descending order."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "Facet slot ordering direction."
+              },
+              "order_by": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression used to order facet slots."
+              },
+              "position": {
+                "shape": {
+                  "shape": "identifier"
+                },
+                "required": false,
+                "docs": "Facet guide position."
+              },
+              "responsive_columns": {
+                "shape": {
+                  "shape": "sql_expression"
+                },
+                "required": false,
+                "docs": "Expression yielding the target minimum leaf width in pixels."
+              },
+              "slots": {
+                "shape": {
+                  "shape": "coordination_scope"
+                },
+                "required": false,
+                "docs": "Facet slot sharing scope: free, shared, or level(n)."
+              },
+              "title": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Facet guide title; an empty title hides it."
+              },
+              "visible": {
+                "shape": {
+                  "shape": "boolean"
+                },
+                "required": false,
+                "docs": "Whether the facet guide is visible."
+              }
+            }
+          },
+          "required": true,
+          "docs": "Wrapped facet expression and configuration."
+        }
+      },
+      "channels": {},
+      "parts": {},
+      "exports": {},
+      "outputs": {},
+      "compatible_coordinates": [],
+      "body_mode": "mixed",
+      "stateless": false,
+      "child_rules": [
+        {
+          "role": "cell",
+          "min": 1,
+          "max": 1,
+          "docs": "The child plot instantiated for every wrapped facet cell."
+        }
+      ]
+    },
+    {
+      "key": {
+        "namespace": "coordinate",
         "kind": "geo"
       },
       "docs": "A geographic map projection with an optional authored viewport.",
