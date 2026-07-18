@@ -1,0 +1,11 @@
+avenger 1;
+
+chart repeat_wrap as repeat {
+  data: { values: [{ mpg: 21.0; horsepower: 110.0; }]; }
+  variable item as mpg { expr: "mpg"; title: 'MPG'; }
+  variable item as horsepower { expr: "horsepower"; title: 'Horsepower'; }
+  columns: 2;
+  cell cartesian {
+    mark symbol { x: repeat.item; y: repeat.item; }
+  }
+}

@@ -611,6 +611,40 @@ async fn native_surface_positioned_subplot_marks_embed_mixed_coordinate_plots() 
 }
 
 #[tokio::test]
+async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
+    let root = fixture("09_native_coordinate_families");
+    let project = Compiler::builder()
+        .project_root(&root)
+        .build()
+        .unwrap()
+        .compile_project(&root)
+        .await
+        .unwrap();
+    assert_eq!(project.charts.len(), 8);
+    for chart in [
+        "polar", "parallel", "geo", "treemap", "concat", "repeat", "facet", "subplot",
+    ] {
+        assert!(project.chart(chart).is_some(), "missing {chart} fixture");
+    }
+    for (chart, expected) in [
+        ("polar", "CompiledPolarSymbol"),
+        ("parallel", "CompiledParallelLine"),
+        ("geo", "CompiledGeoSymbol"),
+        ("treemap", "CompiledTreeRect"),
+        ("concat", "HConcat"),
+        ("repeat", "WrapConcat"),
+        ("facet", "FacetWrap"),
+        ("subplot", "CompiledPositionedSubplot"),
+    ] {
+        let json = serde_json::to_string(project.chart(chart).unwrap().compiled_plot()).unwrap();
+        assert!(
+            json.contains(expected),
+            "{chart}: missing {expected}: {json}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_registry() {
     let source = r#"avenger 1;
         chart cartesian as chart {

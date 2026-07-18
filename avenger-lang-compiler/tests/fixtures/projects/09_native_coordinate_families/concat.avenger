@@ -1,0 +1,12 @@
+avenger 1;
+
+chart hconcat as concat {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  spacing: 12;
+  cell cartesian as left {
+    mark symbol { x: "x"; y: "y"; }
+  }
+  cell polar as right {
+    mark symbol { theta: "x"; r: "y"; }
+  }
+}

@@ -1,0 +1,11 @@
+avenger 1;
+
+chart geo as geo {
+  projection: mercator;
+  center_lon_lat: [-73.9857, 40.7484];
+  zoom: 10;
+  mark symbol as station {
+    lon_lat: [-73.9857, 40.7484];
+    size: value 64.0;
+  }
+}

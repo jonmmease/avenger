@@ -1,0 +1,14 @@
+avenger 1;
+
+chart facet_wrap as facet {
+  data: {
+    values: [
+      { region: 'east'; category: 'a'; value: 2.0; },
+      { region: 'west'; category: 'b'; value: 3.0; }
+    ];
+  }
+  facet: "region" { slots: shared; }
+  cell cartesian {
+    mark rect { x: "category"; y: "value"; }
+  }
+}

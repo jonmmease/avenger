@@ -1,0 +1,17 @@
+avenger 1;
+
+chart cartesian as subplot {
+  data: {
+    values: [{ x: 1.0; y: 2.0; r: 3.0; theta: 0.5; category: 'a'; }];
+  }
+  mark subplot as inset {
+    x: avg("x");
+    y: avg("y");
+    key: "category";
+    width: 120;
+    height: 90;
+    plot polar {
+      mark symbol { r: "r"; theta: "theta"; }
+    }
+  }
+}
