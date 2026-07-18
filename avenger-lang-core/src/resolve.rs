@@ -4464,6 +4464,16 @@ impl<'a> Resolver<'a> {
             .and_then(|schema| schema.channels.get(name))
     }
 
+    fn definition_slot_schema(&self, target: &ResolvedTarget) -> Option<&DefinitionSlot> {
+        let ResolvedTarget::DefinitionSlot { definition, name } = target else {
+            return None;
+        };
+        self.definitions
+            .values()
+            .find(|schema| &schema.declaration == definition)
+            .and_then(|schema| schema.slots.get(name))
+    }
+
     fn visible_definition_channel_property(
         &self,
         scope: ScopeId,
@@ -4662,7 +4672,16 @@ impl<'a> Resolver<'a> {
         kind: RefKind,
         span: SourceSpan,
     ) -> Option<ResolvedTarget> {
-        let target = if kind == RefKind::Selection && path.len() == 1 {
+        let definition_argument = path.first().filter(|_| path.len() == 1).and_then(|name| {
+            let target = self.visible_definition_argument(scope, name)?;
+            let slot = self.definition_slot_schema(&target)?;
+            (slot.shape == "ref"
+                && slot.reference_kind.as_deref().and_then(definition_ref_kind) == Some(kind))
+            .then_some(target)
+        });
+        let target = if definition_argument.is_some() {
+            definition_argument
+        } else if kind == RefKind::Selection && path.len() == 1 {
             let name = path.first()?;
             let mut cursor = Some(scope);
             let mut found = None;
@@ -5880,6 +5899,11 @@ impl<'a> Resolver<'a> {
                 kind: DefinitionExportKind::Mark,
                 ..
             } => true,
+            target @ ResolvedTarget::DefinitionSlot { .. } => {
+                self.definition_slot_schema(target).is_some_and(|slot| {
+                    slot.shape == "ref" && slot.reference_kind.as_deref() == Some("mark")
+                })
+            }
             ResolvedTarget::Part { declaration, alias } => self
                 .instances
                 .get(declaration)
@@ -7396,6 +7420,7 @@ fn reference_kind_matches(target: &ResolvedTarget, kind: RefKind) -> bool {
                 }
             )
             | (RefKind::Resource, ResolvedTarget::Declaration(_))
+            | (_, ResolvedTarget::DefinitionSlot { .. })
     )
 }
 

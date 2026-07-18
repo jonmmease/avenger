@@ -198,6 +198,10 @@ impl PropertyMap {
         Ok(())
     }
 
+    pub(crate) fn set(&mut self, name: Name, value: Value) {
+        self.0.insert(name, value);
+    }
+
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.0.iter().find_map(|(key, value)| {
             if key.as_str() == name {

@@ -10,6 +10,7 @@
 pub mod ast;
 mod capabilities;
 mod diagnostic;
+mod expand;
 pub mod interchange;
 mod loader;
 mod physical_type;
@@ -28,6 +29,9 @@ pub use capabilities::{
 pub use diagnostic::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, ExpansionOrImportFrame, SourceLabel,
     render_diagnostics, sort_diagnostics,
+};
+pub use expand::{
+    ExpandedProject, ExpansionFailure, ExpansionMapping, ExpansionSourceMap, expand_project,
 };
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,
