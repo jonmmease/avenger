@@ -8,6 +8,13 @@ A two-dimensional Cartesian coordinate system.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 | `unit_aspect` | property | false | Optional positive ratio between x and y data units. |
 
 ## `Coordinate.facet`
@@ -17,7 +24,14 @@ A row facet, optionally containing a nested column facet for a two-dimensional g
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `column` | property | false | Optional nested column facet expression and configuration. |
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `row` | property | true | Required outer row facet expression and configuration. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.facet_column`
 
@@ -26,6 +40,13 @@ A one-dimensional column facet container.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `column` | property | true | Column facet expression and configuration. |
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.facet_wrap`
 
@@ -33,7 +54,14 @@ A wrapped one-dimensional facet whose physical columns may be fixed or responsiv
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
 | `facet` | property | true | Wrapped facet expression and configuration. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.geo`
 
@@ -42,9 +70,16 @@ A geographic map projection with an optional authored viewport.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `center_lon_lat` | property | false | Viewport center as `[longitude, latitude]` in degrees. |
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `precision` | property | false | Adaptive projection resampling precision in pixels; zero disables it. |
 | `projection` | property | false | Map projection; defaults to Equal Earth. |
 | `rotate` | property | false | Three-axis spherical rotation in degrees. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 | `viewport_id` | property | false | Runtime viewport state id prefix. |
 | `zoom` | property | false | Initial slippy-style zoom level. |
 
@@ -57,9 +92,16 @@ An explicitly placed two-dimensional grid of child plot cells.
 | `axis_guide_visibility` | property | false | Axis label and title compaction policy across grid cells. |
 | `column_widths` | property | false | Per-column plot-area track sizing. |
 | `columns` | property | true | Positive number of grid columns. |
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `row_heights` | property | false | Per-row plot-area track sizing. |
 | `rows` | property | true | Positive number of grid rows. |
 | `spacing` | property | false | Minimum gap between adjacent plot areas. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.hconcat`
 
@@ -67,7 +109,14 @@ A horizontal ordered concatenation of child plot cells.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `spacing` | property | false | Minimum gap between adjacent plot areas. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 | `widths` | property | false | Per-cell horizontal plot-area track sizing. |
 
 ## `Coordinate.parallel`
@@ -76,11 +125,28 @@ A wide-form parallel-coordinate frame with user-named dimensions.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `order` | property | false | Static left-to-right dimension order; undeclared dimensions follow declaration order. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.polar`
 
 A radial and angular two-dimensional coordinate system.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.repeat_columns`
 
@@ -88,7 +154,14 @@ A repeat_columns container instantiated from ordered repeat variables.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
 | `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.repeat_grid`
 
@@ -97,7 +170,14 @@ A repeat_grid container instantiated from ordered repeat variables.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `axis_guide_visibility` | property | false | Axis label and title compaction across repeat-grid cells. |
+| `data` | property | false | Chart-level data source. |
 | `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.repeat_rows`
 
@@ -105,7 +185,14 @@ A repeat_rows container instantiated from ordered repeat variables.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
 | `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.repeat_wrap`
 
@@ -114,8 +201,15 @@ A repeat_wrap container instantiated from ordered repeat variables.
 | Name | Role | Required | Description |
 |---|---|---:|---|
 | `columns` | property | false | Expression yielding the fixed number of physical columns. |
+| `data` | property | false | Chart-level data source. |
 | `domain_coordination` | property | false | Domain coordination policy for repeated cells. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `responsive_columns` | property | false | Expression yielding the target minimum repeated-cell width in pixels. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.treemap`
 
@@ -123,9 +217,16 @@ A hierarchical treemap layout coordinate system.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
 | `display_levels` | property | false | Maximum number of hierarchy levels displayed below the current root. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `path` | property | true | Ordered hierarchy-level expressions from root to leaf. |
 | `root_path_id` | property | false | Initial visible hierarchy root path id. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 | `value` | property | true | Non-negative leaf weight expression used for area allocation. |
 
 ## `Coordinate.vconcat`
@@ -134,8 +235,15 @@ A vertical ordered concatenation of child plot cells.
 
 | Name | Role | Required | Description |
 |---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
 | `heights` | property | false | Per-cell vertical plot-area track sizing. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `spacing` | property | false | Minimum gap between adjacent plot areas. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.wrap_concat`
 
@@ -145,12 +253,29 @@ A row-major wrapping concatenation of child plot cells.
 |---|---|---:|---|
 | `axis_guide_visibility` | property | false | Axis label and title compaction policy across wrapped cells. |
 | `columns` | property | false | Expression yielding the fixed number of columns. |
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
 | `responsive_columns` | property | false | Expression yielding the target minimum cell width in pixels. |
 | `spacing` | property | false | Minimum gap between adjacent plot areas. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Coordinate.zerod`
 
 A zero-dimensional coordinate system that places marks at the plot center.
+
+| Name | Role | Required | Description |
+|---|---|---:|---|
+| `data` | property | false | Chart-level data source. |
+| `format` | property | false | Chart formatting defaults. |
+| `guide` | property | false | Coordinate-independent guide styling. |
+| `layout` | property | false | Chart canvas, plot-area, and margin layout. |
+| `subtitle` | property | false | Chart subtitle expression. |
+| `time` | property | false | Chart temporal defaults. |
+| `title` | property | false | Chart title expression. |
 
 ## `Mark.cartesian.area`
 

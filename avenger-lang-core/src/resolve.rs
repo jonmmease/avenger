@@ -6591,7 +6591,10 @@ fn ordinary_plot_child(child: &str) -> bool {
 fn core_property(declaration: &Decl, property: &str) -> bool {
     match declaration.keyword.as_str() {
         "chart" | "plot" => {
-            matches!(property, "data" | "title" | "subtitle" | "layout" | "theme")
+            matches!(
+                property,
+                "data" | "title" | "subtitle" | "layout" | "theme" | "time" | "format" | "guide"
+            )
         }
         "cell" => matches!(property, "at" | "data" | "label" | "when"),
         "view" => property == "data",

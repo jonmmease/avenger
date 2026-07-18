@@ -162,6 +162,88 @@ impl PropertySchema {
     }
 }
 
+/// Coordinate-independent chart properties installed into every coordinate
+/// authoring schema. Keeping this vocabulary in the schema crate lets native
+/// and downstream coordinate packs share one documented chart surface.
+pub fn chart_core_properties() -> BTreeMap<String, PropertySchema> {
+    let time = BTreeMap::from([
+        (
+            "timezone".to_string(),
+            PropertySchema::optional(ValueShape::String, "IANA timezone identifier."),
+        ),
+        (
+            "week_start".to_string(),
+            PropertySchema::optional(
+                ValueShape::Atom {
+                    values: [
+                        "sunday",
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday",
+                        "saturday",
+                    ]
+                    .into_iter()
+                    .map(|value| EnumValueSchema {
+                        value: value.to_string(),
+                        docs: format!("Use {value} as the first day of the week."),
+                    })
+                    .collect(),
+                },
+                "First day used by weekly temporal operations.",
+            ),
+        ),
+    ]);
+    let format = BTreeMap::from([
+        (
+            "number_locale".to_string(),
+            PropertySchema::optional(ValueShape::String, "Default number-format locale."),
+        ),
+        (
+            "datetime_locale".to_string(),
+            PropertySchema::optional(ValueShape::String, "Default date/time-format locale."),
+        ),
+        (
+            "datetime_timezone".to_string(),
+            PropertySchema::optional(ValueShape::String, "Default date/time display timezone."),
+        ),
+    ]);
+    BTreeMap::from([
+        (
+            "data".to_string(),
+            PropertySchema::optional(ValueShape::Any, "Chart-level data source."),
+        ),
+        (
+            "title".to_string(),
+            PropertySchema::optional(ValueShape::SqlExpression, "Chart title expression."),
+        ),
+        (
+            "subtitle".to_string(),
+            PropertySchema::optional(ValueShape::SqlExpression, "Chart subtitle expression."),
+        ),
+        (
+            "layout".to_string(),
+            PropertySchema::optional(
+                ValueShape::Any,
+                "Chart canvas, plot-area, and margin layout.",
+            ),
+        ),
+        (
+            "guide".to_string(),
+            PropertySchema::optional(ValueShape::Any, "Coordinate-independent guide styling."),
+        ),
+        (
+            "time".to_string(),
+            PropertySchema::optional(ValueShape::Object(time), "Chart temporal defaults."),
+        ),
+        (
+            "format".to_string(),
+            PropertySchema::optional(ValueShape::Object(format), "Chart formatting defaults."),
+        ),
+    ])
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChannelSchema {
     pub name: String,

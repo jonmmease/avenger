@@ -12,6 +12,126 @@
       },
       "docs": "A two-dimensional Cartesian coordinate system.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
+        },
         "unit_aspect": {
           "shape": {
             "shape": "number"
@@ -149,6 +269,57 @@
           "required": false,
           "docs": "Optional nested column facet expression and configuration."
         },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "row": {
           "shape": {
             "shape": "configured_expression",
@@ -261,6 +432,75 @@
           },
           "required": true,
           "docs": "Required outer row facet expression and configuration."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -398,6 +638,126 @@
           },
           "required": true,
           "docs": "Column facet expression and configuration."
+        },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -423,6 +783,13 @@
       },
       "docs": "A wrapped one-dimensional facet whose physical columns may be fixed or responsive.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
         "facet": {
           "shape": {
             "shape": "configured_expression",
@@ -549,6 +916,119 @@
           },
           "required": true,
           "docs": "Wrapped facet expression and configuration."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -583,6 +1063,57 @@
           },
           "required": false,
           "docs": "Viewport center as `[longitude, latitude]` in degrees."
+        },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
         },
         "precision": {
           "shape": {
@@ -686,6 +1217,75 @@
           "required": false,
           "docs": "Three-axis spherical rotation in degrees."
         },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
+        },
         "viewport_id": {
           "shape": {
             "shape": "string"
@@ -761,6 +1361,57 @@
           "required": true,
           "docs": "Positive number of grid columns."
         },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "row_heights": {
           "shape": {
             "shape": "array",
@@ -784,6 +1435,75 @@
           },
           "required": false,
           "docs": "Minimum gap between adjacent plot areas."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -808,12 +1528,132 @@
       },
       "docs": "A horizontal ordered concatenation of child plot cells.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "spacing": {
           "shape": {
             "shape": "number"
           },
           "required": false,
           "docs": "Minimum gap between adjacent plot areas."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         },
         "widths": {
           "shape": {
@@ -848,6 +1688,57 @@
       },
       "docs": "A wide-form parallel-coordinate frame with user-named dimensions.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "order": {
           "shape": {
             "shape": "array",
@@ -857,6 +1748,75 @@
           },
           "required": false,
           "docs": "Static left-to-right dimension order; undeclared dimensions follow declaration order."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -880,7 +1840,128 @@
         "kind": "polar"
       },
       "docs": "A radial and angular two-dimensional coordinate system.",
-      "properties": {},
+      "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
+        }
+      },
       "channels": {},
       "parts": {},
       "exports": {},
@@ -897,6 +1978,13 @@
       },
       "docs": "A repeat_columns container instantiated from ordered repeat variables.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
         "domain_coordination": {
           "shape": {
             "shape": "atom",
@@ -915,6 +2003,119 @@
           },
           "required": false,
           "docs": "Domain coordination policy for repeated cells."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -971,6 +2172,13 @@
           "required": false,
           "docs": "Axis label and title compaction across repeat-grid cells."
         },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
         "domain_coordination": {
           "shape": {
             "shape": "atom",
@@ -989,6 +2197,119 @@
           },
           "required": false,
           "docs": "Domain coordination policy for repeated cells."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -1018,6 +2339,13 @@
       },
       "docs": "A repeat_rows container instantiated from ordered repeat variables.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
         "domain_coordination": {
           "shape": {
             "shape": "atom",
@@ -1036,6 +2364,119 @@
           },
           "required": false,
           "docs": "Domain coordination policy for repeated cells."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -1072,6 +2513,13 @@
           "required": false,
           "docs": "Expression yielding the fixed number of physical columns."
         },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
         "domain_coordination": {
           "shape": {
             "shape": "atom",
@@ -1091,12 +2539,125 @@
           "required": false,
           "docs": "Domain coordination policy for repeated cells."
         },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "responsive_columns": {
           "shape": {
             "shape": "sql_expression"
           },
           "required": false,
           "docs": "Expression yielding the target minimum repeated-cell width in pixels."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -1126,12 +2687,63 @@
       },
       "docs": "A hierarchical treemap layout coordinate system.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
         "display_levels": {
           "shape": {
             "shape": "integer"
           },
           "required": false,
           "docs": "Maximum number of hierarchy levels displayed below the current root."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
         },
         "path": {
           "shape": {
@@ -1149,6 +2761,75 @@
           },
           "required": false,
           "docs": "Initial visible hierarchy root path id."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         },
         "value": {
           "shape": {
@@ -1174,6 +2855,50 @@
       },
       "docs": "A vertical ordered concatenation of child plot cells.",
       "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
         "heights": {
           "shape": {
             "shape": "array",
@@ -1184,12 +2909,88 @@
           "required": false,
           "docs": "Per-cell vertical plot-area track sizing."
         },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "spacing": {
           "shape": {
             "shape": "number"
           },
           "required": false,
           "docs": "Minimum gap between adjacent plot areas."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -1248,6 +3049,57 @@
           "required": false,
           "docs": "Expression yielding the fixed number of columns."
         },
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
         "responsive_columns": {
           "shape": {
             "shape": "sql_expression"
@@ -1261,6 +3113,75 @@
           },
           "required": false,
           "docs": "Minimum gap between adjacent plot areas."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
         }
       },
       "channels": {},
@@ -1284,7 +3205,128 @@
         "kind": "zerod"
       },
       "docs": "A zero-dimensional coordinate system that places marks at the plot center.",
-      "properties": {},
+      "properties": {
+        "data": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart-level data source."
+        },
+        "format": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "datetime_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time-format locale."
+              },
+              "datetime_timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default date/time display timezone."
+              },
+              "number_locale": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "Default number-format locale."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart formatting defaults."
+        },
+        "guide": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Coordinate-independent guide styling."
+        },
+        "layout": {
+          "shape": {
+            "shape": "any"
+          },
+          "required": false,
+          "docs": "Chart canvas, plot-area, and margin layout."
+        },
+        "subtitle": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart subtitle expression."
+        },
+        "time": {
+          "shape": {
+            "shape": "object",
+            "detail": {
+              "timezone": {
+                "shape": {
+                  "shape": "string"
+                },
+                "required": false,
+                "docs": "IANA timezone identifier."
+              },
+              "week_start": {
+                "shape": {
+                  "shape": "atom",
+                  "detail": {
+                    "values": [
+                      {
+                        "value": "sunday",
+                        "docs": "Use sunday as the first day of the week."
+                      },
+                      {
+                        "value": "monday",
+                        "docs": "Use monday as the first day of the week."
+                      },
+                      {
+                        "value": "tuesday",
+                        "docs": "Use tuesday as the first day of the week."
+                      },
+                      {
+                        "value": "wednesday",
+                        "docs": "Use wednesday as the first day of the week."
+                      },
+                      {
+                        "value": "thursday",
+                        "docs": "Use thursday as the first day of the week."
+                      },
+                      {
+                        "value": "friday",
+                        "docs": "Use friday as the first day of the week."
+                      },
+                      {
+                        "value": "saturday",
+                        "docs": "Use saturday as the first day of the week."
+                      }
+                    ]
+                  }
+                },
+                "required": false,
+                "docs": "First day used by weekly temporal operations."
+              }
+            }
+          },
+          "required": false,
+          "docs": "Chart temporal defaults."
+        },
+        "title": {
+          "shape": {
+            "shape": "sql_expression"
+          },
+          "required": false,
+          "docs": "Chart title expression."
+        }
+      },
       "channels": {},
       "parts": {},
       "exports": {},

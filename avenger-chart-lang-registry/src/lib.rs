@@ -90,6 +90,9 @@ pub struct ResolvedRootFurnishings {
     pub title: Option<Expr>,
     pub subtitle: Option<Expr>,
     pub layout: Option<LayoutSpec>,
+    pub theme: Option<avenger_chart_core::Theme>,
+    pub time_context: avenger_chart_core::TimeContext,
+    pub formatting_context: avenger_chart_core::FormattingContext,
     pub params: Vec<(Param, CoordinationScope)>,
     pub selections: Vec<Selection>,
     pub stores: Vec<Store>,
@@ -239,9 +242,12 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
 
     pub fn new(
         kind: impl Into<String>,
-        schema: KindSchema,
+        mut schema: KindSchema,
         lowerer: impl Fn(&ResolvedDeclaration) -> Result<C, RegistryError> + Send + Sync + 'static,
     ) -> Self {
+        for (name, property) in avenger_chart_schema::chart_core_properties() {
+            schema.properties.entry(name).or_insert(property);
+        }
         Self {
             kind: kind.into(),
             schema,
@@ -595,6 +601,12 @@ impl<C: CoordinateSystem> ErasedCoordinatePack for CoordinatePack<C> {
         if let Some(layout) = &plot.furnishings.layout {
             chart = chart.layout_spec(layout.clone());
         }
+        if let Some(theme) = &plot.furnishings.theme {
+            chart = chart.theme(theme.clone());
+        }
+        chart = chart
+            .time_context(plot.furnishings.time_context.clone())
+            .formatting_context(plot.furnishings.formatting_context.clone());
         for (param, sharing) in &plot.furnishings.params {
             chart = chart.param_with_sharing(param.clone(), *sharing);
         }

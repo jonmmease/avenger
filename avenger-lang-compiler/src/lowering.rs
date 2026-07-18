@@ -23,9 +23,9 @@ use avenger_chart::{
     },
 };
 use avenger_chart_core::{
-    DataTransformExecutionContext, DataTransformStage, Param as ChartParam, PatternAnchor,
-    PatternChannelValue, PatternFill, PatternInk, PatternLayer, PatternLayerOperation, StripeDash,
-    StripePatternLayer, TimeContext,
+    DataTransformExecutionContext, DataTransformStage, FormattingContext, Param as ChartParam,
+    PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
+    PatternLayerOperation, StripeDash, StripePatternLayer, Theme, TimeContext, WeekStart,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
@@ -463,6 +463,36 @@ impl<'a> ProjectLowerer<'a> {
         if let Some(value) = chart.properties.get("layout") {
             plot.furnishings.layout = Some(self.lower_layout(value, data.as_ref(), chart)?);
         }
+        if let Some(value) = chart.properties.get("time") {
+            plot.furnishings.time_context = self.lower_time_context(value, chart)?;
+        }
+        if let Some(value) = chart.properties.get("format") {
+            plot.furnishings.formatting_context = self.lower_formatting_context(value, chart)?;
+        }
+        let mut theme = None;
+        for declaration in chart
+            .children
+            .iter()
+            .filter(|child| child.keyword == "theme")
+        {
+            let Some(ResolvedValue::String(css)) = declaration.properties.get("css") else {
+                return Err(lowerer_error(
+                    declaration,
+                    "theme css from requires project resource loading, which is not available in this lowering context",
+                ));
+            };
+            match &mut theme {
+                None => {
+                    theme = Some(Theme::from_css(css).map_err(|error| {
+                        lowerer_error(declaration, format!("invalid theme CSS: {error}"))
+                    })?);
+                }
+                Some(theme) => theme.append_css(css).map_err(|error| {
+                    lowerer_error(declaration, format!("invalid theme CSS: {error}"))
+                })?,
+            }
+        }
+        plot.furnishings.theme = theme;
 
         for (id, param) in &self.project.params {
             if param.table_owner.is_none()
@@ -497,6 +527,66 @@ impl<'a> ProjectLowerer<'a> {
             plot.marks.push(ResolvedMark::Group(Box::new(root_group)));
         }
         Ok(plot)
+    }
+
+    fn lower_time_context(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<TimeContext, Diagnostic> {
+        let ResolvedValue::Object { properties, .. } = value else {
+            return Err(lowerer_error(declaration, "time must be a property block"));
+        };
+        let mut context = TimeContext::new();
+        if let Some(value) = properties.get("timezone").and_then(resolved_string) {
+            context = context.timezone(value);
+        }
+        if let Some(value) = properties.get("week_start").and_then(resolved_atom) {
+            let week_start = match value {
+                "sunday" => WeekStart::Sunday,
+                "monday" => WeekStart::Monday,
+                "tuesday" => WeekStart::Tuesday,
+                "wednesday" => WeekStart::Wednesday,
+                "thursday" => WeekStart::Thursday,
+                "friday" => WeekStart::Friday,
+                "saturday" => WeekStart::Saturday,
+                other => {
+                    return Err(lowerer_error(
+                        declaration,
+                        format!("unsupported week_start `{other}`"),
+                    ));
+                }
+            };
+            context = context.week_start(week_start);
+        }
+        Ok(context)
+    }
+
+    fn lower_formatting_context(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<FormattingContext, Diagnostic> {
+        let ResolvedValue::Object { properties, .. } = value else {
+            return Err(lowerer_error(
+                declaration,
+                "format must be a property block",
+            ));
+        };
+        let mut context = FormattingContext::new();
+        if let Some(value) = properties.get("number_locale").and_then(resolved_string) {
+            context = context.number_locale(value);
+        }
+        if let Some(value) = properties.get("datetime_locale").and_then(resolved_string) {
+            context = context.datetime_locale(value);
+        }
+        if let Some(value) = properties
+            .get("datetime_timezone")
+            .and_then(resolved_string)
+        {
+            context = context.datetime_timezone(value);
+        }
+        Ok(context)
     }
 
     fn lower_container<'b>(
@@ -637,7 +727,7 @@ impl<'a> ProjectLowerer<'a> {
                             placement,
                         });
                     }
-                    "param" | "store" | "selection" | "on" => {}
+                    "param" | "store" | "selection" | "on" | "theme" | "resource" => {}
                     other => {
                         let coordinate_key = NativeKindKey::new(
                             NativeKindNamespace::Coordinate,
@@ -2547,7 +2637,7 @@ fn is_core_property(keyword: &str, name: &str) -> bool {
         (keyword, name),
         (
             "chart" | "plot",
-            "data" | "title" | "subtitle" | "layout" | "theme"
+            "data" | "title" | "subtitle" | "layout" | "theme" | "time" | "format" | "guide"
         ) | ("cell", "at" | "data" | "label" | "when")
             | ("group", "data" | "component_kind" | "label")
             | ("mark", "data")

@@ -642,6 +642,38 @@ async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_regis
 }
 
 #[tokio::test]
+async fn native_surface_chart_theme_time_and_format_context_lower() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          theme css: 'chart { font-size: 15px; }';
+          theme css: 'mark.symbol { fill-opacity: 0.7; }';
+          time: { timezone: 'America/New_York'; week_start: monday; }
+          format: {
+            number_locale: 'de-DE';
+            datetime_locale: 'fr-FR';
+            datetime_timezone: 'Europe/Paris';
+          }
+          data: { values: [{ x: 1.0; y: 2.0; }]; }
+          mark symbol { x: "x"; y: "y"; }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    let json = serde_json::to_string(artifact.compiled_plot()).unwrap();
+    for expected in [
+        "America/New_York",
+        "de-DE",
+        "fr-FR",
+        "Europe/Paris",
+        "font-size: 15px",
+        "fill-opacity: 0.7",
+    ] {
+        assert!(json.contains(expected), "missing {expected}: {json}");
+    }
+}
+
+#[tokio::test]
 async fn vertical_slice_widget_is_opaque_and_exported_state_drives_the_mark() {
     let root = fixture("03_widget_vertical_slice");
     let artifact = Compiler::builder()
