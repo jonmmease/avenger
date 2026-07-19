@@ -79,6 +79,15 @@ pub(crate) struct LoweredChart {
     pub artifact: CompiledChartArtifact,
 }
 
+pub(crate) struct ChartDatasetAnalysis {
+    pub dataset: DeclarationId,
+    pub declaration_span: SourceSpan,
+    pub stage_span: SourceSpan,
+    pub stage_kind: crate::DatasetStageKind,
+    pub schema: Arc<Schema>,
+    pub columns: Vec<crate::AnalyzedColumn>,
+}
+
 type TransformStageFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<(DataFrame, DataTransformStage), Diagnostic>> + 'a>,
 >;
@@ -104,6 +113,45 @@ pub(crate) async fn lower_project(
             Err(vec![diagnostic])
         }
     }
+}
+
+/// Analyze chart-owned dataflow without lowering marks, tools, layouts, or a
+/// native chart. Native transforms are asked only for their logical planning
+/// contract and must not create physical plans or execute scans.
+pub(crate) async fn analyze_chart_datasets(
+    project: &ResolvedProject,
+    registry: &NativeRegistry,
+    context: &SessionContext,
+    source_loader: &dyn SourceLoader,
+    capabilities: &ImportCapabilities,
+) -> Result<Vec<ChartDatasetAnalysis>, Vec<Diagnostic>> {
+    let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
+    if let Err(mut diagnostic) = lowerer.lower_state() {
+        project
+            .expansion_source_map
+            .remap_diagnostic(&mut diagnostic);
+        return Err(vec![diagnostic]);
+    }
+    let mut analysis = Vec::new();
+    for chart_id in &project.charts {
+        let Some(chart) = find_declaration(project, chart_id) else {
+            continue;
+        };
+        lowerer.active_chart_id = Some(chart.id.clone());
+        lowerer.active_chart_path = chart.public_path.clone().or_else(|| chart.name.clone());
+        if let Err(mut diagnostic) = lowerer
+            .analyze_container_data(chart, None, &mut analysis)
+            .await
+        {
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            return Err(vec![diagnostic]);
+        }
+    }
+    lowerer.active_chart_id = None;
+    lowerer.active_chart_path = None;
+    Ok(analysis)
 }
 
 struct ProjectLowerer<'a> {
@@ -235,6 +283,103 @@ impl<'a> ProjectLowerer<'a> {
                 .insert(id.clone(), self.lower_selection(selection));
         }
         Ok(())
+    }
+
+    fn analyze_container_data<'b>(
+        &'b mut self,
+        container: &'b ResolvedDeclaration,
+        inherited_data: Option<&'b DataFrame>,
+        analysis: &'b mut Vec<ChartDatasetAnalysis>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Diagnostic>> + 'b>> {
+        Box::pin(async move {
+            let explicit_data = match container.properties.get("data") {
+                Some(value) => {
+                    if let Some((planning, _)) = self.store_data_binding(value, container)? {
+                        Some(planning)
+                    } else {
+                        Some(self.lower_data(value, container).await?)
+                    }
+                }
+                None => None,
+            };
+            let mut current_data = explicit_data.as_ref().or(inherited_data).cloned();
+            let has_transforms = container
+                .children
+                .iter()
+                .any(|child| child.keyword == "transform");
+            if (explicit_data.is_some() || has_transforms)
+                && let Some(data) = current_data.as_ref()
+            {
+                analysis.push(chart_analysis_record(
+                    container,
+                    container,
+                    crate::DatasetStageKind::DatasetSource,
+                    data,
+                ));
+            }
+
+            for child in container
+                .children
+                .iter()
+                .filter(|child| child.keyword == "transform")
+            {
+                let input = current_data.as_ref().ok_or_else(|| {
+                    lowerer_error(child, "transform has no inherited or explicit data source")
+                })?;
+                self.analysis_schemas.clear();
+                let (data, _) = self.lower_transform_stage(child, input, None).await?;
+                let recorded = std::mem::take(&mut self.analysis_schemas);
+                if recorded.is_empty() {
+                    analysis.push(chart_analysis_record(
+                        container,
+                        child,
+                        crate::DatasetStageKind::Transform {
+                            native_kind: child.kind.clone().unwrap_or_else(|| "unknown".to_owned()),
+                        },
+                        &data,
+                    ));
+                } else {
+                    for (stage_declaration, stage_span, schema) in recorded {
+                        let stage =
+                            find_declaration(self.project, &stage_declaration).unwrap_or(child);
+                        analysis.push(ChartDatasetAnalysis {
+                            dataset: container.id.clone(),
+                            declaration_span: container.span,
+                            stage_span,
+                            stage_kind: crate::DatasetStageKind::Transform {
+                                native_kind: stage
+                                    .kind
+                                    .clone()
+                                    .unwrap_or_else(|| "unknown".to_owned()),
+                            },
+                            columns: schema
+                                .fields()
+                                .iter()
+                                .map(|field| crate::AnalyzedColumn {
+                                    name: field.name().clone(),
+                                    qualifier: None,
+                                    data_type: field.data_type().clone(),
+                                    nullable: field.is_nullable(),
+                                })
+                                .collect(),
+                            schema,
+                        });
+                    }
+                }
+                current_data = Some(data);
+            }
+
+            for child in container.children.iter().filter(|child| {
+                matches!(
+                    child.keyword.as_str(),
+                    "group" | "view" | "mark" | "cell" | "plot" | "overlay" | "layer"
+                )
+            }) {
+                self.analyze_container_data(child, current_data.as_ref(), analysis)
+                    .await?;
+            }
+            Ok(())
+        })
     }
 
     fn enrich_interface(&self, artifact: &mut CompiledChartArtifact, chart: &ResolvedDeclaration) {
@@ -4617,6 +4762,31 @@ fn repeat_reference_expr(path: &[String]) -> Option<(Expr, Expr)> {
         _ => return None,
     };
     Some((resolved, seed))
+}
+
+fn chart_analysis_record(
+    dataset: &ResolvedDeclaration,
+    stage: &ResolvedDeclaration,
+    stage_kind: crate::DatasetStageKind,
+    data: &DataFrame,
+) -> ChartDatasetAnalysis {
+    ChartDatasetAnalysis {
+        dataset: dataset.id.clone(),
+        declaration_span: dataset.span,
+        stage_span: stage.span,
+        stage_kind,
+        schema: Arc::new(data.schema().as_arrow().clone()),
+        columns: data
+            .schema()
+            .iter()
+            .map(|(qualifier, field)| crate::AnalyzedColumn {
+                name: field.name().clone(),
+                qualifier: qualifier.map(ToString::to_string),
+                data_type: field.data_type().clone(),
+                nullable: field.is_nullable(),
+            })
+            .collect(),
+    }
 }
 
 pub(crate) fn compiled_project_from_lowered(

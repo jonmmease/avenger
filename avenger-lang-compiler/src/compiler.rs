@@ -22,12 +22,15 @@ use datafusion::logical_expr::col;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
-    CompiledChartArtifact, CompiledProject, CompilerOptions, DefaultCompileEnvironmentFactory,
-    DefaultSourceLoader, DependencyFingerprint, LanguageHost, ProjectAnalysis, ProjectChartId,
-    ProjectFingerprint, TableFactoryRegistry,
+    AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
+    CompiledChartArtifact, CompiledProject, CompilerOptions, DatasetLineage, DatasetProvenance,
+    DatasetStageId, DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint,
+    LanguageHost, ProjectAnalysis, ProjectChartId, ProjectDatasetId, ProjectFingerprint,
+    TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
-    lowering::{LoweredProject, compiled_project_from_lowered, lower_project},
+    lowering::{
+        LoweredProject, analyze_chart_datasets, compiled_project_from_lowered, lower_project,
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -228,7 +231,7 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let project = self.resolve_project_graph_attempt(root).await.result?;
-        let (_environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
+        let (environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
         let mut analysis = ProjectAnalysis::empty(
             project.sources.clone(),
             self.options.native_registry.profile_id().clone(),
@@ -236,6 +239,64 @@ impl Compiler {
         );
         analysis.datasets = catalog.datasets;
         analysis.lineage = catalog.lineage;
+        let chart_datasets = analyze_chart_datasets(
+            &project,
+            self.options.native_registry.as_ref(),
+            environment.session_context(),
+            self.options.source_loader.as_ref(),
+            &self.options.import_capabilities,
+        )
+        .await
+        .map_err(|diagnostics| CompileFailure { diagnostics })?;
+        let mut ordinals = BTreeMap::new();
+        let mut previous = BTreeMap::new();
+        for dataset in chart_datasets {
+            let id = ProjectDatasetId::new(format!("chart:{}", dataset.dataset.as_str()));
+            let ordinal = ordinals.entry(dataset.dataset.clone()).or_insert(0_u32);
+            let stage = DatasetStageId::new(id.clone(), *ordinal);
+            *ordinal += 1;
+            let upstream_stages = previous
+                .insert(dataset.dataset.clone(), stage.clone())
+                .into_iter()
+                .collect();
+            analysis
+                .datasets
+                .insert(AnalyzedDataset {
+                    id,
+                    stage: stage.clone(),
+                    provenance: DatasetProvenance {
+                        declaration_span: dataset.declaration_span,
+                        stage_span: dataset.stage_span,
+                        stage_kind: dataset.stage_kind,
+                    },
+                    qualified_name: Some(format!("chart:{}", dataset.dataset.as_str())),
+                    columns: dataset.columns,
+                    schema: dataset.schema,
+                })
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-DATA-070",
+                        "chart dataset analysis indexing failed",
+                        SourceLabel::new(dataset.stage_span, error.to_string()),
+                    )],
+                })?;
+            analysis
+                .lineage
+                .insert(
+                    stage,
+                    DatasetLineage {
+                        upstream_stages,
+                        columns: Vec::new(),
+                    },
+                )
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic::error(
+                        "AVENGER-DATA-070",
+                        "chart dataset lineage indexing failed",
+                        SourceLabel::new(dataset.stage_span, error.to_string()),
+                    )],
+                })?;
+        }
         Ok(analysis)
     }
 

@@ -107,6 +107,12 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
     let tables = analysis
         .datasets
         .iter()
+        .filter(|(_, dataset)| {
+            matches!(
+                dataset.provenance.stage_kind,
+                DatasetStageKind::CatalogTable | DatasetStageKind::SqlView
+            )
+        })
         .map(|(_, dataset)| {
             (
                 dataset.qualified_name.as_deref().unwrap().to_owned(),

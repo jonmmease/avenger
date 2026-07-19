@@ -8,13 +8,15 @@
 use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryBuilder, RegistryError, builtins};
 
 pub use avenger_lang_compiler::{
-    ArtifactCacheKey, COMPILER_PHASE, CatalogFactory, CatalogFactoryRegistry, CompileAttempt,
-    CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
-    CompileEnvironmentRequest, CompileFailure, CompiledChartArtifact, CompiledChartGeneration,
-    CompiledChartInterface, CompiledDependency, CompiledProject, Compiler, CompilerBuildError,
-    CompilerBuilder, CompilerOptions, DatasetLineageIndex, DatasetSchemaIndex, DefaultSourceLoader,
+    AnalyzedColumn, AnalyzedDataset, ArtifactCacheKey, COMPILER_PHASE, CatalogFactory,
+    CatalogFactoryError, CatalogFactoryRegistry, CompileAttempt, CompileEnvironment,
+    CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest, CompileFailure,
+    CompiledChartArtifact, CompiledChartGeneration, CompiledChartInterface, CompiledDependency,
+    CompiledProject, Compiler, CompilerBuildError, CompilerBuilder, CompilerOptions,
+    DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DefaultSourceLoader,
     DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis,
-    ProjectChartId, ProjectDatasetId, ProjectFingerprint, SourceLoaderLimits,
+    ProjectChartId, ProjectDatasetId, ProjectFingerprint, SourceLoaderLimits, TableFactory,
+    TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{
     AmbientDataDeclaration, ByteSpan, ContentVersion, DataCapabilities, DefinitionKind, Diagnostic,
