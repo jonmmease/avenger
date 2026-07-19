@@ -117,9 +117,6 @@ impl CompiledDataTransform for CompiledPipelineTransform {
             .map(|field| field.name().clone())
             .collect::<Vec<_>>();
         let result = apply_compiled_data_transforms(dataframe, &self.stages, ctx).await?;
-        if self.outputs.is_empty() {
-            return Ok(result);
-        }
         let output_names = self
             .outputs
             .iter()
@@ -422,7 +419,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn output_free_pipeline_preserves_the_final_child_relation() {
+    async fn output_free_pipeline_retains_only_surviving_input_columns() {
         let ctx = SessionContext::new();
         let (compiled, _) = Pipeline::new()
             .transform(
@@ -447,7 +444,7 @@ mod tests {
                 .dataframe
                 .schema()
                 .field_with_name(None, "doubled")
-                .is_ok()
+                .is_err()
         );
     }
 

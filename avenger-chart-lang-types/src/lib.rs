@@ -254,7 +254,7 @@ pub type TransformLowerer = fn(
 pub type TransformPipelineLowerer = fn(
     &ResolvedDeclaration,
     Vec<DataTransformStage>,
-    BTreeMap<String, Expr>,
+    IndexMap<String, Expr>,
     DataTransformCompileContext,
 ) -> Result<LoweredTransform, NativeLoweringError>;
 pub type WidgetLowerer = fn(&ResolvedDeclaration) -> Result<WidgetAttachment, NativeLoweringError>;

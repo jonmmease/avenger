@@ -1,0 +1,24 @@
+avenger 1;
+
+define transform summarize {
+  slot expr as measure;
+  output doubled;
+  output adjusted;
+
+  transform sql as calculate {
+    query:
+      SELECT *,
+        measure * 2.0 AS __summarize_doubled,
+        measure * 3.0 AS __summarize_tripled
+      FROM input;
+  }
+
+  transform sql as finalize {
+    query:
+      SELECT *,
+        __summarize_doubled AS doubled,
+        __summarize_tripled + 1.0 AS adjusted,
+        99.0 AS __summarize_scratch
+      FROM input;
+  }
+}

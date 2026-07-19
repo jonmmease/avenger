@@ -17,6 +17,7 @@ use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
 };
 use datafusion::{dataframe::DataFrame, logical_expr::Expr, prelude::SessionContext};
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -330,7 +331,7 @@ pub type NativeTransformPipelineLowerer = Arc<
     dyn Fn(
             &ResolvedDeclaration,
             Vec<DataTransformStage>,
-            BTreeMap<String, Expr>,
+            IndexMap<String, Expr>,
             DataTransformCompileContext,
         ) -> Result<LoweredTransform, RegistryError>
         + Send
@@ -1333,7 +1334,7 @@ impl NativeRegistry {
         &self,
         declaration: &ResolvedDeclaration,
         stages: Vec<DataTransformStage>,
-        outputs: BTreeMap<String, Expr>,
+        outputs: IndexMap<String, Expr>,
         context: DataTransformCompileContext,
     ) -> Result<LoweredTransform, RegistryError> {
         let entry =

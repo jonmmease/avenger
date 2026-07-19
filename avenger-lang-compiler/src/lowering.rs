@@ -96,7 +96,12 @@ pub(crate) async fn lower_project(
     let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
     match lowerer.lower().await {
         Ok(project) => Ok(project),
-        Err(diagnostic) => Err(vec![diagnostic]),
+        Err(mut diagnostic) => {
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            Err(vec![diagnostic])
+        }
     }
 }
 
@@ -1562,6 +1567,39 @@ impl<'a> ProjectLowerer<'a> {
         target: &ResolvedTarget,
         declaration: &ResolvedDeclaration,
     ) -> Result<String, Diagnostic> {
+        let chart_path = chart.public_path.as_deref().or(chart.name.as_deref());
+        if let Some(path) = self
+            .project
+            .files
+            .values()
+            .flat_map(|file| file.roots.iter())
+            .flat_map(declarations_depth_first)
+            .filter_map(|owner| {
+                let owner_path = owner.public_path.as_deref()?;
+                owner
+                    .exports
+                    .iter()
+                    .find_map(|(alias, candidate)| (candidate == target).then_some(alias))
+                    .map(|alias| format!("{owner_path}.{alias}"))
+            })
+            .filter(|path| public_path_belongs_to_chart(path, chart_path))
+            .map(|path| relative_public_path(&path, chart_path).to_string())
+            .min()
+        {
+            return Ok(path);
+        }
+        if let Some(path) = self
+            .project
+            .public_targets
+            .iter()
+            .find_map(|(path, candidate)| {
+                (candidate == target && public_path_belongs_to_chart(path, chart_path))
+                    .then(|| relative_public_path(path, chart_path).to_string())
+            })
+        {
+            return Ok(path);
+        }
+
         fn find(
             owner: &ResolvedDeclaration,
             target: &ResolvedTarget,
@@ -2121,7 +2159,7 @@ impl<'a> ProjectLowerer<'a> {
                         child_data = next_data;
                         stages.push(stage);
                     }
-                    let mut outputs = BTreeMap::new();
+                    let mut outputs = IndexMap::new();
                     for output in declaration
                         .children
                         .iter()

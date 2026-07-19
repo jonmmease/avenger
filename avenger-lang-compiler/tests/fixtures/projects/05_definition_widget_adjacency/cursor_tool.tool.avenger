@@ -1,0 +1,9 @@
+avenger 1;
+
+define tool cursor_tool {
+  slot ref as target { kind: mark; }
+  on mark_mouse_enter {
+    target: mark target;
+    set cursor = pointer;
+  }
+}

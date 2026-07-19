@@ -1,0 +1,5 @@
+avenger 1;
+
+define transform pass {
+  transform filter { predicate: true; }
+}

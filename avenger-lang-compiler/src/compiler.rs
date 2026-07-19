@@ -727,11 +727,20 @@ fn map_parsed_project_to_resolution(
         let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
             diagnostics: failure.diagnostics,
         })?;
-        resolve_semantics(&expanded.project, schema)
-            .result
-            .map_err(|failure| CompileFailure {
-                diagnostics: failure.diagnostics,
-            })
+        match resolve_semantics(&expanded.project, schema).result {
+            Ok(mut resolved) => {
+                resolved.expansion_source_map = expanded.source_map;
+                Ok(resolved)
+            }
+            Err(mut failure) => {
+                expanded
+                    .source_map
+                    .remap_diagnostics(&mut failure.diagnostics);
+                Err(CompileFailure {
+                    diagnostics: failure.diagnostics,
+                })
+            }
+        }
     });
     CompileAttempt {
         result,

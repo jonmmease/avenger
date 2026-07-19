@@ -5,7 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    Diagnostic, SourceFile, SourceId, SourceLabel, SourceMap, SourceOrigin, SourceSpan,
+    Diagnostic, ExpansionOrImportFrame, SourceFile, SourceId, SourceLabel, SourceMap, SourceOrigin,
+    SourceSpan,
     ast::{AstNodeRole, Body, Decl, File, Name, PropertyMap, Root, Value, Visibility},
     print::print_file,
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
@@ -24,6 +25,82 @@ pub struct ExpansionMapping {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExpansionSourceMap {
     pub mappings: Vec<ExpansionMapping>,
+}
+
+impl ExpansionSourceMap {
+    /// Re-anchor a diagnostic emitted against canonical expanded source to the
+    /// authored declaration and retain macro-style definition/instance context.
+    pub fn remap_diagnostic(&self, diagnostic: &mut Diagnostic) {
+        let Some(mapping) = self.mapping_for(diagnostic.primary.span) else {
+            return;
+        };
+        diagnostic.primary.span = mapping.authored;
+        for secondary in &mut diagnostic.secondary {
+            if let Some(mapping) = self.mapping_for(secondary.span) {
+                secondary.span = mapping.authored;
+            }
+        }
+        if let Some(definition) = mapping.definition
+            && definition != mapping.authored
+        {
+            push_trace(
+                &mut diagnostic.trace,
+                definition,
+                "expanded from this definition",
+            );
+        }
+        if let Some(instantiation) = mapping.instantiation {
+            push_trace(
+                &mut diagnostic.trace,
+                instantiation,
+                "while expanding this definition instance",
+            );
+        }
+    }
+
+    pub fn remap_diagnostics(&self, diagnostics: &mut [Diagnostic]) {
+        for diagnostic in diagnostics {
+            self.remap_diagnostic(diagnostic);
+        }
+    }
+
+    fn mapping_for(&self, span: SourceSpan) -> Option<&ExpansionMapping> {
+        self.mappings
+            .iter()
+            .filter(|mapping| {
+                mapping.expanded.source == span.source
+                    && mapping.expanded.range.start <= span.range.start
+                    && mapping.expanded.range.end >= span.range.end
+            })
+            .min_by_key(|mapping| {
+                mapping
+                    .expanded
+                    .range
+                    .end
+                    .saturating_sub(mapping.expanded.range.start)
+            })
+            .or_else(|| {
+                self.mappings
+                    .iter()
+                    .filter(|mapping| {
+                        mapping.expanded.source == span.source
+                            && mapping.expanded.range.start <= span.range.start
+                    })
+                    .max_by_key(|mapping| mapping.expanded.range.start)
+            })
+    }
+}
+
+fn push_trace(trace: &mut Vec<ExpansionOrImportFrame>, span: SourceSpan, message: &str) {
+    if !trace
+        .iter()
+        .any(|frame| frame.span == span && frame.message == message)
+    {
+        trace.push(ExpansionOrImportFrame {
+            span,
+            message: message.to_owned(),
+        });
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -51,14 +128,18 @@ struct BoundSlot {
     shape: String,
     value: Value,
     owner: ProjectFileId,
+    exposes: Vec<String>,
 }
 
 #[derive(Clone)]
 struct ExpansionContext {
     caller: ProjectFileId,
     chart: ProjectFileId,
+    definition: ProjectFileId,
     definition_name: String,
     instance_name: String,
+    private_names: BTreeMap<String, String>,
+    exposed_private_names: BTreeMap<String, String>,
     slots: BTreeMap<String, BoundSlot>,
     channels: BTreeMap<String, String>,
     blocks: BTreeMap<String, BoundSlot>,
@@ -249,23 +330,64 @@ impl Expander<'_> {
         if let Some(kind) = declaration.kind.as_ref().map(Name::as_str)
             && let Some(definition) = self.imported_definition(owner, kind)
         {
-            return self.instantiate_definition(owner, declaration, definition, context, origin);
+            return self.instantiate_definition(
+                owner,
+                declaration,
+                path,
+                definition,
+                context,
+                origin,
+            );
         }
 
         let mut substituted = declaration.clone();
-        substituted.props = self.expand_properties(owner, &declaration.props, context);
+        if declaration.keyword.as_str() == "export"
+            && declaration.name.is_none()
+            && let Some(source_alias) = declaration
+                .props
+                .get("source")
+                .and_then(value_path)
+                .and_then(|path| path.last().cloned())
+        {
+            substituted.name = Some(source_alias);
+        }
+        if let Some(context) = context
+            && owner == &context.definition
+            && let Some(source_name) = declaration.name.as_ref().map(Name::as_str)
+            && (binds_private_name(declaration) || declaration.keyword.as_str() == "set")
+            && let Some(private_name) = context.private_names.get(source_name)
+        {
+            substituted.name = Some(name(private_name));
+        }
+        let resolved_properties = self
+            .resolved_declaration(owner, path)
+            .map(|declaration| declaration.properties.clone());
+        substituted.props = self.expand_properties(
+            owner,
+            &declaration.props,
+            context,
+            resolved_properties.as_ref(),
+        );
         self.pending_origins
             .entry(self.chart_owner(owner, context))
             .or_default()
             .push(origin);
+        let expands_private = context.is_some_and(|context| {
+            owner == &context.definition
+                && (declaration.visibility == Visibility::Private
+                    || (declaration.visibility == Visibility::Default
+                        && targetable_declaration(declaration)))
+        });
         let body = self.expand_body(
             owner,
             &PropertyMap::default(),
             &declaration.children,
+            path,
+            None,
+            expands_private,
             context,
         );
         substituted.children = body.children;
-        let _ = path;
         substituted
     }
 
@@ -274,13 +396,17 @@ impl Expander<'_> {
         owner: &ProjectFileId,
         props: &PropertyMap,
         children: &[Decl],
+        parent_path: &[usize],
+        source_indices: Option<&[usize]>,
+        inside_private: bool,
         context: Option<&ExpansionContext>,
     ) -> Body {
         let mut body = Body {
-            props: self.expand_properties(owner, props, context),
+            props: self.expand_properties(owner, props, context, None),
             children: Vec::new(),
         };
         for (index, child) in children.iter().enumerate() {
+            let source_index = source_indices.map_or(index, |indices| indices[index]);
             if child.keyword.as_str() == "match" {
                 let Some(context) = context else {
                     continue;
@@ -297,8 +423,17 @@ impl Expander<'_> {
                     .iter()
                     .find(|arm| arm.name.as_ref().map(Name::as_str) == selected)
                 {
-                    let selected_body =
-                        self.expand_body(owner, &arm.props, &arm.children, Some(context));
+                    let mut arm_path = parent_path.to_vec();
+                    arm_path.push(source_index);
+                    let selected_body = self.expand_body(
+                        owner,
+                        &arm.props,
+                        &arm.children,
+                        &arm_path,
+                        None,
+                        inside_private,
+                        Some(context),
+                    );
                     for (name, value) in selected_body.props.iter() {
                         body.props.set(name.clone(), value.clone());
                     }
@@ -323,30 +458,48 @@ impl Expander<'_> {
                     &block.owner,
                     &supplied.props,
                     &supplied.children,
-                    Some(context),
+                    &[],
+                    None,
+                    inside_private,
+                    Some(&ExpansionContext {
+                        exposed_private_names: block
+                            .exposes
+                            .iter()
+                            .filter_map(|name| {
+                                context
+                                    .private_names
+                                    .get(name)
+                                    .cloned()
+                                    .map(|private| (name.clone(), private))
+                            })
+                            .collect(),
+                        ..context.clone()
+                    }),
                 );
                 for mut supplied in supplied_body.children {
-                    if block.owner == context.caller && supplied.name.is_some() {
+                    if block.owner == context.caller && supplied.name.is_some() && inside_private {
                         supplied.visibility = Visibility::Public;
                     }
                     body.children.push(supplied);
                 }
                 continue;
             }
+            let mut child_path = parent_path.to_vec();
+            child_path.push(source_index);
             let child_origin = context.map_or_else(
                 || PendingOrigin {
-                    authored: self.declaration_span(owner, &[0, index]),
+                    authored: self.declaration_source_span(owner, child),
                     definition: None,
                     instantiation: None,
                 },
                 |context| PendingOrigin {
-                    authored: self.declaration_span(owner, &[0, index]),
+                    authored: self.declaration_source_span(owner, child),
                     definition: Some(context.definition_span),
                     instantiation: Some(context.instantiation_span),
                 },
             );
             let mut expanded =
-                self.expand_declaration(owner, child, &[index], context, child_origin);
+                self.expand_declaration(owner, child, &child_path, context, child_origin);
             if context.is_some()
                 && expanded.name.is_some()
                 && targetable_declaration(&expanded)
@@ -363,6 +516,7 @@ impl Expander<'_> {
         &mut self,
         caller: &ProjectFileId,
         instance: &Decl,
+        instance_path: &[usize],
         definition_id: ProjectFileId,
         outer_context: Option<&ExpansionContext>,
         origin: PendingOrigin,
@@ -379,11 +533,19 @@ impl Expander<'_> {
         let definition_span =
             declaration_span(definition_file, &[0]).unwrap_or_else(|| root_span(definition_file));
         let instantiation_span = origin.authored;
-        let instance_name = instance
+        let source_instance_name = instance
             .name
             .as_ref()
             .map(ToString::to_string)
             .unwrap_or_else(|| format!("anonymous_{}", schema.source_name));
+        let instance_identity = expansion_identity(
+            schema.local_seed.as_str(),
+            caller.as_str(),
+            &stable_expansion_path(self.project.files.get(caller), instance_path),
+            outer_context.map_or("", |context| context.instance_name.as_str()),
+        );
+        let instance_name = format!("{source_instance_name}_{instance_identity}");
+        let private_names = definition_private_names(template, &instance_identity);
         let chart = outer_context
             .map(|context| context.chart.clone())
             .unwrap_or_else(|| caller.clone());
@@ -427,8 +589,11 @@ impl Expander<'_> {
                 let default_context = ExpansionContext {
                     caller: caller.clone(),
                     chart: chart.clone(),
+                    definition: definition_id.clone(),
                     definition_name: schema.source_name.clone(),
                     instance_name: instance_name.clone(),
+                    private_names: private_names.clone(),
+                    exposed_private_names: BTreeMap::new(),
                     slots: slots.clone(),
                     channels: channels.clone(),
                     blocks: blocks.clone(),
@@ -441,6 +606,7 @@ impl Expander<'_> {
                 shape: slot.shape.clone(),
                 value,
                 owner,
+                exposes: slot.exposes.clone(),
             };
             if slot.shape == "block" {
                 blocks.insert(name.clone(), bound.clone());
@@ -450,8 +616,11 @@ impl Expander<'_> {
         let context = ExpansionContext {
             caller: caller.clone(),
             chart,
+            definition: definition_id.clone(),
             definition_name: schema.source_name.clone(),
             instance_name,
+            private_names,
+            exposed_private_names: BTreeMap::new(),
             slots,
             channels,
             blocks,
@@ -510,37 +679,40 @@ impl Expander<'_> {
             }
         }
 
-        let interface = template
+        let ordered_children = template
             .children
             .iter()
-            .filter(|child| matches!(child.keyword.as_str(), "output" | "export"))
-            .cloned()
+            .enumerate()
+            .filter(|child| !matches!(child.1.keyword.as_str(), "slot" | "channel"))
             .collect::<Vec<_>>();
-        let executable = template
-            .children
+        let mut ordered_children = ordered_children;
+        ordered_children
+            .sort_by_key(|(_, child)| !matches!(child.keyword.as_str(), "output" | "export"));
+        let child_indices = ordered_children
             .iter()
-            .filter(|child| {
-                !matches!(
-                    child.keyword.as_str(),
-                    "slot" | "channel" | "output" | "export"
-                )
-            })
-            .cloned()
+            .map(|(index, _)| *index)
+            .collect::<Vec<_>>();
+        let children = ordered_children
+            .into_iter()
+            .map(|(_, child)| child.clone())
             .collect::<Vec<_>>();
         let expanded = self.expand_body(
             &definition_id,
             &PropertyMap::default(),
-            &interface.into_iter().chain(executable).collect::<Vec<_>>(),
+            &children,
+            &[0],
+            Some(&child_indices),
+            false,
             Some(&context),
         );
         wrapper.children = expanded.children;
         let mut expanded_instance = instance.clone();
         for part in &mut expanded_instance.children {
             if part.keyword.as_str() == "part" {
-                part.props = self.expand_properties(caller, &part.props, outer_context);
+                part.props = self.expand_properties(caller, &part.props, outer_context, None);
             }
         }
-        self.apply_part_overrides(&mut wrapper, &expanded_instance, schema);
+        self.apply_part_overrides(&mut wrapper, &expanded_instance, schema, &context);
         wrapper
     }
 
@@ -549,6 +721,7 @@ impl Expander<'_> {
         wrapper: &mut Decl,
         instance: &Decl,
         schema: &DefinitionSchema,
+        context: &ExpansionContext,
     ) {
         for part in instance
             .children
@@ -561,8 +734,19 @@ impl Expander<'_> {
             let Some(target) = schema.parts.get(alias) else {
                 continue;
             };
+            let declaration_path = target
+                .declaration_path
+                .iter()
+                .map(|component| {
+                    context
+                        .private_names
+                        .get(component)
+                        .cloned()
+                        .unwrap_or_else(|| component.clone())
+                })
+                .collect::<Vec<_>>();
             if let Some(declaration) =
-                find_declaration_mut(&mut wrapper.children, &target.declaration_path)
+                find_declaration_mut(&mut wrapper.children, &declaration_path)
             {
                 for (name, value) in part.props.iter() {
                     declaration.props.set(name.clone(), value.clone());
@@ -576,16 +760,42 @@ impl Expander<'_> {
         owner: &ProjectFileId,
         props: &PropertyMap,
         context: Option<&ExpansionContext>,
+        resolved: Option<&BTreeMap<String, crate::resolve::ResolvedValue>>,
     ) -> PropertyMap {
         let mut output = PropertyMap::default();
         for (property, value) in props.iter() {
             let property_name = context
                 .map(|context| rename_channel(property.as_str(), &context.channels))
                 .unwrap_or_else(|| property.to_string());
-            output.set(
-                name(&property_name),
-                self.expand_value(owner, value, context),
-            );
+            let value = if property.as_str() == "source"
+                && let Some(context) = context
+                && owner == &context.definition
+                && matches!(value, Value::Array(_))
+            {
+                rename_path_value(value, &context.private_names)
+            } else if property.as_str() == "target"
+                && let Some(context) = context
+                && matches!(value, Value::Array(_))
+            {
+                rename_path_value(value, context_names_for_owner(owner, context))
+            } else if let Some(context) = context
+                && owner == &context.definition
+                && matches!(value, Value::Atom(_) | Value::Array(_))
+                && resolved
+                    .and_then(|properties| properties.get(property.as_str()))
+                    .is_some_and(|value| {
+                        matches!(
+                            value,
+                            crate::resolve::ResolvedValue::Reference(_)
+                                | crate::resolve::ResolvedValue::Binding(_)
+                        )
+                    })
+            {
+                rename_reference_value(value, &context.private_names)
+            } else {
+                self.expand_value(owner, value, context)
+            };
+            output.set(name(&property_name), value);
         }
         output
     }
@@ -600,7 +810,15 @@ impl Expander<'_> {
             return match value {
                 Value::Block { head, body } => Value::Block {
                     head: head.clone(),
-                    body: self.expand_body(owner, &body.props, &body.children, None),
+                    body: self.expand_body(
+                        owner,
+                        &body.props,
+                        &body.children,
+                        &[],
+                        None,
+                        false,
+                        None,
+                    ),
                 },
                 _ => value.clone(),
             };
@@ -614,11 +832,11 @@ impl Expander<'_> {
                 .unwrap_or_else(|| {
                     Value::Atom(name(&rename_channel(atom.as_str(), &context.channels)))
                 }),
-            Value::Expr(expression) => substitute_sql(expression.canonical_sql(), context)
+            Value::Expr(expression) => substitute_sql(expression.canonical_sql(), owner, context)
                 .and_then(|sql| crate::ast::SqlExpression::parse(&sql))
                 .map(|expression| Value::Expr(Box::new(expression)))
                 .unwrap_or_else(|_| value.clone()),
-            Value::Query(query) => substitute_sql(query.canonical_sql(), context)
+            Value::Query(query) => substitute_sql(query.canonical_sql(), owner, context)
                 .and_then(|sql| crate::ast::SqlQuery::parse(&sql))
                 .map(|query| Value::Query(Box::new(query)))
                 .unwrap_or_else(|_| value.clone()),
@@ -641,11 +859,19 @@ impl Expander<'_> {
                 head: head
                     .as_ref()
                     .map(|head| Box::new(self.expand_value(owner, head, Some(context)))),
-                body: self.expand_body(owner, &body.props, &body.children, Some(context)),
+                body: self.expand_body(
+                    owner,
+                    &body.props,
+                    &body.children,
+                    &[],
+                    None,
+                    false,
+                    Some(context),
+                ),
             },
             Value::Binding { kind, path, time } => Value::Binding {
                 kind: *kind,
-                path: path.clone(),
+                path: rename_path(path, context_names_for_owner(owner, context)),
                 time: *time,
             },
             Value::Ref { kind, path } => {
@@ -660,7 +886,10 @@ impl Expander<'_> {
                         path: bound,
                     }
                 } else {
-                    value.clone()
+                    Value::Ref {
+                        kind: *kind,
+                        path: rename_path(path, context_names_for_owner(owner, context)),
+                    }
                 }
             }
             Value::Visual(value) => {
@@ -699,11 +928,20 @@ impl Expander<'_> {
             .cloned()
     }
 
-    fn declaration_span(&self, owner: &ProjectFileId, path: &[usize]) -> SourceSpan {
+    fn resolved_declaration(
+        &self,
+        owner: &ProjectFileId,
+        path: &[usize],
+    ) -> Option<&crate::resolve::ResolvedDeclaration> {
+        let roots = &self.resolved.files.get(owner)?.roots;
+        resolved_declaration_at(roots, path)
+    }
+
+    fn declaration_source_span(&self, owner: &ProjectFileId, declaration: &Decl) -> SourceSpan {
         self.project
             .files
             .get(owner)
-            .and_then(|file| declaration_span(file, path))
+            .and_then(|file| declaration_node_span(file, declaration))
             .or_else(|| self.project.files.get(owner).map(root_span))
             .unwrap_or_else(|| SourceSpan::empty(SourceId::new(0), 0))
     }
@@ -758,7 +996,11 @@ fn slot_default(template: &Decl, name: &str) -> Option<Value> {
         .cloned()
 }
 
-fn substitute_sql(sql: String, context: &ExpansionContext) -> Result<String, crate::ast::AstError> {
+fn substitute_sql(
+    sql: String,
+    owner: &ProjectFileId,
+    context: &ExpansionContext,
+) -> Result<String, crate::ast::AstError> {
     let mut replacements = BTreeMap::new();
     for (name, slot) in &context.slots {
         if slot.shape == "block" || slot.shape == "ref" {
@@ -766,18 +1008,29 @@ fn substitute_sql(sql: String, context: &ExpansionContext) -> Result<String, cra
         }
         replacements.insert(name.clone(), slot_sql(slot)?);
     }
+    let private_names = context_names_for_owner(owner, context);
     for (logical, physical) in &context.channels {
         replacements.insert(logical.clone(), physical.clone());
         replacements.insert(format!("{logical}2"), format!("{physical}2"));
     }
-    Ok(rewrite_identifiers(&sql, |identifier| {
-        if let Some(value) = replacements.get(identifier) {
+    Ok(rewrite_identifiers(&sql, |identifier, binding| {
+        if binding {
+            return private_names.get(identifier).cloned();
+        }
+        if !binding && let Some(value) = replacements.get(identifier) {
+            return Some(value.clone());
+        }
+        if !binding && let Some(value) = private_names.get(identifier) {
             return Some(value.clone());
         }
         let prefix = format!("__{}_", context.definition_name);
-        identifier
-            .strip_prefix(&prefix)
-            .map(|suffix| format!("__{}_{}", context.instance_name, suffix))
+        (!binding)
+            .then(|| {
+                identifier
+                    .strip_prefix(&prefix)
+                    .map(|suffix| format!("__{}_{}", context.instance_name, suffix))
+            })
+            .flatten()
     }))
 }
 
@@ -802,7 +1055,7 @@ fn slot_sql(slot: &BoundSlot) -> Result<String, crate::ast::AstError> {
 
 fn rewrite_identifiers(
     source: &str,
-    mut replacement: impl FnMut(&str) -> Option<String>,
+    mut replacement: impl FnMut(&str, bool) -> Option<String>,
 ) -> String {
     let chars = source.char_indices().collect::<Vec<_>>();
     let mut output = String::with_capacity(source.len());
@@ -836,7 +1089,7 @@ fn rewrite_identifiers(
             }
             let end = chars.get(index).map_or(source.len(), |(offset, _)| *offset);
             let preceded_by_binding = start > 0 && source.as_bytes()[start - 1] == b'$';
-            if !preceded_by_binding && let Some(value) = replacement(&source[start..end]) {
+            if let Some(value) = replacement(&source[start..end], preceded_by_binding) {
                 output.push_str(&source[cursor..start]);
                 output.push_str(&value);
                 cursor = end;
@@ -901,6 +1154,166 @@ fn targetable_declaration(declaration: &Decl) -> bool {
     )
 }
 
+fn binds_private_name(declaration: &Decl) -> bool {
+    matches!(
+        declaration.keyword.as_str(),
+        "param"
+            | "store"
+            | "selection"
+            | "dimension"
+            | "group"
+            | "overlay"
+            | "mark"
+            | "transform"
+            | "view"
+            | "widget"
+            | "resource"
+            | "variable"
+            | "derive"
+            | "tool"
+            | "on"
+            | "cell"
+            | "plot"
+            | "table"
+    )
+}
+
+fn definition_private_names(template: &Decl, instance_identity: &str) -> BTreeMap<String, String> {
+    let mut names = BTreeSet::new();
+    declaration_preorder(&template.children, &mut |declaration| {
+        if binds_private_name(declaration)
+            && let Some(source_name) = declaration.name.as_ref().map(Name::as_str)
+        {
+            names.insert(source_name.to_owned());
+        }
+        true
+    });
+    names
+        .into_iter()
+        .map(|source_name| {
+            let private = format!("__av_{instance_identity}_{source_name}");
+            (source_name, private)
+        })
+        .collect()
+}
+
+fn rename_path(path: &[Name], private_names: &BTreeMap<String, String>) -> Vec<Name> {
+    path.iter()
+        .map(|component| {
+            private_names
+                .get(component.as_str())
+                .map_or_else(|| component.clone(), |renamed| name(renamed))
+        })
+        .collect()
+}
+
+fn context_names_for_owner<'a>(
+    owner: &ProjectFileId,
+    context: &'a ExpansionContext,
+) -> &'a BTreeMap<String, String> {
+    if owner == &context.definition {
+        &context.private_names
+    } else {
+        &context.exposed_private_names
+    }
+}
+
+fn rename_path_value(value: &Value, private_names: &BTreeMap<String, String>) -> Value {
+    match value {
+        Value::Array(components) => Value::Array(
+            components
+                .iter()
+                .map(|component| match component {
+                    Value::Atom(component) => Value::Atom(
+                        private_names
+                            .get(component.as_str())
+                            .map_or_else(|| component.clone(), |renamed| name(renamed)),
+                    ),
+                    _ => component.clone(),
+                })
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+fn rename_reference_value(value: &Value, private_names: &BTreeMap<String, String>) -> Value {
+    match value {
+        Value::Atom(component) => Value::Atom(
+            private_names
+                .get(component.as_str())
+                .map_or_else(|| component.clone(), |renamed| name(renamed)),
+        ),
+        Value::Array(_) => rename_path_value(value, private_names),
+        Value::Binding { kind, path, time } => Value::Binding {
+            kind: *kind,
+            path: rename_path(path, private_names),
+            time: *time,
+        },
+        Value::Ref { kind, path } => Value::Ref {
+            kind: *kind,
+            path: rename_path(path, private_names),
+        },
+        _ => value.clone(),
+    }
+}
+
+fn expansion_identity(
+    definition_seed: &str,
+    caller: &str,
+    stable_path: &str,
+    outer_instance: &str,
+) -> String {
+    let mut hash = Sha256::new();
+    for part in [definition_seed, caller, stable_path, outer_instance] {
+        hash.update((part.len() as u64).to_le_bytes());
+        hash.update(part.as_bytes());
+    }
+    format!("{:x}", hash.finalize())[..12].to_owned()
+}
+
+fn stable_expansion_path(file: Option<&ProjectFile>, path: &[usize]) -> String {
+    let Some(file) = file else {
+        return path
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(".");
+    };
+    let mut components = Vec::with_capacity(path.len());
+    for (depth, index) in path.iter().copied().enumerate() {
+        let siblings = if depth == 0 {
+            file.parsed.ast.root.declarations()
+        } else {
+            declaration_at(file.parsed.ast.root.declarations(), &path[..depth])
+                .map_or(&[][..], |parent| parent.children.as_slice())
+        };
+        let Some(declaration) = siblings.get(index) else {
+            components.push(format!("missing:{index}"));
+            continue;
+        };
+        let signature = format!(
+            "{}:{}:{}",
+            declaration.keyword,
+            declaration.name.as_ref().map_or("", Name::as_str),
+            declaration.kind.as_ref().map_or("", Name::as_str),
+        );
+        let ordinal = siblings[..index]
+            .iter()
+            .filter(|candidate| {
+                format!(
+                    "{}:{}:{}",
+                    candidate.keyword,
+                    candidate.name.as_ref().map_or("", Name::as_str),
+                    candidate.kind.as_ref().map_or("", Name::as_str),
+                ) == signature
+            })
+            .count();
+        components.push(format!("{signature}#{ordinal}"));
+    }
+    components.join("/")
+}
+
 fn name(value: &str) -> Name {
     Name::new(value.to_owned()).expect("expansion generates valid Avenger names")
 }
@@ -920,8 +1333,24 @@ fn declaration_at<'a>(roots: &'a [Decl], path: &[usize]) -> Option<&'a Decl> {
     Some(declaration)
 }
 
+fn resolved_declaration_at<'a>(
+    roots: &'a [crate::resolve::ResolvedDeclaration],
+    path: &[usize],
+) -> Option<&'a crate::resolve::ResolvedDeclaration> {
+    let (first, rest) = path.split_first()?;
+    let mut declaration = roots.get(*first)?;
+    for index in rest {
+        declaration = declaration.children.get(*index)?;
+    }
+    Some(declaration)
+}
+
 fn declaration_span(file: &ProjectFile, path: &[usize]) -> Option<SourceSpan> {
     let declaration = declaration_at(file.parsed.ast.root.declarations(), path)?;
+    declaration_node_span(file, declaration)
+}
+
+fn declaration_node_span(file: &ProjectFile, declaration: &Decl) -> Option<SourceSpan> {
     let mut spans = file
         .parsed
         .source_map

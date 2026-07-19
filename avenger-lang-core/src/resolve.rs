@@ -22,6 +22,7 @@ use crate::{
     Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceId,
     SourceLabel, SourceMap, SourceSpan,
     ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Root, Value, Visibility},
+    expand::ExpansionSourceMap,
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
     sort_diagnostics,
 };
@@ -211,6 +212,9 @@ pub struct ResolvedProject {
     pub param_default_order: Vec<ParamId>,
     pub table_order: Vec<DeclarationId>,
     pub definition_import_order: Vec<ProjectFileId>,
+    /// Empty for ordinary projects; populated by the compiler when imported
+    /// definitions were expanded before final semantic resolution.
+    pub expansion_source_map: ExpansionSourceMap,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -691,6 +695,7 @@ impl<'a> Resolver<'a> {
                 param_default_order,
                 table_order,
                 definition_import_order,
+                expansion_source_map: ExpansionSourceMap::default(),
             }),
         }
     }
@@ -2876,19 +2881,24 @@ impl<'a> Resolver<'a> {
             let definition_slot = definition_schema
                 .as_ref()
                 .and_then(|schema| schema.slots.get(name.as_str()));
-            let mut resolved = if let Some(slot) = definition_slot
-                && slot.shape == "ref"
-            {
-                self.resolve_definition_ref_value(
+            let mut resolved = match definition_slot {
+                Some(slot) if slot.shape == "block" => {
+                    // Caller-owned block content is hygienically resolved only
+                    // after slot substitution, exposure rewriting, and splice
+                    // placement. Resolving it in the caller scope here would
+                    // either reject declared exposures or accidentally bind a
+                    // same-named caller symbol before expansion.
+                    unresolved_value(value)
+                }
+                Some(slot) if slot.shape == "ref" => self.resolve_definition_ref_value(
                     value_scope,
                     value,
                     slot,
                     info.span,
                     event_context,
                     declaration,
-                )
-            } else {
-                self.resolve_value(value_scope, value, info.span, event_context, declaration)
+                ),
+                _ => self.resolve_value(value_scope, value, info.span, event_context, declaration),
             };
             if let Some(shape) = native_schema
                 .as_ref()

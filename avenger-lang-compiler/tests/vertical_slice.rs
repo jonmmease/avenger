@@ -1875,10 +1875,12 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
     for retained in [
         "group as errors",
         "component_kind: error_bar;",
-        "export body.stem as stem;",
-        "export body.point as point;",
-        "private group as body",
+        " as stem;",
+        " as point;",
+        "private group as __av_",
         "fill: value '#dc2626';",
+        "public mark text as labels",
+        "widget slider as threshold",
     ] {
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
@@ -1897,6 +1899,7 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         serde_json::to_value(expanded_artifact.compiled_plot()).unwrap(),
         "compiling imported definitions and canonical expanded source must agree"
     );
+    assert_eq!(artifact.interface, expanded_artifact.interface);
     assert!(
         artifact
             .interface
@@ -1925,23 +1928,22 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
-
     for retained in [
         "tool behavior as inspector",
         "component_kind: inspect_points;",
-        "export enabled;",
-        "export hovered;",
-        "export chrome_layer.chrome as chrome;",
-        "private param as enabled",
-        "private selection as hovered",
-        "private tool point_selection as nested",
+        " as enabled;",
+        " as hovered;",
+        " as chrome;",
+        "private param as __av_",
+        "private selection as __av_",
+        "private tool point_selection as __av_",
         "scale_edit {",
-        "private group as chrome_layer",
+        "private group as __av_",
     ] {
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
-    let set_param = expanded.text.find("set param enabled").unwrap();
-    let set_selection = expanded.text.find("set selection hovered").unwrap();
+    let set_param = expanded.text.find("set param __av_").unwrap();
+    let set_selection = expanded.text.find("set selection __av_").unwrap();
     assert!(set_param < set_selection, "{}", expanded.text);
 
     let artifact = compiler
@@ -1957,6 +1959,7 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         serde_json::to_value(expanded_artifact.compiled_plot()).unwrap(),
         "custom tool compilation must equal canonical behavior compilation"
     );
+    assert_eq!(artifact.interface, expanded_artifact.interface);
     let behavior = artifact
         .compiled_plot()
         .tool_behaviors()
@@ -1975,13 +1978,15 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         artifact
             .compiled_plot()
             .param_specs()
-            .contains_key("enabled")
+            .keys()
+            .any(|name| name.ends_with("_enabled"))
     );
     assert!(
         artifact
             .compiled_plot()
             .selection_specs()
-            .contains_key("hovered")
+            .keys()
+            .any(|name| name.ends_with("_hovered"))
     );
     assert!(
         artifact
@@ -2010,4 +2015,126 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         .await
         .unwrap();
     assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
+async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediates() {
+    let root = fixture("05_custom_transform_pipeline");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let expanded = compiler
+        .expand_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+
+    for retained in [
+        "transform pipeline as summary",
+        "output adjusted;",
+        "output doubled;",
+        "transform sql as __av_",
+        "AS doubled",
+        "AS adjusted",
+    ] {
+        assert!(expanded.text.contains(retained), "{}", expanded.text);
+    }
+    for removed in [
+        "import 'summarize.transform.avenger'",
+        "transform summarize as summary",
+        "define transform",
+        "__summarize_doubled",
+        "__summarize_tripled",
+        "__summarize_scratch",
+    ] {
+        assert!(!expanded.text.contains(removed), "{}", expanded.text);
+    }
+
+    let artifact = compiler
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let expanded_artifact = source_compiler(&expanded.text, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(artifact.compiled_plot()).unwrap(),
+        serde_json::to_value(expanded_artifact.compiled_plot()).unwrap(),
+    );
+    assert_eq!(artifact.interface, expanded_artifact.interface);
+
+    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let public_schema = analysis
+        .datasets
+        .iter()
+        .map(|(_, dataset)| dataset.schema.as_ref())
+        .find(|schema| {
+            schema.field_with_name("doubled").is_ok()
+                && schema.field_with_name("adjusted").is_ok()
+                && schema.field_with_name("category").is_ok()
+        })
+        .expect("defined pipeline public schema");
+    let public_names = public_schema
+        .fields()
+        .iter()
+        .map(|field| field.name().as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(public_names, ["category", "value", "doubled", "adjusted"]);
+    assert!(
+        public_schema
+            .fields()
+            .iter()
+            .all(|field| !field.name().starts_with("__"))
+    );
+
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+}
+
+#[tokio::test]
+async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definition_kinds() {
+    let root = fixture("05_definition_widget_adjacency");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let expanded = compiler
+        .expand_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    for retained in [
+        "transform pipeline",
+        "group as points",
+        "tool behavior as pointer",
+        "widget slider as threshold",
+        "widget text_input as search",
+    ] {
+        assert!(expanded.text.contains(retained), "{}", expanded.text);
+    }
+    for removed in ["transform pass", "mark dot", "tool cursor_tool", "define "] {
+        assert!(!expanded.text.contains(removed), "{}", expanded.text);
+    }
+
+    let artifact = compiler
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let expanded_artifact = source_compiler(&expanded.text, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(artifact.compiled_plot()).unwrap(),
+        serde_json::to_value(expanded_artifact.compiled_plot()).unwrap(),
+    );
+    assert_eq!(artifact.interface, expanded_artifact.interface);
+    let widget_kinds = artifact
+        .compiled_plot()
+        .widgets()
+        .iter()
+        .map(|attachment| attachment.widget.kind())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        widget_kinds,
+        std::collections::BTreeSet::from(["slider", "text-input"])
+    );
 }

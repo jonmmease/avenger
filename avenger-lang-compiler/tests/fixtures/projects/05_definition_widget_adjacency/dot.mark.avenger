@@ -1,0 +1,6 @@
+avenger 1;
+
+define mark dot {
+  export glyph;
+  mark symbol as glyph { x: "x"; y: "y"; }
+}

@@ -11,14 +11,32 @@ chart cartesian as chart {
   }
 
   mark error_bar as errors {
+    category_axis: x;
+    value_axis: y;
     category: "category";
     low: "low";
     high: "high";
     center: "center";
+    mode: show;
+    annotations: {
+      mark text as labels {
+        x: "category";
+        y: "center";
+        text: "category";
+      }
+    }
 
     part point {
       fill: value '#dc2626';
       size: 64;
     }
   }
+
+  widget slider as threshold {
+    position: bottom;
+    min: 0.0;
+    max: 10.0;
+    default: 2.0;
+  }
+
 }

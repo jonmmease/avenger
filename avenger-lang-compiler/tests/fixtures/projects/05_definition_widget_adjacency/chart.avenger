@@ -1,0 +1,27 @@
+avenger 1;
+
+import 'dot.mark.avenger';
+import 'pass.transform.avenger';
+import 'cursor_tool.tool.avenger';
+
+chart cartesian as chart {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+
+  transform pass { }
+
+  mark dot as points { }
+  tool cursor_tool as pointer { target: mark points.glyph; }
+
+  widget slider as threshold {
+    position: bottom;
+    min: 0.0;
+    max: 10.0;
+    default: 2.0;
+  }
+
+  widget text_input as search {
+    position: top;
+    default: '';
+    placeholder: 'Filter';
+  }
+}
