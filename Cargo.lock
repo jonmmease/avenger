@@ -1342,6 +1342,7 @@ dependencies = [
  "bincode",
  "datafusion",
  "futures",
+ "glob",
  "image",
  "image-compare",
  "indexmap 2.14.0",

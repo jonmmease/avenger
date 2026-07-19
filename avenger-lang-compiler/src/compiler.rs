@@ -481,6 +481,7 @@ impl Compiler {
                 &project,
                 &self.options.project_root,
                 &self.options.import_capabilities,
+                &self.options.data_capabilities,
                 &mut dependencies,
             )?;
             project.fingerprint = augment_project_fingerprint(&project.fingerprint, &dependencies);
@@ -890,7 +891,8 @@ fn discovery_failure<T>(root: &Path, error: std::io::Error) -> CompileAttempt<T>
 fn discover_local_resources(
     project: &ParsedProject,
     project_root: &Path,
-    capabilities: &ImportCapabilities,
+    import_capabilities: &ImportCapabilities,
+    data_capabilities: &DataCapabilities,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
     for file in project.files.values() {
@@ -900,7 +902,8 @@ fn discover_local_resources(
                 file.source,
                 &file.origin,
                 project_root,
-                capabilities,
+                import_capabilities,
+                data_capabilities,
                 dependencies,
             )?;
         }
@@ -913,7 +916,8 @@ fn discover_declaration_resources(
     source: SourceId,
     declaring_origin: &SourceOrigin,
     project_root: &Path,
-    capabilities: &ImportCapabilities,
+    import_capabilities: &ImportCapabilities,
+    data_capabilities: &DataCapabilities,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
     if declaration.keyword.as_str() == "table"
@@ -927,7 +931,7 @@ fn discover_declaration_resources(
                 source,
                 declaring_origin,
                 project_root,
-                capabilities,
+                data_capabilities.allow_filesystem,
                 dependencies,
             )?;
         }
@@ -940,7 +944,7 @@ fn discover_declaration_resources(
             source,
             declaring_origin,
             project_root,
-            capabilities,
+            import_capabilities.allow_filesystem,
             dependencies,
         )?;
     }
@@ -950,7 +954,8 @@ fn discover_declaration_resources(
             source,
             declaring_origin,
             project_root,
-            capabilities,
+            import_capabilities,
+            data_capabilities,
             dependencies,
         )?;
     }
@@ -974,7 +979,7 @@ fn discover_resource(
     source: SourceId,
     declaring_origin: &SourceOrigin,
     project_root: &Path,
-    capabilities: &ImportCapabilities,
+    allow_filesystem: bool,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
     let origin = if path.split_once("://").is_some() {
@@ -1010,7 +1015,7 @@ fn discover_resource(
     };
     let normalized_root = normalize_path(project_root);
     let normalized_candidate = normalize_path(&candidate);
-    if !capabilities.allow_filesystem || !normalized_candidate.starts_with(&normalized_root) {
+    if !allow_filesystem || !normalized_candidate.starts_with(&normalized_root) {
         return Err(resource_failure(
             source,
             "local data resource is outside the project capability root",
@@ -1018,7 +1023,9 @@ fn discover_resource(
         ));
     }
     if path.contains(['*', '?', '[']) {
-        dependency.content_version = Some("glob".to_owned());
+        dependency.content_version = Some(glob_content_version(&normalized_candidate).map_err(
+            |error| resource_failure(source, "local data glob could not be fingerprinted", error),
+        )?);
         dependencies.insert(dependency);
         return Ok(());
     }
@@ -1052,10 +1059,73 @@ fn discover_resource(
 fn resource_content_version(path: &Path) -> Result<String, std::io::Error> {
     use sha2::{Digest, Sha256};
     if path.is_dir() {
-        return Ok("directory".to_owned());
+        let mut files = Vec::new();
+        collect_directory_files(path, path, &mut files)?;
+        let mut hasher = Sha256::new();
+        hasher.update(b"avenger-directory-v1\0");
+        for file in files {
+            hasher.update(
+                file.strip_prefix(path)
+                    .unwrap_or(&file)
+                    .to_string_lossy()
+                    .as_bytes(),
+            );
+            hasher.update(b"\0");
+            hasher.update(std::fs::read(file)?);
+            hasher.update(b"\0");
+        }
+        return Ok(format!("directory-sha256:{:x}", hasher.finalize()));
     }
     let bytes = std::fs::read(path)?;
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+}
+
+fn collect_directory_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<PathBuf>,
+) -> Result<(), std::io::Error> {
+    let mut entries = std::fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    entries.sort_by_key(std::fs::DirEntry::path);
+    for entry in entries {
+        let path = entry.path();
+        let metadata = std::fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            let canonical = std::fs::canonicalize(&path)?;
+            if !canonical.starts_with(root) {
+                return Err(std::io::Error::other(format!(
+                    "directory member `{}` escapes through a symlink",
+                    path.display()
+                )));
+            }
+        }
+        if metadata.is_dir() {
+            collect_directory_files(root, &path, files)?;
+        } else if metadata.is_file() {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn glob_content_version(pattern: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let pattern = pattern.to_string_lossy();
+    let mut matches = glob::glob(&pattern)
+        .map_err(|error| error.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| error.to_string())?;
+    matches.sort();
+    let mut hasher = Sha256::new();
+    hasher.update(b"avenger-glob-v1\0");
+    for path in matches {
+        hasher.update(path.to_string_lossy().as_bytes());
+        hasher.update(b"\0");
+        let version = resource_content_version(&path).map_err(|error| error.to_string())?;
+        hasher.update(version.as_bytes());
+        hasher.update(b"\0");
+    }
+    Ok(format!("glob-sha256:{:x}", hasher.finalize()))
 }
 
 fn resource_failure(source: SourceId, message: &str, label: String) -> CompileFailure {

@@ -353,6 +353,57 @@ async fn source_loader_missing_local_data_resource_keeps_anchor_and_repairs() {
 }
 
 #[tokio::test]
+async fn source_loader_directory_and_glob_fingerprints_track_content_and_membership() {
+    let root = fixture_dir("data-membership");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    );
+    write(
+        root.join("catalog.data.avenger"),
+        r#"avenger 1;
+schema tables as local {
+  table csv as directory { path: 'parts'; }
+  table csv as globbed { path: 'parts/*.csv'; }
+}"#,
+    );
+    write(root.join("parts/one.csv"), "x\n1\n");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let first = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap()
+        .fingerprint;
+    let stable = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap()
+        .fingerprint;
+    assert_eq!(first, stable);
+
+    write(root.join("parts/one.csv"), "x\n2\n");
+    let content_changed = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap()
+        .fingerprint;
+    assert_ne!(first, content_changed);
+
+    write(root.join("parts/two.csv"), "x\n3\n");
+    let membership_changed = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap()
+        .fingerprint;
+    assert_ne!(content_changed, membership_changed);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn source_loader_failed_root_parse_keeps_root_dependency() {
     let root = fixture_dir("bad-root");
     write(
