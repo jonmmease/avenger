@@ -440,7 +440,10 @@ async fn source_loader_records_remote_and_glob_table_resources_without_providers
     }));
     assert!(attempt.dependencies.iter().any(|dependency| {
         dependency.role == DependencyRole::LocalResource
-            && dependency.content_version.as_deref() == Some("glob")
+            && dependency
+                .content_version
+                .as_deref()
+                .is_some_and(|version| version.starts_with("glob-sha256:"))
     }));
     fs::remove_dir_all(root).unwrap();
 }

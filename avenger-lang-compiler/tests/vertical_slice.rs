@@ -2130,6 +2130,10 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
             schema.field_with_name("doubled").is_ok()
                 && schema.field_with_name("adjusted").is_ok()
                 && schema.field_with_name("category").is_ok()
+                && schema
+                    .fields()
+                    .iter()
+                    .all(|field| !field.name().starts_with("__"))
         })
         .expect("defined pipeline public schema");
     let public_names = public_schema
