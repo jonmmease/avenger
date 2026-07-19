@@ -128,6 +128,20 @@ async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without
     );
     assert_eq!(final_table.columns[2].data_type, DataType::Int64);
 
+    for (name, upstream_count) in [
+        ("analytics.joined", 2),
+        ("analytics.adjusted", 1),
+        ("analytics.summarized", 1),
+        ("analytics.final", 1),
+    ] {
+        let stage = &tables[name].stage;
+        assert_eq!(
+            analysis.lineage.get(stage).unwrap().upstream_stages.len(),
+            upstream_count,
+            "direct lineage for {name}"
+        );
+    }
+
     let artifact = compiler.compile_file("chart.avenger").await.unwrap();
     assert_eq!(
         artifact.dependency_fingerprint.as_str(),

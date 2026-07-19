@@ -272,6 +272,29 @@ async fn catalog_project_compiles_two_charts_against_one_registered_catalog() {
 }
 
 #[tokio::test]
+async fn catalog_project_compiles_and_evaluates_each_chart_in_its_retained_generation() {
+    let root = project_fixture("06_catalog_project");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    for (generation, chart) in [(1, "movies.avenger"), (2, "regions.avenger")] {
+        let compiled = compiler
+            .compile_file_generation_attempt(chart, generation)
+            .await
+            .result
+            .unwrap();
+        let evaluated = compiled
+            .artifact
+            .compiled_plot()
+            .evaluate(compiled.environment.session_context(), None)
+            .await
+            .unwrap();
+        assert!(
+            !evaluated.scene_graph.groups().is_empty(),
+            "{chart} should evaluate to a renderable scene"
+        );
+    }
+}
+
+#[tokio::test]
 async fn catalog_default_and_host_generation_environments_are_analysis_and_artifact_equivalent() {
     let root = project_fixture("06_catalog_project");
     let default = Compiler::builder().project_root(&root).build().unwrap();
