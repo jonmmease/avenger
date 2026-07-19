@@ -404,12 +404,17 @@ async fn native_surface_registered_selection_tool_lowers_from_dsl() {
 
 #[tokio::test]
 async fn native_surface_tool_instances_own_distinct_generated_state_and_exports() {
-    let root = fixture("05_custom_tool");
-    let artifact = Compiler::builder()
-        .project_root(&root)
-        .build()
-        .unwrap()
-        .compile_file(root.join("chart.avenger"))
+    let source = r#"avenger 1;
+chart cartesian as chart {
+  data: { values: [{ id: 'a'; x: 1.0; y: 2.0; }]; }
+  selection as first_selection { empty: none; }
+  selection as second_selection { empty: none; }
+  tool point_selection as first { selection: first_selection; fields: [id]; }
+  tool point_selection as second { selection: second_selection; fields: [id]; }
+  mark symbol as points { x: "x"; y: "y"; details: [id]; }
+}"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
         .await
         .unwrap();
 
@@ -2200,6 +2205,20 @@ async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definit
     assert_eq!(
         widget_kinds,
         std::collections::BTreeSet::from(["slider", "text-input"])
+    );
+    assert!(
+        artifact
+            .compiled_plot()
+            .widgets()
+            .iter()
+            .any(|attachment| matches!(attachment.widget, CompiledWidget::Composed(_)))
+    );
+    assert!(
+        artifact
+            .compiled_plot()
+            .widgets()
+            .iter()
+            .any(|attachment| matches!(attachment.widget, CompiledWidget::Native(_)))
     );
 }
 

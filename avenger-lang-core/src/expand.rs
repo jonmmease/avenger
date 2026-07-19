@@ -391,6 +391,7 @@ impl Expander<'_> {
         substituted
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn expand_body(
         &mut self,
         owner: &ProjectFileId,

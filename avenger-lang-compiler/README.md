@@ -6,7 +6,7 @@ environment seams, stable dataset/stage schema and lineage indexes, and
 compiled chart/project artifacts. It depends inward on `avenger-lang-core`;
 the public `avenger-lang` facade depends on both.
 
-## Phase 3 landed API map
+## Current API map
 
 - `Compiler::load_file_project_attempt()` loads one chart plus ambient data and
   its import closure; `load_project_graph_attempt()` deterministically
@@ -15,25 +15,36 @@ the public `avenger-lang` facade depends on both.
 - `DefaultSourceLoader` enforces the project-root boundary, canonicalizes
   filesystem and redirect origins, rejects symlink escapes, serves versioned
   bundled `std:` definitions, and bounds capability-gated HTTP reads.
-- `compile_file_attempt()` and `compile_project_attempt()` use the same Phase 3
-  graph, pass through Phase 4 semantic resolution, and asynchronously lower
-  real DSL charts through the injected schema-paired native registry.
+- `compile_file_attempt()` and `compile_project_attempt()` use the same project
+  graph, typed semantic resolution, canonical definition expansion, and
+  asynchronous schema-paired native-registry lowering.
 - Project fingerprints include verified language-source content, the AST
   schema/native-registry versions, and discovered local resource versions.
+- `expand_file()` returns valid canonical ordinary DSL plus an expansion source
+  map. Imported custom mark, tool, and transform definitions lower through the
+  same group, behavior, and pipeline paths as handwritten ordinary DSL.
+- Definition expansion provides typed slots and defaults, channels, closed
+  matches, caller block splicing, private alpha-renaming, exact exports,
+  migration metadata, and macro-style diagnostic traces. Built-in widgets are
+  retained as native declarations; widget definitions are intentionally not a
+  language feature.
+- Transform pipelines expose surviving input columns plus declared outputs and
+  hide newly generated undeclared intermediate columns at the pipeline
+  boundary.
 
 The earlier bootstrap API remains in place:
 
 - The prerequisite's final names are `NativeRegistry`,
   `NativeRegistryBuilder`, `NativeRegistryProfileId`, `ResolvedPlot`, and
   `CompiledPlot`.
-- The current stock inventory is intentionally the prerequisite bootstrap
-  registry. `avenger_lang::stock_registry()` and `register_builtins()` retain
-  their API while Phase 6 grows that inventory.
+- `avenger_lang::stock_registry()` and `register_builtins()` expose the complete
+  Phase 6 native language inventory while preserving the host-composed registry
+  extension seam.
 - The plan's dataset-stage concept landed as `DatasetStageId` plus
   `DatasetStageKind` and `DatasetProvenance`.
 - Compiled Rust params retain an explicit physical Arrow type derived from
-  their `ScalarValue` default. The future DSL still declares its type and
-  default separately.
+  their `ScalarValue` default. The DSL declares its type and default separately
+  and validates both before lowering.
 - `compile_phase0_example()` and `analyze_phase0_empty()` remain hidden
   compatibility harnesses. Phase 5's real `compile_file()` and
   `compile_project()` paths now produce the same artifact and analysis

@@ -183,6 +183,8 @@ pub struct LoweredTransform {
 
 /// A typed native output handle preserved until its authoring use site.
 #[derive(Clone)]
+// Boxing `ChannelExpr` would change the public typed-output API.
+#[allow(clippy::large_enum_variant)]
 pub enum NativeOutputValue {
     Expr(Expr),
     Channel(ChannelExpr),

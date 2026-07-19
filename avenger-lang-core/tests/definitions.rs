@@ -193,6 +193,60 @@ define tool picker {
 }
 
 #[tokio::test]
+async fn definitions_require_explicit_imports() {
+    let project = project(&[(
+        "chart.avenger",
+        "avenger 1; chart cartesian { mark unimported_definition { } }",
+    )])
+    .await;
+    let failure = resolve_project(&project, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(failure.diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_str() == "AVENGER-RESOLVE-020"
+            && diagnostic
+                .primary
+                .message
+                .contains("no registered or imported mark kind")
+    }));
+}
+
+#[tokio::test]
+async fn definitions_reject_recursive_import_graphs() {
+    let loader = InMemorySourceLoader::default()
+        .with_source(LoadedSource::new(
+            SourceOrigin::Memory("chart.avenger".to_owned()),
+            "avenger 1; import 'a.mark.avenger'; chart cartesian { mark a { } }",
+            ContentVersion::new("definitions-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::Memory("a.mark.avenger".to_owned()),
+            "avenger 1; import 'b.mark.avenger'; define mark a { mark b { } }",
+            ContentVersion::new("definitions-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::Memory("b.mark.avenger".to_owned()),
+            "avenger 1; import 'a.mark.avenger'; define mark b { mark a { } }",
+            ContentVersion::new("definitions-v1"),
+        ));
+    let failure = ProjectLoader::new(&loader)
+        .load(ProjectLoadRequest {
+            project_root: "/project".into(),
+            roots: vec![ProjectRoot::chart(SourceOrigin::Memory(
+                "chart.avenger".to_owned(),
+            ))],
+            capabilities: ImportCapabilities::in_memory("/project"),
+            schema_version: "semantic-v1".to_owned(),
+            registry_version: "bootstrap".to_owned(),
+        })
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-013");
+    assert!(failure.diagnostics[0].trace.len() >= 2);
+}
+
+#[tokio::test]
 async fn definitions_reject_ambient_capture_private_access_export_collisions_and_missing_binders() {
     let project = project(&[
         (

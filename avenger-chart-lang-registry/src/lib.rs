@@ -2418,7 +2418,7 @@ mod tests {
                 registry.lower_transform_pipeline(
                     &declaration,
                     vec![DataTransformStage::new(context.scope, filter.transform)],
-                    BTreeMap::from([("x".to_string(), col("x"))]),
+                    IndexMap::from([("x".to_string(), col("x"))]),
                     context,
                 )
             } else {
