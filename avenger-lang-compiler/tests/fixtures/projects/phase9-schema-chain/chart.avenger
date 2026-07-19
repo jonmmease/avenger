@@ -1,0 +1,5 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: { table: 'analytics.final'; }
+}
