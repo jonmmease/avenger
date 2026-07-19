@@ -148,8 +148,11 @@ avenger 1;
 import 'rolling.transform.avenger';
 import 'picker.tool.avenger';
 chart cartesian {
-  transform rolling as value { agg: row_number; }
+  param as state { type: boolean; default: true; }
+  mark symbol as points { x: "x"; y: "y"; }
+  transform rolling as value { agg: row_number; window: 'wide'; }
   tool picker;
+  tool picker as wrong_target { target: $state; }
 }
 "#,
         ),
@@ -159,6 +162,7 @@ chart cartesian {
 avenger 1;
 define transform rolling {
   slot function as agg { class: aggregate; }
+  slot number as window;
   output value;
   transform sql { query: SELECT agg("x") AS value FROM input; }
 }
@@ -166,7 +170,13 @@ define transform rolling {
         ),
         (
             "picker.tool.avenger",
-            "avenger 1; define tool picker { on click { set cursor = pointer; } }",
+            r#"
+avenger 1;
+define tool picker {
+  slot ref as target { kind: mark; }
+  on click { target: mark target; set cursor = pointer; }
+}
+"#,
         ),
     ])
     .await;
@@ -343,6 +353,15 @@ chart cartesian as chart {
     }
     part point { fill: value '#dc2626'; }
   }
+  mark summary as hidden {
+    band_axis: x;
+    value_axis: y;
+    measure: "value";
+    mode: hide;
+    annotations: {
+      mark text as hidden_label { x: "x"; y: "y"; text: 'not selected'; }
+    }
+  }
   widget slider as threshold {
     position: bottom;
     min: 0.0;
@@ -399,6 +418,7 @@ define mark summary {
     assert!(text.contains("y: \"category\";"), "{text}");
     assert!(text.contains("x: \"value\";"), "{text}");
     assert!(text.contains("public mark text as label"), "{text}");
+    assert!(!text.contains("hidden_label"), "{text}");
     assert!(text.contains("target: mark __av_"), "{text}");
     assert!(text.contains("fill: value '#dc2626';"), "{text}");
     assert!(text.contains("widget slider as threshold"), "{text}");
@@ -496,6 +516,94 @@ define mark shell {
         Some(ResolvedValue::Binding(binding))
             if binding.target == ResolvedTarget::Param(root_param.id.clone())
     ));
+}
+
+#[tokio::test]
+async fn definition_state_migration_tracks_source_binders_not_public_export_aliases() {
+    let original = expanded_param_identity(
+        r#"
+avenger 1;
+define mark shell {
+  export local as exposed;
+  param as local { type: boolean; default: true; }
+  mark symbol { x: "x"; y: "y"; visible: $local; }
+}
+"#,
+        "exposed",
+    )
+    .await;
+    let public_alias_renamed = expanded_param_identity(
+        r#"
+avenger 1;
+define mark shell {
+  export local as renamed_export;
+  param as local { type: boolean; default: true; }
+  mark symbol { x: "x"; y: "y"; visible: $local; }
+}
+"#,
+        "renamed_export",
+    )
+    .await;
+    let source_binder_renamed = expanded_param_identity(
+        r#"
+avenger 1;
+define mark shell {
+  export renamed_state as exposed;
+  param as renamed_state { type: boolean; default: true; }
+  mark symbol { x: "x"; y: "y"; visible: $renamed_state; }
+}
+"#,
+        "exposed",
+    )
+    .await;
+
+    assert_eq!(original, public_alias_renamed);
+    assert_ne!(original.0, source_binder_renamed.0);
+    assert_ne!(original.1, source_binder_renamed.1);
+}
+
+async fn expanded_param_identity(definition: &str, export_alias: &str) -> (String, String) {
+    let project = project(&[
+        (
+            "chart.avenger",
+            r#"
+avenger 1;
+import 'shell.mark.avenger';
+chart cartesian as chart {
+  mark shell as instance { }
+}
+"#,
+        ),
+        ("shell.mark.avenger", definition),
+    ])
+    .await;
+    let resolved = resolve_project(&project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let expanded = expand_project(&project, &resolved).unwrap();
+    let resolved = resolve_project(&expanded.project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let param = resolved
+        .params
+        .values()
+        .find(|param| param.source_name.starts_with("__av_"))
+        .expect("expanded definition-owned param");
+    assert!(matches!(
+        resolved
+            .public_targets
+            .get(&format!("chart.instance.{export_alias}")),
+        Some(ResolvedTarget::Param(id)) if id == &param.id
+    ));
+    (
+        param.id.as_str().to_owned(),
+        param
+            .migration_key
+            .as_ref()
+            .expect("expanded state migration key")
+            .as_str()
+            .to_owned(),
+    )
 }
 
 fn find_resolved_declaration<'a>(

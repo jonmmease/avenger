@@ -1,0 +1,32 @@
+avenger 1;
+chart cartesian as chart {
+  data: {
+    values: [ {
+      category: 'A';
+      value: 2.0;
+    }
+    , {
+      category: 'B';
+      value: 4.0;
+    }
+    ];
+  }
+  transform pipeline as summary {
+    output doubled;
+    output adjusted;
+    transform sql as __av_a8bdb82c0d82_calculate {
+      query: SELECT *, "value" * 2.0 AS __summary_a8bdb82c0d82_doubled, "value" * 3.0 AS __summary_a8bdb82c0d82_tripled FROM input;
+    }
+    transform sql as __av_a8bdb82c0d82_finalize {
+      query: SELECT *, __summary_a8bdb82c0d82_doubled AS doubled, __summary_a8bdb82c0d82_tripled + 1.0 AS adjusted, 99.0 AS __summary_a8bdb82c0d82_scratch FROM input;
+    }
+  }
+  transform sql {
+    query: SELECT * FROM input;
+  }
+  mark symbol as points {
+    size: 80;
+    x: "category";
+    y: summary.adjusted;
+  }
+}

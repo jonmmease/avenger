@@ -2484,6 +2484,13 @@ Declaration identity is an opaque, serialized compiler ID, not the source name,
 public export path, or a generated string prefix. Param, store, and selection
 references resolve to typed IDs before DataFusion planning or event execution;
 author-facing names and paths remain diagnostic and decompilation metadata.
+Hot-reload migration uses a separate deterministic `StateMigrationKey` derived
+from stable authored structure. Renaming only a public export alias does not
+change this key. Renaming a state declaration's source binder or a containing
+component/tool instance binder does change the key and therefore intentionally
+resets that state on reload. All references are re-resolved to opaque typed IDs
+after either rename, so this migration boundary cannot create dangling runtime
+references.
 Lexical component and tool scopes are a source-resolution rule rather than a
 nested runtime storage layout: after resolution, their state declarations are
 hoisted into the compiled chart's typed root registries. The concrete runtime

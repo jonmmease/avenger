@@ -1539,6 +1539,16 @@ chart cartesian as example {
     }
 
     #[test]
+    fn parse_rejects_nested_definitions() {
+        let source = SourceFile::new(
+            SourceId::new(1),
+            SourceOrigin::Memory("nested.avenger".into()),
+            "avenger 1; define mark outer { define mark inner { mark symbol {} } }",
+        );
+        assert!(parse_file(&source).is_err());
+    }
+
+    #[test]
     fn parse_doc_comments_require_adjacency() {
         let parsed = parse(
             "avenger 1; define mark docs { -- | attached\n slot number as first; -- | detached\n\n slot number as second; }",

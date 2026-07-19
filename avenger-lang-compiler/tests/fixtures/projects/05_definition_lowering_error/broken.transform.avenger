@@ -1,0 +1,8 @@
+avenger 1;
+
+define transform broken {
+  output result;
+  transform sql {
+    query: SELECT missing AS result FROM input;
+  }
+}

@@ -1863,6 +1863,10 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
+    assert_eq!(
+        expanded.text,
+        include_str!("baselines/expansion/04_custom_error_bar.avenger")
+    );
 
     for removed in [
         "import 'error_bar.mark.avenger'",
@@ -1884,7 +1888,18 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
     ] {
         assert!(expanded.text.contains(retained), "{}", expanded.text);
     }
-    assert!(!expanded.source_map.mappings.is_empty());
+    let definition_mappings = expanded
+        .source_map
+        .mappings
+        .iter()
+        .filter(|mapping| mapping.definition.is_some())
+        .collect::<Vec<_>>();
+    assert!(!definition_mappings.is_empty());
+    assert!(definition_mappings.iter().all(|mapping| {
+        mapping.instantiation.is_some()
+            && mapping.expanded.source != mapping.authored.source
+            && mapping.definition.unwrap().source != mapping.instantiation.unwrap().source
+    }));
 
     let artifact = compiler
         .compile_file(root.join("chart.avenger"))
@@ -1912,11 +1927,34 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
             .public_targets
             .contains_key("chart.errors.point")
     );
+    let component_parts = artifact
+        .compiled_plot()
+        .marks()
+        .iter()
+        .filter_map(|mark| mark.state().identity.component.as_ref())
+        .map(|component| {
+            (
+                component.component_kind.as_str(),
+                component.part_alias.as_str(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(component_parts.contains(&("error_bar", "stem")));
+    assert!(component_parts.contains(&("error_bar", "point")));
     let evaluated = artifact
         .compiled_plot()
         .evaluate(&datafusion::prelude::SessionContext::new(), None)
         .await
         .unwrap();
+    let expanded_evaluated = expanded_artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&evaluated.scene_graph).unwrap(),
+        serde_json::to_value(&expanded_evaluated.scene_graph).unwrap()
+    );
     assert!(!evaluated.scene_graph.marks.is_empty());
 }
 
@@ -1928,6 +1966,10 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
+    assert_eq!(
+        expanded.text,
+        include_str!("baselines/expansion/05_custom_tool.avenger")
+    );
     for retained in [
         "tool behavior as inspector",
         "component_kind: inspect_points;",
@@ -2014,6 +2056,15 @@ async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_
         .evaluate(&datafusion::prelude::SessionContext::new(), None)
         .await
         .unwrap();
+    let expanded_evaluated = expanded_artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&evaluated.scene_graph).unwrap(),
+        serde_json::to_value(&expanded_evaluated.scene_graph).unwrap()
+    );
     assert!(!evaluated.scene_graph.marks.is_empty());
 }
 
@@ -2025,6 +2076,10 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
         .expand_file(root.join("chart.avenger"))
         .await
         .unwrap();
+    assert_eq!(
+        expanded.text,
+        include_str!("baselines/expansion/05_custom_transform_pipeline.avenger")
+    );
 
     for retained in [
         "transform pipeline as summary",
@@ -2090,6 +2145,15 @@ async fn expansion_custom_transform_projects_exact_outputs_and_hides_intermediat
         .evaluate(&datafusion::prelude::SessionContext::new(), None)
         .await
         .unwrap();
+    let expanded_evaluated = expanded_artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&evaluated.scene_graph).unwrap(),
+        serde_json::to_value(&expanded_evaluated.scene_graph).unwrap()
+    );
     assert!(!evaluated.scene_graph.marks.is_empty());
 }
 
@@ -2137,4 +2201,48 @@ async fn expansion_preserves_composed_and_native_widgets_adjacent_to_all_definit
         widget_kinds,
         std::collections::BTreeSet::from(["slider", "text-input"])
     );
+}
+
+#[tokio::test]
+async fn expansion_lowering_diagnostics_remap_to_definition_with_instance_trace() {
+    let root = fixture("05_definition_lowering_error");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let expanded = compiler
+        .expand_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let definition_source = expanded
+        .sources
+        .iter()
+        .find_map(|(id, source)| {
+            source
+                .origin
+                .display_name()
+                .ends_with("broken.transform.avenger")
+                .then_some(*id)
+        })
+        .expect("definition source id");
+    let chart_source = expanded
+        .sources
+        .iter()
+        .find_map(|(id, source)| {
+            source
+                .origin
+                .display_name()
+                .ends_with("chart.avenger")
+                .then_some(*id)
+        })
+        .expect("chart source id");
+
+    let failure = compiler
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap_err();
+    let diagnostic = failure.diagnostics.first().expect("lowering diagnostic");
+    assert_eq!(diagnostic.code.as_str(), "AVENGER-LOWER-002");
+    assert_eq!(diagnostic.primary.span.source, definition_source);
+    assert!(diagnostic.trace.iter().any(|frame| {
+        frame.span.source == chart_source
+            && frame.message == "while expanding this definition instance"
+    }));
 }

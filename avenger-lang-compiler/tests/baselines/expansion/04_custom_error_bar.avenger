@@ -1,0 +1,53 @@
+avenger 1;
+chart cartesian as chart {
+  data: {
+    values: [ {
+      category: 'A';
+      center: 2.0;
+      high: 3.0;
+      low: 1.0;
+    }
+    , {
+      category: 'B';
+      center: 3.5;
+      high: 5.0;
+      low: 2.0;
+    }
+    ];
+  }
+  group as errors {
+    component_kind: error_bar;
+    export __av_0a80c915a42e_body.__av_0a80c915a42e_stem as stem;
+    export __av_0a80c915a42e_body.__av_0a80c915a42e_point as point;
+    transform filter {
+      predicate: true;
+    }
+    private group as __av_0a80c915a42e_body {
+      private mark rule as __av_0a80c915a42e_stem {
+        stroke: value '#374151';
+        stroke_width: 2;
+        x: "category";
+        x2: "category";
+        y: "low";
+        y2: "high";
+      }
+      private mark symbol as __av_0a80c915a42e_point {
+        fill: value '#dc2626';
+        size: 64;
+        x: "category";
+        y: "center";
+      }
+      public mark text as labels {
+        text: "category";
+        x: "category";
+        y: "center";
+      }
+    }
+  }
+  widget slider as threshold {
+    default: 2.0;
+    max: 10.0;
+    min: 0.0;
+    position: bottom;
+  }
+}

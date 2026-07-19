@@ -1,0 +1,8 @@
+avenger 1;
+
+import 'broken.transform.avenger';
+
+chart cartesian as chart {
+  data: { values: [{ value: 1.0; }]; }
+  transform broken as result { }
+}
