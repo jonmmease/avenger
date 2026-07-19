@@ -1,5 +1,7 @@
 //! DataFusion-backed catalog registration and execution-free schema analysis.
 
+#![allow(clippy::result_large_err)]
+
 use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
 
 use avenger_lang_core::{
@@ -951,13 +953,7 @@ impl VisitorMut for TableFunctionExpander<'_> {
         };
         let Some(arguments) = args else {
             if !authored_name.contains('.') && table.path.len() > 1 {
-                *name = ObjectName::from(
-                    table
-                        .path
-                        .iter()
-                        .map(|component| Ident::new(component))
-                        .collect::<Vec<_>>(),
-                );
+                *name = ObjectName::from(table.path.iter().map(Ident::new).collect::<Vec<_>>());
             }
             return ControlFlow::Continue(());
         };
