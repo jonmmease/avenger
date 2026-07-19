@@ -9,10 +9,12 @@ use avenger_chart_lang_registry::{
 };
 use avenger_lang_core::{
     DataCapabilities, Diagnostic, EmptyEnvironmentProvider, EnvironmentProvider,
-    ImportCapabilities, ParsedProject, ProjectDependencyRole, ProjectLoadAttempt,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedProject, SourceFile, SourceId,
-    SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
+    ExpansionSourceMap, ImportCapabilities, ParsedProject, ProjectDependencyRole,
+    ProjectLoadAttempt, ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedProject,
+    SourceFile, SourceId, SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin,
+    SourceSpan,
     ast::{Decl, Value},
+    expand_project,
     project::{normalize_path, resolve_import_origin},
     resolve_project as resolve_semantics,
 };
@@ -109,6 +111,7 @@ impl std::error::Error for CompileFailure {}
 pub struct ExpandedSource {
     pub text: String,
     pub sources: SourceMap,
+    pub source_map: ExpansionSourceMap,
 }
 
 #[derive(Clone)]
@@ -269,21 +272,43 @@ impl Compiler {
         &self,
         path: impl AsRef<Path>,
     ) -> Result<ExpandedSource, CompileFailure> {
-        let project = self.resolve_file_project_attempt(path).await.result?;
-        let source = project
-            .files
-            .values()
-            .find(|file| matches!(file.kind, avenger_lang_core::ProjectFileKind::Chart))
-            .map_or(SourceId::new(0), |file| file.source);
-        Err(CompileFailure {
+        let project = self.load_file_project_attempt(path).await.result?;
+        let resolved = resolve_semantics(&project, self.host.authoring_schema())
+            .result
+            .map_err(|failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+            })?;
+        let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
+            diagnostics: failure.diagnostics,
+        })?;
+        let root = project.chart_roots.first().ok_or_else(|| CompileFailure {
             diagnostics: vec![Diagnostic::error(
-                "AVENGER-EXPAND-001",
-                "source expansion is not implemented yet",
+                "AVENGER-EXPAND-003",
+                "source expansion requires one chart root",
                 SourceLabel::new(
-                    SourceSpan::empty(source, 0),
-                    "definition expansion is planned for Phase 7",
+                    SourceSpan::empty(SourceId::new(0), 0),
+                    "the loaded project has no chart root",
                 ),
             )],
+        })?;
+        let text = expanded
+            .texts
+            .get(root)
+            .cloned()
+            .ok_or_else(|| CompileFailure {
+                diagnostics: vec![Diagnostic::error(
+                    "AVENGER-EXPAND-004",
+                    "expanded chart source is missing",
+                    SourceLabel::new(
+                        SourceSpan::empty(SourceId::new(0), 0),
+                        format!("no expansion was emitted for `{}`", root.as_str()),
+                    ),
+                )],
+            })?;
+        Ok(ExpandedSource {
+            text,
+            sources: expanded.project.sources,
+            source_map: expanded.source_map,
         })
     }
 
@@ -691,7 +716,18 @@ fn map_parsed_project_to_resolution(
     schema: &avenger_chart_schema::NativeSchemaSnapshot,
 ) -> CompileAttempt<ResolvedProject> {
     let result = attempt.result.and_then(|project| {
-        resolve_semantics(&project, schema)
+        let resolved = resolve_semantics(&project, schema)
+            .result
+            .map_err(|failure| CompileFailure {
+                diagnostics: failure.diagnostics,
+            })?;
+        if resolved.definitions.is_empty() {
+            return Ok(resolved);
+        }
+        let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
+            diagnostics: failure.diagnostics,
+        })?;
+        resolve_semantics(&expanded.project, schema)
             .result
             .map_err(|failure| CompileFailure {
                 diagnostics: failure.diagnostics,

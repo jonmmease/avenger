@@ -1854,3 +1854,65 @@ async fn vertical_slice_composed_registry_compiles_extensions_and_nested_coordin
         Err(ArtifactSerializationError::RegistryProfileMismatch { .. })
     ));
 }
+
+#[tokio::test]
+async fn expansion_custom_mark_compiles_through_canonical_group_source() {
+    let root = fixture("04_custom_error_bar");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let expanded = compiler
+        .expand_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+
+    for removed in [
+        "import 'error_bar.mark.avenger'",
+        "mark error_bar as errors",
+        "slot expr",
+        "define mark",
+    ] {
+        assert!(!expanded.text.contains(removed), "{}", expanded.text);
+    }
+    for retained in [
+        "group as errors",
+        "component_kind: error_bar;",
+        "export body.stem as stem;",
+        "export body.point as point;",
+        "private group as body",
+        "fill: value '#dc2626';",
+    ] {
+        assert!(expanded.text.contains(retained), "{}", expanded.text);
+    }
+    assert!(!expanded.source_map.mappings.is_empty());
+
+    let artifact = compiler
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let expanded_artifact = source_compiler(&expanded.text, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(artifact.compiled_plot()).unwrap(),
+        serde_json::to_value(expanded_artifact.compiled_plot()).unwrap(),
+        "compiling imported definitions and canonical expanded source must agree"
+    );
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .contains_key("chart.errors.stem")
+    );
+    assert!(
+        artifact
+            .interface
+            .public_targets
+            .contains_key("chart.errors.point")
+    );
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+}

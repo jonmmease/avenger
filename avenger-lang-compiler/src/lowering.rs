@@ -77,6 +77,10 @@ pub(crate) struct LoweredChart {
     pub artifact: CompiledChartArtifact,
 }
 
+type TransformStageFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<(DataFrame, DataTransformStage), Diagnostic>> + 'a>,
+>;
+
 pub(crate) async fn lower_project(
     project: &ResolvedProject,
     registry: &NativeRegistry,
@@ -1870,12 +1874,7 @@ impl<'a> ProjectLowerer<'a> {
         declaration: &'b ResolvedDeclaration,
         input: &'b DataFrame,
         inherited_scope: Option<avenger_chart_core::CoordinationScope>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<(DataFrame, DataTransformStage), Diagnostic>>
-                + 'b,
-        >,
-    > {
+    ) -> TransformStageFuture<'b> {
         Box::pin(async move {
             let kind = declaration.kind.as_deref().ok_or_else(|| {
                 lowerer_error(declaration, "native transform kind was not resolved")
