@@ -57,3 +57,36 @@ async fn catalog_project_compiles_two_charts_against_one_registered_catalog() {
     let project = compiler.compile_project(&root).await.unwrap();
     assert_eq!(project.charts.len(), 2);
 }
+
+#[tokio::test]
+async fn catalog_parameterized_tables_bind_defaults_named_args_and_forwarding() {
+    let root = project_fixture("phase9-parameterized");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let forwarded = analysis
+        .datasets
+        .iter()
+        .map(|(_, dataset)| dataset)
+        .find(|dataset| dataset.qualified_name.as_deref() == Some("local.forwarded"))
+        .unwrap();
+    assert_eq!(forwarded.columns[0].data_type, DataType::Utf8);
+    assert_eq!(forwarded.columns[1].data_type, DataType::Int64);
+
+    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    assert!(artifact.interface.params.contains_key("selected"));
+}
+
+#[tokio::test]
+async fn catalog_pack_alias_retargets_public_paths_without_capturing_internal_chains() {
+    let root = project_fixture("phase9-pack");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let names = analysis
+        .datasets
+        .iter()
+        .filter_map(|(_, dataset)| dataset.qualified_name.as_deref())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(names.contains("samples.movies"));
+    assert!(names.contains("samples.popular"));
+    compiler.compile_file("chart.avenger").await.unwrap();
+}

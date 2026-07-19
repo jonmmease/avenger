@@ -1,0 +1,11 @@
+avenger 1;
+
+import 'vega.data.avenger' as samples;
+
+chart cartesian as chart {
+  data: { table: 'samples.popular'; }
+  mark symbol {
+    x: "title";
+    y: "rating";
+  }
+}

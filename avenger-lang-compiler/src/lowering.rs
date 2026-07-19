@@ -4273,7 +4273,8 @@ impl<'a> ProjectLowerer<'a> {
             })?;
             sql = sql.replace(&binding_spelling(binding), &format!("${}", param.name));
         }
-        Ok(sql)
+        crate::catalog::expand_chart_sql(self.project, &sql)
+            .map_err(|error| lowerer_error(declaration, error))
     }
 
     fn direct_output(&self, expression: &ResolvedExpression) -> Option<&NativeOutputValue> {
@@ -4422,10 +4423,28 @@ impl<'a> ProjectLowerer<'a> {
                                 "data table name must be a string",
                             ));
                         };
-                        self.context
-                            .table(table.as_str())
-                            .await
-                            .map_err(|error| lowerer_error(declaration, error.to_string()))
+                        let arguments = properties
+                            .iter()
+                            .filter(|(name, _)| *name != "table")
+                            .map(|(name, value)| {
+                                self.table_binding_sql(value, declaration)
+                                    .map(|value| format!("{name} => {value}"))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?;
+                        if arguments.is_empty() {
+                            self.context
+                                .table(table.as_str())
+                                .await
+                                .map_err(|error| lowerer_error(declaration, error.to_string()))
+                        } else {
+                            let sql = format!("SELECT * FROM {table}({})", arguments.join(", "));
+                            let sql = crate::catalog::expand_chart_sql(self.project, &sql)
+                                .map_err(|error| lowerer_error(declaration, error))?;
+                            self.context
+                                .sql(&sql)
+                                .await
+                                .map_err(|error| lowerer_error(declaration, error.to_string()))
+                        }
                     }
                     "sql" => {
                         let ResolvedValue::Query(query) = &properties["sql"] else {
@@ -4510,6 +4529,34 @@ impl<'a> ProjectLowerer<'a> {
             .sql(&sql)
             .await
             .map_err(|error| lowerer_error(declaration, error.to_string()))
+    }
+
+    fn table_binding_sql(
+        &self,
+        value: &ResolvedValue,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<String, Diagnostic> {
+        match value {
+            ResolvedValue::Binding(ResolvedBinding {
+                target: ResolvedTarget::Param(id),
+                time: BindingTime::Current,
+                ..
+            }) => self
+                .params
+                .get(id)
+                .map(|param| format!("${}", param.name))
+                .ok_or_else(|| lowerer_error(declaration, "table binding param is unavailable")),
+            ResolvedValue::String(_)
+            | ResolvedValue::Number(_)
+            | ResolvedValue::Boolean(_)
+            | ResolvedValue::Null
+            | ResolvedValue::Array(_)
+            | ResolvedValue::Object { .. } => inline_literal_sql(value),
+            _ => Err(lowerer_error(
+                declaration,
+                "table parameter bindings must be scalar literals or current params",
+            )),
+        }
     }
 
     fn lower_layout(
@@ -5047,7 +5094,7 @@ fn physical_field(field: &PhysicalField) -> Field {
     )
 }
 
-fn physical_data_type(value: &PhysicalType) -> DataType {
+pub(crate) fn physical_data_type(value: &PhysicalType) -> DataType {
     match value {
         PhysicalType::Boolean => DataType::Boolean,
         PhysicalType::Int8 => DataType::Int8,
@@ -5223,6 +5270,22 @@ fn inline_literal_sql(value: &ResolvedValue) -> Result<String, Diagnostic> {
         ResolvedValue::Number(value) => Ok(value.clone()),
         ResolvedValue::Boolean(value) => Ok(value.to_string().to_uppercase()),
         ResolvedValue::Null => Ok("NULL".to_string()),
+        ResolvedValue::Array(values) => Ok(format!(
+            "[{}]",
+            values
+                .iter()
+                .map(inline_literal_sql)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ")
+        )),
+        ResolvedValue::Object { properties, .. } => {
+            let mut arguments = Vec::with_capacity(properties.len() * 2);
+            for (name, value) in properties {
+                arguments.push(format!("'{}'", name.replace('\'', "''")));
+                arguments.push(inline_literal_sql(value)?);
+            }
+            Ok(format!("named_struct({})", arguments.join(", ")))
+        }
         ResolvedValue::Expression(expression)
             if expression.bindings.is_empty()
                 && expression.helpers.is_empty()

@@ -1,11 +1,11 @@
 //! DataFusion-backed catalog registration and execution-free schema analysis.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
 
 use avenger_lang_core::{
-    DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, ResolvedCatalogTable,
-    ResolvedDeclaration, ResolvedProject, ResolvedValue, SourceLabel, SourceOrigin,
-    project::normalize_path,
+    DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
+    ResolvedCatalogTable, ResolvedDeclaration, ResolvedProject, ResolvedValue, SourceLabel,
+    SourceOrigin, project::normalize_path,
 };
 use datafusion::{
     catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
@@ -13,11 +13,19 @@ use datafusion::{
     datasource::TableProvider,
     prelude::{CsvReadOptions, JsonReadOptions, ParquetReadOptions, SessionContext},
 };
+use sqlparser::{
+    ast::{
+        Expr as SqlExpr, FunctionArg, FunctionArgExpr, FunctionArgOperator, Ident, ObjectName,
+        Statement, TableFactor, VisitMut, VisitorMut,
+    },
+    dialect::GenericDialect,
+    parser::Parser,
+};
 
 use crate::{
     AnalyzedColumn, AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironment, DatasetLineage,
     DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    ProjectDatasetId, TableFactoryRegistry,
+    ProjectDatasetId, TableFactoryRegistry, lowering::physical_data_type,
 };
 
 pub(crate) struct CatalogAnalysis {
@@ -119,6 +127,60 @@ pub(crate) async fn register_and_analyze_catalog(
         stages.insert(id.clone(), stage);
     }
 
+    // Imported packs keep their declaration-local registrations for planning
+    // internal chains, then gain chart-facing aliases by replacing the pack's
+    // single schema/catalog root with the import binding.
+    for (alias, table) in imported_table_aliases(project) {
+        if project.catalog_tables.contains_key(&alias) {
+            continue;
+        }
+        let Some(provider) = providers.get(&table.id).cloned() else {
+            continue;
+        };
+        let path = alias.split('.').map(str::to_owned).collect::<Vec<_>>();
+        register_table(context, &path, provider)
+            .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-006", message))?;
+        let reference = table_reference(&path)
+            .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-003", message))?;
+        let dataframe = context
+            .table(reference)
+            .await
+            .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-004", error.to_string()))?;
+        let dataset_id =
+            ProjectDatasetId::new(format!("catalog:{}:alias:{}", table.id.as_str(), alias));
+        let stage = DatasetStageId::new(dataset_id.clone(), 0);
+        datasets
+            .insert(AnalyzedDataset {
+                id: dataset_id,
+                stage: stage.clone(),
+                provenance: DatasetProvenance {
+                    declaration_span: table.span,
+                    stage_span: table.span,
+                    stage_kind: if table.kind == "sql" {
+                        DatasetStageKind::SqlView
+                    } else {
+                        DatasetStageKind::CatalogTable
+                    },
+                },
+                qualified_name: Some(alias),
+                columns: dataframe
+                    .schema()
+                    .iter()
+                    .map(|(qualifier, field)| AnalyzedColumn {
+                        name: field.name().clone(),
+                        qualifier: qualifier.map(ToString::to_string),
+                        data_type: field.data_type().clone(),
+                        nullable: field.is_nullable(),
+                    })
+                    .collect(),
+                schema: Arc::new(dataframe.schema().as_arrow().clone()),
+            })
+            .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
+        lineage
+            .insert(stage, DatasetLineage::default())
+            .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
+    }
+
     Ok(CatalogAnalysis { datasets, lineage })
 }
 
@@ -202,7 +264,10 @@ async fn create_table_provider(
                         "`table sql` requires a query-valued `sql:` property",
                     )
                 })?;
-            let sql = bind_table_defaults(project, table, &query.sql)?;
+            let sql =
+                expand_catalog_sql(project, &query.sql, Some(table), true).map_err(|message| {
+                    declaration_diagnostic(declaration, "AVENGER-DATA-050", message)
+                })?;
             context
                 .sql(&sql)
                 .await
@@ -406,41 +471,324 @@ fn ensure_schema(
     Ok(())
 }
 
-fn bind_table_defaults(
-    project: &ResolvedProject,
-    table: &ResolvedCatalogTable,
-    sql: &str,
-) -> Result<String, Diagnostic> {
-    let mut bound = sql.to_owned();
-    for param_id in &table.params {
-        let param = &project.params[param_id];
-        let literal = scalar_literal_sql(&param.default)
-            .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-050", message))?;
-        bound = replace_placeholder(&bound, &param.source_name, &literal);
-    }
-    Ok(bound)
+/// Expand Avenger parameterized table invocations into ordinary derived SQL
+/// tables before handing the canonical query to DataFusion's parser.
+pub(crate) fn expand_chart_sql(project: &ResolvedProject, sql: &str) -> Result<String, String> {
+    expand_catalog_sql(project, sql, None, false)
 }
 
-fn replace_placeholder(sql: &str, name: &str, replacement: &str) -> String {
-    let needle = format!("${name}");
-    let mut result = String::with_capacity(sql.len());
-    let mut rest = sql;
-    while let Some(offset) = rest.find(&needle) {
-        result.push_str(&rest[..offset]);
-        let after = &rest[offset + needle.len()..];
-        if after
-            .chars()
-            .next()
-            .is_some_and(|character| character == '_' || character.is_alphanumeric())
-        {
-            result.push_str(&needle);
-        } else {
-            result.push_str(replacement);
-        }
-        rest = after;
+fn expand_catalog_sql(
+    project: &ResolvedProject,
+    sql: &str,
+    caller: Option<&ResolvedCatalogTable>,
+    bind_caller_defaults: bool,
+) -> Result<String, String> {
+    let mut statement = parse_query_statement(sql)?;
+    if bind_caller_defaults && let Some(caller) = caller {
+        let bindings = default_param_expressions(project, caller)?;
+        substitute_query_params(&mut statement, &bindings)?;
     }
-    result.push_str(rest);
+    let prefix = caller
+        .map(|table| &table.path[..table.path.len().saturating_sub(1)])
+        .unwrap_or(&[]);
+    let mut expander = TableFunctionExpander {
+        project,
+        prefix,
+        error: None,
+    };
+    if let ControlFlow::Break(()) = statement.visit(&mut expander) {
+        return Err(expander
+            .error
+            .unwrap_or_else(|| "table-function expansion stopped".to_owned()));
+    }
+    Ok(statement.to_string())
+}
+
+fn parse_query_statement(sql: &str) -> Result<Statement, String> {
+    let statements = Parser::parse_sql(&GenericDialect, sql).map_err(|error| error.to_string())?;
+    let [statement] = statements.as_slice() else {
+        return Err("SQL source must contain exactly one query".to_owned());
+    };
+    if !matches!(statement, Statement::Query(_)) {
+        return Err("SQL source must be a query".to_owned());
+    }
+    Ok(statement.clone())
+}
+
+struct TableFunctionExpander<'a> {
+    project: &'a ResolvedProject,
+    prefix: &'a [String],
+    error: Option<String>,
+}
+
+impl VisitorMut for TableFunctionExpander<'_> {
+    type Break = ();
+
+    fn pre_visit_table_factor(
+        &mut self,
+        table_factor: &mut TableFactor,
+    ) -> ControlFlow<Self::Break> {
+        let TableFactor::Table {
+            name, alias, args, ..
+        } = table_factor
+        else {
+            return ControlFlow::Continue(());
+        };
+        let authored_name = name.to_string();
+        let Some(table) = resolve_table_name(self.project, self.prefix, &authored_name) else {
+            // DataFusion may own ordinary table functions; only Avenger table
+            // declarations are rewritten here.
+            return ControlFlow::Continue(());
+        };
+        let Some(arguments) = args else {
+            if !authored_name.contains('.') && table.path.len() > 1 {
+                *name = ObjectName::from(
+                    table
+                        .path
+                        .iter()
+                        .map(|component| Ident::new(component))
+                        .collect::<Vec<_>>(),
+                );
+            }
+            return ControlFlow::Continue(());
+        };
+        let alias = alias.clone();
+        let arguments = arguments.clone();
+        match instantiate_table_query(self.project, table, &arguments.args) {
+            Ok(subquery) => {
+                *table_factor = TableFactor::Derived {
+                    lateral: false,
+                    subquery: Box::new(subquery),
+                    alias,
+                    sample: None,
+                };
+                ControlFlow::Continue(())
+            }
+            Err(error) => {
+                self.error = Some(error);
+                ControlFlow::Break(())
+            }
+        }
+    }
+}
+
+fn instantiate_table_query(
+    project: &ResolvedProject,
+    table: &ResolvedCatalogTable,
+    arguments: &[FunctionArg],
+) -> Result<sqlparser::ast::Query, String> {
+    if table.kind != "sql" {
+        return Err(format!(
+            "table `{}` is not parameterizable because it is `{}` rather than `sql`",
+            table.path.join("."),
+            table.kind
+        ));
+    }
+    let declarations = declaration_index(project);
+    let declaration = declarations
+        .get(&table.id)
+        .copied()
+        .ok_or_else(|| format!("table `{}` declaration is missing", table.path.join(".")))?;
+    let query = match declaration.properties.get("sql") {
+        Some(ResolvedValue::Query(query)) => query,
+        _ => return Err(format!("table `{}` has no SQL query", table.path.join("."))),
+    };
+    let mut bindings = default_param_expressions(project, table)?;
+    let mut supplied = std::collections::BTreeSet::new();
+    for argument in arguments {
+        let FunctionArg::Named {
+            name,
+            arg: FunctionArgExpr::Expr(expression),
+            operator: FunctionArgOperator::RightArrow,
+        } = argument
+        else {
+            return Err(format!(
+                "table `{}` arguments must use named `name => value` syntax",
+                table.path.join(".")
+            ));
+        };
+        let name = name.value.clone();
+        if !supplied.insert(name.clone()) {
+            return Err(format!(
+                "table argument `{name}` is supplied more than once"
+            ));
+        }
+        let param = table
+            .params
+            .iter()
+            .filter_map(|id| project.params.get(id))
+            .find(|param| param.source_name == name)
+            .ok_or_else(|| {
+                format!(
+                    "table `{}` has no parameter named `{name}`",
+                    table.path.join(".")
+                )
+            })?;
+        if !scalar_argument(expression) {
+            return Err(format!(
+                "table argument `{name}` must be a scalar literal or visible `$param`"
+            ));
+        }
+        bindings.insert(
+            name,
+            typed_expression(expression.clone(), &param.data_type)?,
+        );
+    }
+
+    let mut statement = parse_query_statement(&query.sql)?;
+    substitute_query_params(&mut statement, &bindings)?;
+    let prefix = &table.path[..table.path.len().saturating_sub(1)];
+    let mut expander = TableFunctionExpander {
+        project,
+        prefix,
+        error: None,
+    };
+    if let ControlFlow::Break(()) = statement.visit(&mut expander) {
+        return Err(expander
+            .error
+            .unwrap_or_else(|| "nested table-function expansion stopped".to_owned()));
+    }
+    match statement {
+        Statement::Query(query) => Ok(*query),
+        _ => unreachable!(),
+    }
+}
+
+fn resolve_table_name<'a>(
+    project: &'a ResolvedProject,
+    prefix: &[String],
+    name: &str,
+) -> Option<&'a ResolvedCatalogTable> {
+    let normalized = name
+        .split('.')
+        .map(|component| component.trim_matches('"'))
+        .collect::<Vec<_>>()
+        .join(".");
+    if !normalized.contains('.') && !prefix.is_empty() {
+        let qualified = format!("{}.{}", prefix.join("."), normalized);
+        if let Some(table) = project.catalog_tables.get(&qualified) {
+            return Some(table);
+        }
+    }
+    project
+        .catalog_tables
+        .get(&normalized)
+        .or_else(|| imported_table_aliases(project).get(&normalized).copied())
+}
+
+fn imported_table_aliases(project: &ResolvedProject) -> BTreeMap<String, &ResolvedCatalogTable> {
+    let mut result = BTreeMap::new();
+    for importer in project.files.values() {
+        for (binding, imported_file) in &importer.imports {
+            let Some(file) = project.files.get(imported_file) else {
+                continue;
+            };
+            if !matches!(file.kind, avenger_lang_core::ProjectFileKind::Data) {
+                continue;
+            }
+            let root_name = file
+                .roots
+                .iter()
+                .find(|root| matches!(root.keyword.as_str(), "schema" | "catalog"))
+                .and_then(|root| root.name.as_deref());
+            let Some(root_name) = root_name else {
+                continue;
+            };
+            for table in project
+                .catalog_tables
+                .values()
+                .filter(|table| &table.file == imported_file)
+            {
+                if table.path.first().is_some_and(|root| root == root_name) {
+                    let mut path = table.path.clone();
+                    path[0] = binding.clone();
+                    result.insert(path.join("."), table);
+                }
+            }
+        }
+    }
     result
+}
+
+fn default_param_expressions(
+    project: &ResolvedProject,
+    table: &ResolvedCatalogTable,
+) -> Result<BTreeMap<String, SqlExpr>, String> {
+    table
+        .params
+        .iter()
+        .map(|id| {
+            let param = &project.params[id];
+            let literal = scalar_literal_sql(&param.default)?;
+            let expression = parse_sql_expression(&literal)?;
+            Ok((
+                param.source_name.clone(),
+                typed_expression(expression, &param.data_type)?,
+            ))
+        })
+        .collect()
+}
+
+fn typed_expression(expression: SqlExpr, data_type: &PhysicalType) -> Result<SqlExpr, String> {
+    let arrow_type = format!("{:?}", physical_data_type(data_type));
+    parse_sql_expression(&format!(
+        "arrow_cast(({expression}), '{}')",
+        arrow_type.replace('\'', "''")
+    ))
+}
+
+fn parse_sql_expression(sql: &str) -> Result<SqlExpr, String> {
+    Parser::new(&GenericDialect)
+        .try_with_sql(sql)
+        .map_err(|error| error.to_string())?
+        .parse_expr()
+        .map_err(|error| error.to_string())
+}
+
+fn scalar_argument(expression: &SqlExpr) -> bool {
+    matches!(
+        expression,
+        SqlExpr::Value(_)
+            | SqlExpr::Array(_)
+            | SqlExpr::Struct { .. }
+            | SqlExpr::Dictionary(_)
+            | SqlExpr::Tuple(_)
+            | SqlExpr::UnaryOp { .. }
+            | SqlExpr::Function(_)
+            | SqlExpr::Cast { .. }
+            | SqlExpr::Nested(_)
+    )
+}
+
+fn substitute_query_params(
+    statement: &mut Statement,
+    bindings: &BTreeMap<String, SqlExpr>,
+) -> Result<(), String> {
+    struct Substituter<'a> {
+        bindings: &'a BTreeMap<String, SqlExpr>,
+    }
+    impl VisitorMut for Substituter<'_> {
+        type Break = ();
+
+        fn pre_visit_expr(&mut self, expression: &mut SqlExpr) -> ControlFlow<Self::Break> {
+            let SqlExpr::Value(value) = expression else {
+                return ControlFlow::Continue(());
+            };
+            let sqlparser::ast::Value::Placeholder(placeholder) = &value.value else {
+                return ControlFlow::Continue(());
+            };
+            if let Some(replacement) = placeholder
+                .strip_prefix('$')
+                .and_then(|name| self.bindings.get(name))
+            {
+                *expression = replacement.clone();
+            }
+            ControlFlow::Continue(())
+        }
+    }
+    let mut substituter = Substituter { bindings };
+    let _ = statement.visit(&mut substituter);
+    Ok(())
 }
 
 fn inline_values_sql(value: &ResolvedValue) -> Result<String, String> {
@@ -491,6 +839,22 @@ fn scalar_literal_sql(value: &ResolvedValue) -> Result<String, String> {
         ResolvedValue::Number(value) => Ok(value.clone()),
         ResolvedValue::Boolean(value) => Ok(if *value { "TRUE" } else { "FALSE" }.to_owned()),
         ResolvedValue::Null => Ok("NULL".to_owned()),
+        ResolvedValue::Array(values) => Ok(format!(
+            "[{}]",
+            values
+                .iter()
+                .map(scalar_literal_sql)
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ")
+        )),
+        ResolvedValue::Object { properties, .. } => {
+            let mut arguments = Vec::with_capacity(properties.len() * 2);
+            for (name, value) in properties {
+                arguments.push(format!("'{}'", name.replace('\'', "''")));
+                arguments.push(scalar_literal_sql(value)?);
+            }
+            Ok(format!("named_struct({})", arguments.join(", ")))
+        }
         _ => Err("table parameter and inline values must be scalar SQL literals".to_owned()),
     }
 }

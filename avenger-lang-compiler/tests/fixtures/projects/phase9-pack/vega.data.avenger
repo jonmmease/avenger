@@ -1,0 +1,13 @@
+avenger 1;
+
+schema tables as vega {
+  table inline as movies {
+    values: [
+      { title: 'A'; rating: 8.5; },
+      { title: 'B'; rating: 7.0; },
+    ];
+  }
+  table sql as popular {
+    sql: SELECT * FROM movies WHERE "rating" >= 8;
+  }
+}

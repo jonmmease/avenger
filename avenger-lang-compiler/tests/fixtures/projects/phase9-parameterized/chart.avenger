@@ -1,0 +1,14 @@
+avenger 1;
+
+chart cartesian as chart {
+  param as selected { type: utf8; default: 'Manhattan'; }
+  data: {
+    table: 'local.borough_trips';
+    borough: $selected;
+    min_fare: 5;
+  }
+  mark symbol {
+    x: "borough";
+    y: "fare";
+  }
+}

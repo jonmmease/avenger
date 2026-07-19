@@ -4886,12 +4886,10 @@ impl<'a> Resolver<'a> {
                 let dependencies = resolved_param_dependencies(&default);
                 let table_owner = self.table_owner(&info.id);
                 if table_owner.is_some()
-                    && !declaration.props.get("default").is_some_and(|value| {
-                        matches!(
-                            value,
-                            Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null
-                        )
-                    })
+                    && !declaration
+                        .props
+                        .get("default")
+                        .is_some_and(is_self_contained_scalar_literal)
                 {
                     self.error(
                         "AVENGER-RESOLVE-135",
@@ -7391,6 +7389,21 @@ fn value_matches_shape(value: &ResolvedValue, shape: &ValueShape) -> bool {
             _ => false,
         },
         ValueShape::Object(_) => matches!(value, ResolvedValue::Object { .. }),
+    }
+}
+
+fn is_self_contained_scalar_literal(value: &Value) -> bool {
+    match value {
+        Value::Str(_) | Value::Num(_) | Value::Bool(_) | Value::Null => true,
+        Value::Array(values) => values.iter().all(is_self_contained_scalar_literal),
+        Value::Block { head: None, body } => {
+            body.children.is_empty()
+                && body
+                    .props
+                    .iter()
+                    .all(|(_, value)| is_self_contained_scalar_literal(value))
+        }
+        _ => false,
     }
 }
 
