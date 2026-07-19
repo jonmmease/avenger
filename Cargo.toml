@@ -148,6 +148,7 @@ datafusion = { version = "54.0.0", default-features = false, features = [
     "encoding_expressions",
     "math_expressions",
     "nested_expressions",
+    "parquet",
     "recursive_protection",
     "regex_expressions",
     "sql",

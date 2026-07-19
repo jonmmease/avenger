@@ -71,6 +71,7 @@ use crate::{
 
 pub(crate) struct LoweredProject {
     pub charts: Vec<LoweredChart>,
+    #[allow(dead_code)]
     pub analysis_schemas: Vec<(DeclarationId, SourceSpan, Arc<Schema>)>,
 }
 

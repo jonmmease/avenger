@@ -1,0 +1,9 @@
+avenger 1;
+
+chart cartesian as movies {
+  data: { table: 'vega.popular'; }
+  mark symbol {
+    x: "year";
+    y: "rating";
+  }
+}

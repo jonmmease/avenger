@@ -8,6 +8,7 @@
 
 mod analysis;
 mod artifact;
+mod catalog;
 mod compiler;
 mod lowering;
 mod options;
@@ -15,8 +16,9 @@ mod schema;
 mod source_loader;
 
 pub use analysis::{
-    AnalyzedDataset, ColumnLineage, DatasetLineage, DatasetLineageIndex, DatasetProvenance,
-    DatasetSchemaIndex, DatasetStageId, DatasetStageKind, ProjectAnalysis, ProjectDatasetId,
+    AnalyzedColumn, AnalyzedDataset, ColumnLineage, DatasetLineage, DatasetLineageIndex,
+    DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, ProjectAnalysis,
+    ProjectDatasetId,
 };
 pub use artifact::{
     ArtifactCacheKey, ArtifactSerializationError, COMPILED_ARTIFACT_FORMAT_MAJOR,
@@ -30,7 +32,7 @@ pub use compiler::{
 pub use options::{
     CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment,
     CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest, CompilerOptions,
-    DefaultCompileEnvironmentFactory,
+    DefaultCompileEnvironmentFactory, TableFactory, TableFactoryError, TableFactoryRegistry,
 };
 pub use schema::{LanguageHost, SemanticJsonSchema};
 pub use source_loader::{DefaultSourceLoader, SourceLoaderLimits};

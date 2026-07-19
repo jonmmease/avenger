@@ -1,0 +1,31 @@
+avenger 1;
+
+table inline as regions {
+  values: [
+    { region: 'east'; value: 3; },
+    { region: 'west'; value: 5; },
+  ];
+}
+
+schema tables as vega {
+  table inline as movies {
+    values: [
+      { title: 'A'; rating: 8.5; year: 2020; },
+      { title: 'B'; rating: 7.0; year: 2021; },
+    ];
+  }
+
+  table sql as popular {
+    sql:
+      SELECT "title", "rating", "year"
+      FROM vega.movies
+      WHERE "rating" >= 8;
+  }
+
+  table sql as popular_from_first {
+    sql:
+      FROM vega.movies
+      SELECT "title", "rating", "year"
+      WHERE "rating" >= 8;
+  }
+}

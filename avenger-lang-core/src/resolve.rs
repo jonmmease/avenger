@@ -210,11 +210,31 @@ pub struct ResolvedProject {
     pub selections: BTreeMap<SelectionId, ResolvedSelection>,
     pub public_targets: BTreeMap<String, ResolvedTarget>,
     pub param_default_order: Vec<ParamId>,
+    /// Catalog tables keyed by their declaration-local SQL path. Import aliases
+    /// are applied when a project analysis environment exposes a data pack;
+    /// queries inside the pack continue to use these local paths.
+    pub catalog_tables: BTreeMap<String, ResolvedCatalogTable>,
     pub table_order: Vec<DeclarationId>,
     pub definition_import_order: Vec<ProjectFileId>,
     /// Empty for ordinary projects; populated by the compiler when imported
     /// definitions were expanded before final semantic resolution.
     pub expansion_source_map: ExpansionSourceMap,
+}
+
+/// Planning metadata for one catalog table declaration.
+///
+/// This stays DataFusion-independent so resolution can run in lightweight
+/// tooling. The compiler attaches providers and exact Arrow schemas later.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedCatalogTable {
+    pub id: DeclarationId,
+    pub file: ProjectFileId,
+    pub source: SourceId,
+    pub span: SourceSpan,
+    pub path: Vec<String>,
+    pub kind: String,
+    pub params: Vec<ParamId>,
+    pub dependencies: Vec<DeclarationId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -693,6 +713,7 @@ impl<'a> Resolver<'a> {
                 selections: self.selections.clone(),
                 public_targets,
                 param_default_order,
+                catalog_tables: self.resolved_catalog_tables(),
                 table_order,
                 definition_import_order,
                 expansion_source_map: ExpansionSourceMap::default(),
@@ -6738,6 +6759,45 @@ impl<'a> Resolver<'a> {
             .iter()
             .find_map(|(name, candidate)| (candidate == id).then_some(name.clone()))
             .unwrap_or_else(|| id.as_str().to_owned())
+    }
+
+    fn resolved_catalog_tables(&self) -> BTreeMap<String, ResolvedCatalogTable> {
+        self.table_names
+            .iter()
+            .filter_map(|(name, id)| {
+                let ((file_id, _), info) =
+                    self.declarations.iter().find(|(_, info)| &info.id == id)?;
+                let (_, declaration) = self.declaration_source(id)?;
+                let params = self
+                    .params
+                    .values()
+                    .filter(|param| param.table_owner.as_ref() == Some(id))
+                    .map(|param| param.id.clone())
+                    .collect::<Vec<_>>();
+                Some((
+                    name.clone(),
+                    ResolvedCatalogTable {
+                        id: id.clone(),
+                        file: file_id.clone(),
+                        source: info.span.source,
+                        span: info.span,
+                        path: name.split('.').map(str::to_owned).collect(),
+                        kind: declaration
+                            .kind
+                            .as_ref()
+                            .map_or_else(|| "unknown".to_owned(), ToString::to_string),
+                        params,
+                        dependencies: self
+                            .table_dependencies
+                            .get(id)
+                            .into_iter()
+                            .flatten()
+                            .cloned()
+                            .collect(),
+                    },
+                ))
+            })
+            .collect()
     }
 
     fn error(

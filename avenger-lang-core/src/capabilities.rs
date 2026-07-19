@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +43,31 @@ pub struct DataCapabilities {
     pub allow_filesystem: bool,
     pub allow_http: bool,
     pub allow_environment: bool,
+    /// Non-file object-store URI schemes explicitly admitted by the host.
+    pub object_store_schemes: BTreeSet<String>,
+    /// When non-empty, environment access is further restricted to these
+    /// exact variable names.
+    pub environment_names: BTreeSet<String>,
+}
+
+impl DataCapabilities {
+    /// Normal local-project defaults. Path containment is enforced by the
+    /// compiler against its separately configured project root.
+    pub fn project() -> Self {
+        Self {
+            allow_filesystem: true,
+            ..Self::default()
+        }
+    }
+
+    pub fn allows_environment(&self, name: &str) -> bool {
+        self.allow_environment
+            && (self.environment_names.is_empty() || self.environment_names.contains(name))
+    }
+
+    pub fn allows_object_store_scheme(&self, scheme: &str) -> bool {
+        self.object_store_schemes.contains(scheme)
+    }
 }
 
 /// Explicit environment lookup seam. Compilation never reads ambient process

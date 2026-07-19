@@ -1,0 +1,9 @@
+avenger 1;
+
+chart cartesian as regions {
+  data: { table: 'regions'; }
+  mark symbol {
+    x: "region";
+    y: "value";
+  }
+}

@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use arrow::datatypes::SchemaRef;
+use arrow::datatypes::{DataType, SchemaRef};
 use avenger_chart_lang_registry::NativeRegistryProfileId;
 use avenger_lang_core::{SourceMap, SourceSpan};
 use serde::{Deserialize, Serialize};
@@ -56,7 +56,20 @@ pub struct AnalyzedDataset {
     pub id: ProjectDatasetId,
     pub stage: DatasetStageId,
     pub provenance: DatasetProvenance,
+    /// SQL-visible relation or stage name when one exists.
+    pub qualified_name: Option<String>,
+    /// DataFusion's resolved qualification, Arrow type, and nullability for
+    /// each output column. `schema` remains the convenient Arrow view.
+    pub columns: Vec<AnalyzedColumn>,
     pub schema: SchemaRef,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnalyzedColumn {
+    pub name: String,
+    pub qualifier: Option<String>,
+    pub data_type: DataType,
+    pub nullable: bool,
 }
 
 impl std::fmt::Debug for AnalyzedDataset {
@@ -65,6 +78,8 @@ impl std::fmt::Debug for AnalyzedDataset {
             .field("id", &self.id)
             .field("stage", &self.stage)
             .field("provenance", &self.provenance)
+            .field("qualified_name", &self.qualified_name)
+            .field("columns", &self.columns)
             .field("schema", &self.schema)
             .finish()
     }

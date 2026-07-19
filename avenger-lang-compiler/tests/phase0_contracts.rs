@@ -271,6 +271,8 @@ fn dataset_schema_index_keeps_physical_schema_and_source_provenance() {
                 stage_span: SourceSpan::new(source_id, 0, 7).unwrap(),
                 stage_kind: DatasetStageKind::DatasetSource,
             },
+            qualified_name: None,
+            columns: Vec::new(),
             schema: schema.clone(),
         })
         .unwrap();
@@ -292,6 +294,8 @@ fn dataset_schema_index_keeps_physical_schema_and_source_provenance() {
                 id: dataset,
                 stage: stage.clone(),
                 provenance: original_provenance,
+                qualified_name: None,
+                columns: Vec::new(),
                 schema: replacement_schema,
             })
             .is_err()

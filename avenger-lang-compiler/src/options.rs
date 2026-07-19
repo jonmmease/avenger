@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use avenger_chart_lang_registry::NativeRegistry;
 use avenger_lang_core::{DataCapabilities, EnvironmentProvider, ImportCapabilities, SourceLoader};
-use datafusion::{catalog::CatalogProvider, prelude::SessionContext};
+use datafusion::{catalog::CatalogProvider, datasource::TableProvider, prelude::SessionContext};
 
 #[derive(Clone)]
 pub struct CompileEnvironment {
@@ -106,6 +106,57 @@ pub enum CatalogFactoryError {
     Message(String),
 }
 
+/// Host extension point for table formats such as Delta Lake. Built-in file,
+/// SQL, and inline tables bypass this registry.
+#[async_trait]
+pub trait TableFactory: Send + Sync {
+    async fn create(
+        &self,
+        options: &serde_json::Value,
+        environment: &CompileEnvironment,
+    ) -> Result<Arc<dyn TableProvider>, TableFactoryError>;
+}
+
+#[derive(Clone, Default)]
+pub struct TableFactoryRegistry {
+    factories: BTreeMap<String, Arc<dyn TableFactory>>,
+}
+
+impl TableFactoryRegistry {
+    pub fn register(
+        &mut self,
+        kind: impl Into<String>,
+        factory: Arc<dyn TableFactory>,
+    ) -> Result<(), TableFactoryError> {
+        let kind = kind.into();
+        if self.factories.contains_key(&kind) {
+            return Err(TableFactoryError::DuplicateKind(kind));
+        }
+        self.factories.insert(kind, factory);
+        Ok(())
+    }
+
+    pub fn get(&self, kind: &str) -> Option<&Arc<dyn TableFactory>> {
+        self.factories.get(kind)
+    }
+}
+
+impl std::fmt::Debug for TableFactoryRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TableFactoryRegistry")
+            .field("kinds", &self.factories.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+#[derive(Clone, Debug, thiserror::Error)]
+pub enum TableFactoryError {
+    #[error("duplicate table factory kind '{0}'")]
+    DuplicateKind(String),
+    #[error("table factory failed: {0}")]
+    Message(String),
+}
+
 #[derive(Clone)]
 pub struct CompilerOptions {
     pub project_root: PathBuf,
@@ -115,6 +166,7 @@ pub struct CompilerOptions {
     pub native_registry: Arc<NativeRegistry>,
     pub source_loader: Arc<dyn SourceLoader>,
     pub catalog_factories: CatalogFactoryRegistry,
+    pub table_factories: TableFactoryRegistry,
     pub environment_factory: Arc<dyn CompileEnvironmentFactory>,
 }
 
@@ -129,6 +181,7 @@ impl std::fmt::Debug for CompilerOptions {
                 &self.native_registry.profile_id(),
             )
             .field("catalog_factories", &self.catalog_factories)
+            .field("table_factories", &self.table_factories)
             .finish_non_exhaustive()
     }
 }

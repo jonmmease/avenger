@@ -22,10 +22,11 @@ use datafusion::logical_expr::col;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
-    CompiledChartArtifact, CompiledProject, CompilerOptions, DatasetProvenance, DatasetStageId,
-    DatasetStageKind, DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint,
-    LanguageHost, ProjectAnalysis, ProjectChartId, ProjectDatasetId, ProjectFingerprint,
+    CatalogFactoryRegistry, CompileEnvironmentFactory, CompileEnvironmentRequest,
+    CompiledChartArtifact, CompiledProject, CompilerOptions, DefaultCompileEnvironmentFactory,
+    DefaultSourceLoader, DependencyFingerprint, LanguageHost, ProjectAnalysis, ProjectChartId,
+    ProjectFingerprint, TableFactoryRegistry,
+    catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
     lowering::{LoweredProject, compiled_project_from_lowered, lower_project},
 };
 
@@ -227,37 +228,14 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let project = self.resolve_project_graph_attempt(root).await.result?;
-        let (lowered, _environment) = self.lower_resolved_project(&project, 0).await?;
+        let (_environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
         let mut analysis = ProjectAnalysis::empty(
             project.sources.clone(),
             self.options.native_registry.profile_id().clone(),
             ProjectFingerprint::new(project.source_fingerprint.clone()),
         );
-        for (ordinal, (declaration, span, schema)) in
-            lowered.analysis_schemas.into_iter().enumerate()
-        {
-            let dataset = ProjectDatasetId::new(declaration.as_str());
-            let stage = DatasetStageId::new(dataset.clone(), ordinal as u32);
-            analysis
-                .datasets
-                .insert(AnalyzedDataset {
-                    id: dataset,
-                    stage,
-                    provenance: DatasetProvenance {
-                        declaration_span: span,
-                        stage_span: span,
-                        stage_kind: DatasetStageKind::DatasetSource,
-                    },
-                    schema,
-                })
-                .map_err(|error| CompileFailure {
-                    diagnostics: vec![Diagnostic::error(
-                        "AVENGER-LOWER-004",
-                        "dataset analysis indexing failed",
-                        SourceLabel::new(span, error.to_string()),
-                    )],
-                })?;
-        }
+        analysis.datasets = catalog.datasets;
+        analysis.lineage = catalog.lineage;
         Ok(analysis)
     }
 
@@ -526,6 +504,24 @@ impl Compiler {
         project: &ResolvedProject,
         generation: u64,
     ) -> Result<(LoweredProject, crate::CompileEnvironment), CompileFailure> {
+        let (environment, _catalog) = self.analyze_resolved_project(project, generation).await?;
+        let lowered = lower_project(
+            project,
+            self.options.native_registry.as_ref(),
+            environment.session_context(),
+            self.options.source_loader.as_ref(),
+            &self.options.import_capabilities,
+        )
+        .await
+        .map_err(|diagnostics| CompileFailure { diagnostics })?;
+        Ok((lowered, environment))
+    }
+
+    async fn analyze_resolved_project(
+        &self,
+        project: &ResolvedProject,
+        generation: u64,
+    ) -> Result<(crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
         let request = CompileEnvironmentRequest {
             generation,
             native_registry_profile: self
@@ -546,16 +542,22 @@ impl Compiler {
                     SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
                 )],
             })?;
-        let lowered = lower_project(
+        let catalog = register_and_analyze_catalog(
             project,
-            self.options.native_registry.as_ref(),
-            environment.session_context(),
-            self.options.source_loader.as_ref(),
-            &self.options.import_capabilities,
+            &environment,
+            CatalogOptions {
+                project_root: &self.options.project_root,
+                capabilities: &self.options.data_capabilities,
+                environment_provider: self.options.environment.as_ref(),
+                catalog_factories: &self.options.catalog_factories,
+                table_factories: &self.options.table_factories,
+            },
         )
         .await
-        .map_err(|diagnostics| CompileFailure { diagnostics })?;
-        Ok((lowered, environment))
+        .map_err(|diagnostic| CompileFailure {
+            diagnostics: vec![diagnostic],
+        })?;
+        Ok((environment, catalog))
     }
 }
 
@@ -563,11 +565,12 @@ impl Compiler {
 pub struct CompilerBuilder {
     project_root: Option<PathBuf>,
     import_capabilities: Option<ImportCapabilities>,
-    data_capabilities: DataCapabilities,
+    data_capabilities: Option<DataCapabilities>,
     environment: Option<Arc<dyn EnvironmentProvider>>,
     native_registry: Option<Arc<NativeRegistry>>,
     source_loader: Option<Arc<dyn SourceLoader>>,
     catalog_factories: CatalogFactoryRegistry,
+    table_factories: TableFactoryRegistry,
     environment_factory: Option<Arc<dyn CompileEnvironmentFactory>>,
 }
 
@@ -583,7 +586,7 @@ impl CompilerBuilder {
     }
 
     pub fn data_capabilities(mut self, capabilities: DataCapabilities) -> Self {
-        self.data_capabilities = capabilities;
+        self.data_capabilities = Some(capabilities);
         self
     }
 
@@ -604,6 +607,11 @@ impl CompilerBuilder {
 
     pub fn catalog_factories(mut self, catalog_factories: CatalogFactoryRegistry) -> Self {
         self.catalog_factories = catalog_factories;
+        self
+    }
+
+    pub fn table_factories(mut self, table_factories: TableFactoryRegistry) -> Self {
+        self.table_factories = table_factories;
         self
     }
 
@@ -634,13 +642,16 @@ impl CompilerBuilder {
                 .import_capabilities
                 .unwrap_or_else(|| ImportCapabilities::project(&project_root)),
             project_root,
-            data_capabilities: self.data_capabilities,
+            data_capabilities: self
+                .data_capabilities
+                .unwrap_or_else(DataCapabilities::project),
             environment: self
                 .environment
                 .unwrap_or_else(|| Arc::new(EmptyEnvironmentProvider)),
             native_registry: registry.clone(),
             source_loader,
             catalog_factories: self.catalog_factories,
+            table_factories: self.table_factories,
             environment_factory: self
                 .environment_factory
                 .unwrap_or_else(|| Arc::new(DefaultCompileEnvironmentFactory)),
