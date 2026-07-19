@@ -90,3 +90,26 @@ async fn catalog_pack_alias_retargets_public_paths_without_capturing_internal_ch
     assert!(names.contains("samples.popular"));
     compiler.compile_file("chart.avenger").await.unwrap();
 }
+
+#[tokio::test]
+async fn catalog_file_providers_expose_csv_json_parquet_directory_glob_and_ipc_schemas() {
+    let root = project_fixture("phase9-files");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let analysis = compiler.analyze_project(&root).await.unwrap();
+    let names = analysis
+        .datasets
+        .iter()
+        .filter_map(|(_, dataset)| dataset.qualified_name.as_deref())
+        .collect::<std::collections::BTreeSet<_>>();
+    for expected in [
+        "files.rows",
+        "files.events",
+        "files.iris",
+        "files.directory",
+        "files.globbed",
+        "files.taxi",
+    ] {
+        assert!(names.contains(expected), "missing schema for {expected}");
+    }
+    compiler.compile_file("chart.avenger").await.unwrap();
+}

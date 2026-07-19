@@ -1,0 +1,6 @@
+avenger 1;
+
+chart cartesian as chart {
+  data: { table: 'files.rows'; }
+  mark symbol { x: "name"; y: "value"; }
+}

@@ -1,6 +1,11 @@
 //! DataFusion-backed catalog registration and execution-free schema analysis.
 
-use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
+use std::{collections::BTreeMap, fs::File, io::BufReader, ops::ControlFlow, sync::Arc};
+
+use arrow::{
+    ipc::reader::{FileReader as IpcFileReader, StreamReader as IpcStreamReader},
+    record_batch::RecordBatch,
+};
 
 use avenger_lang_core::{
     DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
@@ -10,7 +15,7 @@ use avenger_lang_core::{
 use datafusion::{
     catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
     common::TableReference,
-    datasource::TableProvider,
+    datasource::{TableProvider, memory::MemTable},
     prelude::{CsvReadOptions, JsonReadOptions, ParquetReadOptions, SessionContext},
 };
 use sqlparser::{
@@ -279,12 +284,94 @@ async fn create_table_provider(
         "csv" | "json" | "parquet" => {
             let path = table_path(project, declaration, options)?;
             let dataframe = match table.kind.as_str() {
-                "csv" => context.read_csv(path, CsvReadOptions::new()).await,
-                "json" => context.read_json(path, JsonReadOptions::default()).await,
+                "csv" => {
+                    let mut read = CsvReadOptions::new();
+                    if let Some(file_options) = file_options(declaration, "csv")? {
+                        for (name, value) in file_options {
+                            match name.as_str() {
+                                "has_header" => {
+                                    let ResolvedValue::Boolean(value) = value else {
+                                        return Err(file_option_type(declaration, name, "boolean"));
+                                    };
+                                    read = read.has_header(*value);
+                                }
+                                "delimiter" => {
+                                    let ResolvedValue::String(value) = value else {
+                                        return Err(file_option_type(
+                                            declaration,
+                                            name,
+                                            "one ASCII character",
+                                        ));
+                                    };
+                                    let bytes = value.as_bytes();
+                                    if bytes.len() != 1 || !bytes[0].is_ascii() {
+                                        return Err(file_option_type(
+                                            declaration,
+                                            name,
+                                            "one ASCII character",
+                                        ));
+                                    }
+                                    read = read.delimiter(bytes[0]);
+                                }
+                                "schema_infer_max_records" => {
+                                    read = read.schema_infer_max_records(option_usize(
+                                        declaration,
+                                        name,
+                                        value,
+                                    )?);
+                                }
+                                "file_extension" => {
+                                    let ResolvedValue::String(value) = value else {
+                                        return Err(file_option_type(declaration, name, "string"));
+                                    };
+                                    read = read.file_extension(value);
+                                }
+                                _ => return Err(unknown_file_option(declaration, "csv", name)),
+                            }
+                        }
+                    }
+                    context.read_csv(path, read).await
+                }
+                "json" => {
+                    let mut read = JsonReadOptions::default();
+                    if let Some(file_options) = file_options(declaration, "json")? {
+                        for (name, value) in file_options {
+                            match name.as_str() {
+                                "schema_infer_max_records" => {
+                                    read = read.schema_infer_max_records(option_usize(
+                                        declaration,
+                                        name,
+                                        value,
+                                    )?);
+                                }
+                                "file_extension" => {
+                                    let ResolvedValue::String(value) = value else {
+                                        return Err(file_option_type(declaration, name, "string"));
+                                    };
+                                    read = read.file_extension(value);
+                                }
+                                _ => return Err(unknown_file_option(declaration, "json", name)),
+                            }
+                        }
+                    }
+                    context.read_json(path, read).await
+                }
                 "parquet" => {
-                    context
-                        .read_parquet(path, ParquetReadOptions::default())
-                        .await
+                    let mut read = ParquetReadOptions::default();
+                    if let Some(file_options) = file_options(declaration, "parquet")? {
+                        for (name, value) in file_options {
+                            match name.as_str() {
+                                "file_extension" => {
+                                    let ResolvedValue::String(value) = value else {
+                                        return Err(file_option_type(declaration, name, "string"));
+                                    };
+                                    read = read.file_extension(value);
+                                }
+                                _ => return Err(unknown_file_option(declaration, "parquet", name)),
+                            }
+                        }
+                    }
+                    context.read_parquet(path, read).await
                 }
                 _ => unreachable!(),
             }
@@ -293,6 +380,7 @@ async fn create_table_provider(
             })?;
             Ok(dataframe.into_view())
         }
+        "arrow" | "ipc" => ipc_table(project, declaration, options),
         kind => {
             let factory = options.table_factories.get(kind).ok_or_else(|| {
                 declaration_diagnostic(
@@ -317,6 +405,107 @@ async fn create_table_provider(
                 })
         }
     }
+}
+
+fn ipc_table(
+    project: &ResolvedProject,
+    declaration: &ResolvedDeclaration,
+    options: &CatalogOptions<'_>,
+) -> Result<Arc<dyn TableProvider>, Diagnostic> {
+    let path = table_path(project, declaration, options)?;
+    if path.contains("://") || path.contains('*') || path.contains('?') || path.contains('[') {
+        return Err(declaration_diagnostic(
+            declaration,
+            "AVENGER-DATA-038",
+            "Arrow IPC v1 requires one project-local file; directory, glob, and object-store IPC providers may be registered by the host",
+        ));
+    }
+    let read_file = || File::open(&path).map(BufReader::new);
+    let (schema, batches): (_, Vec<RecordBatch>) = match read_file().and_then(|reader| {
+        IpcFileReader::try_new(reader, None)
+            .map_err(std::io::Error::other)
+            .and_then(|mut reader| {
+                let schema = reader.schema();
+                let batches = reader
+                    .by_ref()
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(std::io::Error::other)?;
+                Ok((schema, batches))
+            })
+    }) {
+        Ok(result) => result,
+        Err(file_error) => {
+            let reader = read_file().map_err(|error| {
+                declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string())
+            })?;
+            let mut reader = IpcStreamReader::try_new(reader, None).map_err(|stream_error| {
+                declaration_diagnostic(
+                    declaration,
+                    "AVENGER-DATA-039",
+                    format!("not a valid Arrow IPC file ({file_error}) or stream ({stream_error})"),
+                )
+            })?;
+            let schema = reader.schema();
+            let batches = reader
+                .by_ref()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string())
+                })?;
+            (schema, batches)
+        }
+    };
+    MemTable::try_new(schema, vec![batches])
+        .map(|table| Arc::new(table) as Arc<dyn TableProvider>)
+        .map_err(|error| declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string()))
+}
+
+fn file_options<'a>(
+    declaration: &'a ResolvedDeclaration,
+    kind: &str,
+) -> Result<Option<&'a BTreeMap<String, ResolvedValue>>, Diagnostic> {
+    match declaration.properties.get("options") {
+        None => Ok(None),
+        Some(ResolvedValue::Object { properties, .. }) => Ok(Some(properties)),
+        Some(_) => Err(declaration_diagnostic(
+            declaration,
+            "AVENGER-DATA-044",
+            format!("`table {kind}` options must be an object"),
+        )),
+    }
+}
+
+fn option_usize(
+    declaration: &ResolvedDeclaration,
+    name: &str,
+    value: &ResolvedValue,
+) -> Result<usize, Diagnostic> {
+    let ResolvedValue::Number(value) = value else {
+        return Err(file_option_type(
+            declaration,
+            name,
+            "a non-negative integer",
+        ));
+    };
+    value
+        .parse::<usize>()
+        .map_err(|_| file_option_type(declaration, name, "a non-negative integer"))
+}
+
+fn file_option_type(declaration: &ResolvedDeclaration, name: &str, expected: &str) -> Diagnostic {
+    declaration_diagnostic(
+        declaration,
+        "AVENGER-DATA-045",
+        format!("file option `{name}` requires {expected}"),
+    )
+}
+
+fn unknown_file_option(declaration: &ResolvedDeclaration, kind: &str, name: &str) -> Diagnostic {
+    declaration_diagnostic(
+        declaration,
+        "AVENGER-DATA-046",
+        format!("`table {kind}` does not support file option `{name}`"),
+    )
 }
 
 async fn inline_table(

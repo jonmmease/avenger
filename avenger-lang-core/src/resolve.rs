@@ -1597,6 +1597,117 @@ impl<'a> Resolver<'a> {
         span: SourceSpan,
     ) {
         match declaration.keyword.as_str() {
+            "catalog" => {
+                let kind = declaration.kind.as_ref().map(Name::as_str).unwrap_or("");
+                if matches!(kind, "schemas" | "memory") {
+                    self.validate_core_property_names(declaration, &[], span);
+                    if declaration
+                        .children
+                        .iter()
+                        .any(|child| child.keyword.as_str() != "schema")
+                    {
+                        self.error(
+                            "AVENGER-RESOLVE-170",
+                            "invalid inline catalog child",
+                            span,
+                            "inline catalogs contain only `schema` declarations",
+                        );
+                    }
+                }
+            }
+            "schema" => {
+                let kind = declaration.kind.as_ref().map(Name::as_str).unwrap_or("");
+                match kind {
+                    "tables" => {
+                        self.validate_core_property_names(declaration, &[], span);
+                        if declaration
+                            .children
+                            .iter()
+                            .any(|child| child.keyword.as_str() != "table")
+                        {
+                            self.error(
+                                "AVENGER-RESOLVE-171",
+                                "invalid inline schema child",
+                                span,
+                                "`schema tables` contains only `table` declarations",
+                            );
+                        }
+                    }
+                    "namespace" => {
+                        self.validate_core_property_names(declaration, &["path"], span);
+                        if !matches!(declaration.props.get("path"), Some(Value::Array(values)) if !values.is_empty() && values.iter().all(|value| matches!(value, Value::Str(_) | Value::Atom(_))))
+                        {
+                            self.error(
+                                "AVENGER-RESOLVE-172",
+                                "incomplete provider namespace",
+                                span,
+                                "`schema namespace` requires a non-empty `path:` array",
+                            );
+                        }
+                        if !declaration.children.is_empty() {
+                            self.error(
+                                "AVENGER-RESOLVE-173",
+                                "provider namespaces do not contain declarations",
+                                span,
+                                "tables are discovered by the catalog provider",
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            "table" => {
+                let kind = declaration.kind.as_ref().map(Name::as_str).unwrap_or("");
+                let (allowed, required): (&[&str], Option<&str>) = match kind {
+                    "sql" => (&["sql", "materialize"], Some("sql")),
+                    "inline" => (&["values", "materialize"], Some("values")),
+                    "csv" | "json" | "parquet" | "arrow" | "ipc" => {
+                        (&["path", "options", "materialize"], Some("path"))
+                    }
+                    "delta" => (&["uri", "options", "materialize"], Some("uri")),
+                    // Custom table providers own their option surface.
+                    _ => (&[], None),
+                };
+                if required.is_some() || !allowed.is_empty() {
+                    self.validate_core_property_names(declaration, allowed, span);
+                }
+                if let Some(required) = required
+                    && declaration.props.get(required).is_none()
+                {
+                    self.error(
+                        "AVENGER-RESOLVE-174",
+                        "incomplete table declaration",
+                        span,
+                        format!("`table {kind}` requires `{required}:`"),
+                    );
+                }
+                if declaration.props.get("materialize").is_some_and(|value| {
+                    !value_atom(value).is_some_and(|value| matches!(value, "logical" | "session"))
+                }) {
+                    self.error(
+                        "AVENGER-RESOLVE-175",
+                        "invalid table materialization mode",
+                        span,
+                        "`materialize:` must be `logical` or `session`",
+                    );
+                }
+                for param in declaration
+                    .children
+                    .iter()
+                    .filter(|child| child.keyword.as_str() == "param")
+                {
+                    if param.name.as_ref().is_some_and(|name| {
+                        matches!(name.as_str(), "table" | "sql" | "url" | "values")
+                    }) {
+                        self.error(
+                            "AVENGER-RESOLVE-176",
+                            "reserved table parameter name",
+                            span,
+                            "table params cannot be named `table`, `sql`, `url`, or `values`",
+                        );
+                    }
+                }
+            }
             "param" => {
                 let param_id = ParamId(semantic_hash(&[
                     "param-runtime",

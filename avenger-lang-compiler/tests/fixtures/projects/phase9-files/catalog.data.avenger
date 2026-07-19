@@ -1,0 +1,10 @@
+avenger 1;
+
+schema tables as files {
+  table csv as rows { path: 'data/rows.csv'; }
+  table json as events { path: 'data/events.json'; }
+  table parquet as iris { path: 'data/iris.parquet'; }
+  table csv as directory { path: 'data/parts'; }
+  table csv as globbed { path: 'data/parts/*.csv'; }
+  table arrow as taxi { path: 'data/taxi.arrow'; }
+}
