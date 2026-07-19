@@ -83,6 +83,110 @@ impl Default for ResolvedMarkGroup {
     }
 }
 
+#[derive(Clone)]
+struct LanguageBehaviorTool<C: CoordinateSystem> {
+    id: String,
+    component_kind: String,
+    component_id: Option<String>,
+    state: Vec<ResolvedBehaviorState>,
+    event_bindings: Vec<ChartEventBinding>,
+    param_change_bindings: Vec<ChartParamChangeBinding>,
+    scale_edits: Vec<ToolScaleEdit>,
+    chrome: Vec<PlotMark<C>>,
+    nested_tools: Vec<Arc<dyn ChartTool<C>>>,
+    exports: Vec<ResolvedBehaviorExport>,
+    metadata: Vec<ToolMetadata>,
+}
+
+impl<C: CoordinateSystem> ChartTool<C> for LanguageBehaviorTool<C> {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn expand(
+        &self,
+        context: ToolExpansionContext<'_>,
+    ) -> Result<ToolBehaviorExpansion<C>, avenger_chart_core::AvengerChartError> {
+        let mut expansion = ToolBehaviorExpansion::new(context.instance_id.clone())
+            .with_instance_ancestry(context.instance_ancestry.clone());
+        expansion.component_kind = self.component_kind.clone();
+        expansion.component_id = self.component_id.clone().or_else(|| Some(self.id.clone()));
+        let mut targets = BTreeMap::new();
+        let mut param_ordinal = 0_u64;
+        let mut store_ordinal = 0_u64;
+        let mut selection_ordinal = 0_u64;
+        for state in &self.state {
+            match state {
+                ResolvedBehaviorState::Param {
+                    key,
+                    param,
+                    sharing,
+                } => {
+                    let runtime_id = CompiledIdentityAllocator::derive_tool_param(
+                        &context.instance_id,
+                        param_ordinal,
+                    );
+                    param_ordinal += 1;
+                    targets.insert(key.clone(), ToolExportTarget::Param(runtime_id.clone()));
+                    expansion.state.push(ResolvedStateDeclaration::Param {
+                        runtime_id,
+                        param: param.clone(),
+                        sharing: sharing.clone(),
+                    });
+                }
+                ResolvedBehaviorState::Store { key, store } => {
+                    let runtime_id = CompiledIdentityAllocator::derive_tool_store(
+                        &context.instance_id,
+                        store_ordinal,
+                    );
+                    store_ordinal += 1;
+                    targets.insert(key.clone(), ToolExportTarget::Store(runtime_id.clone()));
+                    expansion.state.push(ResolvedStateDeclaration::Store {
+                        runtime_id,
+                        store: store.clone(),
+                    });
+                }
+                ResolvedBehaviorState::Selection { key, selection } => {
+                    let runtime_id = CompiledIdentityAllocator::derive_tool_selection(
+                        &context.instance_id,
+                        selection_ordinal,
+                    );
+                    selection_ordinal += 1;
+                    targets.insert(key.clone(), ToolExportTarget::Selection(runtime_id.clone()));
+                    expansion.state.push(ResolvedStateDeclaration::Selection {
+                        runtime_id,
+                        selection: selection.clone(),
+                    });
+                }
+            }
+        }
+        for export in &self.exports {
+            let key = match &export.target {
+                ResolvedBehaviorExportTarget::Param(key)
+                | ResolvedBehaviorExportTarget::Store(key)
+                | ResolvedBehaviorExportTarget::Selection(key) => key,
+            };
+            let target = targets.get(key).cloned().ok_or_else(|| {
+                avenger_chart_core::AvengerChartError::InternalError(format!(
+                    "resolved tool behavior export `{}` has no owned state target",
+                    export.alias
+                ))
+            })?;
+            expansion.exports.push(ToolExport {
+                alias: export.alias.clone(),
+                target,
+            });
+        }
+        expansion.event_bindings = self.event_bindings.clone();
+        expansion.param_change_bindings = self.param_change_bindings.clone();
+        expansion.scale_edits = self.scale_edits.clone();
+        expansion.chrome = self.chrome.clone();
+        expansion.nested_tools = self.nested_tools.clone();
+        expansion.metadata = self.metadata.clone();
+        Ok(expansion)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ResolvedMark {
     Native(ResolvedDeclaration),
@@ -91,6 +195,75 @@ pub enum ResolvedMark {
         child: Box<ResolvedPlot>,
     },
     Group(Box<ResolvedMarkGroup>),
+}
+
+/// One behavior-owned state declaration after language resolution.
+#[derive(Clone, Debug)]
+pub enum ResolvedBehaviorState {
+    Param {
+        key: String,
+        param: Param,
+        sharing: ToolParamSharing,
+    },
+    Store {
+        key: String,
+        store: Store,
+    },
+    Selection {
+        key: String,
+        selection: Selection,
+    },
+}
+
+/// Exact public state alias emitted by an ordinary `tool behavior`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResolvedBehaviorExportTarget {
+    Param(String),
+    Store(String),
+    Selection(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedBehaviorExport {
+    pub alias: String,
+    pub target: ResolvedBehaviorExportTarget,
+}
+
+/// Coordinate-neutral canonical behavior carried from the language compiler
+/// to the coordinate-owned native lowering boundary.
+#[derive(Clone, Debug)]
+pub struct ResolvedToolBehavior {
+    pub id: String,
+    pub component_kind: String,
+    pub component_id: Option<String>,
+    pub state: Vec<ResolvedBehaviorState>,
+    pub event_bindings: Vec<ChartEventBinding>,
+    pub param_change_bindings: Vec<ChartParamChangeBinding>,
+    pub scale_edits: Vec<ToolScaleEdit>,
+    pub chrome: Vec<ResolvedMark>,
+    pub native_tools: Vec<ResolvedDeclaration>,
+    pub nested_behaviors: Vec<ResolvedToolBehavior>,
+    pub exports: Vec<ResolvedBehaviorExport>,
+    pub metadata: Vec<ToolMetadata>,
+}
+
+impl ResolvedToolBehavior {
+    pub fn new(id: impl Into<String>, component_kind: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            component_kind: component_kind.into(),
+            component_id: None,
+            state: Vec::new(),
+            event_bindings: Vec::new(),
+            param_change_bindings: Vec::new(),
+            scale_edits: Vec::new(),
+            chrome: Vec::new(),
+            native_tools: Vec::new(),
+            nested_behaviors: Vec::new(),
+            exports: Vec::new(),
+            metadata: Vec::new(),
+        }
+    }
 }
 
 impl From<ResolvedDeclaration> for ResolvedMark {
@@ -123,6 +296,7 @@ pub struct ResolvedPlot {
     pub data_is_inherited: bool,
     pub marks: Vec<ResolvedMark>,
     pub tools: Vec<ResolvedDeclaration>,
+    pub tool_behaviors: Vec<ResolvedToolBehavior>,
     pub widgets: Vec<ResolvedDeclaration>,
     pub children: Vec<ResolvedChildPlot>,
     pub furnishings: ResolvedRootFurnishings,
@@ -136,6 +310,7 @@ impl ResolvedPlot {
             data_is_inherited: false,
             marks: Vec::new(),
             tools: Vec::new(),
+            tool_behaviors: Vec::new(),
             widgets: Vec::new(),
             children: Vec::new(),
             furnishings: ResolvedRootFurnishings::default(),
@@ -529,6 +704,56 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
         }
     }
 
+    fn lower_behavior(
+        &self,
+        registry: &NativeRegistry,
+        behavior: &ResolvedToolBehavior,
+    ) -> Result<Arc<dyn ChartTool<C>>, RegistryError> {
+        let chrome = behavior
+            .chrome
+            .iter()
+            .map(|mark| self.lower_mark(registry, mark))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect();
+        let mut nested_tools = behavior
+            .native_tools
+            .iter()
+            .map(|tool| {
+                let entry =
+                    self.tools
+                        .get(&tool.kind)
+                        .ok_or_else(|| RegistryError::UnknownToolPair {
+                            coordinate: self.kind.clone(),
+                            tool: tool.kind.clone(),
+                        })?;
+                registry.validate(&entry.schema.key, tool)?;
+                (entry.lowerer)(tool)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        nested_tools.extend(
+            behavior
+                .nested_behaviors
+                .iter()
+                .map(|nested| self.lower_behavior(registry, nested))
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+        Ok(Arc::new(LanguageBehaviorTool {
+            id: behavior.id.clone(),
+            component_kind: behavior.component_kind.clone(),
+            component_id: behavior.component_id.clone(),
+            state: behavior.state.clone(),
+            event_bindings: behavior.event_bindings.clone(),
+            param_change_bindings: behavior.param_change_bindings.clone(),
+            scale_edits: behavior.scale_edits.clone(),
+            chrome,
+            nested_tools,
+            exports: behavior.exports.clone(),
+            metadata: behavior.metadata.clone(),
+        }))
+    }
+
     fn lower_typed(
         &self,
         registry: &NativeRegistry,
@@ -557,6 +782,9 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             })?;
             registry.validate(&entry.schema.key, declaration)?;
             plot = plot.tool_arc((entry.lowerer)(declaration)?);
+        }
+        for behavior in &resolved.tool_behaviors {
+            plot = plot.tool_arc(self.lower_behavior(registry, behavior)?);
         }
         for declaration in &resolved.widgets {
             plot = plot.widget_attachment(registry.lower_widget(declaration)?);
@@ -2073,6 +2301,7 @@ mod tests {
                     data_is_inherited: false,
                     marks: vec![symbol().into()],
                     tools: Vec::new(),
+                    tool_behaviors: Vec::new(),
                     widgets: Vec::new(),
                     children: Vec::new(),
                     furnishings: ResolvedRootFurnishings::default(),

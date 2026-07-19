@@ -1426,6 +1426,7 @@ impl<C: CoordinateSystem> Plot<C> {
                     .iter()
                     .map(|mark| PlotMark::from_mark_arc(mark.mark.clone())),
             );
+            marks.extend(active.expansion.chrome.iter().cloned());
         }
         let mut flat_marks = flatten_plot_marks(&marks, tool_context.repeat_context())?;
         let mut composed_widget_index = 0usize;

@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     AvengerChartError, CompiledIdentityAllocator, CoordinateMetricDescriptor, CoordinateSystemCore,
-    CoordinationScope, DomainCoordination, Mark, MarkId, Param, ParamRef, RepeatContext, Selection,
-    SelectionRef, Store, StoreRef, ToolInstanceId,
+    CoordinationScope, DomainCoordination, Mark, MarkId, Param, ParamRef, PlotMark, RepeatContext,
+    Selection, SelectionRef, Store, StoreRef, ToolInstanceId,
     event::{ChartEventBinding, ChartParamChangeBinding},
 };
 use serde::{Deserialize, Serialize};
@@ -196,6 +196,10 @@ pub struct ToolBehaviorExpansion<C: CoordinateSystemCore> {
     pub param_change_bindings: Vec<ChartParamChangeBinding>,
     pub scale_edits: Vec<ToolScaleEdit>,
     pub marks: Vec<ResolvedToolMark<C>>,
+    /// Ordinary recursive plot elements used as behavior-owned visual chrome.
+    /// Direct native tool parts remain in `marks`; this parallel collection
+    /// permits DSL behavior chrome to retain authored groups and data scopes.
+    pub chrome: Vec<PlotMark<C>>,
     pub nested_tools: Vec<Arc<dyn ChartTool<C>>>,
     pub exports: Vec<ToolExport>,
     pub metadata: Vec<ToolMetadata>,
@@ -213,6 +217,7 @@ impl<C: CoordinateSystemCore> Clone for ToolBehaviorExpansion<C> {
             param_change_bindings: self.param_change_bindings.clone(),
             scale_edits: self.scale_edits.clone(),
             marks: self.marks.clone(),
+            chrome: self.chrome.clone(),
             nested_tools: self.nested_tools.clone(),
             exports: self.exports.clone(),
             metadata: self.metadata.clone(),
@@ -232,6 +237,7 @@ impl<C: CoordinateSystemCore> ToolBehaviorExpansion<C> {
             param_change_bindings: Vec::new(),
             scale_edits: Vec::new(),
             marks: Vec::new(),
+            chrome: Vec::new(),
             nested_tools: Vec::new(),
             exports: Vec::new(),
             metadata: Vec::new(),
@@ -408,6 +414,18 @@ impl<C: CoordinateSystemCore> ToolBehaviorExpansion<C> {
 
     pub fn nested_tool(mut self, tool: Arc<dyn ChartTool<C>>) -> Self {
         self.nested_tools.push(tool);
+        self
+    }
+
+    /// Add an ordinary recursive plot element as behavior-owned chrome.
+    pub fn chrome_mark(mut self, mark: PlotMark<C>) -> Self {
+        self.chrome.push(mark);
+        self
+    }
+
+    /// Add several ordinary recursive plot elements as behavior-owned chrome.
+    pub fn chrome_marks(mut self, marks: impl IntoIterator<Item = PlotMark<C>>) -> Self {
+        self.chrome.extend(marks);
         self
     }
 

@@ -37,9 +37,10 @@ use avenger_chart_core::{
     item_bbox_column_name, item_channel_column_name, item_data_column_name,
 };
 use avenger_chart_lang_registry::{
-    NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedChildPlot,
+    NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
+    ResolvedBehaviorExportTarget, ResolvedBehaviorState, ResolvedChildPlot,
     ResolvedDeclaration as NativeDeclaration, ResolvedMark, ResolvedMarkGroup, ResolvedPlot,
-    ResolvedTransformStage, ResolvedValue as NativeValue, ResolvedViewScope,
+    ResolvedToolBehavior, ResolvedTransformStage, ResolvedValue as NativeValue, ResolvedViewScope,
 };
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, ValueShape};
 use avenger_lang_core::{
@@ -79,6 +80,10 @@ pub(crate) struct LoweredChart {
 
 type TransformStageFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = Result<(DataFrame, DataTransformStage), Diagnostic>> + 'a>,
+>;
+
+type ToolBehaviorFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<ResolvedToolBehavior, Diagnostic>> + 'a>,
 >;
 
 pub(crate) async fn lower_project(
@@ -356,6 +361,33 @@ impl<'a> ProjectLowerer<'a> {
         }
     }
 
+    fn active_chart_declaration(&self) -> Result<&ResolvedDeclaration, Diagnostic> {
+        let id = self.active_chart_id.as_ref().ok_or_else(|| {
+            diagnostic(
+                SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
+                "AVENGER-LOWER-001",
+                "tool behavior has no active chart",
+                "canonical behavior lowering requires a containing chart",
+            )
+        })?;
+        find_declaration(self.project, id).ok_or_else(|| {
+            diagnostic(
+                SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
+                "AVENGER-LOWER-001",
+                "active chart declaration is missing",
+                id.to_string(),
+            )
+        })
+    }
+
+    fn owned_by_tool_behavior(&self, ancestry: &[DeclarationId]) -> bool {
+        ancestry.iter().any(|id| {
+            find_declaration(self.project, id).is_some_and(|declaration| {
+                declaration.keyword == "tool" && declaration.kind.as_deref() == Some("behavior")
+            })
+        })
+    }
+
     fn lower_param(&mut self, id: &ParamId) -> Result<(), Diagnostic> {
         let param = &self.project.params[id];
         let data_type = physical_data_type(&param.data_type);
@@ -578,6 +610,7 @@ impl<'a> ProjectLowerer<'a> {
             if param.table_owner.is_none()
                 && belongs_to_chart(&param.owner_ancestry, &chart.id)
                 && !self.widget_owned_params.contains(id)
+                && !self.owned_by_tool_behavior(&param.owner_ancestry)
             {
                 plot.furnishings
                     .params
@@ -585,7 +618,9 @@ impl<'a> ProjectLowerer<'a> {
             }
         }
         for (id, store) in &self.project.stores {
-            if belongs_to_chart(&store.owner_ancestry, &chart.id) {
+            if belongs_to_chart(&store.owner_ancestry, &chart.id)
+                && !self.owned_by_tool_behavior(&store.owner_ancestry)
+            {
                 plot.furnishings.stores.push(self.stores[id].clone());
             }
         }
@@ -593,6 +628,7 @@ impl<'a> ProjectLowerer<'a> {
             if belongs_to_chart(&selection.owner_ancestry, &chart.id)
                 && selection.generated_by.is_none()
                 && !self.native_owned_selections.contains(id)
+                && !self.owned_by_tool_behavior(&selection.owner_ancestry)
             {
                 plot.furnishings
                     .selections
@@ -1555,6 +1591,177 @@ impl<'a> ProjectLowerer<'a> {
             .ok_or_else(|| lowerer_error(declaration, "event target has no runtime authoring path"))
     }
 
+    fn lower_tool_behavior<'b>(
+        &'b mut self,
+        chart: &'b ResolvedDeclaration,
+        declaration: &'b ResolvedDeclaration,
+        inherited_data: Option<&'b DataFrame>,
+    ) -> ToolBehaviorFuture<'b> {
+        Box::pin(async move {
+            let id = declaration.name.clone().ok_or_else(|| {
+                lowerer_error(declaration, "tool behavior requires an instance binder")
+            })?;
+            let component_kind = declaration
+                .component_kind
+                .clone()
+                .unwrap_or_else(|| id.clone());
+            let coordinate = declaration
+                .coordinate
+                .clone()
+                .or_else(|| chart.kind.clone())
+                .unwrap_or_else(|| "cartesian".to_string());
+            let mut nested = ResolvedPlot::new(coordinate);
+            let mut chrome_root = self
+                .lower_container(declaration, inherited_data, &mut nested)
+                .await?;
+            let mut chrome = Vec::new();
+            if chrome_root.data.is_none()
+                && chrome_root.store_data.is_none()
+                && chrome_root.transforms.is_empty()
+                && chrome_root.view.is_none()
+                && chrome_root.id.is_none()
+                && chrome_root.component_kind.is_none()
+            {
+                chrome.append(&mut chrome_root.marks);
+            } else if !chrome_root.marks.is_empty() || !chrome_root.transforms.is_empty() {
+                chrome.push(ResolvedMark::Group(Box::new(chrome_root)));
+            }
+
+            let mut behavior = ResolvedToolBehavior::new(id.clone(), component_kind);
+            behavior.component_id = Some(id);
+            behavior.chrome = chrome;
+            behavior.native_tools = nested.tools;
+            behavior.nested_behaviors = nested.tool_behaviors;
+
+            for (param_id, param) in &self.project.params {
+                if param.owner_ancestry.last() == Some(&declaration.id)
+                    && param.table_owner.is_none()
+                    && param.generated_by.is_none()
+                {
+                    behavior.state.push(ResolvedBehaviorState::Param {
+                        key: param_id.as_str().to_string(),
+                        param: self.params[param_id].clone(),
+                        sharing: avenger_chart_core::ToolParamSharing::explicit(sharing(
+                            param.sharing,
+                        )),
+                    });
+                }
+            }
+            for (store_id, store) in &self.project.stores {
+                if store.owner_ancestry.last() == Some(&declaration.id)
+                    && store.generated_by.is_none()
+                {
+                    behavior.state.push(ResolvedBehaviorState::Store {
+                        key: store_id.as_str().to_string(),
+                        store: self.stores[store_id].clone(),
+                    });
+                }
+            }
+            for (selection_id, selection) in &self.project.selections {
+                if selection.owner_ancestry.last() == Some(&declaration.id)
+                    && selection.generated_by.is_none()
+                    && !self.native_owned_selections.contains(selection_id)
+                {
+                    behavior.state.push(ResolvedBehaviorState::Selection {
+                        key: selection_id.as_str().to_string(),
+                        selection: self.selections[selection_id].clone(),
+                    });
+                }
+            }
+
+            for (alias, target) in &declaration.exports {
+                let target = match target {
+                    ResolvedTarget::Param(id) => {
+                        Some(ResolvedBehaviorExportTarget::Param(id.as_str().to_string()))
+                    }
+                    ResolvedTarget::Store(id) => {
+                        Some(ResolvedBehaviorExportTarget::Store(id.as_str().to_string()))
+                    }
+                    ResolvedTarget::Selection(id) => Some(ResolvedBehaviorExportTarget::Selection(
+                        id.as_str().to_string(),
+                    )),
+                    _ => None,
+                };
+                if let Some(target) = target {
+                    behavior.exports.push(ResolvedBehaviorExport {
+                        alias: alias.clone(),
+                        target,
+                    });
+                }
+            }
+
+            for child in &declaration.children {
+                match child.keyword.as_str() {
+                    "on" => behavior.event_bindings.push(self.lower_event_binding(
+                        chart,
+                        child,
+                        inherited_data,
+                    )?),
+                    "scale_edit" => behavior
+                        .scale_edits
+                        .push(self.lower_tool_scale_edit(child)?),
+                    _ => {}
+                }
+            }
+            Ok(behavior)
+        })
+    }
+
+    fn lower_tool_scale_edit(
+        &self,
+        declaration: &ResolvedDeclaration,
+    ) -> Result<avenger_chart_core::ToolScaleEdit, Diagnostic> {
+        let channel = declaration
+            .properties
+            .get("channel")
+            .and_then(resolved_atom)
+            .ok_or_else(|| lowerer_error(declaration, "scale_edit requires `channel:`"))?;
+        if let Some(target) = declaration.properties.get("target")
+            && !matches!(target, ResolvedValue::Atom(value) if value == "plot")
+        {
+            return Err(lowerer_error(
+                declaration,
+                "scale_edit target must be the containing plot",
+            ));
+        }
+        let ResolvedValue::Binding(ResolvedBinding {
+            target: ResolvedTarget::Param(param_id),
+            time: BindingTime::Current,
+            ..
+        }) = declaration
+            .properties
+            .get("raw_domain")
+            .ok_or_else(|| lowerer_error(declaration, "scale_edit requires `raw_domain:`"))?
+        else {
+            return Err(lowerer_error(
+                declaration,
+                "scale_edit raw_domain must read a current param binding",
+            ));
+        };
+        let mut edit = avenger_chart_core::ToolScaleEdit::raw_domain(
+            channel,
+            self.params
+                .get(param_id)
+                .ok_or_else(|| lowerer_error(declaration, "scale_edit param is unavailable"))?
+                .name
+                .clone(),
+        );
+        let avenger_chart_core::ToolScaleEdit::RawDomain {
+            override_existing,
+            disable_nice_zero,
+            ..
+        } = &mut edit;
+        if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("override_existing")
+        {
+            *override_existing = *value;
+        }
+        if let Some(ResolvedValue::Boolean(value)) = declaration.properties.get("disable_nice_zero")
+        {
+            *disable_nice_zero = *value;
+        }
+        Ok(edit)
+    }
+
     fn lower_container<'b>(
         &'b mut self,
         container: &'b ResolvedDeclaration,
@@ -1693,6 +1900,13 @@ impl<'a> ProjectLowerer<'a> {
                             group.marks.push(native);
                         }
                     }
+                    "tool" if child.kind.as_deref() == Some("behavior") => {
+                        let chart = self.active_chart_declaration()?.clone();
+                        plot.tool_behaviors.push(
+                            self.lower_tool_behavior(&chart, child, current_data.as_ref())
+                                .await?,
+                        );
+                    }
                     "tool" => plot.tools.push(self.native_declaration(
                         child,
                         current_data.as_ref(),
@@ -1741,7 +1955,8 @@ impl<'a> ProjectLowerer<'a> {
                             placement,
                         });
                     }
-                    "param" | "store" | "selection" | "on" | "theme" | "resource" | "export" => {}
+                    "param" | "store" | "selection" | "on" | "scale_edit" | "theme"
+                    | "resource" | "export" => {}
                     other => {
                         let coordinate_key = NativeKindKey::new(
                             NativeKindNamespace::Coordinate,
@@ -4342,7 +4557,11 @@ fn widget_owned_params(project: &ResolvedProject) -> BTreeSet<ParamId> {
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
-        .filter(|declaration| matches!(declaration.keyword.as_str(), "widget" | "tool"))
+        .filter(|declaration| {
+            declaration.keyword == "widget"
+                || (declaration.keyword == "tool"
+                    && declaration.kind.as_deref() != Some("behavior"))
+        })
         .flat_map(|declaration| declaration.exports.values())
         .filter_map(|target| match target {
             ResolvedTarget::Param(id) => Some(id.clone()),
@@ -4357,7 +4576,11 @@ fn native_owned_selections(project: &ResolvedProject) -> BTreeSet<SelectionId> {
         .values()
         .flat_map(|file| &file.roots)
         .flat_map(declarations_depth_first)
-        .filter(|declaration| matches!(declaration.keyword.as_str(), "tool" | "widget"))
+        .filter(|declaration| {
+            declaration.keyword == "widget"
+                || (declaration.keyword == "tool"
+                    && declaration.kind.as_deref() != Some("behavior"))
+        })
         .flat_map(|declaration| declaration.exports.values())
         .filter_map(|target| match target {
             ResolvedTarget::Selection(id) => Some(id.clone()),

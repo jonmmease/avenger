@@ -1916,3 +1916,98 @@ async fn expansion_custom_mark_compiles_through_canonical_group_source() {
         .unwrap();
     assert!(!evaluated.scene_graph.marks.is_empty());
 }
+
+#[tokio::test]
+async fn expansion_custom_tool_lowers_canonical_behavior_state_events_scale_and_chrome() {
+    let root = fixture("05_custom_tool");
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let expanded = compiler
+        .expand_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+
+    for retained in [
+        "tool behavior as inspector",
+        "component_kind: inspect_points;",
+        "export enabled;",
+        "export hovered;",
+        "export chrome_layer.chrome as chrome;",
+        "private param as enabled",
+        "private selection as hovered",
+        "private tool point_selection as nested",
+        "scale_edit {",
+        "private group as chrome_layer",
+    ] {
+        assert!(expanded.text.contains(retained), "{}", expanded.text);
+    }
+    let set_param = expanded.text.find("set param enabled").unwrap();
+    let set_selection = expanded.text.find("set selection hovered").unwrap();
+    assert!(set_param < set_selection, "{}", expanded.text);
+
+    let artifact = compiler
+        .compile_file(root.join("chart.avenger"))
+        .await
+        .unwrap();
+    let expanded_artifact = source_compiler(&expanded.text, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(artifact.compiled_plot()).unwrap(),
+        serde_json::to_value(expanded_artifact.compiled_plot()).unwrap(),
+        "custom tool compilation must equal canonical behavior compilation"
+    );
+    let behavior = artifact
+        .compiled_plot()
+        .tool_behaviors()
+        .iter()
+        .find(|behavior| behavior.component_kind == "inspect_points")
+        .expect("compiled custom behavior");
+    assert_eq!(behavior.source_id, "inspector");
+    let aliases = behavior
+        .exports
+        .iter()
+        .map(|export| export.alias.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(aliases.contains("enabled"), "{aliases:?}");
+    assert!(aliases.contains("hovered"), "{aliases:?}");
+    assert!(
+        artifact
+            .compiled_plot()
+            .param_specs()
+            .contains_key("enabled")
+    );
+    assert!(
+        artifact
+            .compiled_plot()
+            .selection_specs()
+            .contains_key("hovered")
+    );
+    assert!(
+        artifact
+            .compiled_plot()
+            .event_bindings()
+            .iter()
+            .any(|binding| {
+                binding.event_type == avenger_chart_core::ChartEventType::Click
+                    && binding.action.steps.len() == 2
+            })
+    );
+    for target in [
+        "chart.inspector.enabled",
+        "chart.inspector.hovered",
+        "chart.inspector.chrome",
+    ] {
+        assert!(
+            artifact.interface.public_targets.contains_key(target),
+            "missing {target}: {:?}",
+            artifact.interface.public_targets.keys().collect::<Vec<_>>()
+        );
+    }
+    let evaluated = artifact
+        .compiled_plot()
+        .evaluate(&datafusion::prelude::SessionContext::new(), None)
+        .await
+        .unwrap();
+    assert!(!evaluated.scene_graph.marks.is_empty());
+}
