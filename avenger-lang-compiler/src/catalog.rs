@@ -15,6 +15,7 @@ use avenger_lang_core::{
 use datafusion::{
     catalog::{CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider},
     common::TableReference,
+    dataframe::DataFrame,
     datasource::{TableProvider, memory::MemTable},
     prelude::{CsvReadOptions, JsonReadOptions, ParquetReadOptions, SessionContext},
 };
@@ -76,7 +77,7 @@ pub(crate) async fn register_and_analyze_catalog(
         let declaration = declarations.get(id).copied().ok_or_else(|| {
             catalog_diagnostic(table, "AVENGER-DATA-001", "catalog declaration is missing")
         })?;
-        let provider =
+        let (provider, logical_plan_fingerprint) =
             create_table_provider(project, declaration, table, environment, &options).await?;
         if !matches!(
             table.kind.as_str(),
@@ -138,6 +139,7 @@ pub(crate) async fn register_and_analyze_catalog(
                 qualified_name: Some(table.path.join(".")),
                 columns,
                 schema,
+                logical_plan_fingerprint,
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
         let upstream_stages = table
@@ -204,6 +206,7 @@ pub(crate) async fn register_and_analyze_catalog(
                     })
                     .collect(),
                 schema: Arc::new(dataframe.schema().as_arrow().clone()),
+                logical_plan_fingerprint: None,
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
         lineage
@@ -405,6 +408,7 @@ async fn analyze_external_catalogs(
                             })
                             .collect(),
                         schema: provider.schema(),
+                        logical_plan_fingerprint: None,
                     })
                     .map_err(|error| {
                         declaration_diagnostic(projection, "AVENGER-DATA-026", error.to_string())
@@ -426,7 +430,7 @@ async fn create_table_provider(
     table: &ResolvedCatalogTable,
     environment: &CompileEnvironment,
     options: &CatalogOptions<'_>,
-) -> Result<Arc<dyn TableProvider>, Diagnostic> {
+) -> Result<(Arc<dyn TableProvider>, Option<String>), Diagnostic> {
     let context = environment.session_context();
     match table.kind.as_str() {
         "inline" => inline_table(context, declaration).await,
@@ -452,7 +456,10 @@ async fn create_table_provider(
             context
                 .sql(&sql)
                 .await
-                .map(|dataframe| dataframe.into_view())
+                .map(|dataframe| {
+                    let fingerprint = logical_plan_fingerprint(&dataframe);
+                    (dataframe.into_view(), Some(fingerprint))
+                })
                 .map_err(|error| {
                     declaration_diagnostic(declaration, "AVENGER-DATA-031", error.to_string())
                 })
@@ -554,9 +561,10 @@ async fn create_table_provider(
             .map_err(|error| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-032", error.to_string())
             })?;
-            Ok(dataframe.into_view())
+            let fingerprint = logical_plan_fingerprint(&dataframe);
+            Ok((dataframe.into_view(), Some(fingerprint)))
         }
-        "arrow" | "ipc" => ipc_table(project, declaration, options),
+        "arrow" | "ipc" => ipc_table(project, declaration, options).map(|table| (table, None)),
         kind => {
             let factory = options.table_factories.get(kind).ok_or_else(|| {
                 declaration_diagnostic(
@@ -576,6 +584,7 @@ async fn create_table_provider(
             factory
                 .create(&provider_options, environment)
                 .await
+                .map(|provider| (provider, None))
                 .map_err(|error| {
                     declaration_diagnostic(declaration, "AVENGER-DATA-034", error.to_string())
                 })
@@ -687,7 +696,7 @@ fn unknown_file_option(declaration: &ResolvedDeclaration, kind: &str, name: &str
 async fn inline_table(
     context: &SessionContext,
     declaration: &ResolvedDeclaration,
-) -> Result<Arc<dyn TableProvider>, Diagnostic> {
+) -> Result<(Arc<dyn TableProvider>, Option<String>), Diagnostic> {
     let rows = declaration.properties.get("values").ok_or_else(|| {
         declaration_diagnostic(
             declaration,
@@ -700,8 +709,17 @@ async fn inline_table(
     context
         .sql(&sql)
         .await
-        .map(|dataframe| dataframe.into_view())
+        .map(|dataframe| {
+            let fingerprint = logical_plan_fingerprint(&dataframe);
+            (dataframe.into_view(), Some(fingerprint))
+        })
         .map_err(|error| declaration_diagnostic(declaration, "AVENGER-DATA-037", error.to_string()))
+}
+
+fn logical_plan_fingerprint(dataframe: &DataFrame) -> String {
+    use sha2::{Digest, Sha256};
+    let plan = dataframe.logical_plan().display_indent_schema().to_string();
+    format!("sha256:{:x}", Sha256::digest(plan.as_bytes()))
 }
 
 fn table_path(

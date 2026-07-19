@@ -86,6 +86,7 @@ pub(crate) struct ChartDatasetAnalysis {
     pub stage_kind: crate::DatasetStageKind,
     pub schema: Arc<Schema>,
     pub columns: Vec<crate::AnalyzedColumn>,
+    pub logical_plan_fingerprint: Option<String>,
 }
 
 type TransformStageFuture<'a> = std::pin::Pin<
@@ -363,6 +364,7 @@ impl<'a> ProjectLowerer<'a> {
                                 })
                                 .collect(),
                             schema,
+                            logical_plan_fingerprint: None,
                         });
                     }
                 }
@@ -4786,7 +4788,14 @@ fn chart_analysis_record(
                 nullable: field.is_nullable(),
             })
             .collect(),
+        logical_plan_fingerprint: Some(logical_plan_fingerprint(data)),
     }
+}
+
+fn logical_plan_fingerprint(data: &DataFrame) -> String {
+    use sha2::{Digest, Sha256};
+    let plan = data.logical_plan().display_indent_schema().to_string();
+    format!("sha256:{:x}", Sha256::digest(plan.as_bytes()))
 }
 
 pub(crate) fn compiled_project_from_lowered(

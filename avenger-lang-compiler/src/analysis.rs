@@ -62,6 +62,9 @@ pub struct AnalyzedDataset {
     /// each output column. `schema` remains the convenient Arrow view.
     pub columns: Vec<AnalyzedColumn>,
     pub schema: SchemaRef,
+    /// Stable fingerprint of the execution-free DataFusion logical plan when
+    /// this stage has one. Schema-only custom stages may leave this absent.
+    pub logical_plan_fingerprint: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,6 +84,7 @@ impl std::fmt::Debug for AnalyzedDataset {
             .field("qualified_name", &self.qualified_name)
             .field("columns", &self.columns)
             .field("schema", &self.schema)
+            .field("logical_plan_fingerprint", &self.logical_plan_fingerprint)
             .finish()
     }
 }

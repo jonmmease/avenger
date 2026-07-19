@@ -172,6 +172,11 @@ async fn catalog_project_analyzes_qualified_tables_and_sql_views_without_executi
             .collect::<Vec<_>>()
     );
     assert_eq!(
+        tables["vega.popular"].logical_plan_fingerprint,
+        tables["vega.popular_from_first"].logical_plan_fingerprint,
+        "standard and FROM-first forms must reach equivalent DataFusion logical plans"
+    );
+    assert_eq!(
         tables["vega.popular"].columns[1].data_type,
         DataType::Float64
     );
@@ -248,6 +253,21 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
     let denied = Compiler::builder().project_root(&root).build().unwrap();
     let failure = denied.analyze_project(&root).await.unwrap_err();
     assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-DATA-020");
+
+    let (catalog_factories, table_factories) =
+        provider_registries("iceberg-snapshot-1", "delta-version-7");
+    let denied_environment = Compiler::builder()
+        .project_root(&root)
+        .catalog_factories(catalog_factories)
+        .table_factories(table_factories)
+        .environment(Arc::new(MapEnvironmentProvider::new([(
+            "ICEBERG_TOKEN".to_owned(),
+            "fixture-token".to_owned(),
+        )])))
+        .build()
+        .unwrap();
+    let failure = denied_environment.analyze_project(&root).await.unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-DATA-060");
 
     let (catalog_factories, table_factories) =
         provider_registries("iceberg-snapshot-1", "delta-version-7");

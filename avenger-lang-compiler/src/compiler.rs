@@ -273,6 +273,7 @@ impl Compiler {
                     qualified_name: Some(format!("chart:{}", dataset.dataset.as_str())),
                     columns: dataset.columns,
                     schema: dataset.schema,
+                    logical_plan_fingerprint: dataset.logical_plan_fingerprint,
                 })
                 .map_err(|error| CompileFailure {
                     diagnostics: vec![Diagnostic::error(

@@ -274,6 +274,7 @@ fn dataset_schema_index_keeps_physical_schema_and_source_provenance() {
             qualified_name: None,
             columns: Vec::new(),
             schema: schema.clone(),
+            logical_plan_fingerprint: None,
         })
         .unwrap();
 
@@ -297,6 +298,7 @@ fn dataset_schema_index_keeps_physical_schema_and_source_provenance() {
                 qualified_name: None,
                 columns: Vec::new(),
                 schema: replacement_schema,
+                logical_plan_fingerprint: None,
             })
             .is_err()
     );

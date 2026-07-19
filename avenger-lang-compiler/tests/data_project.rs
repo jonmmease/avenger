@@ -1,12 +1,48 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::PathBuf,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use arrow::datatypes::DataType;
-use avenger_lang_compiler::{Compiler, DatasetStageKind};
+use avenger_lang_compiler::{CompileFailure, Compiler, DatasetStageKind};
+use avenger_lang_core::{
+    ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceOrigin,
+};
 
 fn project_fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/projects")
         .join(name)
+}
+
+async fn data_failure(data: &str) -> CompileFailure {
+    let declarations = data
+        .trim()
+        .strip_prefix("avenger 1;")
+        .expect("diagnostic fixture starts with the language version");
+    let data = format!("avenger 1; schema tables as test {{ {declarations} }}");
+    let loader = InMemorySourceLoader::default()
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/chart.avenger".into()),
+            "avenger 1; import 'catalog.data.avenger'; chart cartesian as chart {}",
+            ContentVersion::new("chart-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/catalog.data.avenger".into()),
+            data,
+            ContentVersion::new("catalog-v1"),
+        ));
+    Compiler::builder()
+        .project_root("/project")
+        .source_loader(Arc::new(loader) as Arc<dyn SourceLoader>)
+        .build()
+        .unwrap()
+        .compile_file("chart.avenger")
+        .await
+        .unwrap_err()
 }
 
 #[tokio::test]
@@ -92,4 +128,137 @@ async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without
     assert_eq!(final_table.columns[2].data_type, DataType::Int64);
 
     compiler.compile_file("chart.avenger").await.unwrap();
+}
+
+#[tokio::test]
+async fn data_project_reports_catalog_dag_argument_capability_and_option_failures_precisely() {
+    let cases = [
+        (
+            "unknown table",
+            r#"avenger 1;
+               table sql as derived { sql: SELECT * FROM missing; }"#,
+            "AVENGER-DATA-031",
+        ),
+        (
+            "dependency cycle",
+            r#"avenger 1;
+               table sql as a { sql: SELECT * FROM b; }
+               table sql as b { sql: SELECT * FROM a; }"#,
+            "AVENGER-RESOLVE-101",
+        ),
+        (
+            "FROM-first query without SELECT",
+            r#"avenger 1;
+               table inline as rows { values: [{ value: 1; }]; }
+               table sql as invalid { sql: FROM rows; }"#,
+            "AVENGER-SQL-009",
+        ),
+        (
+            "duplicate table path",
+            r#"avenger 1;
+               table inline as rows { values: [{ value: 1; }]; }
+               table inline as rows { values: [{ value: 2; }]; }"#,
+            "AVENGER-RESOLVE-102",
+        ),
+        (
+            "positional table argument",
+            r#"avenger 1;
+               table inline as rows { values: [{ value: 1; }]; }
+               table sql as filtered {
+                 param as minimum { type: int64; default: 0; }
+                 sql: SELECT * FROM rows WHERE value >= $minimum;
+               }
+               table sql as use_filtered { sql: SELECT * FROM filtered(1); }"#,
+            "AVENGER-DATA-050",
+        ),
+        (
+            "unknown named table argument",
+            r#"avenger 1;
+               table inline as rows { values: [{ value: 1; }]; }
+               table sql as filtered {
+                 param as minimum { type: int64; default: 0; }
+                 sql: SELECT * FROM rows WHERE value >= $minimum;
+               }
+               table sql as use_filtered {
+                 sql: SELECT * FROM filtered(other => 1);
+               }"#,
+            "AVENGER-DATA-050",
+        ),
+        (
+            "denied HTTP access",
+            r#"avenger 1;
+               table csv as rows { path: 'https://example.invalid/rows.csv'; }"#,
+            "AVENGER-DATA-041",
+        ),
+        (
+            "denied object-store access",
+            r#"avenger 1;
+               table parquet as rows { path: 's3://bucket/rows.parquet'; }"#,
+            "AVENGER-DATA-041",
+        ),
+        (
+            "unavailable table provider",
+            r#"avenger 1;
+               table delta as rows { uri: 's3://bucket/table'; }"#,
+            "AVENGER-DATA-033",
+        ),
+    ];
+
+    for (name, data, expected) in cases {
+        let failure = data_failure(data).await;
+        assert!(
+            failure
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code.as_str() == expected),
+            "{name} should report {expected}, got {:?}",
+            failure
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.code.as_str())
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+#[tokio::test]
+async fn data_project_validates_file_options_before_provider_planning() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "avenger-lang-data-options-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("rows.csv"), "value\n1\n").unwrap();
+    fs::write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    )
+    .unwrap();
+
+    for (options, expected) in [
+        ("has_header: 'yes';", "AVENGER-DATA-045"),
+        ("invented: true;", "AVENGER-DATA-046"),
+    ] {
+        fs::write(
+            root.join("catalog.data.avenger"),
+            format!(
+                "avenger 1; schema tables as test {{ \
+                 table csv as rows {{ path: 'rows.csv'; options: {{ {options} }} }} }}"
+            ),
+        )
+        .unwrap();
+        let failure = Compiler::builder()
+            .project_root(&root)
+            .build()
+            .unwrap()
+            .analyze_project(&root)
+            .await
+            .unwrap_err();
+        assert_eq!(failure.diagnostics[0].code.as_str(), expected);
+    }
+    fs::remove_dir_all(root).unwrap();
 }
