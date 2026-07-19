@@ -77,8 +77,14 @@ pub(crate) async fn register_and_analyze_catalog(
         let declaration = declarations.get(id).copied().ok_or_else(|| {
             catalog_diagnostic(table, "AVENGER-DATA-001", "catalog declaration is missing")
         })?;
-        let (provider, logical_plan_fingerprint) =
+        let (mut provider, logical_plan_fingerprint) =
             create_table_provider(project, declaration, table, environment, &options).await?;
+        if matches!(
+            declaration.properties.get("materialize"),
+            Some(ResolvedValue::Atom(mode)) if mode == "session"
+        ) {
+            provider = Arc::new(SessionMaterializedTable::new(provider));
+        }
         if !matches!(
             table.kind.as_str(),
             "inline" | "sql" | "csv" | "json" | "parquet" | "arrow" | "ipc"
@@ -720,6 +726,62 @@ fn logical_plan_fingerprint(dataframe: &DataFrame) -> String {
     use sha2::{Digest, Sha256};
     let plan = dataframe.logical_plan().display_indent_schema().to_string();
     format!("sha256:{:x}", Sha256::digest(plan.as_bytes()))
+}
+
+/// A generation-local, lazy materialization. Logical planning consults only
+/// `schema`; the first physical scan loads the source, and every later scan in
+/// the same compilation session reuses the immutable Arrow batches.
+struct SessionMaterializedTable {
+    source: Arc<dyn TableProvider>,
+    materialized: tokio::sync::OnceCell<Arc<MemTable>>,
+}
+
+impl SessionMaterializedTable {
+    fn new(source: Arc<dyn TableProvider>) -> Self {
+        Self {
+            source,
+            materialized: tokio::sync::OnceCell::new(),
+        }
+    }
+}
+
+impl std::fmt::Debug for SessionMaterializedTable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SessionMaterializedTable")
+            .field("schema", &self.source.schema())
+            .field("is_materialized", &self.materialized.initialized())
+            .finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl TableProvider for SessionMaterializedTable {
+    fn schema(&self) -> arrow::datatypes::SchemaRef {
+        self.source.schema()
+    }
+
+    fn table_type(&self) -> datafusion::datasource::TableType {
+        self.source.table_type()
+    }
+
+    async fn scan(
+        &self,
+        state: &dyn datafusion::catalog::Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[datafusion::logical_expr::Expr],
+        limit: Option<usize>,
+    ) -> datafusion::common::Result<Arc<dyn datafusion::physical_plan::ExecutionPlan>> {
+        let materialized = self
+            .materialized
+            .get_or_try_init(|| async {
+                MemTable::load(Arc::clone(&self.source), Some(1), state)
+                    .await
+                    .map(Arc::new)
+            })
+            .await?;
+        materialized.scan(state, projection, filters, limit).await
+    }
 }
 
 fn table_path(

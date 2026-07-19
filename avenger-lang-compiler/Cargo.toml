@@ -24,6 +24,7 @@ serde_json = { workspace = true }
 sha2 = "0.10"
 sqlparser = { workspace = true }
 thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
 reqwest = { workspace = true, features = ["rustls-tls"] }
 
 [dev-dependencies]

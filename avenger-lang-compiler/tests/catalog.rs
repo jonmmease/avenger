@@ -1,17 +1,30 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
-use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+use arrow::{
+    array::Int64Array,
+    datatypes::{DataType, Field, Schema, SchemaRef},
+    record_batch::RecordBatch,
+};
 use async_trait::async_trait;
 use avenger_lang_compiler::{
     CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment, Compiler,
     DatasetStageKind, TableFactory, TableFactoryError, TableFactoryRegistry,
 };
-use avenger_lang_core::{DataCapabilities, MapEnvironmentProvider};
+use avenger_lang_core::{
+    ContentVersion, DataCapabilities, InMemorySourceLoader, LoadedSource, MapEnvironmentProvider,
+    SourceLoader, SourceOrigin,
+};
 use datafusion::{
     catalog::{
         CatalogProvider, MemoryCatalogProvider, MemorySchemaProvider, SchemaProvider, Session,
     },
-    datasource::{TableProvider, TableType},
+    datasource::{TableProvider, TableType, memory::MemTable},
     error::Result as DataFusionResult,
     logical_expr::Expr,
     physical_plan::ExecutionPlan,
@@ -112,6 +125,60 @@ impl TableFactory for MockDeltaFactory {
         _environment: &CompileEnvironment,
     ) -> Result<Option<String>, TableFactoryError> {
         Ok(Some(self.0.to_owned()))
+    }
+}
+
+#[derive(Debug)]
+struct CountingTable {
+    scans: Arc<AtomicUsize>,
+    table: MemTable,
+}
+
+#[async_trait]
+impl TableProvider for CountingTable {
+    fn schema(&self) -> SchemaRef {
+        self.table.schema()
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
+    }
+
+    async fn scan(
+        &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        self.scans.fetch_add(1, Ordering::SeqCst);
+        self.table.scan(state, projection, filters, limit).await
+    }
+}
+
+struct CountingFactory(Arc<AtomicUsize>);
+
+#[async_trait]
+impl TableFactory for CountingFactory {
+    async fn create(
+        &self,
+        _options: &serde_json::Value,
+        _environment: &CompileEnvironment,
+    ) -> Result<Arc<dyn TableProvider>, TableFactoryError> {
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(Int64Array::from(vec![1_i64, 2]))],
+        )
+        .unwrap();
+        Ok(Arc::new(CountingTable {
+            scans: Arc::clone(&self.0),
+            table: MemTable::try_new(schema, vec![vec![batch]]).unwrap(),
+        }))
     }
 }
 
@@ -329,5 +396,59 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
     assert_ne!(
         changed.project_fingerprint.as_str(),
         analysis.project_fingerprint.as_str()
+    );
+}
+
+#[tokio::test]
+async fn catalog_session_materialization_is_lazy_and_reused_within_one_generation() {
+    let loader = InMemorySourceLoader::default()
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/chart.avenger".into()),
+            "avenger 1; import 'catalog.data.avenger' as live; chart cartesian as chart {}",
+            ContentVersion::new("chart-v1"),
+        ))
+        .with_source(LoadedSource::new(
+            SourceOrigin::File("/project/catalog.data.avenger".into()),
+            "avenger 1; schema tables as test { \
+             table counting as rows { materialize: session; } }",
+            ContentVersion::new("catalog-v1"),
+        ));
+    let scans = Arc::new(AtomicUsize::new(0));
+    let mut factories = TableFactoryRegistry::default();
+    factories
+        .register("counting", Arc::new(CountingFactory(Arc::clone(&scans))))
+        .unwrap();
+    let generation = Compiler::builder()
+        .project_root("/project")
+        .source_loader(Arc::new(loader) as Arc<dyn SourceLoader>)
+        .table_factories(factories)
+        .build()
+        .unwrap()
+        .compile_file_generation_attempt("chart.avenger", 9)
+        .await
+        .result
+        .unwrap();
+    assert_eq!(
+        scans.load(Ordering::SeqCst),
+        0,
+        "compilation is schema-only"
+    );
+
+    for _ in 0..2 {
+        let rows = generation
+            .environment
+            .session_context()
+            .sql("SELECT * FROM live.rows")
+            .await
+            .unwrap()
+            .collect()
+            .await
+            .unwrap();
+        assert_eq!(rows.iter().map(RecordBatch::num_rows).sum::<usize>(), 2);
+    }
+    assert_eq!(
+        scans.load(Ordering::SeqCst),
+        1,
+        "the source provider is loaded once per session"
     );
 }
