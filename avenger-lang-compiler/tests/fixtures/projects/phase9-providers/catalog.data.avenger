@@ -1,0 +1,15 @@
+avenger 1;
+
+catalog iceberg as warehouse {
+  uri: 'https://catalog.example.invalid';
+  token: env 'ICEBERG_TOKEN';
+  schema namespace as analytics {
+    path: ['organization', 'analytics'];
+  }
+}
+
+schema tables as local {
+  table delta as events {
+    uri: 's3://warehouse/events';
+  }
+}

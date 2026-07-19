@@ -65,6 +65,8 @@ pub(crate) async fn register_and_analyze_catalog(
     let mut datasets = DatasetSchemaIndex::default();
     let mut lineage = DatasetLineageIndex::default();
 
+    analyze_external_catalogs(project, context, &mut datasets, &mut lineage).await?;
+
     for id in &project.table_order {
         let Some(table) = table_by_id.get(id).copied() else {
             continue;
@@ -217,12 +219,34 @@ async fn register_external_catalogs(
                 ),
             )
         })?;
-        let provider_options = declaration_options(
+        let mut provider_options = declaration_options(
             &declaration.properties,
             options.capabilities,
             options.environment_provider,
             declaration,
         )?;
+        if let serde_json::Value::Object(object) = &mut provider_options {
+            let mut projections = serde_json::Map::new();
+            for schema in declaration
+                .children
+                .iter()
+                .filter(|child| child.keyword == "schema")
+            {
+                let Some(alias) = schema.name.as_ref() else {
+                    continue;
+                };
+                projections.insert(
+                    alias.clone(),
+                    declaration_options(
+                        &schema.properties,
+                        options.capabilities,
+                        options.environment_provider,
+                        schema,
+                    )?,
+                );
+            }
+            object.insert("schemas".to_owned(), serde_json::Value::Object(projections));
+        }
         let provider = factory
             .create(&provider_options, environment)
             .await
@@ -239,6 +263,105 @@ async fn register_external_catalogs(
                 "AVENGER-DATA-022",
                 format!("catalog `{name}` is already registered in this generation"),
             ));
+        }
+    }
+    Ok(())
+}
+
+async fn analyze_external_catalogs(
+    project: &ResolvedProject,
+    context: &SessionContext,
+    datasets: &mut DatasetSchemaIndex,
+    lineage: &mut DatasetLineageIndex,
+) -> Result<(), Diagnostic> {
+    for declaration in project
+        .files
+        .values()
+        .flat_map(|file| file.roots.iter())
+        .filter(|declaration| declaration.keyword == "catalog")
+    {
+        let kind = declaration.kind.as_deref().unwrap_or("schemas");
+        if matches!(kind, "schemas" | "memory") {
+            continue;
+        }
+        let Some(catalog_name) = declaration.name.as_deref() else {
+            continue;
+        };
+        let catalog = context.catalog(catalog_name).ok_or_else(|| {
+            declaration_diagnostic(
+                declaration,
+                "AVENGER-DATA-023",
+                format!("catalog factory did not register `{catalog_name}`"),
+            )
+        })?;
+        for projection in declaration
+            .children
+            .iter()
+            .filter(|child| child.keyword == "schema")
+        {
+            let Some(schema_name) = projection.name.as_deref() else {
+                continue;
+            };
+            let schema = catalog.schema(schema_name).ok_or_else(|| {
+                declaration_diagnostic(
+                    projection,
+                    "AVENGER-DATA-024",
+                    format!(
+                        "catalog provider did not expose projected schema `{catalog_name}.{schema_name}`"
+                    ),
+                )
+            })?;
+            let mut table_names = schema.table_names();
+            table_names.sort();
+            for table_name in table_names {
+                let provider = schema
+                    .table(&table_name)
+                    .await
+                    .map_err(|error| {
+                        declaration_diagnostic(projection, "AVENGER-DATA-025", error.to_string())
+                    })?
+                    .ok_or_else(|| {
+                        declaration_diagnostic(
+                            projection,
+                            "AVENGER-DATA-025",
+                            format!("provider listed missing table `{table_name}`"),
+                        )
+                    })?;
+                let qualified = format!("{catalog_name}.{schema_name}.{table_name}");
+                let dataset_id = ProjectDatasetId::new(format!("provider:{qualified}"));
+                let stage = DatasetStageId::new(dataset_id.clone(), 0);
+                datasets
+                    .insert(AnalyzedDataset {
+                        id: dataset_id,
+                        stage: stage.clone(),
+                        provenance: DatasetProvenance {
+                            declaration_span: declaration.span,
+                            stage_span: projection.span,
+                            stage_kind: DatasetStageKind::CatalogTable,
+                        },
+                        qualified_name: Some(qualified.clone()),
+                        columns: provider
+                            .schema()
+                            .fields()
+                            .iter()
+                            .map(|field| AnalyzedColumn {
+                                name: field.name().clone(),
+                                qualifier: Some(qualified.clone()),
+                                data_type: field.data_type().clone(),
+                                nullable: field.is_nullable(),
+                            })
+                            .collect(),
+                        schema: provider.schema(),
+                    })
+                    .map_err(|error| {
+                        declaration_diagnostic(projection, "AVENGER-DATA-026", error.to_string())
+                    })?;
+                lineage
+                    .insert(stage, DatasetLineage::default())
+                    .map_err(|error| {
+                        declaration_diagnostic(projection, "AVENGER-DATA-026", error.to_string())
+                    })?;
+            }
         }
     }
     Ok(())
