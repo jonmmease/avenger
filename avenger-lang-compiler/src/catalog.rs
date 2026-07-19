@@ -1,11 +1,6 @@
 //! DataFusion-backed catalog registration and execution-free schema analysis.
 
-use std::{collections::BTreeMap, fs::File, io::BufReader, ops::ControlFlow, sync::Arc};
-
-use arrow::{
-    ipc::reader::{FileReader as IpcFileReader, StreamReader as IpcStreamReader},
-    record_batch::RecordBatch,
-};
+use std::{collections::BTreeMap, ops::ControlFlow, sync::Arc};
 
 use avenger_lang_core::{
     DataCapabilities, DeclarationId, Diagnostic, EnvironmentProvider, PhysicalType,
@@ -17,6 +12,7 @@ use datafusion::{
     common::TableReference,
     dataframe::DataFrame,
     datasource::{TableProvider, memory::MemTable},
+    execution::options::ArrowReadOptions,
     prelude::{CsvReadOptions, JsonReadOptions, ParquetReadOptions, SessionContext},
 };
 use sqlparser::{
@@ -570,7 +566,28 @@ async fn create_table_provider(
             let fingerprint = logical_plan_fingerprint(&dataframe);
             Ok((dataframe.into_view(), Some(fingerprint)))
         }
-        "arrow" | "ipc" => ipc_table(project, declaration, options).map(|table| (table, None)),
+        "arrow" | "ipc" => {
+            let path = table_path(project, declaration, options)?;
+            let mut read = ArrowReadOptions::default();
+            if let Some(file_options) = file_options(declaration, "arrow")? {
+                for (name, value) in file_options {
+                    match name.as_str() {
+                        "file_extension" => {
+                            let ResolvedValue::String(value) = value else {
+                                return Err(file_option_type(declaration, name, "string"));
+                            };
+                            read.file_extension = value;
+                        }
+                        _ => return Err(unknown_file_option(declaration, "arrow", name)),
+                    }
+                }
+            }
+            let dataframe = context.read_arrow(path, read).await.map_err(|error| {
+                declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string())
+            })?;
+            let fingerprint = logical_plan_fingerprint(&dataframe);
+            Ok((dataframe.into_view(), Some(fingerprint)))
+        }
         kind => {
             let factory = options.table_factories.get(kind).ok_or_else(|| {
                 declaration_diagnostic(
@@ -596,59 +613,6 @@ async fn create_table_provider(
                 })
         }
     }
-}
-
-fn ipc_table(
-    project: &ResolvedProject,
-    declaration: &ResolvedDeclaration,
-    options: &CatalogOptions<'_>,
-) -> Result<Arc<dyn TableProvider>, Diagnostic> {
-    let path = table_path(project, declaration, options)?;
-    if path.contains("://") || path.contains('*') || path.contains('?') || path.contains('[') {
-        return Err(declaration_diagnostic(
-            declaration,
-            "AVENGER-DATA-038",
-            "Arrow IPC v1 requires one project-local file; directory, glob, and object-store IPC providers may be registered by the host",
-        ));
-    }
-    let read_file = || File::open(&path).map(BufReader::new);
-    let (schema, batches): (_, Vec<RecordBatch>) = match read_file().and_then(|reader| {
-        IpcFileReader::try_new(reader, None)
-            .map_err(std::io::Error::other)
-            .and_then(|mut reader| {
-                let schema = reader.schema();
-                let batches = reader
-                    .by_ref()
-                    .collect::<Result<Vec<_>, _>>()
-                    .map_err(std::io::Error::other)?;
-                Ok((schema, batches))
-            })
-    }) {
-        Ok(result) => result,
-        Err(file_error) => {
-            let reader = read_file().map_err(|error| {
-                declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string())
-            })?;
-            let mut reader = IpcStreamReader::try_new(reader, None).map_err(|stream_error| {
-                declaration_diagnostic(
-                    declaration,
-                    "AVENGER-DATA-039",
-                    format!("not a valid Arrow IPC file ({file_error}) or stream ({stream_error})"),
-                )
-            })?;
-            let schema = reader.schema();
-            let batches = reader
-                .by_ref()
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| {
-                    declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string())
-                })?;
-            (schema, batches)
-        }
-    };
-    MemTable::try_new(schema, vec![batches])
-        .map(|table| Arc::new(table) as Arc<dyn TableProvider>)
-        .map_err(|error| declaration_diagnostic(declaration, "AVENGER-DATA-039", error.to_string()))
 }
 
 fn file_options<'a>(
