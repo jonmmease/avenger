@@ -6,11 +6,12 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use arrow::datatypes::DataType;
+use arrow::datatypes::{DataType, Field, Schema};
 use avenger_lang_compiler::{CompileFailure, Compiler, DatasetStageKind};
 use avenger_lang_core::{
-    ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceOrigin,
+    ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceOrigin, ast::SqlQuery,
 };
+use datafusion::{datasource::MemTable, prelude::SessionContext};
 
 fn project_fixture(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -127,7 +128,13 @@ async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without
     );
     assert_eq!(final_table.columns[2].data_type, DataType::Int64);
 
-    compiler.compile_file("chart.avenger").await.unwrap();
+    let artifact = compiler.compile_file("chart.avenger").await.unwrap();
+    assert_eq!(
+        artifact.dependency_fingerprint.as_str(),
+        analysis.project_fingerprint.as_str(),
+        "analysis and full compilation must consume the same data snapshot"
+    );
+    assert_eq!(artifact.compiled_plot().marks().len(), 1);
 }
 
 #[tokio::test]
@@ -261,4 +268,56 @@ async fn data_project_validates_file_options_before_provider_planning() {
         assert_eq!(failure.diagnostics[0].code.as_str(), expected);
     }
     fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn data_project_sql_frontend_corpus_reaches_the_datafusion_planning_boundary() {
+    let context = SessionContext::new();
+    let movies = Arc::new(Schema::new(vec![
+        Field::new("id", DataType::Int64, false),
+        Field::new("title", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, true),
+        Field::new("rating", DataType::Float64, true),
+    ]));
+    let ratings = Arc::new(Schema::new(vec![
+        Field::new("movie_id", DataType::Int64, false),
+        Field::new("value", DataType::Float64, true),
+    ]));
+    context
+        .register_table(
+            "movies",
+            Arc::new(MemTable::try_new(movies, vec![vec![]]).unwrap()),
+        )
+        .unwrap();
+    context
+        .register_table(
+            "ratings",
+            Arc::new(MemTable::try_new(ratings, vec![vec![]]).unwrap()),
+        )
+        .unwrap();
+
+    let corpus = [
+        "SELECT m.title, m.rating FROM movies AS m WHERE m.rating > 0",
+        "FROM movies AS m SELECT m.title, m.rating WHERE m.rating > 0",
+        "WITH filtered AS (SELECT * FROM movies WHERE rating > 0) \
+         SELECT title FROM filtered",
+        "SELECT category, sum(rating) AS total FROM movies GROUP BY category",
+        "SELECT m.title, avg(r.value) AS mean_rating FROM movies AS m \
+         LEFT JOIN ratings AS r ON m.id = r.movie_id GROUP BY m.title",
+        "SELECT title FROM movies AS m WHERE EXISTS \
+         (SELECT 1 FROM ratings AS r WHERE r.movie_id = m.id)",
+        "SELECT category FROM movies UNION ALL SELECT category FROM movies",
+        "VALUES (1, 'one'), (2, 'two')",
+        "SELECT title, row_number() OVER \
+         (PARTITION BY category ORDER BY rating) AS ordinal FROM movies",
+        "SELECT nested.title FROM (SELECT title FROM movies) AS nested",
+    ];
+
+    for source in corpus {
+        let canonical = SqlQuery::parse(source).unwrap().canonical_sql();
+        let planned = context.sql(&canonical).await.unwrap_or_else(|error| {
+            panic!("frontend-accepted SQL did not plan: {canonical}\n{error}")
+        });
+        assert!(!planned.schema().fields().is_empty(), "{canonical}");
+    }
 }
