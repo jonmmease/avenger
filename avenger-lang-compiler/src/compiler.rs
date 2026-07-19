@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
 use avenger_chart_lang_registry::{
@@ -122,6 +122,8 @@ pub struct ExpandedSource {
 pub struct Compiler {
     options: Arc<CompilerOptions>,
     host: LanguageHost,
+    resolved_project_cache: Arc<Mutex<BTreeMap<String, ResolvedProject>>>,
+    analysis_cache: Arc<Mutex<BTreeMap<String, ProjectAnalysis>>>,
 }
 
 impl Compiler {
@@ -232,6 +234,20 @@ impl Compiler {
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let project = self.resolve_project_graph_attempt(root).await.result?;
         let (environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
+        let analysis_cache_key = format!(
+            "{}\0{}",
+            self.options.native_registry.profile_id().as_str(),
+            catalog.dependency_fingerprint
+        );
+        if let Some(cached) = self
+            .analysis_cache
+            .lock()
+            .expect("analysis cache lock poisoned")
+            .get(&analysis_cache_key)
+            .cloned()
+        {
+            return Ok(cached);
+        }
         let project_fingerprint = ProjectFingerprint::new(catalog.dependency_fingerprint.clone());
         let mut analysis = ProjectAnalysis::empty(
             project.sources.clone(),
@@ -299,6 +315,10 @@ impl Compiler {
                     )],
                 })?;
         }
+        self.analysis_cache
+            .lock()
+            .expect("analysis cache lock poisoned")
+            .insert(analysis_cache_key, analysis.clone());
         Ok(analysis)
     }
 
@@ -360,7 +380,7 @@ impl Compiler {
         path: impl AsRef<Path>,
     ) -> CompileAttempt<ResolvedProject> {
         let attempt = self.load_file_project_attempt(path).await;
-        map_parsed_project_to_resolution(attempt, self.host.authoring_schema())
+        self.resolve_parsed_project_attempt(attempt)
     }
 
     /// Convenience wrapper for callers that do not need dependency metadata.
@@ -378,7 +398,7 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> CompileAttempt<ResolvedProject> {
         let attempt = self.load_project_graph_attempt(root).await;
-        map_parsed_project_to_resolution(attempt, self.host.authoring_schema())
+        self.resolve_parsed_project_attempt(attempt)
     }
 
     /// Phase 3 frontend seam: load one chart and its complete import/data
@@ -488,6 +508,35 @@ impl Compiler {
             )?;
             project.fingerprint = augment_project_fingerprint(&project.fingerprint, &dependencies);
             Ok(project)
+        });
+        CompileAttempt {
+            result,
+            dependencies,
+        }
+    }
+
+    fn resolve_parsed_project_attempt(
+        &self,
+        attempt: CompileAttempt<ParsedProject>,
+    ) -> CompileAttempt<ResolvedProject> {
+        let dependencies = attempt.dependencies;
+        let result = attempt.result.and_then(|project| {
+            if let Some(cached) = self
+                .resolved_project_cache
+                .lock()
+                .expect("resolved-project cache lock poisoned")
+                .get(&project.fingerprint)
+                .cloned()
+            {
+                return Ok(cached);
+            }
+            let fingerprint = project.fingerprint.clone();
+            let resolved = resolve_parsed_project(project, self.host.authoring_schema())?;
+            self.resolved_project_cache
+                .lock()
+                .expect("resolved-project cache lock poisoned")
+                .insert(fingerprint, resolved.clone());
+            Ok(resolved)
         });
         CompileAttempt {
             result,
@@ -727,6 +776,8 @@ impl CompilerBuilder {
         Ok(Compiler {
             options: Arc::new(options),
             host: LanguageHost::new(registry),
+            resolved_project_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            analysis_cache: Arc::new(Mutex::new(BTreeMap::new())),
         })
     }
 }
@@ -790,40 +841,34 @@ fn compiler_dependencies(
     result
 }
 
-fn map_parsed_project_to_resolution(
-    attempt: CompileAttempt<ParsedProject>,
+fn resolve_parsed_project(
+    project: ParsedProject,
     schema: &avenger_chart_schema::NativeSchemaSnapshot,
-) -> CompileAttempt<ResolvedProject> {
-    let result = attempt.result.and_then(|project| {
-        let resolved = resolve_semantics(&project, schema)
-            .result
-            .map_err(|failure| CompileFailure {
-                diagnostics: failure.diagnostics,
-            })?;
-        if resolved.definitions.is_empty() {
-            return Ok(resolved);
-        }
-        let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
+) -> Result<ResolvedProject, CompileFailure> {
+    let resolved = resolve_semantics(&project, schema)
+        .result
+        .map_err(|failure| CompileFailure {
             diagnostics: failure.diagnostics,
         })?;
-        match resolve_semantics(&expanded.project, schema).result {
-            Ok(mut resolved) => {
-                resolved.expansion_source_map = expanded.source_map;
-                Ok(resolved)
-            }
-            Err(mut failure) => {
-                expanded
-                    .source_map
-                    .remap_diagnostics(&mut failure.diagnostics);
-                Err(CompileFailure {
-                    diagnostics: failure.diagnostics,
-                })
-            }
+    if resolved.definitions.is_empty() {
+        return Ok(resolved);
+    }
+    let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
+        diagnostics: failure.diagnostics,
+    })?;
+    match resolve_semantics(&expanded.project, schema).result {
+        Ok(mut resolved) => {
+            resolved.expansion_source_map = expanded.source_map;
+            Ok(resolved)
         }
-    });
-    CompileAttempt {
-        result,
-        dependencies: attempt.dependencies,
+        Err(mut failure) => {
+            expanded
+                .source_map
+                .remap_diagnostics(&mut failure.diagnostics);
+            Err(CompileFailure {
+                diagnostics: failure.diagnostics,
+            })
+        }
     }
 }
 
