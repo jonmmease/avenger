@@ -4794,6 +4794,13 @@ pub(crate) fn compiled_project_from_lowered(
     registry: &NativeRegistry,
     lowered: LoweredProject,
 ) -> CompiledProject {
+    let project_fingerprint = lowered
+        .charts
+        .first()
+        .map(|chart| {
+            ProjectFingerprint::new(chart.artifact.dependency_fingerprint.as_str().to_owned())
+        })
+        .unwrap_or_else(|| ProjectFingerprint::new(project.source_fingerprint.clone()));
     let charts = lowered
         .charts
         .into_iter()
@@ -4803,7 +4810,7 @@ pub(crate) fn compiled_project_from_lowered(
         charts,
         sources: project.sources.clone(),
         native_registry_profile: registry.profile_id().clone(),
-        project_fingerprint: ProjectFingerprint::new(project.source_fingerprint.clone()),
+        project_fingerprint,
     }
 }
 

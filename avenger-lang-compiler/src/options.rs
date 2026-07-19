@@ -64,6 +64,17 @@ pub trait CatalogFactory: Send + Sync {
         options: &serde_json::Value,
         environment: &CompileEnvironment,
     ) -> Result<Arc<dyn CatalogProvider>, CatalogFactoryError>;
+
+    /// Immutable snapshot identity (for example an Iceberg snapshot id) to
+    /// fold into project/artifact fingerprints. Configuration text is already
+    /// covered by the source fingerprint.
+    async fn dependency_fingerprint(
+        &self,
+        _options: &serde_json::Value,
+        _environment: &CompileEnvironment,
+    ) -> Result<Option<String>, CatalogFactoryError> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Default)]
@@ -115,6 +126,14 @@ pub trait TableFactory: Send + Sync {
         options: &serde_json::Value,
         environment: &CompileEnvironment,
     ) -> Result<Arc<dyn TableProvider>, TableFactoryError>;
+
+    async fn dependency_fingerprint(
+        &self,
+        _options: &serde_json::Value,
+        _environment: &CompileEnvironment,
+    ) -> Result<Option<String>, TableFactoryError> {
+        Ok(None)
+    }
 }
 
 #[derive(Clone, Default)]

@@ -59,7 +59,7 @@ fn schema_only_table() -> Arc<dyn TableProvider> {
     })
 }
 
-struct MockIcebergFactory;
+struct MockIcebergFactory(&'static str);
 
 #[async_trait]
 impl CatalogFactory for MockIcebergFactory {
@@ -83,9 +83,17 @@ impl CatalogFactory for MockIcebergFactory {
             .unwrap();
         Ok(Arc::new(catalog))
     }
+
+    async fn dependency_fingerprint(
+        &self,
+        _options: &serde_json::Value,
+        _environment: &CompileEnvironment,
+    ) -> Result<Option<String>, CatalogFactoryError> {
+        Ok(Some(self.0.to_owned()))
+    }
 }
 
-struct MockDeltaFactory;
+struct MockDeltaFactory(&'static str);
 
 #[async_trait]
 impl TableFactory for MockDeltaFactory {
@@ -97,6 +105,29 @@ impl TableFactory for MockDeltaFactory {
         assert_eq!(options["uri"], "s3://warehouse/events");
         Ok(schema_only_table())
     }
+
+    async fn dependency_fingerprint(
+        &self,
+        _options: &serde_json::Value,
+        _environment: &CompileEnvironment,
+    ) -> Result<Option<String>, TableFactoryError> {
+        Ok(Some(self.0.to_owned()))
+    }
+}
+
+fn provider_registries(
+    iceberg_snapshot: &'static str,
+    delta_snapshot: &'static str,
+) -> (CatalogFactoryRegistry, TableFactoryRegistry) {
+    let mut catalogs = CatalogFactoryRegistry::default();
+    catalogs
+        .register("iceberg", Arc::new(MockIcebergFactory(iceberg_snapshot)))
+        .unwrap();
+    let mut tables = TableFactoryRegistry::default();
+    tables
+        .register("delta", Arc::new(MockDeltaFactory(delta_snapshot)))
+        .unwrap();
+    (catalogs, tables)
 }
 
 #[tokio::test]
@@ -218,14 +249,8 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
     let failure = denied.analyze_project(&root).await.unwrap_err();
     assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-DATA-020");
 
-    let mut catalog_factories = CatalogFactoryRegistry::default();
-    catalog_factories
-        .register("iceberg", Arc::new(MockIcebergFactory))
-        .unwrap();
-    let mut table_factories = TableFactoryRegistry::default();
-    table_factories
-        .register("delta", Arc::new(MockDeltaFactory))
-        .unwrap();
+    let (catalog_factories, table_factories) =
+        provider_registries("iceberg-snapshot-1", "delta-version-7");
     let mut capabilities = DataCapabilities::project();
     capabilities.allow_environment = true;
     capabilities
@@ -250,4 +275,39 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
         .collect::<std::collections::BTreeSet<_>>();
     assert!(names.contains("warehouse.analytics.remote_events"));
     assert!(names.contains("local.events"));
+
+    let project = compiler.compile_project(&root).await.unwrap();
+    assert_eq!(
+        project.project_fingerprint.as_str(),
+        analysis.project_fingerprint.as_str()
+    );
+    assert!(project.charts.values().all(|chart| {
+        chart.dependency_fingerprint.as_str() == analysis.project_fingerprint.as_str()
+    }));
+
+    let (catalog_factories, table_factories) =
+        provider_registries("iceberg-snapshot-2", "delta-version-7");
+    let mut capabilities = DataCapabilities::project();
+    capabilities.allow_environment = true;
+    capabilities
+        .environment_names
+        .insert("ICEBERG_TOKEN".to_owned());
+    let changed = Compiler::builder()
+        .project_root(&root)
+        .catalog_factories(catalog_factories)
+        .table_factories(table_factories)
+        .data_capabilities(capabilities)
+        .environment(Arc::new(MapEnvironmentProvider::new([(
+            "ICEBERG_TOKEN".to_owned(),
+            "fixture-token".to_owned(),
+        )])))
+        .build()
+        .unwrap()
+        .analyze_project(&root)
+        .await
+        .unwrap();
+    assert_ne!(
+        changed.project_fingerprint.as_str(),
+        analysis.project_fingerprint.as_str()
+    );
 }

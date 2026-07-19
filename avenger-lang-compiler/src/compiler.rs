@@ -232,10 +232,11 @@ impl Compiler {
     ) -> Result<ProjectAnalysis, CompileFailure> {
         let project = self.resolve_project_graph_attempt(root).await.result?;
         let (environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
+        let project_fingerprint = ProjectFingerprint::new(catalog.dependency_fingerprint.clone());
         let mut analysis = ProjectAnalysis::empty(
             project.sources.clone(),
             self.options.native_registry.profile_id().clone(),
-            ProjectFingerprint::new(project.source_fingerprint.clone()),
+            project_fingerprint,
         );
         analysis.datasets = catalog.datasets;
         analysis.lineage = catalog.lineage;
@@ -566,8 +567,8 @@ impl Compiler {
         project: &ResolvedProject,
         generation: u64,
     ) -> Result<(LoweredProject, crate::CompileEnvironment), CompileFailure> {
-        let (environment, _catalog) = self.analyze_resolved_project(project, generation).await?;
-        let lowered = lower_project(
+        let (environment, catalog) = self.analyze_resolved_project(project, generation).await?;
+        let mut lowered = lower_project(
             project,
             self.options.native_registry.as_ref(),
             environment.session_context(),
@@ -576,6 +577,10 @@ impl Compiler {
         )
         .await
         .map_err(|diagnostics| CompileFailure { diagnostics })?;
+        for chart in &mut lowered.charts {
+            chart.artifact.dependency_fingerprint =
+                DependencyFingerprint::new(catalog.dependency_fingerprint.clone());
+        }
         Ok((lowered, environment))
     }
 

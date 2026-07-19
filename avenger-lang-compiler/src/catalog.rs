@@ -36,6 +36,7 @@ use crate::{
 pub(crate) struct CatalogAnalysis {
     pub datasets: DatasetSchemaIndex,
     pub lineage: DatasetLineageIndex,
+    pub dependency_fingerprint: String,
 }
 
 pub(crate) struct CatalogOptions<'a> {
@@ -52,7 +53,8 @@ pub(crate) async fn register_and_analyze_catalog(
     options: CatalogOptions<'_>,
 ) -> Result<CatalogAnalysis, Diagnostic> {
     let context = environment.session_context();
-    register_external_catalogs(project, environment, &options).await?;
+    let mut provider_fingerprints =
+        register_external_catalogs(project, environment, &options).await?;
 
     let declarations = declaration_index(project);
     let table_by_id = project
@@ -76,6 +78,27 @@ pub(crate) async fn register_and_analyze_catalog(
         })?;
         let provider =
             create_table_provider(project, declaration, table, environment, &options).await?;
+        if !matches!(
+            table.kind.as_str(),
+            "inline" | "sql" | "csv" | "json" | "parquet" | "arrow" | "ipc"
+        ) && let Some(factory) = options.table_factories.get(&table.kind)
+        {
+            let provider_options = declaration_options(
+                &declaration.properties,
+                options.capabilities,
+                options.environment_provider,
+                declaration,
+            )?;
+            if let Some(fingerprint) = factory
+                .dependency_fingerprint(&provider_options, environment)
+                .await
+                .map_err(|error| {
+                    declaration_diagnostic(declaration, "AVENGER-DATA-047", error.to_string())
+                })?
+            {
+                provider_fingerprints.push(format!("table:{}:{fingerprint}", table.path.join(".")));
+            }
+        }
         register_table(context, &table.path, Arc::clone(&provider))
             .map_err(|message| catalog_diagnostic(table, "AVENGER-DATA-002", message))?;
         providers.insert(id.clone(), provider);
@@ -188,14 +211,23 @@ pub(crate) async fn register_and_analyze_catalog(
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
     }
 
-    Ok(CatalogAnalysis { datasets, lineage })
+    provider_fingerprints.sort();
+    Ok(CatalogAnalysis {
+        datasets,
+        lineage,
+        dependency_fingerprint: catalog_dependency_fingerprint(
+            &project.source_fingerprint,
+            &provider_fingerprints,
+        ),
+    })
 }
 
 async fn register_external_catalogs(
     project: &ResolvedProject,
     environment: &CompileEnvironment,
     options: &CatalogOptions<'_>,
-) -> Result<(), Diagnostic> {
+) -> Result<Vec<String>, Diagnostic> {
+    let mut fingerprints = Vec::new();
     for declaration in project
         .files
         .values()
@@ -253,6 +285,15 @@ async fn register_external_catalogs(
             .map_err(|error| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-021", error.to_string())
             })?;
+        if let Some(fingerprint) = factory
+            .dependency_fingerprint(&provider_options, environment)
+            .await
+            .map_err(|error| {
+                declaration_diagnostic(declaration, "AVENGER-DATA-027", error.to_string())
+            })?
+        {
+            fingerprints.push(format!("catalog:{name}:{fingerprint}"));
+        }
         if environment
             .session_context()
             .register_catalog(name, provider)
@@ -265,7 +306,19 @@ async fn register_external_catalogs(
             ));
         }
     }
-    Ok(())
+    Ok(fingerprints)
+}
+
+fn catalog_dependency_fingerprint(source: &str, providers: &[String]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"avenger-catalog-analysis-v1\0");
+    hasher.update(source.as_bytes());
+    for provider in providers {
+        hasher.update(b"\0provider\0");
+        hasher.update(provider.as_bytes());
+    }
+    format!("sha256:{:x}", hasher.finalize())
 }
 
 async fn analyze_external_catalogs(
