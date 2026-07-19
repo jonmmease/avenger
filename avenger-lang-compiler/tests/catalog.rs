@@ -13,7 +13,8 @@ use arrow::{
 };
 use async_trait::async_trait;
 use avenger_lang_compiler::{
-    CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment, Compiler,
+    CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment,
+    CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest, Compiler,
     DatasetStageKind, TableFactory, TableFactoryError, TableFactoryRegistry,
 };
 use avenger_lang_core::{
@@ -73,6 +74,19 @@ fn schema_only_table() -> Arc<dyn TableProvider> {
 }
 
 struct MockIcebergFactory(&'static str);
+
+struct FreshEnvironmentFactory;
+
+impl CompileEnvironmentFactory for FreshEnvironmentFactory {
+    fn create(
+        &self,
+        _request: &CompileEnvironmentRequest,
+    ) -> Result<CompileEnvironment, CompileEnvironmentError> {
+        Ok(CompileEnvironment::new(
+            datafusion::prelude::SessionContext::new(),
+        ))
+    }
+}
 
 #[async_trait]
 impl CatalogFactory for MockIcebergFactory {
@@ -255,6 +269,64 @@ async fn catalog_project_compiles_two_charts_against_one_registered_catalog() {
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let project = compiler.compile_project(&root).await.unwrap();
     assert_eq!(project.charts.len(), 2);
+}
+
+#[tokio::test]
+async fn catalog_default_and_host_generation_environments_are_analysis_and_artifact_equivalent() {
+    let root = project_fixture("06_catalog_project");
+    let default = Compiler::builder().project_root(&root).build().unwrap();
+    let host = Compiler::builder()
+        .project_root(&root)
+        .environment_factory(Arc::new(FreshEnvironmentFactory))
+        .build()
+        .unwrap();
+
+    let default_analysis = default.analyze_project(&root).await.unwrap();
+    let host_analysis = host.analyze_project(&root).await.unwrap();
+    let snapshot = |analysis: &avenger_lang_compiler::ProjectAnalysis| {
+        analysis
+            .datasets
+            .iter()
+            .map(|(_, dataset)| {
+                (
+                    (dataset.id.as_str().to_owned(), dataset.stage.ordinal),
+                    (
+                        dataset.qualified_name.clone(),
+                        dataset.columns.clone(),
+                        dataset.schema.as_ref().clone(),
+                        dataset.logical_plan_fingerprint.clone(),
+                    ),
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    assert_eq!(snapshot(&default_analysis), snapshot(&host_analysis));
+    assert_eq!(
+        default_analysis.project_fingerprint,
+        host_analysis.project_fingerprint
+    );
+
+    let default_project = default.compile_project(&root).await.unwrap();
+    let host_project = host.compile_project(&root).await.unwrap();
+    assert_eq!(
+        default_project.project_fingerprint,
+        host_project.project_fingerprint
+    );
+    for (id, default_chart) in &default_project.charts {
+        let host_chart = &host_project.charts[id];
+        assert_eq!(default_chart.interface, host_chart.interface);
+        assert_eq!(
+            default_chart.dependency_fingerprint,
+            host_chart.dependency_fingerprint
+        );
+        assert_eq!(default_chart.name, host_chart.name);
+        assert_eq!(default_chart.source, host_chart.source);
+        assert_eq!(
+            default_chart.compiled_plot().marks().len(),
+            host_chart.compiled_plot().marks().len(),
+            "host environment must not alter the compiled chart surface for {id:?}"
+        );
+    }
 }
 
 #[tokio::test]

@@ -241,6 +241,21 @@ async fn generation_compile_retains_its_environment_and_generation() {
         context.as_ref(),
         compiled.environment.session_context()
     ));
+
+    let next = compiler
+        .compile_file_generation_attempt("chart.avenger", 43)
+        .await
+        .result
+        .unwrap();
+    assert!(!Arc::ptr_eq(
+        &compiled.environment.session_context_arc(),
+        &next.environment.session_context_arc()
+    ));
+    assert_eq!(
+        factory.requests.lock().unwrap()[1].generation,
+        43,
+        "each reload requests a fresh generation environment"
+    );
 }
 
 #[test]
