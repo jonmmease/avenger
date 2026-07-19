@@ -342,6 +342,16 @@ async fn catalog_parameterized_tables_bind_defaults_named_args_and_forwarding() 
         .unwrap();
     assert_eq!(forwarded.columns[0].data_type, DataType::Utf8);
     assert_eq!(forwarded.columns[1].data_type, DataType::Int64);
+    let configured = analysis
+        .datasets
+        .iter()
+        .map(|(_, dataset)| dataset)
+        .find(|dataset| dataset.qualified_name.as_deref() == Some("local.configured_forwarded"))
+        .unwrap();
+    assert!(matches!(
+        configured.columns[0].data_type,
+        DataType::Struct(_)
+    ));
 
     let artifact = compiler.compile_file("chart.avenger").await.unwrap();
     assert!(artifact.interface.params.contains_key("selected"));

@@ -1175,7 +1175,7 @@ fn default_param_expressions(
 }
 
 fn typed_expression(expression: SqlExpr, data_type: &PhysicalType) -> Result<SqlExpr, String> {
-    let arrow_type = format!("{:?}", physical_data_type(data_type));
+    let arrow_type = physical_data_type(data_type).to_string();
     parse_sql_expression(&format!(
         "arrow_cast(({expression}), '{}')",
         arrow_type.replace('\'', "''")

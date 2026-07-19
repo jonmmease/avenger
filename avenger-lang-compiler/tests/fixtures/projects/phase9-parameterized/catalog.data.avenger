@@ -23,4 +23,22 @@ schema tables as local {
       SELECT "borough", "fare"
       FROM borough_trips(borough => $requested, min_fare => 10);
   }
+
+  table sql as configured {
+    param as config {
+      type: struct(field('label', utf8), field('weight', int64));
+      default: { label: 'base'; weight: 2; }
+    }
+    sql: SELECT $config AS settings;
+  }
+
+  table sql as configured_forwarded {
+    param as forwarded_settings {
+      type: struct(field('label', utf8), field('weight', int64));
+      default: { label: 'forwarded'; weight: 3; }
+    }
+    sql:
+      SELECT *
+      FROM configured(config => $forwarded_settings);
+  }
 }
