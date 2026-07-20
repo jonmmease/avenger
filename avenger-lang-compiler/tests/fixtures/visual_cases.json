@@ -31,7 +31,7 @@
       "sources": [
         "03_widget_vertical_slice/chart.avenger"
       ],
-      "review": "weak"
+      "review": "reviewed"
     },
     {
       "root": "04_composed_extension/external_compound.avenger",
@@ -113,7 +113,7 @@
         "05_definition_widget_adjacency/dot.mark.avenger",
         "05_definition_widget_adjacency/pass.transform.avenger"
       ],
-      "review": "weak"
+      "review": "reviewed"
     },
     {
       "root": "06_catalog_project/movies.avenger",
@@ -196,7 +196,7 @@
       "sources": [
         "09_native_coordinate_families/parallel.avenger"
       ],
-      "review": "weak"
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/polar.avenger",

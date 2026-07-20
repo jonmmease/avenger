@@ -2,5 +2,8 @@ avenger 1;
 
 define mark dot {
   export glyph;
-  mark symbol as glyph { x: "x"; y: "y"; }
+  mark symbol as glyph {
+    x: "x" { scale: linear { domain: [0.0, 2.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 4.0]; } }
+  }
 }

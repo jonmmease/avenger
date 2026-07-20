@@ -717,6 +717,13 @@ async fn native_surface_coordinate_family_project_compiles_all_stock_roots() {
             "{chart}: missing {expected}: {json}"
         );
     }
+    let parallel =
+        serde_json::to_value(project.chart("parallel").unwrap().compiled_plot()).unwrap();
+    assert_eq!(
+        parallel["coord_transform"]["order"],
+        serde_json::json!(["horsepower", "mileage"]),
+        "parallel dimension order must survive language lowering"
+    );
 }
 
 #[tokio::test]

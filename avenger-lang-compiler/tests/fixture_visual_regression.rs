@@ -534,6 +534,44 @@ fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<
                 ));
             }
         }
+        "03_widget_vertical_slice/chart.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            let plot_positions = positions
+                .iter()
+                .filter(|position| position[0] < scene.width * 0.75)
+                .collect::<Vec<_>>();
+            if plot_positions.len() != 1 {
+                return Err(format!(
+                    "default widget selection must filter the plot to one symbol; got {positions:?}"
+                ));
+            }
+        }
+        "05_definition_widget_adjacency/chart.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            let plot_positions = positions
+                .iter()
+                .filter(|position| position[1] < scene.height * 0.8)
+                .collect::<Vec<_>>();
+            if plot_positions.len() != 1 {
+                return Err(format!(
+                    "expanded dot definition must render exactly one plot symbol; got {positions:?}"
+                ));
+            }
+        }
+        "09_native_coordinate_families/parallel.avenger" => {
+            let mut lines = Vec::new();
+            for mark in &scene.marks {
+                collect_parallel_line_y(mark, &mut lines);
+            }
+            if lines.len() != 2
+                || lines.iter().any(|line| line.len() != 2)
+                || (lines[0][0] - lines[0][1]) * (lines[1][0] - lines[1][1]) >= 0.0
+            {
+                return Err(format!(
+                    "parallel fixture must render two contrasting rows that cross across the authored dimension order; got {lines:?}"
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -603,6 +641,20 @@ fn find_positioned_subplot_frame(
 
 fn distance(left: [f32; 2], right: [f32; 2]) -> f32 {
     ((left[0] - right[0]).powi(2) + (left[1] - right[1]).powi(2)).sqrt()
+}
+
+fn collect_parallel_line_y(mark: &SceneMark, lines: &mut Vec<Vec<f32>>) {
+    match mark {
+        SceneMark::Line(line) if line.len == 2 => {
+            lines.push(line.y_iter().copied().collect());
+        }
+        SceneMark::Group(group) => {
+            for child in &group.marks {
+                collect_parallel_line_y(child, lines);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn collect_facet_cell_symbol_counts(mark: &SceneMark, counts: &mut Vec<usize>) {

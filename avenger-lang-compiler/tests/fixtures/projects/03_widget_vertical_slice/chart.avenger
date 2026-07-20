@@ -24,8 +24,8 @@ chart cartesian as chart {
       predicate: "category" = $choice.value;
     }
     mark symbol as points {
-      x: "x";
-      y: "y";
+      x: "x" { scale: linear { domain: [0.0, 3.0]; } }
+      y: "y" { scale: linear { domain: [0.0, 4.0]; } }
       size: value 120.0;
       fill: value '#5778a4';
     }
