@@ -10,7 +10,11 @@ use avenger_chart_core::{
     LegendRenderOutput, LegendRenderer, LegendRendererSelection, Mark, MarkRuntimeContext,
     MarkState, Size2D, Theme,
 };
-use avenger_scenegraph::marks::mark::SceneMark;
+use avenger_color::ColorOrGradient;
+use avenger_common::{types::SymbolShape, value::ScalarOrArray};
+use avenger_scenegraph::marks::{
+    mark::SceneMark, pattern::default_no_fill_pattern, symbol::SceneSymbolMark,
+};
 use datafusion::{arrow::record_batch::RecordBatch, prelude::SessionContext, scalar::ScalarValue};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -212,11 +216,29 @@ impl CompiledMark for CompiledHexBin {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &dyn MarkRuntimeContext,
+        context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Custom hexbin rendering logic would go here
-        // For this test, we just return an empty vector
-        Ok(vec![])
+        Ok(vec![SceneMark::Symbol(SceneSymbolMark {
+            name: "external_hexbin".to_owned(),
+            interactive: true,
+            clip: true,
+            len: 1,
+            gradients: vec![],
+            shapes: vec![SymbolShape::Circle],
+            stroke_width: Some(2.0),
+            shape_index: ScalarOrArray::new_scalar(0),
+            x: ScalarOrArray::new_scalar(context.plot_width() * 0.5),
+            y: ScalarOrArray::new_scalar(context.plot_height() * 0.5),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.95, 0.55, 0.18, 1.0])),
+            fill_pattern: default_no_fill_pattern(),
+            size: ScalarOrArray::new_scalar(420.0),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.35, 0.18, 0.05, 1.0])),
+            angle: ScalarOrArray::new_scalar(0.0),
+            indices: None,
+            zindex: self.state.zindex,
+            x_adjustment: None,
+            y_adjustment: None,
+        })])
     }
 }

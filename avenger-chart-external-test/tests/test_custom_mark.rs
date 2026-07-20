@@ -1,7 +1,9 @@
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::{Chart, Plot};
 use avenger_chart_cartesian::Cartesian;
 use avenger_chart_core::{CoordinateSystemCore, Mark};
 use avenger_chart_external_test::external_mark::HexBin;
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::prelude::SessionContext;
 
 #[derive(Clone)]
 struct CoreOnlyCoord;
@@ -65,4 +67,30 @@ fn test_external_mark_impl_only_needs_core_coordinate_trait() {
     fn assert_mark_impl<M: Mark<CoreOnlyCoord>>() {}
 
     assert_mark_impl::<HexBin<CoreOnlyCoord>>();
+}
+
+fn count_symbols(marks: &[SceneMark]) -> usize {
+    marks
+        .iter()
+        .map(|mark| match mark {
+            SceneMark::Symbol(symbol) => symbol.len as usize,
+            SceneMark::Group(group) => count_symbols(&group.marks),
+            _ => 0,
+        })
+        .sum()
+}
+
+#[tokio::test]
+async fn external_mark_renders_minimal_visible_geometry() {
+    let ctx = SessionContext::new();
+    let compiled = Chart::<Cartesian>::new()
+        .mark(HexBin::<Cartesian>::new().x(1.0).y(1.0))
+        .compile(&ctx)
+        .await
+        .expect("compile external mark");
+    let evaluated = compiled
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate external mark");
+    assert_eq!(count_symbols(&evaluated.scene_graph.marks), 1);
 }

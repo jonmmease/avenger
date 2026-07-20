@@ -14,9 +14,10 @@ use avenger_chart_core::{
 };
 use avenger_chart_core::{Auto, Scale, ScaleChannelValue};
 use avenger_color::ColorOrGradient;
+use avenger_common::types::SymbolShape;
 use avenger_common::value::{ScalarOrArray, ScalarOrArrayValue};
 use avenger_scenegraph::marks::{
-    mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark,
+    mark::SceneMark, pattern::default_no_fill_pattern, rect::SceneRectMark, symbol::SceneSymbolMark,
 };
 use datafusion::{arrow::record_batch::RecordBatch, scalar::ScalarValue};
 use indexmap::IndexMap;
@@ -580,12 +581,30 @@ impl CompiledMark for CompiledIsometricCube {
         &self,
         _data: Option<&RecordBatch>,
         _scalars: &RecordBatch,
-        _context: &dyn MarkRuntimeContext,
+        context: &dyn MarkRuntimeContext,
         _coord: &dyn CoordinateSystemTransformCore,
     ) -> Result<Vec<SceneMark>, AvengerChartError> {
-        // Custom cube rendering logic would go here
-        // For this test, we just return an empty vector
-        Ok(vec![])
+        Ok(vec![SceneMark::Symbol(SceneSymbolMark {
+            name: "external_cube".to_owned(),
+            interactive: true,
+            clip: true,
+            len: 1,
+            gradients: vec![],
+            shapes: vec![SymbolShape::from_vega_str("diamond").expect("built-in diamond")],
+            stroke_width: Some(2.0),
+            shape_index: ScalarOrArray::new_scalar(0),
+            x: ScalarOrArray::new_scalar(context.plot_width() * 0.5),
+            y: ScalarOrArray::new_scalar(context.plot_height() * 0.5),
+            fill: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.20, 0.60, 0.86, 1.0])),
+            fill_pattern: default_no_fill_pattern(),
+            size: ScalarOrArray::new_scalar(520.0),
+            stroke: ScalarOrArray::new_scalar(ColorOrGradient::Color([0.05, 0.22, 0.35, 1.0])),
+            angle: ScalarOrArray::new_scalar(0.0),
+            indices: None,
+            zindex: self.state.zindex,
+            x_adjustment: None,
+            y_adjustment: None,
+        })])
     }
 }
 

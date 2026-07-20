@@ -2,14 +2,17 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use async_trait::async_trait;
 use avenger_chart::prelude::{
-    Cartesian, EvaluationRequest, FacetColumn, FacetColumnSubplotChannels,
-    InMemoryNativeWidgetInstanceStore, IntoPlotMark, NativeWidgetDocumentId, NativeWidgetPlotId,
-    NativeWidgetRegistry, NativeWidgetRuntimeResources, PlotSessionOptions, Subplot,
+    Cartesian, EvaluationRequest, HConcat, InMemoryNativeWidgetInstanceStore, IntoPlotMark,
+    NativeWidgetDocumentId, NativeWidgetPlotId, NativeWidgetRegistry, NativeWidgetRuntimeResources,
+    PlotSessionOptions, Subplot,
 };
 use avenger_chart_external_test::{
     external_compound_mark::ExternalMeanPoint,
@@ -17,7 +20,7 @@ use avenger_chart_external_test::{
     external_mark::HexBin,
 };
 use avenger_chart_lang_registry::{
-    CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, ResolvedValue, builtins,
+    CoordinatePack, NativeRegistry, NativeRegistryBuilder, RegistryError, builtins,
 };
 use avenger_chart_schema::{
     BodyMode, ChannelSchema, KindSchema, NativeKindKey, NativeKindNamespace, PropertySchema,
@@ -49,6 +52,8 @@ const CASE_FILTER_ENV: &str = "AVENGER_LANG_FIXTURE_CASE";
 const DEFAULT_SCALE: f32 = 2.0;
 const BASELINE_THRESHOLD: f64 = 0.9999;
 const ROUND_TRIP_THRESHOLD: f64 = 0.99999;
+static MOCK_ICEBERG_CREATES: AtomicUsize = AtomicUsize::new(0);
+static MOCK_DELTA_CREATES: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Debug, Deserialize)]
 struct FixtureManifest {
@@ -260,6 +265,10 @@ async fn fixture_visual_regression() {
 }
 
 async fn run_case(case: &FixtureCase) -> Result<(), String> {
+    if case.host == FixtureHost::ProviderMocks {
+        MOCK_ICEBERG_CREATES.store(0, Ordering::SeqCst);
+        MOCK_DELTA_CREATES.store(0, Ordering::SeqCst);
+    }
     let compiler = compiler_for(case)?;
     let result = compiler
         .compile_file_generation_attempt(fixtures_dir().join(&case.root), 0)
@@ -277,6 +286,16 @@ async fn run_case(case: &FixtureCase) -> Result<(), String> {
             serde_json::to_string_pretty(&failure.diagnostics).unwrap()
         )),
         (FixtureExpectation::Visual, Ok(generation)) => {
+            if case.host == FixtureHost::ProviderMocks
+                && (MOCK_ICEBERG_CREATES.load(Ordering::SeqCst) == 0
+                    || MOCK_DELTA_CREATES.load(Ordering::SeqCst) == 0)
+            {
+                return Err(format!(
+                    "provider fixture must instantiate both catalog and table factories; got iceberg={}, delta={}",
+                    MOCK_ICEBERG_CREATES.load(Ordering::SeqCst),
+                    MOCK_DELTA_CREATES.load(Ordering::SeqCst)
+                ));
+            }
             let registry = Arc::clone(&compiler.options().native_registry);
             let bytes = generation
                 .artifact
@@ -572,6 +591,31 @@ fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<
                 ));
             }
         }
+        "04_composed_extension/external_coordinate.avenger"
+        | "04_composed_extension/external_primitive.avenger"
+        | "relative-import/charts/chart.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            if positions.len() != 1 {
+                return Err(format!(
+                    "external/imported fixture must render one deterministic symbol; got {positions:?}"
+                ));
+            }
+        }
+        "04_composed_extension/mixed_coordinates.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            if positions.len() != 2
+                || !positions
+                    .iter()
+                    .any(|position| position[0] < scene.width * 0.5)
+                || !positions
+                    .iter()
+                    .any(|position| position[0] > scene.width * 0.5)
+            {
+                return Err(format!(
+                    "mixed external container must render one symbol in each coordinate child; got {positions:?}"
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -854,6 +898,7 @@ impl CatalogFactory for MockIcebergFactory {
         _options: &serde_json::Value,
         _environment: &CompileEnvironment,
     ) -> Result<Arc<dyn CatalogProvider>, CatalogFactoryError> {
+        MOCK_ICEBERG_CREATES.fetch_add(1, Ordering::SeqCst);
         let catalog = MemoryCatalogProvider::new();
         let schema = MemorySchemaProvider::new();
         schema
@@ -883,6 +928,7 @@ impl TableFactory for MockDeltaFactory {
         _options: &serde_json::Value,
         _environment: &CompileEnvironment,
     ) -> Result<Arc<dyn TableProvider>, TableFactoryError> {
+        MOCK_DELTA_CREATES.fetch_add(1, Ordering::SeqCst);
         Ok(provider_table())
     }
 
@@ -1012,21 +1058,9 @@ fn composed_registry() -> Arc<NativeRegistry> {
             "A downstream container for mixed-coordinate child plots.",
         )
         .body_mode(BodyMode::Mixed),
-        |_| Ok(FacetColumn),
+        |_| Ok(HConcat::new()),
     )
-    .child_plots(|plot, child, placement, _parent| {
-        let column = match placement.properties.get("column") {
-            Some(ResolvedValue::Expr(expr)) => expr.clone(),
-            Some(ResolvedValue::String(value)) => lit(value.clone()),
-            _ => {
-                return Err(RegistryError::InvalidPropertyType {
-                    property: "column".to_owned(),
-                    expected: "a scalar expression".to_owned(),
-                });
-            }
-        };
-        Ok(plot.mark(Subplot::<FacetColumn>::new(child).column(column)))
-    });
+    .child_plots(|plot, child, _placement, _parent| Ok(plot.mark(Subplot::<HConcat>::new(child))));
     builder.register_coordinate_pack(container).unwrap();
     Arc::new(builder.build().unwrap())
 }

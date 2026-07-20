@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 
-use avenger_chart::plot::Plot;
+use avenger_chart::plot::{Chart, Plot};
 use avenger_chart_core::{CoordinateSystem, CoordinateSystemCore};
 use avenger_chart_external_test::external_coord_system::{Cube, Isometric};
 use avenger_common::value::ScalarOrArray;
+use avenger_scenegraph::marks::mark::SceneMark;
+use datafusion::prelude::SessionContext;
 
 #[test]
 fn test_external_coord_system_can_be_created() {
@@ -107,4 +109,30 @@ fn test_external_coord_axes() {
     // let axes = iso.create_default_axes(&scales, &marks);
     // assert_eq!(axes.len(), 1);
     // assert!(axes.contains_key("iso_x"));
+}
+
+fn count_symbols(marks: &[SceneMark]) -> usize {
+    marks
+        .iter()
+        .map(|mark| match mark {
+            SceneMark::Symbol(symbol) => symbol.len as usize,
+            SceneMark::Group(group) => count_symbols(&group.marks),
+            _ => 0,
+        })
+        .sum()
+}
+
+#[tokio::test]
+async fn external_coordinate_mark_renders_minimal_visible_geometry() {
+    let ctx = SessionContext::new();
+    let compiled = Chart::<Isometric>::new()
+        .mark(Cube::<Isometric>::new().iso_x(1.0).iso_y(2.0).iso_z(3.0))
+        .compile(&ctx)
+        .await
+        .expect("compile external coordinate mark");
+    let evaluated = compiled
+        .evaluate(&ctx, None)
+        .await
+        .expect("evaluate external coordinate mark");
+    assert_eq!(count_symbols(&evaluated.scene_graph.marks), 1);
 }
