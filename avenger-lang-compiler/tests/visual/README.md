@@ -25,6 +25,18 @@ Every visual case has an explicit `review` status in the manifest:
 Review status never skips compilation, artifact round-trip, evaluation, or PNG
 comparison. The inventory test fails when any visual case omits it.
 
+The current remediation pass is closed: all 42 visual roots are `reviewed`.
+There are no active `known_incorrect`, `weak`, or `intentional_blank` cases.
+The provider-host fixture still renders a white canvas by design, but is
+classified as `reviewed` because the harness directly asserts that both its
+Iceberg catalog factory and Delta table factory were instantiated.
+
+Use a non-final status only while a concrete follow-up is active. Record the
+expected defect or coverage gap in the remediation plan, keep comparing the
+current artifact on normal runs, and return the case to `reviewed` only after
+its fixture contract and full-resolution PNG have both been inspected. Do not
+use a review status to bless or skip a mismatch.
+
 The suite installs built-in native widget factories, the downstream extension
 registry used by `04_composed_extension`, and schema-only provider mocks used by
 `phase9-providers`. These are real fixture host requirements, not exclusions.
@@ -56,9 +68,11 @@ AVENGER_LANG_BLESS_FIXTURE_BASELINES=1 \
   --test fixture_visual_regression -- --nocapture
 ```
 
-Review every changed PNG and diagnostic JSON before committing. Normal test
-runs never rewrite reviewed artifacts. Missing or changed images, serialized
-round-trip mismatches, and image diffs are written below
+Review every changed PNG at full resolution and every changed diagnostic JSON
+before committing. Prefer a direct scene or fixture-host assertion for
+important semantics that pixels alone cannot prove. Normal test runs never
+rewrite reviewed artifacts. Missing or changed images, serialized round-trip
+mismatches, and image diffs are written below
 `target/tests/avenger-lang-fixture-visual`.
 
 When adding, renaming, or removing any project fixture, update

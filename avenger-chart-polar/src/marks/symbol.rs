@@ -129,16 +129,13 @@ impl CompiledMarkCore for CompiledPolarSymbol {
 
     fn radius_expression(
         &self,
-        dimension: &str,
+        _dimension: &str,
         _resolve_channel: &dyn Fn(&str) -> Expr,
     ) -> Option<RadiusExpression> {
         // The circular coordinate clip permits symbols to straddle its
         // boundary. Radius padding would shrink the radial guide independently
         // of the theta guide and make the two frames disagree.
-        match dimension {
-            "r" | "theta" => None,
-            _ => None,
-        }
+        None
     }
 
     fn preferred_legend_renderer(
