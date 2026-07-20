@@ -4,46 +4,70 @@
     {
       "root": "00_hello_scatter/chart.avenger",
       "expectation": "visual",
-      "sources": ["00_hello_scatter/chart.avenger"]
+      "sources": [
+        "00_hello_scatter/chart.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "02_sql_pipeline/chart.avenger",
       "expectation": "visual",
-      "sources": ["02_sql_pipeline/chart.avenger"]
+      "sources": [
+        "02_sql_pipeline/chart.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "03_interactive_brush/chart.avenger",
       "expectation": "visual",
-      "sources": ["03_interactive_brush/chart.avenger"]
+      "sources": [
+        "03_interactive_brush/chart.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "03_widget_vertical_slice/chart.avenger",
       "expectation": "visual",
-      "sources": ["03_widget_vertical_slice/chart.avenger"]
+      "sources": [
+        "03_widget_vertical_slice/chart.avenger"
+      ],
+      "review": "weak"
     },
     {
       "root": "04_composed_extension/external_compound.avenger",
       "expectation": "visual",
       "host": "composed_registry",
-      "sources": ["04_composed_extension/external_compound.avenger"]
+      "sources": [
+        "04_composed_extension/external_compound.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "04_composed_extension/external_coordinate.avenger",
       "expectation": "visual",
       "host": "composed_registry",
-      "sources": ["04_composed_extension/external_coordinate.avenger"]
+      "sources": [
+        "04_composed_extension/external_coordinate.avenger"
+      ],
+      "review": "intentional_blank"
     },
     {
       "root": "04_composed_extension/external_primitive.avenger",
       "expectation": "visual",
       "host": "composed_registry",
-      "sources": ["04_composed_extension/external_primitive.avenger"]
+      "sources": [
+        "04_composed_extension/external_primitive.avenger"
+      ],
+      "review": "intentional_blank"
     },
     {
       "root": "04_composed_extension/mixed_coordinates.avenger",
       "expectation": "visual",
       "host": "composed_registry",
-      "sources": ["04_composed_extension/mixed_coordinates.avenger"]
+      "sources": [
+        "04_composed_extension/mixed_coordinates.avenger"
+      ],
+      "review": "intentional_blank"
     },
     {
       "root": "04_custom_error_bar/chart.avenger",
@@ -51,7 +75,8 @@
       "sources": [
         "04_custom_error_bar/chart.avenger",
         "04_custom_error_bar/error_bar.mark.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "05_custom_tool/chart.avenger",
@@ -59,7 +84,8 @@
       "sources": [
         "05_custom_tool/chart.avenger",
         "05_custom_tool/inspect_points.tool.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "05_custom_transform_pipeline/chart.avenger",
@@ -67,7 +93,8 @@
       "sources": [
         "05_custom_transform_pipeline/chart.avenger",
         "05_custom_transform_pipeline/summarize.transform.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "05_definition_lowering_error/chart.avenger",
@@ -85,7 +112,8 @@
         "05_definition_widget_adjacency/cursor_tool.tool.avenger",
         "05_definition_widget_adjacency/dot.mark.avenger",
         "05_definition_widget_adjacency/pass.transform.avenger"
-      ]
+      ],
+      "review": "weak"
     },
     {
       "root": "06_catalog_project/movies.avenger",
@@ -93,17 +121,24 @@
       "sources": [
         "06_catalog_project/movies.avenger",
         "06_catalog_project/catalog.data.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "06_catalog_project/regions.avenger",
       "expectation": "visual",
-      "sources": ["06_catalog_project/regions.avenger"]
+      "sources": [
+        "06_catalog_project/regions.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "07_inline_view_raster/chart.avenger",
       "expectation": "visual",
-      "sources": ["07_inline_view_raster/chart.avenger"]
+      "sources": [
+        "07_inline_view_raster/chart.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "08_multi_chart_project/cartesian.avenger",
@@ -112,107 +147,168 @@
         "08_multi_chart_project/cartesian.avenger",
         "08_multi_chart_project/pass.transform.avenger",
         "08_multi_chart_project/shared.data.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "08_multi_chart_project/geo.avenger",
       "expectation": "visual",
-      "sources": ["08_multi_chart_project/geo.avenger"]
+      "sources": [
+        "08_multi_chart_project/geo.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "08_multi_chart_project/polar.avenger",
       "expectation": "visual",
-      "sources": ["08_multi_chart_project/polar.avenger"]
+      "sources": [
+        "08_multi_chart_project/polar.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/concat.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/concat.avenger"]
+      "sources": [
+        "09_native_coordinate_families/concat.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "09_native_coordinate_families/facet.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/facet.avenger"]
+      "sources": [
+        "09_native_coordinate_families/facet.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "09_native_coordinate_families/geo.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/geo.avenger"]
+      "sources": [
+        "09_native_coordinate_families/geo.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "09_native_coordinate_families/parallel.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/parallel.avenger"]
+      "sources": [
+        "09_native_coordinate_families/parallel.avenger"
+      ],
+      "review": "weak"
     },
     {
       "root": "09_native_coordinate_families/polar.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/polar.avenger"]
+      "sources": [
+        "09_native_coordinate_families/polar.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "09_native_coordinate_families/repeat.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/repeat.avenger"]
+      "sources": [
+        "09_native_coordinate_families/repeat.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/subplot.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/subplot.avenger"]
+      "sources": [
+        "09_native_coordinate_families/subplot.avenger"
+      ],
+      "review": "known_incorrect"
     },
     {
       "root": "09_native_coordinate_families/treemap.avenger",
       "expectation": "visual",
-      "sources": ["09_native_coordinate_families/treemap.avenger"]
+      "sources": [
+        "09_native_coordinate_families/treemap.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "10_native_surface_contracts/mark_effects.avenger",
       "expectation": "visual",
-      "sources": ["10_native_surface_contracts/mark_effects.avenger"]
+      "sources": [
+        "10_native_surface_contracts/mark_effects.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "10_native_surface_contracts/public_routing.avenger",
       "expectation": "visual",
-      "sources": ["10_native_surface_contracts/public_routing.avenger"]
+      "sources": [
+        "10_native_surface_contracts/public_routing.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "10_native_surface_contracts/store_backed.avenger",
       "expectation": "visual",
-      "sources": ["10_native_surface_contracts/store_backed.avenger"]
+      "sources": [
+        "10_native_surface_contracts/store_backed.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "10_native_surface_contracts/theme_parts.avenger",
       "expectation": "visual",
-      "sources": ["10_native_surface_contracts/theme_parts.avenger"]
+      "sources": [
+        "10_native_surface_contracts/theme_parts.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "11_widget_surface/button.avenger",
       "expectation": "visual",
-      "sources": ["11_widget_surface/button.avenger"]
+      "sources": [
+        "11_widget_surface/button.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "11_widget_surface/checkbox.avenger",
       "expectation": "visual",
-      "sources": ["11_widget_surface/checkbox.avenger"]
+      "sources": [
+        "11_widget_surface/checkbox.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "11_widget_surface/checkbox_list.avenger",
       "expectation": "visual",
-      "sources": ["11_widget_surface/checkbox_list.avenger"]
+      "sources": [
+        "11_widget_surface/checkbox_list.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "11_widget_surface/radio_button_list.avenger",
       "expectation": "visual",
-      "sources": ["11_widget_surface/radio_button_list.avenger"]
+      "sources": [
+        "11_widget_surface/radio_button_list.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "11_widget_surface/slider.avenger",
       "expectation": "visual",
-      "sources": ["11_widget_surface/slider.avenger"]
+      "sources": [
+        "11_widget_surface/slider.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "11_widget_surface/text_input.avenger",
       "expectation": "visual",
-      "sources": ["11_widget_surface/text_input.avenger"]
+      "sources": [
+        "11_widget_surface/text_input.avenger"
+      ],
+      "review": "reviewed"
     },
     {
       "root": "phase9-files/chart.avenger",
@@ -220,7 +316,8 @@
       "sources": [
         "phase9-files/chart.avenger",
         "phase9-files/catalog.data.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "phase9-pack/chart.avenger",
@@ -228,7 +325,8 @@
       "sources": [
         "phase9-pack/chart.avenger",
         "phase9-pack/vega.data.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "phase9-parameterized/chart.avenger",
@@ -236,7 +334,8 @@
       "sources": [
         "phase9-parameterized/chart.avenger",
         "phase9-parameterized/catalog.data.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "phase9-providers/chart.avenger",
@@ -245,7 +344,8 @@
       "sources": [
         "phase9-providers/chart.avenger",
         "phase9-providers/catalog.data.avenger"
-      ]
+      ],
+      "review": "intentional_blank"
     },
     {
       "root": "phase9-schema-chain/chart.avenger",
@@ -253,7 +353,8 @@
       "sources": [
         "phase9-schema-chain/chart.avenger",
         "phase9-schema-chain/catalog.data.avenger"
-      ]
+      ],
+      "review": "reviewed"
     },
     {
       "root": "relative-import/charts/chart.avenger",
@@ -262,12 +363,15 @@
         "relative-import/charts/chart.avenger",
         "relative-import/catalog.data.avenger",
         "relative-import/marks/badge.mark.avenger"
-      ]
+      ],
+      "review": "intentional_blank"
     },
     {
       "root": "stdlib/chart.avenger",
       "expectation": "diagnostic",
-      "sources": ["stdlib/chart.avenger"]
+      "sources": [
+        "stdlib/chart.avenger"
+      ]
     }
   ]
 }

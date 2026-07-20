@@ -13,6 +13,18 @@ The current corpus contains 61 sources and 44 chart roots:
 - two intentionally invalid roots compare their complete structured compiler
   diagnostics with reviewed JSON baselines.
 
+Every visual case has an explicit `review` status in the manifest:
+
+- `reviewed` means the PNG has been inspected and represents intended output;
+- `known_incorrect` pins a reproducible defect while its remediation is active;
+- `weak` means the output is currently correct but does not exercise enough of
+  its named feature;
+- `intentional_blank` means a white canvas is expected and must be supported by
+  a structural assertion rather than trusted as visual evidence by itself.
+
+Review status never skips compilation, artifact round-trip, evaluation, or PNG
+comparison. The inventory test fails when any visual case omits it.
+
 The suite installs built-in native widget factories, the downstream extension
 registry used by `04_composed_extension`, and schema-only provider mocks used by
 `phase9-providers`. These are real fixture host requirements, not exclusions.

@@ -59,6 +59,7 @@ struct FixtureManifest {
 struct FixtureCase {
     root: String,
     expectation: FixtureExpectation,
+    review: Option<FixtureReview>,
     #[serde(default)]
     host: FixtureHost,
     sources: Vec<String>,
@@ -69,6 +70,15 @@ struct FixtureCase {
 enum FixtureExpectation {
     Visual,
     Diagnostic,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum FixtureReview {
+    Reviewed,
+    KnownIncorrect,
+    Weak,
+    IntentionalBlank,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
@@ -173,6 +183,18 @@ fn fixture_visual_manifest_owns_every_avenger_source_exactly_once() {
     let mut owners = BTreeMap::new();
     let mut roots = BTreeSet::new();
     for case in &manifest.cases {
+        match case.expectation {
+            FixtureExpectation::Visual => assert!(
+                case.review.is_some(),
+                "visual case {} must declare its review status",
+                case.root
+            ),
+            FixtureExpectation::Diagnostic => assert!(
+                case.review.is_none(),
+                "diagnostic case {} must not declare a visual review status",
+                case.root
+            ),
+        }
         assert!(
             roots.insert(case.root.clone()),
             "duplicate root {}",
