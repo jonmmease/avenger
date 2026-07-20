@@ -685,6 +685,11 @@ impl CompiledPlot {
         &self.param_specs
     }
 
+    #[doc(hidden)]
+    pub fn param_specs_mut(&mut self) -> &mut CompiledStateRegistry<ParamRef, CompiledParamSpec> {
+        &mut self.param_specs
+    }
+
     pub fn param_specs_by_id(&self) -> &IndexMap<ParamRef, CompiledParamSpec> {
         self.param_specs.by_id()
     }
@@ -693,6 +698,11 @@ impl CompiledPlot {
     /// explicit author/host name-resolution adapter.
     pub fn store_specs(&self) -> &CompiledStateRegistry<StoreRef, CompiledStoreSpec> {
         &self.store_specs
+    }
+
+    #[doc(hidden)]
+    pub fn store_specs_mut(&mut self) -> &mut CompiledStateRegistry<StoreRef, CompiledStoreSpec> {
+        &mut self.store_specs
     }
 
     pub fn store_specs_by_id(&self) -> &IndexMap<StoreRef, CompiledStoreSpec> {
@@ -1102,6 +1112,13 @@ impl CompiledPlot {
 
     pub fn selection_specs(&self) -> &CompiledStateRegistry<SelectionRef, CompiledSelectionSpec> {
         &self.selection_specs
+    }
+
+    #[doc(hidden)]
+    pub fn selection_specs_mut(
+        &mut self,
+    ) -> &mut CompiledStateRegistry<SelectionRef, CompiledSelectionSpec> {
+        &mut self.selection_specs
     }
 
     pub fn selection_specs_by_id(&self) -> &IndexMap<SelectionRef, CompiledSelectionSpec> {

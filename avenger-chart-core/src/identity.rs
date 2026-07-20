@@ -235,6 +235,11 @@ where
         self.specs_by_id.get(id)
     }
 
+    #[doc(hidden)]
+    pub fn get_by_id_mut(&mut self, id: &I) -> Option<&mut S> {
+        self.specs_by_id.get_mut(id)
+    }
+
     /// Resolve an author/host-facing source name at a boundary.
     pub fn resolve_source_name(&self, source_name: &str) -> Option<&I> {
         self.source_name_index.get(source_name)
@@ -245,6 +250,12 @@ where
     pub fn get(&self, source_name: &str) -> Option<&S> {
         self.resolve_source_name(source_name)
             .and_then(|id| self.get_by_id(id))
+    }
+
+    #[doc(hidden)]
+    pub fn get_mut(&mut self, source_name: &str) -> Option<&mut S> {
+        let id = self.source_name_index.get(source_name)?.clone();
+        self.get_by_id_mut(&id)
     }
 
     pub fn contains_key(&self, source_name: &str) -> bool {

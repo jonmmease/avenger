@@ -29,5 +29,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 winit = { workspace = true }
 
 [dev-dependencies]
+filetime = "0.2"
 serde_json = { workspace = true }
 tempfile = "3"

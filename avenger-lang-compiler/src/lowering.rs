@@ -426,13 +426,20 @@ impl<'a> ProjectLowerer<'a> {
                 continue;
             }
             let runtime_name = &self.params[id].name;
+            let migration_key = param.migration_key.as_ref().map(|key| {
+                avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
+            });
+            if let Some(spec) = Arc::make_mut(&mut artifact.compiled)
+                .param_specs_mut()
+                .get_mut(runtime_name)
+            {
+                spec.migration_key.clone_from(&migration_key);
+            }
             if let Some(spec) = artifact.compiled.param_specs().get(runtime_name)
                 && let Some(binding) = artifact.interface.params.get_mut(runtime_name)
             {
                 binding.runtime_id = spec.runtime_id.as_opaque_str().to_string();
-                binding.migration_key = param.migration_key.as_ref().map(|key| {
-                    avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
-                });
+                binding.migration_key = migration_key;
             }
         }
         for (id, store) in &self.project.stores {
@@ -440,18 +447,34 @@ impl<'a> ProjectLowerer<'a> {
                 continue;
             }
             let runtime_name = &self.stores[id].name;
+            let migration_key = store.migration_key.as_ref().map(|key| {
+                avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
+            });
+            if let Some(spec) = Arc::make_mut(&mut artifact.compiled)
+                .store_specs_mut()
+                .get_mut(runtime_name)
+            {
+                spec.migration_key.clone_from(&migration_key);
+            }
             if let Some(spec) = artifact.compiled.store_specs().get(runtime_name)
                 && let Some(binding) = artifact.interface.stores.get_mut(runtime_name)
             {
                 binding.runtime_id = spec.runtime_id.as_opaque_str().to_string();
-                binding.migration_key = store.migration_key.as_ref().map(|key| {
-                    avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
-                });
+                binding.migration_key = migration_key;
             }
         }
         for selection in self.project.selections.values() {
             if !belongs_to_chart(&selection.owner_ancestry, &chart.id) {
                 continue;
+            }
+            let migration_key = selection.migration_key.as_ref().map(|key| {
+                avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
+            });
+            if let Some(spec) = Arc::make_mut(&mut artifact.compiled)
+                .selection_specs_mut()
+                .get_mut(&selection.source_name)
+            {
+                spec.migration_key.clone_from(&migration_key);
             }
             if let Some(spec) = artifact
                 .compiled
@@ -463,9 +486,7 @@ impl<'a> ProjectLowerer<'a> {
                     .get_mut(&selection.source_name)
             {
                 binding.runtime_id = spec.runtime_id.as_opaque_str().to_string();
-                binding.migration_key = selection.migration_key.as_ref().map(|key| {
-                    avenger_chart_core::StateMigrationKey::from_compiler_identity(key.as_str())
-                });
+                binding.migration_key = migration_key;
             }
         }
 

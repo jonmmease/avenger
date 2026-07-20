@@ -1298,6 +1298,14 @@ async fn native_surface_widget_disk_projects_cover_all_builtin_kinds_and_hosting
     assert!(!text.interface.params.contains_key("query__value"));
     assert!(text.interface.params.contains_key("query__cursor"));
     assert!(text.interface.params.contains_key("query__selected_text"));
+    for name in ["query_state", "query__cursor", "query__selected_text"] {
+        assert_eq!(
+            text.compiled_plot().param_specs()[name].migration_key,
+            text.interface.params[name].migration_key,
+            "compiled widget state must retain the resolver's migration key for {name}"
+        );
+        assert!(text.interface.params[name].migration_key.is_some());
+    }
 }
 
 #[tokio::test]

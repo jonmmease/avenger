@@ -5,6 +5,7 @@ use std::{
     hash::{DefaultHasher, Hash, Hasher},
     io::{self, Write},
     path::{Path, PathBuf},
+    pin::Pin,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -25,12 +26,13 @@ use avenger_chart_app::{
     window_scene_sizing_for_resize_policy,
 };
 use avenger_lang::{
-    CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
+    CompileAttempt, CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
     CompileEnvironmentRequest, CompileEnvironmentResourceVersion, CompileFailure,
-    CompiledDependency, Compiler, DiscoveredDependencySet, SourceOrigin,
+    CompiledChartGeneration, CompiledDependency, Compiler, DiscoveredDependencySet, SourceOrigin,
 };
 use avenger_winit_wgpu::{
-    HostUpdateInstallOutcome, HostUpdateSender, HostUpdateSubmitOutcome, PreparedHostUpdate,
+    HostUpdateInstallOutcome, HostUpdateSender, HostUpdateSubmitError, HostUpdateSubmitOutcome,
+    PreparedHostUpdate,
 };
 use clap::{Args, Parser, Subcommand};
 use datafusion::{
@@ -258,7 +260,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
     let compiled = match attempt.result {
         Ok(compiled) => compiled,
         Err(failure) => {
-            print_compile_failure(1, &failure);
+            ProcessWatchReporter.stdout(compile_failure_batch(1, &failure));
             return Err(CliError::InitialCompile);
         }
     };
@@ -313,6 +315,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         compiler,
         runtime: worker_runtime,
         host_updates,
+        reporter: ProcessWatchReporter,
         initial_dependencies,
         debounce: Duration::from_millis(args.debounce_ms),
         cache,
@@ -385,12 +388,80 @@ fn normal_title(chart: &Path) -> String {
     )
 }
 
-struct ReloadWorker {
+trait WatchCompiler: Send + Sync + 'static {
+    fn compile_generation<'a>(
+        &'a self,
+        chart: &'a Path,
+        generation: u64,
+    ) -> Pin<Box<dyn Future<Output = CompileAttempt<CompiledChartGeneration>> + 'a>>;
+}
+
+impl WatchCompiler for Compiler {
+    fn compile_generation<'a>(
+        &'a self,
+        chart: &'a Path,
+        generation: u64,
+    ) -> Pin<Box<dyn Future<Output = CompileAttempt<CompiledChartGeneration>> + 'a>> {
+        Box::pin(self.compile_file_generation_attempt(chart, generation))
+    }
+}
+
+trait ReloadHost: Clone + Send + Sync + 'static {
+    fn submit_update(
+        &self,
+        update: PreparedHostUpdate<ChartAppState>,
+    ) -> Result<HostUpdateSubmitOutcome, HostUpdateSubmitError>;
+
+    fn mark_request_epoch(&self, epoch: u64);
+
+    fn set_window_title(&self, title: String) -> Result<(), HostUpdateSubmitError>;
+}
+
+impl ReloadHost for HostUpdateSender<ChartAppState> {
+    fn submit_update(
+        &self,
+        update: PreparedHostUpdate<ChartAppState>,
+    ) -> Result<HostUpdateSubmitOutcome, HostUpdateSubmitError> {
+        self.submit(update)
+    }
+
+    fn mark_request_epoch(&self, epoch: u64) {
+        self.mark_request_epoch(epoch);
+    }
+
+    fn set_window_title(&self, title: String) -> Result<(), HostUpdateSubmitError> {
+        self.set_window_title(title)
+    }
+}
+
+trait WatchReporter: Clone + Send + Sync + 'static {
+    fn stdout(&self, batch: String);
+    fn stderr(&self, line: String);
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ProcessWatchReporter;
+
+impl WatchReporter for ProcessWatchReporter {
+    fn stdout(&self, batch: String) {
+        let stdout = io::stdout();
+        let mut output = stdout.lock();
+        let _ = output.write_all(batch.as_bytes());
+        let _ = output.flush();
+    }
+
+    fn stderr(&self, line: String) {
+        eprintln!("{line}");
+    }
+}
+
+struct ReloadWorker<C = Compiler, H = HostUpdateSender<ChartAppState>, R = ProcessWatchReporter> {
     chart: PathBuf,
     project_root: PathBuf,
-    compiler: Compiler,
+    compiler: C,
     runtime: tokio::runtime::Runtime,
-    host_updates: HostUpdateSender<ChartAppState>,
+    host_updates: H,
+    reporter: R,
     initial_dependencies: DiscoveredDependencySet,
     debounce: Duration,
     cache: Option<Arc<EvaluationCache>>,
@@ -406,11 +477,18 @@ enum ReloadSignal {
 
 struct ReloadWorkerHandle {
     signals: mpsc::SyncSender<ReloadSignal>,
+    #[cfg(test)]
+    request_reload: Arc<dyn Fn(Vec<PathBuf>) + Send + Sync>,
     stopping: Arc<std::sync::atomic::AtomicBool>,
     join: Option<thread::JoinHandle<()>>,
 }
 
 impl ReloadWorkerHandle {
+    #[cfg(test)]
+    fn request_reload(&self, paths: Vec<PathBuf>) {
+        (self.request_reload)(paths);
+    }
+
     fn shutdown(mut self) -> Result<(), CliError> {
         self.stopping.store(true, Ordering::Release);
         let _ = self.signals.try_send(ReloadSignal::Shutdown);
@@ -422,7 +500,14 @@ impl ReloadWorkerHandle {
     }
 }
 
-fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliError> {
+fn spawn_reload_worker<C, H, R>(
+    worker: ReloadWorker<C, H, R>,
+) -> Result<ReloadWorkerHandle, CliError>
+where
+    C: WatchCompiler,
+    H: ReloadHost,
+    R: WatchReporter,
+{
     const EVENT_QUEUE_CAPACITY: usize = 64;
     const EVENT_PATH_LIMIT: usize = 1_024;
     let (signal_tx, signal_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
@@ -431,11 +516,23 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
     let change_epoch = Arc::new(AtomicU64::new(0));
     let stopping = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let callback_targets = targets.clone();
-    let callback_epoch = change_epoch.clone();
     let callback_stopping = stopping.clone();
     let worker_stopping = stopping.clone();
-    let callback_tx = signal_tx.clone();
-    let callback_host_updates = worker.host_updates.clone();
+    let request_tx = signal_tx.clone();
+    let request_epoch = change_epoch.clone();
+    let request_stopping = stopping.clone();
+    let request_host_updates = worker.host_updates.clone();
+    let request_reload: Arc<dyn Fn(Vec<PathBuf>) + Send + Sync> = Arc::new(move |mut paths| {
+        if request_stopping.load(Ordering::Acquire) {
+            return;
+        }
+        let epoch = request_epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        request_host_updates.mark_request_epoch(epoch);
+        paths.truncate(EVENT_PATH_LIMIT);
+        let _ = request_tx.try_send(ReloadSignal::Changed(paths));
+    });
+    let callback_reload = request_reload.clone();
+    let callback_reporter = worker.reporter.clone();
     let join = thread::Builder::new()
         .name("avenger-watch-reload".to_string())
         .spawn(move || {
@@ -448,15 +545,13 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                             .lock()
                             .is_ok_and(|targets| event_matches_targets(&event, &targets));
                         if relevant {
-                            let epoch = callback_epoch.fetch_add(1, Ordering::AcqRel) + 1;
-                            callback_host_updates.mark_request_epoch(epoch);
-                            let mut paths = event.paths;
-                            paths.truncate(EVENT_PATH_LIMIT);
-                            let _ = callback_tx.try_send(ReloadSignal::Changed(paths));
+                            callback_reload(event.paths);
                         }
                     }
                     Ok(_) => {}
-                    Err(error) => eprintln!("avenger watch: filesystem watcher error: {error}"),
+                    Err(error) => callback_reporter.stderr(format!(
+                        "avenger watch: filesystem watcher error: {error}"
+                    )),
                 },
                 Config::default(),
             );
@@ -511,7 +606,7 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                     worker_stopping.as_ref(),
                     worker
                         .compiler
-                        .compile_file_generation_attempt(&worker.chart, generation),
+                        .compile_generation(&worker.chart, generation),
                 ) else {
                     break;
                 };
@@ -559,11 +654,13 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                                     &targets,
                                     &effective,
                                 ) {
-                                    eprintln!("avenger watch: failed to update watch set: {error}");
+                                    worker.reporter.stderr(format!(
+                                        "avenger watch: failed to update watch set: {error}"
+                                    ));
                                 }
                                 let hub = bundle.runtime_resources.render_invalidation_hub.clone();
                                 let (completion_tx, completion_rx) = mpsc::sync_channel(1);
-                                let submit = worker.host_updates.submit(PreparedHostUpdate {
+                                let submit = worker.host_updates.submit_update(PreparedHostUpdate {
                                         generation,
                                         request_epoch: compile_epoch,
                                         app: bundle.app,
@@ -608,12 +705,12 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                                             &targets,
                                             &last_good,
                                         ) {
-                                            eprintln!(
+                                            worker.reporter.stderr(format!(
                                                 "avenger watch: failed to update watch set: {error}"
-                                            );
+                                            ));
                                         }
                                         displayed_state = replacement_state;
-                                        print_reload_success(
+                                        worker.reporter.stdout(reload_success_batch(
                                             generation,
                                             started.elapsed(),
                                             before.as_ref(),
@@ -622,7 +719,7 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                                             migration,
                                             &worker.project_root,
                                             &affected,
-                                        );
+                                        ));
                                     }
                                     Some(HostUpdateInstallOutcome::Superseded) => continue,
                                     Some(HostUpdateInstallOutcome::Failed(error)) => {
@@ -630,9 +727,9 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                                             "{} [runtime error]",
                                             worker.normal_title
                                         ));
-                                        eprintln!(
+                                        worker.reporter.stderr(format!(
                                             "avenger watch: generation {generation} installation failed: {error}"
-                                        );
+                                        ));
                                     }
                                     None => return,
                                 }
@@ -648,15 +745,17 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                                     &targets,
                                     &effective,
                                 ) {
-                                    eprintln!(
+                                    worker.reporter.stderr(format!(
                                         "avenger watch: failed to update watch set: {watch_error}"
-                                    );
+                                    ));
                                 }
                                 let _ = worker.host_updates.set_window_title(format!(
                                     "{} [runtime error]",
                                     worker.normal_title
                                 ));
-                                eprintln!("avenger watch: generation {generation}: {error}");
+                                worker.reporter.stderr(format!(
+                                    "avenger watch: generation {generation}: {error}"
+                                ));
                             }
                         }
                     }
@@ -671,12 +770,16 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
                             &targets,
                             &effective,
                         ) {
-                            eprintln!("avenger watch: failed to update watch set: {error}");
+                            worker.reporter.stderr(format!(
+                                "avenger watch: failed to update watch set: {error}"
+                            ));
                         }
                         let _ = worker
                             .host_updates
                             .set_window_title(format!("{} [compile error]", worker.normal_title));
-                        print_compile_failure(generation, &failure);
+                        worker
+                            .reporter
+                            .stdout(compile_failure_batch(generation, &failure));
                     }
                 }
             }
@@ -689,6 +792,8 @@ fn spawn_reload_worker(worker: ReloadWorker) -> Result<ReloadWorkerHandle, CliEr
         .map_err(CliError::Watcher)?;
     Ok(ReloadWorkerHandle {
         signals: signal_tx,
+        #[cfg(test)]
+        request_reload,
         stopping,
         join: Some(join),
     })
@@ -886,14 +991,14 @@ fn event_matches_targets(event: &Event, targets: &DependencyWatchSet) -> bool {
     })
 }
 
-fn print_compile_failure(generation: u64, failure: &CompileFailure) {
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
-    let _ = writeln!(output, "generation {generation} compilation failed:");
-    let _ = write!(output, "{}", failure.render());
+fn compile_failure_batch(generation: u64, failure: &CompileFailure) -> String {
+    format!(
+        "generation {generation} compilation failed:\n{}",
+        failure.render()
+    )
 }
 
-fn print_reload_success(
+fn reload_success_batch(
     generation: u64,
     elapsed: Duration,
     before: Option<&avenger_chart::physical_cache::CacheMetricsSnapshot>,
@@ -902,8 +1007,10 @@ fn print_reload_success(
     migration: avenger_chart::plot::StateMigrationReport,
     project_root: &Path,
     affected: &[PathBuf],
-) {
-    print!(
+) -> String {
+    use std::fmt::Write as _;
+
+    let mut output = format!(
         "reloaded generation {generation} after {} in {:.1} ms",
         display_affected_paths(project_root, affected),
         elapsed.as_secs_f64() * 1000.0
@@ -911,7 +1018,8 @@ fn print_reload_success(
     if log_cache {
         if let (Some(before), Some(cache)) = (before, cache) {
             let after = cache.metrics();
-            print!(
+            let _ = write!(
+                output,
                 " (cache: +{} hits, +{} misses, {} entries, {} bytes)",
                 after.hits.saturating_sub(before.hits),
                 after.misses.saturating_sub(before.misses),
@@ -919,15 +1027,16 @@ fn print_reload_success(
                 after.bytes
             );
         } else {
-            print!(" (cache disabled)");
+            output.push_str(" (cache disabled)");
         }
     }
-    print!(
+    let _ = writeln!(
+        output,
         " (state: {} migrated, {} reset)",
         migration.migrated(),
         migration.reset()
     );
-    println!();
+    output
 }
 
 fn display_affected_paths(project_root: &Path, affected: &[PathBuf]) -> String {
@@ -953,7 +1062,245 @@ fn display_affected_paths(project_root: &Path, affected: &[PathBuf]) -> String {
 mod tests {
     use super::*;
     use clap::Parser;
+    use filetime::{FileTime, set_file_mtime};
     use serde_json::Value;
+    use std::collections::VecDeque;
+    use std::sync::Condvar;
+
+    fn copy_directory(source: &Path, destination: &Path) {
+        fs::create_dir_all(destination).expect("create copied fixture directory");
+        for entry in fs::read_dir(source).expect("read fixture directory") {
+            let entry = entry.expect("read fixture entry");
+            let source_path = entry.path();
+            let destination_path = destination.join(entry.file_name());
+            if source_path.is_dir() {
+                copy_directory(&source_path, &destination_path);
+            } else {
+                fs::copy(&source_path, &destination_path).unwrap_or_else(|error| {
+                    panic!(
+                        "copy {} to {}: {error}",
+                        source_path.display(),
+                        destination_path.display()
+                    )
+                });
+            }
+        }
+    }
+
+    fn watch_fixture_copy() -> tempfile::TempDir {
+        let temporary = tempfile::tempdir().expect("create temporary watch project");
+        copy_directory(
+            &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/watch_project"),
+            temporary.path(),
+        );
+        temporary
+    }
+
+    fn runtime_param(state: &ChartAppState, name: &str) -> datafusion::scalar::ScalarValue {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("build state inspection runtime")
+            .block_on(state.params())[name]
+            .clone()
+    }
+
+    fn compile_and_prepare_scene(
+        runtime: &tokio::runtime::Runtime,
+        compiler: &Compiler,
+        chart: &Path,
+        generation: u64,
+    ) -> (Value, ChartAppState, DiscoveredDependencySet) {
+        let attempt = runtime.block_on(compiler.compile_file_generation_attempt(chart, generation));
+        let dependencies = attempt.dependencies;
+        let compiled = attempt
+            .result
+            .unwrap_or_else(|failure| panic!("compile {}: {}", chart.display(), failure.render()));
+        let mut bundle = runtime
+            .block_on(chart_avenger_app_with_default_runtime_resources(
+                compiled.artifact.compiled_plot().clone(),
+                compiled.environment.session_context_arc(),
+                ChartAppOptions::default(),
+            ))
+            .unwrap_or_else(|error| panic!("prepare {}: {error}", chart.display()));
+        let scene = serde_json::to_value(bundle.app.scene_graph()).expect("serialize scene graph");
+        let state = bundle.app.app_state_mut().clone();
+        (scene, state, dependencies)
+    }
+
+    struct FakeCompileStep {
+        generation: u64,
+        delay: Duration,
+        attempt: CompileAttempt<CompiledChartGeneration>,
+    }
+
+    struct FakeWatchCompiler {
+        steps: Mutex<VecDeque<FakeCompileStep>>,
+    }
+
+    impl FakeWatchCompiler {
+        fn new(steps: Vec<FakeCompileStep>) -> Self {
+            Self {
+                steps: Mutex::new(steps.into()),
+            }
+        }
+    }
+
+    impl WatchCompiler for FakeWatchCompiler {
+        fn compile_generation<'a>(
+            &'a self,
+            _chart: &'a Path,
+            generation: u64,
+        ) -> Pin<Box<dyn Future<Output = CompileAttempt<CompiledChartGeneration>> + 'a>> {
+            let step = self
+                .steps
+                .lock()
+                .expect("fake compiler steps")
+                .pop_front()
+                .expect("fake compiler has a queued step");
+            assert_eq!(step.generation, generation);
+            Box::pin(async move {
+                tokio::time::sleep(step.delay).await;
+                step.attempt
+            })
+        }
+    }
+
+    #[derive(Clone)]
+    struct InstalledFakeGeneration {
+        generation: u64,
+        state: ChartAppState,
+        scene: Value,
+    }
+
+    #[derive(Default)]
+    struct FakeHostState {
+        latest_request_epoch: u64,
+        installed: Vec<InstalledFakeGeneration>,
+        titles: Vec<String>,
+        next_outcomes: VecDeque<HostUpdateInstallOutcome>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeReloadHost {
+        state: Arc<(Mutex<FakeHostState>, Condvar)>,
+    }
+
+    impl FakeReloadHost {
+        fn wait_for_installs(&self, count: usize) -> Vec<InstalledFakeGeneration> {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (lock, changed) = self.state.as_ref();
+            let mut state = lock.lock().expect("fake host state");
+            while state.installed.len() < count {
+                let now = Instant::now();
+                assert!(
+                    now < deadline,
+                    "timed out waiting for {count} host installs"
+                );
+                let (next, _) = changed
+                    .wait_timeout(state, deadline.saturating_duration_since(now))
+                    .expect("wait for fake host install");
+                state = next;
+            }
+            state.installed.clone()
+        }
+
+        fn titles(&self) -> Vec<String> {
+            self.state.0.lock().expect("fake host state").titles.clone()
+        }
+    }
+
+    impl ReloadHost for FakeReloadHost {
+        fn submit_update(
+            &self,
+            mut update: PreparedHostUpdate<ChartAppState>,
+        ) -> Result<HostUpdateSubmitOutcome, HostUpdateSubmitError> {
+            let (lock, changed) = self.state.as_ref();
+            let mut state = lock
+                .lock()
+                .map_err(|_| HostUpdateSubmitError::QueuePoisoned)?;
+            if update.request_epoch < state.latest_request_epoch {
+                if let Some(completion) = update.completion.take() {
+                    let _ = completion.send(HostUpdateInstallOutcome::Superseded);
+                }
+                return Ok(HostUpdateSubmitOutcome::Superseded);
+            }
+            let outcome = state
+                .next_outcomes
+                .pop_front()
+                .unwrap_or(HostUpdateInstallOutcome::Installed);
+            if outcome == HostUpdateInstallOutcome::Installed {
+                let app_state = update.app.app_state_mut().clone();
+                let scene = serde_json::to_value(update.app.scene_graph())
+                    .expect("serialize fake-host scene");
+                state.installed.push(InstalledFakeGeneration {
+                    generation: update.generation,
+                    state: app_state,
+                    scene,
+                });
+            }
+            if let Some(title) = update.window_title.take() {
+                state.titles.push(title);
+            }
+            if let Some(completion) = update.completion.take() {
+                let _ = completion.send(outcome);
+            }
+            changed.notify_all();
+            Ok(HostUpdateSubmitOutcome::Queued)
+        }
+
+        fn mark_request_epoch(&self, epoch: u64) {
+            let mut state = self.state.0.lock().expect("fake host state");
+            state.latest_request_epoch = state.latest_request_epoch.max(epoch);
+        }
+
+        fn set_window_title(&self, title: String) -> Result<(), HostUpdateSubmitError> {
+            let (lock, changed) = self.state.as_ref();
+            lock.lock()
+                .map_err(|_| HostUpdateSubmitError::QueuePoisoned)?
+                .titles
+                .push(title);
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeWatchReporter {
+        stdout: Arc<(Mutex<Vec<String>>, Condvar)>,
+        stderr: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FakeWatchReporter {
+        fn wait_for_stdout(&self, count: usize) -> Vec<String> {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let (lock, changed) = self.stdout.as_ref();
+            let mut batches = lock.lock().expect("fake stdout");
+            while batches.len() < count {
+                let now = Instant::now();
+                assert!(
+                    now < deadline,
+                    "timed out waiting for {count} stdout batches"
+                );
+                let (next, _) = changed
+                    .wait_timeout(batches, deadline.saturating_duration_since(now))
+                    .expect("wait for stdout batch");
+                batches = next;
+            }
+            batches.clone()
+        }
+    }
+
+    impl WatchReporter for FakeWatchReporter {
+        fn stdout(&self, batch: String) {
+            let (lock, changed) = self.stdout.as_ref();
+            lock.lock().expect("fake stdout").push(batch);
+            changed.notify_all();
+        }
+
+        fn stderr(&self, line: String) {
+            self.stderr.lock().expect("fake stderr").push(line);
+        }
+    }
 
     #[test]
     fn watch_command_parses_the_initial_options() {
@@ -1228,6 +1575,297 @@ mod tests {
     }
 
     #[test]
+    fn watch_project_exercises_import_catalog_data_and_typed_state() {
+        let project = watch_fixture_copy();
+        let chart = project.path().join("chart.avenger");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build watch fixture runtime");
+        let compiler = Compiler::builder()
+            .project_root(project.path())
+            .build()
+            .expect("build watch fixture compiler");
+        let (scene, state, dependencies) =
+            compile_and_prepare_scene(&runtime, &compiler, &chart, 1);
+
+        assert!(!scene["marks"].as_array().expect("scene marks").is_empty());
+        assert_eq!(
+            runtime.block_on(state.params())["point_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(180.0))
+        );
+        let dependency_paths = dependencies
+            .iter()
+            .flat_map(|dependency| [&dependency.requested_origin, &dependency.canonical_origin])
+            .filter_map(|origin| match origin {
+                SourceOrigin::File(path) => Some(path.as_path()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        for expected in [
+            "chart.avenger",
+            "marks/badge.mark.avenger",
+            "catalog.data.avenger",
+            "data/rows.csv",
+        ] {
+            let expected = fs::canonicalize(project.path().join(expected))
+                .expect("canonicalize expected dependency");
+            assert!(
+                dependency_paths.contains(expected.as_path()),
+                "compiler dependency closure omitted {}: {dependency_paths:#?}",
+                expected.display()
+            );
+        }
+    }
+
+    #[test]
+    fn shared_cache_reuses_style_reload_and_invalidates_same_metadata_data_change() {
+        let project = watch_fixture_copy();
+        let chart = project.path().join("chart.avenger");
+        let definition = project.path().join("marks/badge.mark.avenger");
+        let data = project.path().join("data/rows.csv");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build cache integration runtime");
+        let cache = EvaluationCache::new(EvaluationCacheConfig {
+            max_memory_bytes: 16 * 1024 * 1024,
+            min_seen_count: 1,
+            ..EvaluationCacheConfig::default()
+        });
+        let cached_compiler = Compiler::builder()
+            .project_root(project.path())
+            .environment_factory(Arc::new(WatchEnvironmentFactory {
+                cache: Some(cache.clone()),
+            }))
+            .build()
+            .expect("build cached watch compiler");
+        let uncached_compiler = Compiler::builder()
+            .project_root(project.path())
+            .build()
+            .expect("build uncached watch compiler");
+
+        let (cached_initial, _, _) =
+            compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 1);
+        let (uncached_initial, _, _) =
+            compile_and_prepare_scene(&runtime, &uncached_compiler, &chart, 1);
+        assert_eq!(cached_initial, uncached_initial);
+
+        let definition_source = fs::read_to_string(&definition).expect("read mark definition");
+        fs::write(&definition, definition_source.replace("#7c3aed", "#dc2626"))
+            .expect("edit mark style");
+        let before_style = cache.metrics();
+        let (styled, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 2);
+        let after_style = cache.metrics();
+        assert_ne!(styled, cached_initial, "style edit must change the scene");
+        assert!(
+            after_style.hits > before_style.hits,
+            "unchanged data plan should hit across a style-only reload: before={before_style:?}, after={after_style:?}"
+        );
+
+        let metadata = fs::metadata(&data).expect("read data metadata");
+        let original_mtime = FileTime::from_last_modification_time(&metadata);
+        let original_len = metadata.len();
+        fs::write(&data, "x,y\n1,4\n3,2\n").expect("replace CSV with same-length content");
+        assert_eq!(
+            fs::metadata(&data).expect("new data metadata").len(),
+            original_len
+        );
+        set_file_mtime(&data, original_mtime).expect("restore CSV modification time");
+        let before_data = cache.metrics();
+        let (changed_data, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 3);
+        let after_data = cache.metrics();
+        assert_ne!(
+            changed_data, styled,
+            "changed CSV content must change the scene"
+        );
+        assert!(
+            after_data.misses > before_data.misses,
+            "same-size, same-mtime data replacement must miss stale physical results: before={before_data:?}, after={after_data:?}"
+        );
+
+        let current_uncached = Compiler::builder()
+            .project_root(project.path())
+            .build()
+            .expect("build current uncached compiler");
+        let (uncached_changed_data, _, _) =
+            compile_and_prepare_scene(&runtime, &current_uncached, &chart, 3);
+        assert_eq!(changed_data, uncached_changed_data);
+    }
+
+    #[test]
+    fn headless_reload_coordinator_recovers_migrates_and_installs_only_latest() {
+        let project = watch_fixture_copy();
+        let chart = project.path().join("chart.avenger");
+        let definition = project.path().join("marks/badge.mark.avenger");
+        let original_chart = fs::read_to_string(&chart).expect("read watch chart");
+        let original_definition =
+            fs::read_to_string(&definition).expect("read watch mark definition");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build reload coordinator runtime");
+        let compiler = Compiler::builder()
+            .project_root(project.path())
+            .build()
+            .expect("build reload fixture compiler");
+
+        let initial_attempt = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 1));
+        let initial_dependencies = initial_attempt.dependencies.clone();
+        let initial = initial_attempt.result.expect("compile initial chart");
+        let mut initial_bundle = runtime
+            .block_on(chart_avenger_app_with_default_runtime_resources(
+                initial.artifact.compiled_plot().clone(),
+                initial.environment.session_context_arc(),
+                ChartAppOptions::default(),
+            ))
+            .expect("prepare initial chart");
+        let displayed_state = initial_bundle.app.app_state_mut().clone();
+        displayed_state
+            .set_param(
+                "point_size",
+                datafusion::scalar::ScalarValue::Float64(Some(321.0)),
+            )
+            .expect("set displayed state before reload");
+
+        fs::write(
+            &definition,
+            original_definition.replace("#7c3aed", "#dc2626"),
+        )
+        .expect("prepare styled generation");
+        let success = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 2));
+
+        fs::write(&chart, "avenger 1; chart cartesian as broken {")
+            .expect("prepare broken generation");
+        let failure = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 3));
+        assert!(failure.result.is_err());
+
+        fs::write(&chart, &original_chart).expect("restore valid generation");
+        let repaired = runtime.block_on(compiler.compile_file_generation_attempt(&chart, 5));
+        assert!(repaired.result.is_ok());
+        let newest = repaired.clone();
+
+        let fake_compiler = FakeWatchCompiler::new(vec![
+            FakeCompileStep {
+                generation: 2,
+                delay: Duration::ZERO,
+                attempt: success,
+            },
+            FakeCompileStep {
+                generation: 3,
+                delay: Duration::ZERO,
+                attempt: failure.clone(),
+            },
+            FakeCompileStep {
+                generation: 4,
+                delay: Duration::ZERO,
+                attempt: failure,
+            },
+            FakeCompileStep {
+                generation: 5,
+                delay: Duration::ZERO,
+                attempt: repaired,
+            },
+            FakeCompileStep {
+                generation: 6,
+                delay: Duration::from_millis(250),
+                attempt: newest.clone(),
+            },
+            FakeCompileStep {
+                generation: 7,
+                delay: Duration::ZERO,
+                attempt: newest,
+            },
+        ]);
+        let host = FakeReloadHost::default();
+        let reporter = FakeWatchReporter::default();
+        let handle = spawn_reload_worker(ReloadWorker {
+            chart: chart.clone(),
+            project_root: project.path().to_path_buf(),
+            compiler: fake_compiler,
+            runtime,
+            host_updates: host.clone(),
+            reporter: reporter.clone(),
+            initial_dependencies,
+            debounce: Duration::from_millis(1),
+            cache: None,
+            log_cache: false,
+            normal_title: "Avenger — chart.avenger".to_string(),
+            displayed_state,
+        })
+        .expect("start headless reload worker");
+
+        handle.request_reload(vec![definition.clone()]);
+        let first_install = host.wait_for_installs(1);
+        assert_eq!(first_install[0].generation, 2);
+        assert_eq!(
+            runtime_param(&first_install[0].state, "point_size"),
+            datafusion::scalar::ScalarValue::Float64(Some(321.0))
+        );
+
+        handle.request_reload(vec![chart.clone()]);
+        let after_first_failure = reporter.wait_for_stdout(2);
+        assert_eq!(
+            after_first_failure
+                .iter()
+                .filter(|batch| batch.contains("compilation failed"))
+                .count(),
+            1
+        );
+        assert_eq!(host.wait_for_installs(1).len(), 1);
+
+        handle.request_reload(vec![chart.clone()]);
+        let after_second_failure = reporter.wait_for_stdout(3);
+        assert_eq!(
+            after_second_failure
+                .iter()
+                .filter(|batch| batch.contains("compilation failed"))
+                .count(),
+            2,
+            "the same diagnostic must print once for each distinct generation"
+        );
+
+        handle.request_reload(vec![chart.clone()]);
+        let repaired_installs = host.wait_for_installs(2);
+        assert_eq!(repaired_installs[1].generation, 5);
+        assert_eq!(
+            runtime_param(&repaired_installs[1].state, "point_size"),
+            datafusion::scalar::ScalarValue::Float64(Some(321.0))
+        );
+        assert_eq!(repaired_installs[0].scene, repaired_installs[1].scene);
+
+        handle.request_reload(vec![chart.clone()]);
+        thread::sleep(Duration::from_millis(25));
+        handle.request_reload(vec![chart.clone()]);
+        let latest_installs = host.wait_for_installs(3);
+        assert_eq!(
+            latest_installs
+                .iter()
+                .map(|installed| installed.generation)
+                .collect::<Vec<_>>(),
+            vec![2, 5, 7]
+        );
+        let final_stdout = reporter.wait_for_stdout(5);
+        assert!(
+            !final_stdout
+                .iter()
+                .any(|batch| batch.contains("generation 6"))
+        );
+        let titles = host.titles();
+        assert!(
+            titles
+                .iter()
+                .any(|title| title.ends_with("[compile error]"))
+        );
+        assert_eq!(
+            titles.last().map(String::as_str),
+            Some("Avenger — chart.avenger")
+        );
+
+        handle.shutdown().expect("stop headless reload worker");
+    }
+
+    #[test]
     fn successive_dsl_generations_migrate_compatible_state() {
         let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../avenger-lang-compiler/tests/fixtures/projects/03_interactive_brush");
@@ -1287,6 +1925,84 @@ mod tests {
         assert_eq!(
             runtime.block_on(second_state.params())["hover_count"],
             datafusion::scalar::ScalarValue::Int64(Some(9))
+        );
+    }
+
+    #[test]
+    fn built_in_widget_document_state_migrates_across_generations() {
+        let project_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../avenger-lang-compiler/tests/fixtures/projects/11_widget_surface");
+        let chart = project_root.join("text_input.avenger");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build widget migration runtime");
+        let compiler = Compiler::builder()
+            .project_root(&project_root)
+            .build()
+            .expect("build widget fixture compiler");
+
+        let first = runtime
+            .block_on(compiler.compile_file_generation_attempt(&chart, 1))
+            .result
+            .expect("compile first widget generation");
+        let mut first_bundle = runtime
+            .block_on(chart_avenger_app_with_default_runtime_resources(
+                first.artifact.compiled_plot().clone(),
+                first.environment.session_context_arc(),
+                ChartAppOptions::default(),
+            ))
+            .expect("prepare first widget generation");
+        let first_state = first_bundle.app.app_state_mut().clone();
+        first_state
+            .set_param(
+                "query_state",
+                datafusion::scalar::ScalarValue::Utf8(Some("edited".to_string())),
+            )
+            .expect("set widget value param");
+        first_state
+            .set_param(
+                "query__cursor",
+                datafusion::scalar::ScalarValue::UInt64(Some(3)),
+            )
+            .expect("set widget cursor param");
+        first_state
+            .set_param(
+                "query__selected_text",
+                datafusion::scalar::ScalarValue::Utf8(Some("dit".to_string())),
+            )
+            .expect("set widget selection param");
+        let snapshot = runtime.block_on(first_state.snapshot_state());
+
+        let second = runtime
+            .block_on(compiler.compile_file_generation_attempt(&chart, 2))
+            .result
+            .expect("compile second widget generation");
+        let (mut second_bundle, report) = runtime
+            .block_on(
+                chart_avenger_app_with_default_runtime_resources_and_snapshot(
+                    second.artifact.compiled_plot().clone(),
+                    second.environment.session_context_arc(),
+                    ChartAppOptions::default(),
+                    &snapshot,
+                ),
+            )
+            .expect("prepare migrated widget generation");
+        let second_state = second_bundle.app.app_state_mut().clone();
+        let params = runtime.block_on(second_state.params());
+        assert_eq!(report.params_migrated, 3);
+        assert_eq!(report.params_reset, 0);
+        assert_eq!(
+            params["query_state"],
+            datafusion::scalar::ScalarValue::Utf8(Some("edited".to_string()))
+        );
+        assert_eq!(
+            params["query__cursor"],
+            datafusion::scalar::ScalarValue::UInt64(Some(3))
+        );
+        assert_eq!(
+            params["query__selected_text"],
+            datafusion::scalar::ScalarValue::Utf8(Some("dit".to_string()))
         );
     }
 }

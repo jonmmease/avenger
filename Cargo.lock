@@ -1315,6 +1315,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "datafusion",
+ "filetime",
  "notify",
  "serde_json",
  "tempfile",

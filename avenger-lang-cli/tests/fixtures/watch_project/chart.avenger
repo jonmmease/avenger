@@ -1,0 +1,14 @@
+avenger 1;
+
+import 'marks/badge.mark.avenger';
+
+chart cartesian as chart {
+  data: { table: 'files.rows'; }
+
+  param as point_size {
+    type: float64;
+    default: 180.0;
+  }
+
+  mark badge as imported_badge {}
+}
