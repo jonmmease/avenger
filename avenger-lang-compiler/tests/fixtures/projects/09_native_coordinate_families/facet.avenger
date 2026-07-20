@@ -9,6 +9,6 @@ chart facet_wrap as facet {
   }
   facet: "region" { slots: shared; }
   cell cartesian {
-    mark rect { x: "category"; y: "value"; }
+    mark symbol { x: "category"; y: "value"; size: value 256.0; }
   }
 }

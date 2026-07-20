@@ -342,6 +342,27 @@ fn assert_case_image_contract(case: &FixtureCase, image: &RgbaImage) -> Result<(
                 );
             }
         }
+        "09_native_coordinate_families/facet.avenger" => {
+            let (width, height) = image.dimensions();
+            for (label, x0, x1) in [
+                ("east", width / 10, width / 2),
+                ("west", width / 2, width * 9 / 10),
+            ] {
+                let has_symbol = (height / 8..height * 9 / 10).any(|y| {
+                    (x0..x1).any(|x| {
+                        let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+                        alpha > 0
+                            && red.max(green).max(blue) - red.min(green).min(blue) >= 32
+                            && u16::from(red) + u16::from(green) + u16::from(blue) < 700
+                    })
+                });
+                if !has_symbol {
+                    return Err(format!(
+                        "facet {label} cell must render chromatic mark pixels"
+                    ));
+                }
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -421,20 +442,55 @@ async fn evaluate_ready_scene(
 }
 
 fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<(), String> {
-    if case.root != "07_inline_view_raster/chart.avenger" {
-        return Ok(());
-    }
-    let nontransparent_pixels = scene
-        .marks
-        .iter()
-        .map(nontransparent_raster_pixels)
-        .sum::<usize>();
-    if nontransparent_pixels < 6 {
-        return Err(format!(
-            "inline raster scene must contain at least six nontransparent source pixels, got {nontransparent_pixels}"
-        ));
+    match case.root.as_str() {
+        "07_inline_view_raster/chart.avenger" => {
+            let nontransparent_pixels = scene
+                .marks
+                .iter()
+                .map(nontransparent_raster_pixels)
+                .sum::<usize>();
+            if nontransparent_pixels < 6 {
+                return Err(format!(
+                    "inline raster scene must contain at least six nontransparent source pixels, got {nontransparent_pixels}"
+                ));
+            }
+        }
+        "09_native_coordinate_families/facet.avenger" => {
+            let mut counts = Vec::new();
+            for mark in &scene.marks {
+                collect_facet_cell_symbol_counts(mark, &mut counts);
+            }
+            counts.sort_unstable();
+            if counts != [1, 1] {
+                return Err(format!(
+                    "facet scene must contain one symbol in each of two cells, got {counts:?}"
+                ));
+            }
+        }
+        _ => {}
     }
     Ok(())
+}
+
+fn collect_facet_cell_symbol_counts(mark: &SceneMark, counts: &mut Vec<usize>) {
+    let SceneMark::Group(group) = mark else {
+        return;
+    };
+    if group.name.starts_with("facet_col_") && !group.name.ends_with("_empty") {
+        counts.push(group.marks.iter().map(count_symbols).sum());
+        return;
+    }
+    for child in &group.marks {
+        collect_facet_cell_symbol_counts(child, counts);
+    }
+}
+
+fn count_symbols(mark: &SceneMark) -> usize {
+    match mark {
+        SceneMark::Symbol(symbol) => symbol.len as usize,
+        SceneMark::Group(group) => group.marks.iter().map(count_symbols).sum(),
+        _ => 0,
+    }
 }
 
 fn nontransparent_raster_pixels(mark: &SceneMark) -> usize {

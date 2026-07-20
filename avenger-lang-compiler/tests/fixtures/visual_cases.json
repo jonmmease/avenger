@@ -180,7 +180,7 @@
       "sources": [
         "09_native_coordinate_families/facet.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/geo.avenger",
