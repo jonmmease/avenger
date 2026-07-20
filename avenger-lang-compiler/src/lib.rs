@@ -39,4 +39,4 @@ pub use schema::{LanguageHost, SemanticJsonSchema};
 pub use source_loader::{DefaultSourceLoader, SourceLoaderLimits};
 
 /// Last fully implemented language/compiler plan phase.
-pub const COMPILER_PHASE: u8 = 9;
+pub const COMPILER_PHASE: u8 = 10;
