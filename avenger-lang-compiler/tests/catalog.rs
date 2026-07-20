@@ -474,7 +474,11 @@ async fn catalog_provider_factories_are_explicit_schema_only_and_environment_gat
         analysis.project_fingerprint.as_str()
     );
     assert!(project.charts.values().all(|chart| {
-        chart.dependency_fingerprint.as_str() == analysis.project_fingerprint.as_str()
+        analysis
+            .dependency_fingerprints
+            .charts
+            .get(&chart.id)
+            .is_some_and(|fingerprint| fingerprint == &chart.dependency_fingerprint)
     }));
 
     let (catalog_factories, table_factories) =

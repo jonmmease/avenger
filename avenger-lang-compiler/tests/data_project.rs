@@ -145,7 +145,7 @@ async fn data_project_propagates_exact_schemas_through_a_multi_query_dag_without
     let artifact = compiler.compile_file("chart.avenger").await.unwrap();
     assert_eq!(
         artifact.dependency_fingerprint.as_str(),
-        analysis.project_fingerprint.as_str(),
+        analysis.dependency_fingerprints.charts[&artifact.id].as_str(),
         "analysis and full compilation must consume the same data snapshot"
     );
     assert_eq!(artifact.compiled_plot().marks().len(), 1);

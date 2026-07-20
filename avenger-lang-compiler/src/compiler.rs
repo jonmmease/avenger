@@ -216,31 +216,52 @@ impl Compiler {
         path: impl AsRef<Path>,
         generation: u64,
     ) -> CompileAttempt<CompiledChartGeneration> {
-        let attempt = self.resolve_file_project_attempt(path).await;
+        let attempt = self.load_file_project_attempt(path).await;
         let dependencies = attempt.dependencies;
         let result = match attempt.result {
-            Ok(project) => self
-                .lower_resolved_project(&project, generation)
-                .await
-                .and_then(|(mut lowered, environment)| {
-                    if lowered.charts.len() != 1 {
-                        return Err(CompileFailure {
-                            diagnostics: vec![Diagnostic::error(
-                                "AVENGER-LOWER-003",
-                                "compile_file requires exactly one chart",
-                                SourceLabel::new(
-                                    SourceSpan::empty(SourceId::new(0), 0),
-                                    format!("resolved {} charts", lowered.charts.len()),
-                                ),
-                            )],
-                        });
-                    }
-                    Ok(CompiledChartGeneration {
-                        generation,
-                        artifact: lowered.charts.remove(0).artifact,
-                        environment,
-                    })
-                }),
+            Ok(parsed) => match self
+                .resolve_parsed_project_attempt(CompileAttempt {
+                    result: Ok(parsed.clone()),
+                    dependencies: dependencies.clone(),
+                })
+                .result
+            {
+                Ok(project) => self
+                    .lower_resolved_project(&project, generation)
+                    .await
+                    .and_then(|(mut lowered, environment, catalog)| {
+                        if lowered.charts.len() != 1 {
+                            return Err(CompileFailure {
+                                diagnostics: vec![Diagnostic::error(
+                                    "AVENGER-LOWER-003",
+                                    "compile_file requires exactly one chart",
+                                    SourceLabel::new(
+                                        SourceSpan::empty(SourceId::new(0), 0),
+                                        format!("resolved {} charts", lowered.charts.len()),
+                                    ),
+                                )],
+                            });
+                        }
+                        let fingerprints = dependency_fingerprint_layers(
+                            &self.options,
+                            &parsed,
+                            &project,
+                            &dependencies,
+                            &catalog,
+                            &environment,
+                        );
+                        let mut artifact = lowered.charts.remove(0).artifact;
+                        if let Some(fingerprint) = fingerprints.charts.get(&artifact.id) {
+                            artifact.dependency_fingerprint = fingerprint.clone();
+                        }
+                        Ok(CompiledChartGeneration {
+                            generation,
+                            artifact,
+                            environment,
+                        })
+                    }),
+                Err(error) => Err(error),
+            },
             Err(error) => Err(error),
         };
         CompileAttempt {
@@ -865,7 +886,7 @@ impl Compiler {
         &self,
         project: &ResolvedProject,
         generation: u64,
-    ) -> Result<(LoweredProject, crate::CompileEnvironment), CompileFailure> {
+    ) -> Result<(LoweredProject, crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
         let (environment, catalog) = self.analyze_resolved_project(project, generation).await?;
         let mut lowered = lower_project(
             project,
@@ -880,7 +901,7 @@ impl Compiler {
             chart.artifact.dependency_fingerprint =
                 DependencyFingerprint::new(catalog.dependency_fingerprint.clone());
         }
-        Ok((lowered, environment))
+        Ok((lowered, environment, catalog))
     }
 
     async fn analyze_resolved_project(
