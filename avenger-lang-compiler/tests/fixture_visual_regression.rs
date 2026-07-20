@@ -33,6 +33,7 @@ use avenger_lang_core::{
     DataCapabilities, MapEnvironmentProvider, SourceFile, SourceId, SourceOrigin, ast::Root,
     syntax::parse_file,
 };
+use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
 use avenger_wgpu::canvas::{Canvas, CanvasConfig, PngCanvas};
 use datafusion::{
     arrow::datatypes::{DataType, Field, Schema},
@@ -286,12 +287,18 @@ async fn run_case(case: &FixtureCase) -> Result<(), String> {
 
             let direct_environment = generation.environment.fork();
             let serialized_environment = generation.environment.fork();
-            let direct =
-                evaluate_and_render(&generation.artifact, direct_environment.session_context())
-                    .await?;
-            let serialized =
-                evaluate_and_render(&round_tripped, serialized_environment.session_context())
-                    .await?;
+            let direct = evaluate_and_render(
+                case,
+                &generation.artifact,
+                direct_environment.session_context(),
+            )
+            .await?;
+            let serialized = evaluate_and_render(
+                case,
+                &round_tripped,
+                serialized_environment.session_context(),
+            )
+            .await?;
             assert_case_image_contract(case, &direct)?;
             compare_round_trip(case, &direct, &serialized)?;
             compare_or_bless_image(case, &direct)
@@ -319,12 +326,29 @@ fn assert_case_image_contract(case: &FixtureCase, image: &RgbaImage) -> Result<(
                 return Err("geo station must render within the center fifth of the canvas".into());
             }
         }
+        "07_inline_view_raster/chart.avenger" => {
+            let (width, height) = image.dimensions();
+            let has_plot_raster_pixel = (height / 20..height * 9 / 10).any(|y| {
+                (width / 8..width * 4 / 5).any(|x| {
+                    let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+                    alpha > 0
+                        && red.max(green).max(blue) - red.min(green).min(blue) >= 32
+                        && u16::from(red) + u16::from(green) + u16::from(blue) < 700
+                })
+            });
+            if !has_plot_raster_pixel {
+                return Err(
+                    "inline raster must render chromatic pixels inside the plot area".into(),
+                );
+            }
+        }
         _ => {}
     }
     Ok(())
 }
 
 async fn evaluate_and_render(
+    case: &FixtureCase,
     artifact: &CompiledChartArtifact,
     context: &datafusion::prelude::SessionContext,
 ) -> Result<RgbaImage, String> {
@@ -342,10 +366,8 @@ async fn evaluate_and_render(
         &resources,
         NativeWidgetPlotId::chart_root(),
     ));
-    let evaluated = session
-        .evaluate(EvaluationRequest::new())
-        .await
-        .map_err(|error| format!("evaluation failed: {error}"))?;
+    let evaluated = evaluate_ready_scene(&mut session).await?;
+    assert_case_scene_contract(case, &evaluated.scene_graph)?;
     let dimensions = CanvasDimensions {
         size: [evaluated.scene_graph.width, evaluated.scene_graph.height],
         scale: DEFAULT_SCALE,
@@ -364,6 +386,73 @@ async fn evaluate_and_render(
         .render()
         .await
         .map_err(|error| format!("render failed: {error}"))
+}
+
+async fn evaluate_ready_scene(
+    session: &mut avenger_chart::plot::PlotSession,
+) -> Result<avenger_chart::render::EvaluatedPlot, String> {
+    for attempt in 0..4 {
+        let initial_epoch = session.evaluation_invalidation_epoch();
+        let (evaluated, metrics) = session
+            .evaluate_with_metrics(EvaluationRequest::new().exact())
+            .await
+            .map_err(|error| format!("evaluation failed: {error}"))?;
+        let materialization_pending = metrics.pipeline.materialization_queued > 0
+            || metrics.pipeline.materialization_running > 0
+            || session.has_pending_materializations();
+        if !materialization_pending {
+            return Ok(evaluated);
+        }
+        if attempt == 3 {
+            return Err(
+                "view-local materialization did not stabilize after four evaluations".into(),
+            );
+        }
+        for _ in 0..200 {
+            if session.evaluation_invalidation_epoch() > initial_epoch
+                || !session.has_pending_materializations()
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    }
+    unreachable!("bounded materialization loop always returns")
+}
+
+fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<(), String> {
+    if case.root != "07_inline_view_raster/chart.avenger" {
+        return Ok(());
+    }
+    let nontransparent_pixels = scene
+        .marks
+        .iter()
+        .map(nontransparent_raster_pixels)
+        .sum::<usize>();
+    if nontransparent_pixels < 6 {
+        return Err(format!(
+            "inline raster scene must contain at least six nontransparent source pixels, got {nontransparent_pixels}"
+        ));
+    }
+    Ok(())
+}
+
+fn nontransparent_raster_pixels(mark: &SceneMark) -> usize {
+    match mark {
+        SceneMark::Image(image) if image.name == "uniform_raster_2d" => image
+            .image_source_iter()
+            .filter_map(|source| source.inline_image())
+            .map(|image| {
+                image
+                    .data
+                    .chunks_exact(4)
+                    .filter(|pixel| pixel[3] > 0)
+                    .count()
+            })
+            .sum(),
+        SceneMark::Group(group) => group.marks.iter().map(nontransparent_raster_pixels).sum(),
+        _ => 0,
+    }
 }
 
 fn compare_round_trip(

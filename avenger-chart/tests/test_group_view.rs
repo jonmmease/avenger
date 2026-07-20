@@ -1,6 +1,8 @@
 //! Group view scopes: authoring, compile-time lowering onto child marks,
 //! validation, and serialization.
 
+use std::{sync::Arc, time::Duration};
+
 use avenger_chart::prelude::*;
 use avenger_scenegraph::{marks::mark::SceneMark, scene_graph::SceneGraph};
 use datafusion::prelude::{SessionContext, col, lit};
@@ -25,6 +27,37 @@ fn count_symbols(scene: &SceneGraph) -> usize {
         walk(mark, &mut total);
     }
     total
+}
+
+fn raster_image_alpha_pixels(scene: &SceneGraph) -> usize {
+    fn walk(mark: &SceneMark) -> usize {
+        match mark {
+            SceneMark::Group(group) => group.marks.iter().map(walk).sum(),
+            SceneMark::Image(image) if image.name == "uniform_raster_2d" => image
+                .image_source_iter()
+                .filter_map(|source| source.inline_image())
+                .map(|image| {
+                    image
+                        .data
+                        .chunks_exact(4)
+                        .filter(|pixel| pixel[3] > 0)
+                        .count()
+                })
+                .sum(),
+            _ => 0,
+        }
+    }
+    scene.marks.iter().map(walk).sum()
+}
+
+async fn wait_for_materialization(session: &PlotSession, initial_epoch: u64) {
+    for _ in 0..200 {
+        if session.evaluation_invalidation_epoch() > initial_epoch {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for group-view raster materialization");
 }
 
 async fn xy_dataframe(ctx: &SessionContext, rows: usize) -> datafusion::dataframe::DataFrame {
@@ -64,6 +97,64 @@ async fn group_view_lowers_onto_children() {
     assert_eq!(first_view.spec.source_name(), "pts");
     let evaluated = compiled.evaluate(&ctx, None).await.unwrap();
     assert_eq!(count_symbols(&evaluated.scene_graph), 10);
+}
+
+#[tokio::test]
+async fn group_view_materialization_is_scheduled_after_read_only_scale_inference() {
+    let ctx = Arc::new(SessionContext::new());
+    let df = ctx
+        .sql(
+            "SELECT * FROM (VALUES (0.0, 0.0), (0.2, 0.8), (0.4, 0.3), \
+             (0.6, 0.7), (0.8, 0.2), (1.0, 1.0)) AS t(x, y)",
+        )
+        .await
+        .unwrap();
+    let plot = Chart::<Cartesian>::new().mark(
+        MarkGroup::<Cartesian>::new().data(df).view(
+            View::cartesian()
+                .id("density")
+                .x_domain(col("x"))
+                .y_domain(col("y")),
+            |group, view| {
+                group.transform(
+                    Rasterize2D::new(col("x"), col("y"))
+                        .x(|x| {
+                            x.extent(view.x().domain_start(), view.x().domain_end())
+                                .bins(32)
+                        })
+                        .y(|y| {
+                            y.extent(view.y().domain_start(), view.y().domain_end())
+                                .bins(32)
+                        })
+                        .agg("count"),
+                    |group, raster| {
+                        group.mark(
+                            UniformRaster2D::new().raster_with(raster.raster(), |channels| {
+                                channels.x(raster.x_dim()).y(raster.y_dim())
+                            }),
+                        )
+                    },
+                )
+            },
+        ),
+    );
+    let compiled = Arc::new(plot.compile(&ctx).await.unwrap());
+    let mut session = compiled.instantiate(ctx);
+    let initial_epoch = session.evaluation_invalidation_epoch();
+    let (warmup, warmup_metrics) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .await
+        .unwrap();
+    assert!(warmup_metrics.pipeline.materialization_queued > 0);
+    assert_eq!(raster_image_alpha_pixels(&warmup.scene_graph), 0);
+
+    wait_for_materialization(&session, initial_epoch).await;
+    let (ready, ready_metrics) = session
+        .evaluate_with_metrics(EvaluationRequest::new().exact())
+        .await
+        .unwrap();
+    assert!(ready_metrics.pipeline.materialization_ready_used > 0);
+    assert!(raster_image_alpha_pixels(&ready.scene_graph) >= 6);
 }
 
 /// Group-view plots survive serialization: the compiled plot round-trips

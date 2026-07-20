@@ -37,4 +37,4 @@ avenger-scenegraph = { path = "../avenger-scenegraph" }
 avenger-wgpu = { path = "../avenger-wgpu" }
 image = { workspace = true }
 image-compare = "0.4"
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

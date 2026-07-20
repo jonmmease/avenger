@@ -138,7 +138,7 @@
       "sources": [
         "07_inline_view_raster/chart.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "08_multi_chart_project/cartesian.avenger",

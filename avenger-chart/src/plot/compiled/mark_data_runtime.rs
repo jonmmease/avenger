@@ -132,6 +132,10 @@ pub(crate) struct GroupViewPrepared {
     /// to assert that reusing children agree (they share the cell's scales,
     /// so a mismatch means a bug).
     view_params: Vec<(String, ScalarValue)>,
+    /// Scale inference deliberately observes materialization state without
+    /// scheduling missing work. Do not reuse that empty/read-only result for
+    /// a render pass that must enqueue the materialization.
+    materialization_handling: ViewMaterializationHandling,
 }
 
 pub(crate) type GroupViewDataCacheHandle =
@@ -189,10 +193,13 @@ async fn prepare_group_view_data(
     {
         // Children within one pass share the cell's scales and resolve
         // identical view params, so a hit with matching params is a safe
-        // reuse. A mismatch means a different pass of the same evaluation
-        // (e.g. scale inference with base scales vs final render with
-        // resolved scales) — recompute so each pass sees its own view state.
-        if cached.view_params == current_view_params {
+        // reuse. A mismatch in params or materialization handling means a
+        // different pass of the same evaluation (for example read-only scale
+        // inference vs scheduling render) — recompute so each pass sees its
+        // own view state and side-effect policy.
+        if cached.view_params == current_view_params
+            && cached.materialization_handling == materialization_handling
+        {
             return Ok(cached);
         }
     }
@@ -214,6 +221,7 @@ async fn prepare_group_view_data(
         dataframe,
         derived_scalars,
         view_params: current_view_params,
+        materialization_handling,
     });
     view_eval_ctx
         .group_view_data_cache
