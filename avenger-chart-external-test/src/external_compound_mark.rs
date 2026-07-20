@@ -34,7 +34,11 @@ impl ExternalMeanPoint {
                     .group_by([category.clone()])
                     .mean(EXTERNAL_MEAN_POINT_FIELD, value),
                 move |group, _summary| {
-                    group.mark(Symbol::new().x(category).y(col(EXTERNAL_MEAN_POINT_FIELD)))
+                    group.mark(
+                        Symbol::new()
+                            .x_with(category, |x| x.band(0.5))
+                            .y(col(EXTERNAL_MEAN_POINT_FIELD)),
+                    )
                 },
             )
     }

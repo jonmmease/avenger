@@ -509,6 +509,31 @@ fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<
                 ));
             }
         }
+        "02_sql_pipeline/chart.avenger" => {
+            let mut positions = scene_symbol_positions(scene)
+                .into_iter()
+                .filter(|position| position[0] < scene.width * 0.8)
+                .collect::<Vec<_>>();
+            positions.sort_by(|left, right| left[0].total_cmp(&right[0]));
+            if positions.len() != 2
+                || positions[0][0] <= scene.width * 0.15
+                || positions[1][0] >= scene.width * 0.8
+            {
+                return Err(format!(
+                    "SQL categorical point positions must remain inside the plot boundaries; got {positions:?}"
+                ));
+            }
+        }
+        "04_composed_extension/external_compound.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            if positions.len() != 1
+                || (positions[0][0] - scene.width * 0.55).abs() > scene.width * 0.1
+            {
+                return Err(format!(
+                    "external compound symbol must use the center of its single category band; got {positions:?}"
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -525,12 +550,14 @@ fn scene_symbol_positions(scene: &SceneGraph) -> Vec<[f32; 2]> {
 fn collect_symbol_positions(mark: &SceneMark, origin: [f32; 2], positions: &mut Vec<[f32; 2]>) {
     match mark {
         SceneMark::Symbol(symbol) => {
-            positions.extend(
-                symbol
-                    .x_iter()
-                    .zip(symbol.y_iter())
-                    .map(|(x, y)| [origin[0] + x, origin[1] + y]),
-            );
+            if symbol.clip {
+                positions.extend(
+                    symbol
+                        .x_iter()
+                        .zip(symbol.y_iter())
+                        .map(|(x, y)| [origin[0] + x, origin[1] + y]),
+                );
+            }
         }
         SceneMark::Group(group) => {
             let child_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];

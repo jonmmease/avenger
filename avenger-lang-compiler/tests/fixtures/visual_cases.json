@@ -15,7 +15,7 @@
       "sources": [
         "02_sql_pipeline/chart.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "03_interactive_brush/chart.avenger",
@@ -40,7 +40,7 @@
       "sources": [
         "04_composed_extension/external_compound.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "04_composed_extension/external_coordinate.avenger",

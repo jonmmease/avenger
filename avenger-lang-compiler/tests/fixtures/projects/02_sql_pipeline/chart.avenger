@@ -23,7 +23,7 @@ chart cartesian as chart {
     }
     mark symbol as points {
       x: "category" {
-        scale: ordinal;
+        scale: point;
         axis: { title: 'Category'; }
       }
       y: "doubled" {
