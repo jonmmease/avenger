@@ -158,6 +158,7 @@ pub(crate) async fn analyze_chart_datasets(
         return Err(vec![diagnostic]);
     }
     let mut analysis = Vec::new();
+    let mut diagnostics = Vec::new();
     for chart_id in &project.charts {
         let Some(chart) = find_declaration(project, chart_id) else {
             continue;
@@ -171,12 +172,16 @@ pub(crate) async fn analyze_chart_datasets(
             project
                 .expansion_source_map
                 .remap_diagnostic(&mut diagnostic);
-            return Err(vec![diagnostic]);
+            diagnostics.push(diagnostic);
         }
     }
     lowerer.active_chart_id = None;
     lowerer.active_chart_path = None;
-    Ok(analysis)
+    if diagnostics.is_empty() {
+        Ok(analysis)
+    } else {
+        Err(diagnostics)
+    }
 }
 
 struct ProjectLowerer<'a> {

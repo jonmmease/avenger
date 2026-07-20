@@ -118,6 +118,17 @@ async fn project_compile_cold_and_warm_are_equivalent_and_reuse_all_artifacts() 
     );
     assert_eq!(cold.project_fingerprint, warm.project_fingerprint);
     assert_eq!(cold.dependency_fingerprints, warm.dependency_fingerprints);
+    let analysis = compiler.analyze_project(&root).await.unwrap();
+    assert_eq!(cold.project_fingerprint, analysis.project_fingerprint);
+    assert_eq!(
+        cold.dependency_fingerprints,
+        analysis.dependency_fingerprints
+    );
+    assert_eq!(
+        analysis.dependency_fingerprints.datasets.len(),
+        analysis.datasets.iter().count(),
+        "compiled and standalone analysis must describe every dataset stage"
+    );
     let cold = named_artifacts(&cold);
     let warm = named_artifacts(&warm);
     for name in cold.keys() {
@@ -131,6 +142,7 @@ async fn project_compile_cold_and_warm_are_equivalent_and_reuse_all_artifacts() 
         );
     }
     let cache = compiler.cache_snapshot();
+    assert_eq!(cache.project_analyses, 1);
     assert_eq!(cache.chart_artifacts, 3);
     assert_eq!(cache.artifact_keys.len(), 3);
 

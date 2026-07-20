@@ -328,14 +328,11 @@ impl Compiler {
         generation: u64,
     ) -> Result<CompiledProject, CompileFailure> {
         let (environment, catalog) = self.analyze_resolved_project(project, generation).await?;
-        let fingerprints = dependency_fingerprint_layers(
-            &self.options,
-            parsed,
-            project,
-            dependencies,
-            &catalog,
-            &environment,
-        );
+        let analysis = self
+            .finish_project_analysis(parsed, project, dependencies, &environment, &catalog)
+            .await?;
+        let fingerprints = analysis.dependency_fingerprints.clone();
+        let project_fingerprint = analysis.project_fingerprint;
         let profile = self.options.native_registry.profile_id();
         let mut artifacts = BTreeMap::<ProjectChartId, CompiledChartArtifact>::new();
         let mut misses = Vec::<(DeclarationId, ProjectChartId, ArtifactCacheKey)>::new();
@@ -453,7 +450,7 @@ impl Compiler {
             charts,
             sources: project.sources.clone(),
             native_registry_profile: profile.clone(),
-            project_fingerprint: project_fingerprint_from_layers(&fingerprints),
+            project_fingerprint,
             dependency_fingerprints: fingerprints,
         })
     }
@@ -472,13 +469,25 @@ impl Compiler {
             })
             .result?;
         let (environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
+        self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
+            .await
+    }
+
+    async fn finish_project_analysis(
+        &self,
+        parsed: &ParsedProject,
+        project: &ResolvedProject,
+        dependencies: &DiscoveredDependencySet,
+        environment: &crate::CompileEnvironment,
+        catalog: &CatalogAnalysis,
+    ) -> Result<ProjectAnalysis, CompileFailure> {
         let mut fingerprints = dependency_fingerprint_layers(
             &self.options,
-            &parsed,
-            &project,
-            &dependencies,
-            &catalog,
-            &environment,
+            parsed,
+            project,
+            dependencies,
+            catalog,
+            environment,
         );
         let project_fingerprint = project_fingerprint_from_layers(&fingerprints);
         let analysis_cache_key = format!(
@@ -500,7 +509,7 @@ impl Compiler {
             self.options.native_registry.profile_id().clone(),
             project_fingerprint,
         );
-        analysis.lineage = catalog.lineage;
+        analysis.lineage = catalog.lineage.clone();
         let mut pending_datasets = BTreeMap::new();
         for (_, dataset) in catalog.datasets.iter() {
             let span = dataset.provenance.stage_span;
@@ -522,14 +531,17 @@ impl Compiler {
                 })?;
         }
         let chart_datasets = analyze_chart_datasets(
-            &project,
+            project,
             self.options.native_registry.as_ref(),
             environment.session_context(),
             self.options.source_loader.as_ref(),
             &self.options.import_capabilities,
         )
         .await
-        .map_err(|diagnostics| CompileFailure { diagnostics })?;
+        .map_err(|mut diagnostics| {
+            sort_diagnostics(&mut diagnostics, &project.sources);
+            CompileFailure { diagnostics }
+        })?;
         let mut ordinals = BTreeMap::new();
         let mut previous = BTreeMap::new();
         for dataset in chart_datasets {
