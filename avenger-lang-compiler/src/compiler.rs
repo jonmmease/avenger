@@ -474,7 +474,7 @@ impl Compiler {
             let span = dataset.provenance.stage_span;
             let fingerprint = catalog
                 .dataset_fingerprints
-                .get(&dataset.id)
+                .get(&dataset.stage)
                 .cloned()
                 .unwrap_or_else(|| analyzed_dataset_fingerprint(dataset));
             let dataset = self.cached_dataset(dataset.clone(), &fingerprint, &mut pending_datasets);
@@ -526,7 +526,7 @@ impl Compiler {
             let stage_span = dataset.provenance.stage_span;
             fingerprints
                 .datasets
-                .insert(dataset.id.clone(), fingerprint.clone());
+                .insert(dataset.stage.clone(), fingerprint.clone());
             let dataset = self.cached_dataset(dataset, &fingerprint, &mut pending_datasets);
             analysis
                 .datasets
@@ -1744,9 +1744,9 @@ fn dependency_fingerprint_layers(
                 }
             }
             for name in names {
-                for (dataset_id, fingerprint) in &catalog.dataset_fingerprints {
+                for (stage, fingerprint) in &catalog.dataset_fingerprints {
                     let matches_name = catalog.datasets.iter().any(|(_, dataset)| {
-                        &dataset.id == dataset_id
+                        &dataset.stage == stage
                             && dataset.qualified_name.as_deref() == Some(name.as_str())
                     });
                     if matches_name {

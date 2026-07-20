@@ -38,7 +38,7 @@ string_id!(DependencyFingerprint);
 pub struct ProjectDependencyFingerprints {
     pub sources: BTreeMap<ProjectFileId, DependencyFingerprint>,
     pub definition_closures: BTreeMap<ProjectChartId, DependencyFingerprint>,
-    pub datasets: BTreeMap<crate::ProjectDatasetId, DependencyFingerprint>,
+    pub datasets: BTreeMap<crate::DatasetStageId, DependencyFingerprint>,
     pub data_catalog: DependencyFingerprint,
     pub compile_environment: DependencyFingerprint,
     pub charts: BTreeMap<ProjectChartId, DependencyFingerprint>,

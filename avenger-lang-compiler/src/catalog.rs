@@ -35,7 +35,7 @@ use crate::{
 pub(crate) struct CatalogAnalysis {
     pub datasets: DatasetSchemaIndex,
     pub lineage: DatasetLineageIndex,
-    pub dataset_fingerprints: BTreeMap<ProjectDatasetId, DependencyFingerprint>,
+    pub dataset_fingerprints: BTreeMap<DatasetStageId, DependencyFingerprint>,
     pub table_fingerprints: BTreeMap<DeclarationId, DependencyFingerprint>,
     pub dependency_fingerprint: String,
 }
@@ -175,7 +175,7 @@ pub(crate) async fn register_and_analyze_catalog(
                 logical_plan_fingerprint,
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
-        dataset_fingerprints.insert(dataset_id, table_fingerprint.clone());
+        dataset_fingerprints.insert(stage.clone(), table_fingerprint.clone());
         let upstream_stages = table
             .dependencies
             .iter()
@@ -245,7 +245,7 @@ pub(crate) async fn register_and_analyze_catalog(
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
         if let Some(fingerprint) = table_fingerprints.get(&table.id).cloned() {
-            dataset_fingerprints.insert(dataset_id, fingerprint);
+            dataset_fingerprints.insert(stage.clone(), fingerprint);
         }
         lineage
             .insert(stage, DatasetLineage::default())
@@ -358,15 +358,16 @@ async fn register_external_catalogs(
 
 fn catalog_dependency_fingerprint(
     environment: &str,
-    datasets: &BTreeMap<ProjectDatasetId, DependencyFingerprint>,
+    datasets: &BTreeMap<DatasetStageId, DependencyFingerprint>,
 ) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(b"avenger-catalog-analysis-v1\0");
     hasher.update(environment.as_bytes());
-    for (dataset, fingerprint) in datasets {
+    for (stage, fingerprint) in datasets {
         hasher.update(b"\0dataset\0");
-        hasher.update(dataset.as_str().as_bytes());
+        hasher.update(stage.dataset.as_str().as_bytes());
+        hasher.update(stage.ordinal.to_le_bytes());
         hasher.update(b"\0");
         hasher.update(fingerprint.as_str().as_bytes());
     }
@@ -463,7 +464,7 @@ async fn analyze_external_catalogs(
     external_fingerprints: &BTreeMap<String, String>,
     datasets: &mut DatasetSchemaIndex,
     lineage: &mut DatasetLineageIndex,
-    dataset_fingerprints: &mut BTreeMap<ProjectDatasetId, DependencyFingerprint>,
+    dataset_fingerprints: &mut BTreeMap<DatasetStageId, DependencyFingerprint>,
 ) -> Result<(), Diagnostic> {
     for declaration in project
         .files
@@ -553,7 +554,7 @@ async fn analyze_external_catalogs(
                     .map(String::as_str)
                     .unwrap_or("external-catalog-without-provider-fingerprint");
                 dataset_fingerprints.insert(
-                    dataset_id,
+                    stage.clone(),
                     DependencyFingerprint::new(hash_parts(
                         "avenger-external-dataset-v1",
                         [catalog_fingerprint, qualified.as_str()],

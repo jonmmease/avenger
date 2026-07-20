@@ -225,6 +225,17 @@ async fn project_compile_reuses_dataset_schema_across_unrelated_chart_edit() {
         .build()
         .unwrap();
     let before = compiler.analyze_project(&project.0).await.unwrap();
+    assert_eq!(
+        before.dependency_fingerprints.datasets.len(),
+        before.datasets.iter().count(),
+        "every catalog and chart pipeline stage needs its own cache identity"
+    );
+    assert!(
+        before
+            .datasets
+            .iter()
+            .all(|(stage, _)| before.dependency_fingerprints.datasets.contains_key(stage))
+    );
     let catalog_schema = before
         .datasets
         .iter()
