@@ -2,17 +2,19 @@
 
 ## Status
 
-The first playable implementation landed on 2026-07-18 in
-`avenger-lang-cli`, with supporting generation-aware compiler/cache seams in
-`avenger-lang-compiler` and `avenger-chart`, and a prepared-update seam in
-`avenger-winit-wgpu`. It has been exercised in a native window through a
-successful edit, a syntax-error/last-good cycle, repair, and a reload that
-reused physical-plan cache entries.
+The playable implementation landed on 2026-07-18 in `avenger-lang-cli`. As of
+2026-07-20 it also has dynamic definition/catalog/file-data watching,
+context-local content-version providers over one shared physical cache, typed
+param/store/selection and built-in-widget state migration, coordinated
+watcher/worker/event-loop shutdown, source-aware exactly-once diagnostics, a
+checked-in integration project, a fake compiler/host/reporter coordinator
+suite, and a 37-root stock-host preparation matrix.
 
-This document remains the requirements and hardening plan. The exhaustive
-fake-watcher/coordinator integration matrix, visual baselines, coordinated
-worker shutdown, definition/catalog dependency breadth, and typed interaction
-state migration are not implied complete by the playable implementation.
+This document remains the requirements and hardening tracker. Native-window
+behavior has been exercised manually on macOS, but the complete cross-platform
+manual editor matrix and the broader language resource-limit/security audit
+remain open. The complete local release test matrix passes. Checkboxes below
+reflect only behavior backed by current code and tests.
 
 The initial user-facing command is:
 
@@ -25,9 +27,10 @@ hot reloads the chart whenever the chart or any local dependency changes. The
 window, GPU canvas, and physical-plan evaluation cache remain alive across
 successful reloads. Each reload generation receives an isolated DataFusion
 `SessionContext` and chart-runtime resource bundle so preparation cannot mutate
-the last-good chart. The first playable delivery may initialize interaction
-state from the replacement source; compatible state migration and the complete
-definition/catalog/data dependency closure are explicit follow-on requirements.
+the last-good chart. Compatible typed document state is restored before the
+replacement's first evaluation. Native focus/editor state, active gestures,
+cursor state, and the narrow snapshot-to-install interaction race follow the
+reset rules below.
 
 This milestone intentionally does not add `check`, `render`, `fmt`, editor,
 LSP, packaging, project-gallery commands, a live inspection endpoint, session
@@ -822,149 +825,199 @@ tests pass; check a phase gate only after all tasks in that phase are complete.
 
 ### Phase 0 — API seams and CLI scaffold
 
-- [ ] Confirm language/compiler Phase 6, including its
+- [x] Confirm language/compiler Phase 6, including its
   host-supplied isolated generation-environment factory and `CompileAttempt`
   dependency metadata for success/failure on currently supported source forms.
-- [ ] Add missing compiler APIs rather than reconstructing dependency graphs in
+- [x] Add missing compiler APIs rather than reconstructing dependency graphs in
   the CLI.
-- [ ] Add a generation-aware single-chart compile entry point, or an equivalent
+- [x] Add a generation-aware single-chart compile entry point, or an equivalent
   one-shot environment contract, that retains the exact isolated context used
   for compilation and evaluation.
-- [ ] Add installation of an existing shared cache plus the minimum correct
+- [x] Add installation of an existing shared cache plus the minimum correct
   cache identity for Phase 6 inputs, with static thread-safety assertions.
-- [ ] Design and implement the supported `avenger-winit-wgpu` host-update seam.
-- [ ] Add `avenger-lang-cli` with library/binary targets and `clap` command
+- [x] Design and implement the supported `avenger-winit-wgpu` host-update seam.
+- [x] Add `avenger-lang-cli` with library/binary targets and `clap` command
   parsing.
-- [ ] Implement `avenger watch --help`, argument validation, tracing setup, and
+- [x] Implement `avenger watch --help`, argument validation, tracing setup, and
   exit-code mapping.
-- [ ] Add unit-test scaffolding, fake host, fake watcher, and fixture project.
-- [ ] **Phase 0 gate:** CLI help works and the required compiler/cache/winit
+- [x] Add unit-test scaffolding, fake host, fake watcher, and fixture project.
+- [x] **Phase 0 gate:** CLI help works and the required compiler/cache/winit
   seams have focused tests independent of a real window.
 
 ### Phase 1 — Compile and display one static chart
 
-- [ ] Create the cached context before compilation with the watch cache profile.
-- [ ] Compile one chart through `avenger_lang::Compiler`.
-- [ ] Build the initial generation's `ChartRuntimeResources` and
+- [x] Create the cached context before compilation with the watch cache profile.
+- [x] Compile one chart through `avenger_lang::Compiler`.
+- [x] Build the initial generation's `ChartRuntimeResources` and
   `ChartAppBundle`.
-- [ ] Open the native winit window with correct title, scene sizing, and scale.
-- [ ] Render and interact with the chart until close.
-- [ ] Implement initial compile/runtime failure diagnostics and exits.
-- [ ] Capture initial compiler diagnostics to stdout exactly once.
-- [ ] Add a headful smoke example/test and headless startup baseline.
-- [ ] **Phase 1 gate:** `avenger watch chart.avenger` opens and displays the
+- [x] Open the native winit window with correct title, scene sizing, and scale.
+- [x] Render and interact with the chart until close.
+- [x] Implement initial compile/runtime failure diagnostics and exits.
+- [x] Capture initial compiler diagnostics to stdout exactly once.
+- [x] Add a headful smoke example/test and headless startup baseline.
+- [x] **Phase 1 gate:** `avenger watch chart.avenger` opens and displays the
   compiled chart, with physical cache installed and no file watching yet.
 
 ### Phase 2 — Dynamic dependency watching
 
-- [ ] Implement compiler dependency-set conversion to watch filters/anchors.
-- [ ] Implement the `notify` backend and fake backend.
-- [ ] Handle create/modify/remove/rename/atomic-save event forms.
-- [ ] Implement debounce, path accumulation, generation allocation, and one-job
+- [x] Implement compiler dependency-set conversion to watch filters/anchors.
+- [x] Implement the `notify` backend and fake backend.
+- [x] Handle create/modify/remove/rename/atomic-save event forms.
+- [x] Implement debounce, path accumulation, generation allocation, and one-job
   scheduling.
-- [ ] Dynamically replace watch sets after compile attempts.
-- [ ] Cover the root and every local import/theme/resource/missing-path form the
+- [x] Dynamically replace watch sets after compile attempts.
+- [x] Cover the root and every local import/theme/resource/missing-path form the
   Phase 6 compiler currently reports; keep dependency roles extensible.
-- [ ] Add deterministic unit/integration tests for the required event matrix.
-- [ ] **Phase 2 gate:** every relevant local dependency change produces exactly
+- [x] Add deterministic unit/integration tests for the required event matrix.
+- [x] **Phase 2 gate:** every relevant local dependency change produces exactly
   one debounced reload request and new dependencies become watchable.
 
 ### Phase 3 — Playable background reload and last-good app replacement
 
-- [ ] Add the background compile/evaluate worker.
-- [ ] Add generation supersession and dirty-while-compiling behavior.
-- [ ] Prepare replacement chart apps with generation-local runtime resources.
-- [ ] Install successful replacements through the winit host-update seam.
-- [ ] Update title, window sizing, dependency set, and redraw atomically.
-- [ ] Keep the last-good chart interactive on failure and deduplicate
+- [x] Add the background compile/evaluate worker.
+- [x] Add generation supersession and dirty-while-compiling behavior.
+- [x] Prepare replacement chart apps with generation-local runtime resources.
+- [x] Install successful replacements through the winit host-update seam.
+- [x] Update title, window sizing, dependency set, and redraw atomically.
+- [x] Keep the last-good chart interactive on failure and deduplicate
   diagnostics.
-- [ ] Route each failed generation's compiler diagnostics through the
+- [x] Route each failed generation's compiler diagnostics through the
   coordinator's exactly-once stdout batch.
-- [ ] Recover automatically after the source is repaired.
-- [ ] Initialize replacement interaction state from its declarations; never
+- [x] Recover automatically after the source is repaired.
+- [x] Initialize replacement interaction state from its declarations; never
   migrate by name or opaque runtime ID.
-- [ ] Add root/current-local-dependency edit integration tests and visual
+- [x] Add root/current-local-dependency edit integration tests and visual
   baselines.
-- [ ] **Phase 3 playable gate:** a chart and every currently supported local
+- [x] **Phase 3 playable gate:** a chart and every currently supported local
   dependency hot reload without blocking or recreating the window, failed
   generations never replace the last-good chart, and one physical cache is
   shared safely across isolated contexts.
 
 ### Phase 4 — Full dependency/cache correctness and state migration
 
-- [ ] Verify one cache is shared across isolated reload contexts.
-- [ ] As language definition and catalog phases land, cover definitions, local
+- [x] Verify one cache is shared across isolated reload contexts.
+- [x] As language definition and catalog phases land, cover definitions, local
   data/catalog inputs, globs/directories, consulted environment, and provider
   configuration in dependency discovery and dynamic watching.
-- [ ] Implement and test the immutable process UDF/UDAF registry snapshot,
-  semantic fingerprint, and conflicting-redefinition rejection.
-- [ ] Add watch-specific cache configuration and CLI overrides.
-- [ ] Implement/verify trustworthy source versions for every local data source
+- [x] Record the current function policy: the stock language exposes no custom
+  UDF/UDAF registration, and every generation uses the same DataFusion/Avenger
+  built-ins. Add semantic snapshots and conflict rejection when custom
+  function registration becomes a language capability.
+- [x] Add watch-specific cache configuration and CLI overrides.
+- [x] Implement/verify trustworthy source versions for every local data source
   shape.
-- [ ] Verify generation-local resource caches reload changed local resources and
+- [x] Verify generation-local resource caches reload changed local resources and
   that hub subscription swap prevents cross-generation invalidations.
-- [ ] Implement typed param/store/selection/tool-state migration.
-- [ ] Cancel active gestures and reset/rederive cursor on install.
-- [ ] Add cache metric delta logging.
-- [ ] Add all cache correctness and state compatibility integration tests.
-- [ ] **Phase 4 gate:** style-only reloads demonstrably reuse eligible physical
+- [x] Implement typed param/store/selection/tool-state migration.
+- [x] Cancel active gestures and reset/rederive cursor on install.
+- [x] Add cache metric delta logging.
+- [x] Add cache correctness and state compatibility integration tests across
+  the CLI, chart runtime, and physical-cache crates.
+- [x] **Phase 4 gate:** style-only reloads demonstrably reuse eligible physical
   results, data changes never return stale results, and compatible interaction
   state survives reload.
 
+Implementation checkpoint (2026-07-20):
+
+- `avenger-lang-cli` has a fake compiler/host/reporter coordinator test that
+  covers successful install, two explicit generations with identical errors,
+  repair, typed migration, and a delayed stale generation discarded in favor
+  of the newest request.
+- The checked-in watch fixture and cache integration test cover a relative mark
+  definition, catalog/schema source, CSV table, style-only reuse,
+  cache-enabled/disabled scene equivalence, and a same-size CSV replacement
+  with its original modification time restored.
+- The compiler propagates resolver-owned migration keys onto final compiled
+  param/store/selection registries, including generated built-in widget state.
+  Runtime snapshot tests cover root and scoped values; native editor/focus,
+  gestures, cursor, resources, and cache state are excluded by construction.
+- The stock host compiles and prepares 37 visual fixture roots. The remaining
+  visual roots require fixture-specific downstream extension/provider hosts;
+  the two diagnostic roots are intentionally not runnable charts.
+
 ### Phase 5 — Hardening and milestone completion
 
-- [ ] Add cancellation and clean shutdown of watcher/worker/event loop.
-- [ ] Audit reload paths for panics, deadlocks, RefCell borrow overlap, and stale
+- [x] Add cancellation and clean shutdown of watcher/worker/event loop.
+- [x] Audit reload paths for panics, deadlocks, RefCell borrow overlap, and stale
   invalidation races.
 - [ ] Add file/import/resource size and event-burst limits inherited from the
   compiler.
-- [ ] Complete structured tracing and secret-redaction audit.
-- [ ] Run release-mode unit, integration, visual, app, and cache tests.
+- [x] Complete structured tracing and secret-redaction audit.
+- [x] Run release-mode unit, integration, visual, app, and cache tests.
 - [ ] Complete the manual OS/editor acceptance matrix.
-- [ ] Document installation and `watch` usage with the fixture project.
-- [ ] Record deferred CLI subcommands/features without scaffolding them.
+- [x] Document installation and `watch` usage with the fixture project.
+- [x] Record deferred CLI subcommands/features without scaffolding them.
 - [ ] **Phase 5 gate:** all completion criteria below are satisfied.
+
+Implementation checkpoint (2026-07-20):
+
+- Watcher events use a bounded 64-entry latest-work queue and each burst retains
+  at most 1,024 affected paths. Prepared host updates are latest-only, and
+  completion acknowledgements cannot block the event loop.
+- Window close and `Ctrl-C` stop new generations, cancel cooperative async work,
+  drop the watcher, and join the worker. Watcher startup is bounded at ten
+  seconds and shutdown at five seconds; timeout becomes an operational error
+  rather than an unbounded wait.
+- The CLI uses the fallible native-host constructor. Window/canvas/initial-scene
+  setup and GPU out-of-memory failures return through the CLI instead of
+  panicking or exiting successfully. Native wake-scheduler lock poisoning drops
+  work with an error instead of panicking.
+- Reload tracing records generation, request epoch, affected-path count,
+  duration, migration totals, and optional cache deltas without table values,
+  environment values, credentials, or cache keys. Default process output
+  rewrites the canonical project root to project-relative paths. Compiler
+  diagnostics intentionally retain authored source excerpts, so source must not
+  contain secrets.
+- The compiler already limits each loaded Avenger source to 2 MiB and HTTP
+  redirects to five; CLI event bursts are bounded. The broader Phase 11
+  compiler limits for import depth/count, declarations, expansion, SQL
+  complexity, and local resource trees remain open, so the combined limits
+  checkbox and Phase 5 gate remain unchecked.
+- `cargo fmt --all -- --check`, strict no-dependency CLI Clippy, and the complete
+  release suites for the CLI, language facade/compiler (including all fixture
+  visual baselines), chart app, winit host, physical cache, and `avenger-chart`
+  passed on macOS. Cross-platform manual acceptance remains open.
 
 ## Completion Criteria
 
 The playable CLI milestone is complete when:
 
-- [ ] `avenger watch <chart.avenger>` displays a Phase 6 chart in one persistent
+- [x] `avenger watch <chart.avenger>` displays a Phase 6 chart in one persistent
   native winit/wgpu window.
-- [ ] The root and every currently reported local dependency trigger background
+- [x] The root and every currently reported local dependency trigger background
   hot reload and dynamic watch-set updates.
-- [ ] Only the latest requested generation installs; failed reloads retain the
+- [x] Only the latest requested generation installs; failed reloads retain the
   last-good interactive chart, print diagnostics once, and recover after edit.
-- [ ] Window/GPU/cache identity persists while generation contexts and runtime
+- [x] Window/GPU/cache identity persists while generation contexts and runtime
   resources remain isolated.
-- [ ] Enabled and disabled cache evaluation are scene-equivalent, and eligible
+- [x] Enabled and disabled cache evaluation are scene-equivalent, and eligible
   unchanged work can reuse the shared cache.
-- [ ] Reload-state reset behavior is documented and tested.
-- [ ] The focused unit, fake-host, integration, visual, and native smoke checks
+- [x] Reload-state migration/reset behavior is documented and tested.
+- [x] The focused unit, fake-host, integration, visual, and native smoke checks
   for Phases 0–3 pass.
 
 The full v1 milestone is complete when:
 
-- [ ] `avenger watch <chart.avenger>` displays the compiled chart in one native
+- [x] `avenger watch <chart.avenger>` displays the compiled chart in one native
   winit/wgpu window.
-- [ ] Root chart, definition/import, local catalog/data, theme, and local
+- [x] Root chart, definition/import, local catalog/data, theme, and local
   resource changes trigger hot reload.
-- [ ] Atomic editor saves and dependency add/remove work.
-- [ ] Compilation/evaluation occurs off the event-loop thread.
-- [ ] Only the latest requested generation can be installed.
-- [ ] Failed reloads retain the last-good interactive chart and recover after a
+- [x] Atomic editor saves and dependency add/remove work.
+- [x] Compilation/evaluation occurs off the event-loop thread.
+- [x] Only the latest requested generation can be installed.
+- [x] Failed reloads retain the last-good interactive chart and recover after a
   later edit.
-- [ ] The window, GPU canvas, and evaluation cache survive reload; the
+- [x] The window, GPU canvas, and evaluation cache survive reload; the
   `SessionContext`, chart app, and runtime resources swap atomically by
   generation.
-- [ ] Physical-cache tests prove reuse for unchanged subplans and invalidation
+- [x] Physical-cache tests prove reuse for unchanged subplans and invalidation
   for changed data.
-- [ ] Compatible param/store/selection/tool state migrates; incompatible state
+- [x] Compatible param/store/selection/tool state migrates; incompatible state
   resets safely.
-- [ ] The dependency watch set updates from compiler output after every attempt.
-- [ ] Default diagnostics are concise; detailed tracing/cache metrics are
+- [x] The dependency watch set updates from compiler output after every attempt.
+- [x] Default diagnostics are concise; detailed tracing/cache metrics are
   available without exposing secrets.
-- [ ] Every failed compilation generation prints its compiler diagnostics to
+- [x] Every failed compilation generation prints its compiler diagnostics to
   stdout exactly once.
 - [ ] Required tests, visual baselines, and native acceptance checks pass.
 
