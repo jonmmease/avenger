@@ -247,6 +247,8 @@ pub enum NativeLoweringError {
 
 pub type CoordinateLowerer<C> = fn(&ResolvedDeclaration) -> Result<C, NativeLoweringError>;
 pub type MarkLowerer<C> = fn(&ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, NativeLoweringError>;
+pub type CoordinateMarkLowerer<C> =
+    fn(&C, &ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, NativeLoweringError>;
 pub type ToolLowerer<C> =
     fn(&ResolvedDeclaration) -> Result<Arc<dyn ChartTool<C>>, NativeLoweringError>;
 pub type TransformLowerer = fn(
@@ -267,7 +269,16 @@ pub type ObjectLowerer =
 pub struct MarkLanguageDefinition<C: CoordinateSystem> {
     pub kind: &'static str,
     pub schema: KindSchema,
-    pub lowerer: MarkLowerer<C>,
+    pub lowerer: MarkLanguageLowerer<C>,
+}
+
+/// Native mark lowerers normally need only the resolved declaration. Marks
+/// whose authoring expressions depend on the concrete coordinate instance can
+/// opt into coordinate-aware lowering without imposing an unused parameter on
+/// every downstream extension.
+pub enum MarkLanguageLowerer<C: CoordinateSystem> {
+    Declaration(MarkLowerer<C>),
+    Coordinate(CoordinateMarkLowerer<C>),
 }
 
 /// Owner-provided tool schema and its type-preserving native lowerer.
@@ -301,7 +312,21 @@ impl<C: CoordinateSystem> CoordinateLanguageDefinition<C> {
         self.marks.push(MarkLanguageDefinition {
             kind,
             schema,
-            lowerer,
+            lowerer: MarkLanguageLowerer::Declaration(lowerer),
+        });
+        self
+    }
+
+    pub fn mark_with_coordinate(
+        mut self,
+        kind: &'static str,
+        schema: KindSchema,
+        lowerer: CoordinateMarkLowerer<C>,
+    ) -> Self {
+        self.marks.push(MarkLanguageDefinition {
+            kind,
+            schema,
+            lowerer: MarkLanguageLowerer::Coordinate(lowerer),
         });
         self
     }

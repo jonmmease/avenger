@@ -156,7 +156,7 @@
       "sources": [
         "08_multi_chart_project/geo.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "08_multi_chart_project/polar.avenger",
@@ -188,7 +188,7 @@
       "sources": [
         "09_native_coordinate_families/geo.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/parallel.avenger",

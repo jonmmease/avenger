@@ -701,9 +701,17 @@ pub fn cartesian_pack() -> CoordinatePack<Cartesian> {
             schema,
             lowerer,
         } = definition;
-        pack = pack.mark(kind, schema, move |declaration| {
-            lowerer(declaration).map_err(RegistryError::from)
-        });
+        pack = match lowerer {
+            avenger_chart_lang_types::MarkLanguageLowerer::Declaration(lowerer) => {
+                pack.mark(kind, schema, move |declaration| {
+                    lowerer(declaration).map_err(RegistryError::from)
+                })
+            }
+            avenger_chart_lang_types::MarkLanguageLowerer::Coordinate(lowerer) => pack
+                .mark_with_coordinate(kind, schema, move |coordinate, declaration| {
+                    lowerer(coordinate, declaration).map_err(RegistryError::from)
+                }),
+        };
     }
     for definition in avenger_chart_tools::language::definitions() {
         let avenger_chart_lang_types::ToolLanguageDefinition {

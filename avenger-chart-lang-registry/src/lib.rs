@@ -9,9 +9,9 @@ use avenger_chart_core::{
     DataTransformStage, MarkDataMode, SubplotChildPlotSpec,
 };
 pub use avenger_chart_lang_types::{
-    CoordinateLanguageDefinition, LoweredTransform, NativeLoweringError, NativeOutputValue,
-    ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue, TransformLanguageDefinition,
-    TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
+    CoordinateLanguageDefinition, LoweredTransform, MarkLanguageLowerer, NativeLoweringError,
+    NativeOutputValue, ObjectLanguageDefinition, ResolvedDeclaration, ResolvedValue,
+    TransformLanguageDefinition, TransformPipelineLanguageDefinition, WidgetLanguageDefinition,
 };
 use avenger_chart_schema::{
     KindSchema, NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot, SchemaVersion, ValueShape,
@@ -350,7 +350,7 @@ pub type NativeObjectLowerer = Arc<
 >;
 
 type NativeMarkLowerer<C> =
-    Arc<dyn Fn(&ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError> + Send + Sync>;
+    Arc<dyn Fn(&C, &ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError> + Send + Sync>;
 type NativeChildMarkLowerer<C> = Arc<
     dyn Fn(
             &ResolvedDeclaration,
@@ -419,9 +419,20 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             lowerer(declaration).map_err(RegistryError::from)
         });
         for mark in marks {
-            pack = pack.mark(mark.kind, mark.schema, move |declaration| {
-                (mark.lowerer)(declaration).map_err(RegistryError::from)
-            });
+            pack = match mark.lowerer {
+                MarkLanguageLowerer::Declaration(lowerer) => {
+                    pack.mark(mark.kind, mark.schema, move |declaration| {
+                        lowerer(declaration).map_err(RegistryError::from)
+                    })
+                }
+                MarkLanguageLowerer::Coordinate(lowerer) => pack.mark_with_coordinate(
+                    mark.kind,
+                    mark.schema,
+                    move |coordinate, declaration| {
+                        lowerer(coordinate, declaration).map_err(RegistryError::from)
+                    },
+                ),
+            };
         }
         for tool in tools {
             pack = pack.tool(tool.kind, tool.schema, move |declaration| {
@@ -458,6 +469,32 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
         kind: impl Into<String>,
         schema: KindSchema,
         lowerer: impl Fn(&ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        let kind = kind.into();
+        if self
+            .marks
+            .insert(
+                kind,
+                TypedMarkEntry {
+                    schema: schema.clone(),
+                    lowerer: Arc::new(move |_coordinate, declaration| lowerer(declaration)),
+                },
+            )
+            .is_some()
+        {
+            self.duplicate_keys.push(schema.key);
+        }
+        self
+    }
+
+    pub fn mark_with_coordinate(
+        mut self,
+        kind: impl Into<String>,
+        schema: KindSchema,
+        lowerer: impl Fn(&C, &ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError>
         + Send
         + Sync
         + 'static,
@@ -592,6 +629,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
     fn lower_mark(
         &self,
         registry: &NativeRegistry,
+        coordinate: &C,
         resolved: &ResolvedMark,
     ) -> Result<Vec<PlotMark<C>>, RegistryError> {
         match resolved {
@@ -603,7 +641,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                     }
                 })?;
                 registry.validate(&entry.schema.key, declaration)?;
-                (entry.lowerer)(declaration).map(|marks| {
+                (entry.lowerer)(coordinate, declaration).map(|marks| {
                     marks
                         .into_iter()
                         .map(|mark| {
@@ -692,7 +730,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
                         .map_err(RegistryError::from)?;
                 }
                 for child in &resolved.marks {
-                    for mark in self.lower_mark(registry, child)? {
+                    for mark in self.lower_mark(registry, coordinate, child)? {
                         group = group.mark(mark);
                     }
                 }
@@ -708,12 +746,13 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
     fn lower_behavior(
         &self,
         registry: &NativeRegistry,
+        coordinate: &C,
         behavior: &ResolvedToolBehavior,
     ) -> Result<Arc<dyn ChartTool<C>>, RegistryError> {
         let chrome = behavior
             .chrome
             .iter()
-            .map(|mark| self.lower_mark(registry, mark))
+            .map(|mark| self.lower_mark(registry, coordinate, mark))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten()
@@ -737,7 +776,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             behavior
                 .nested_behaviors
                 .iter()
-                .map(|nested| self.lower_behavior(registry, nested))
+                .map(|nested| self.lower_behavior(registry, coordinate, nested))
                 .collect::<Result<Vec<_>, _>>()?,
         );
         Ok(Arc::new(LanguageBehaviorTool {
@@ -765,12 +804,12 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             &resolved.coordinate,
         )?;
         let coordinate = (self.coordinate_lowerer)(&resolved.coordinate)?;
-        let mut plot = Plot::with_coord(coordinate);
+        let mut plot = Plot::with_coord(coordinate.clone());
         if let Some(data) = &resolved.data {
             plot = plot.data(data.clone());
         }
         for declaration in &resolved.marks {
-            for mark in self.lower_mark(registry, declaration)? {
+            for mark in self.lower_mark(registry, &coordinate, declaration)? {
                 plot = plot.mark(mark);
             }
         }
@@ -785,7 +824,7 @@ impl<C: CoordinateSystem> CoordinatePack<C> {
             plot = plot.tool_arc((entry.lowerer)(declaration)?);
         }
         for behavior in &resolved.tool_behaviors {
-            plot = plot.tool_arc(self.lower_behavior(registry, behavior)?);
+            plot = plot.tool_arc(self.lower_behavior(registry, &coordinate, behavior)?);
         }
         for declaration in &resolved.widgets {
             plot = plot.widget_attachment(registry.lower_widget(declaration)?);
@@ -984,6 +1023,44 @@ impl NativeRegistryBuilder {
         kind: impl Into<String>,
         schema: KindSchema,
         lowerer: impl Fn(&ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<(), RegistryError> {
+        let pack = self
+            .coordinates
+            .get_mut(coordinate_kind)
+            .ok_or_else(|| RegistryError::UnknownCoordinate(coordinate_kind.to_string()))?;
+        let pack = pack
+            .as_any_mut()
+            .downcast_mut::<CoordinatePack<C>>()
+            .ok_or_else(|| RegistryError::CoordinatePackTypeMismatch {
+                coordinate: coordinate_kind.to_string(),
+                expected: std::any::type_name::<C>().to_string(),
+            })?;
+        let kind = kind.into();
+        if pack.marks.contains_key(&kind) {
+            return Err(RegistryError::DuplicateSchema(schema.key));
+        }
+        pack.marks.insert(
+            kind,
+            TypedMarkEntry {
+                schema,
+                lowerer: Arc::new(move |_coordinate, declaration| lowerer(declaration)),
+            },
+        );
+        Ok(())
+    }
+
+    /// Add a mark lowerer that needs the concrete coordinate authoring value.
+    /// Existing declaration-only extensions should continue to use
+    /// [`Self::register_mark`].
+    pub fn register_mark_with_coordinate<C: CoordinateSystem>(
+        &mut self,
+        coordinate_kind: &str,
+        kind: impl Into<String>,
+        schema: KindSchema,
+        lowerer: impl Fn(&C, &ResolvedDeclaration) -> Result<Vec<PlotMark<C>>, RegistryError>
         + Send
         + Sync
         + 'static,

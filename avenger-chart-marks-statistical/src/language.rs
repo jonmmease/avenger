@@ -5,8 +5,8 @@ use avenger_chart_core::{
     ChannelExpr, ChannelValue, CoordinationScope, FacetDataScope, IntoPlotMark, PlotMark,
 };
 use avenger_chart_lang_types::{
-    MarkLanguageDefinition, NativeLoweringError, NativeOutputValue, ResolvedDeclaration,
-    ResolvedValue,
+    MarkLanguageDefinition, MarkLanguageLowerer, NativeLoweringError, NativeOutputValue,
+    ResolvedDeclaration, ResolvedValue,
 };
 use avenger_chart_schema::{
     ChannelSchema, EnumValueSchema, KindSchema, NativeKindKey, PartSchema, PropertySchema,
@@ -22,12 +22,12 @@ pub fn definitions() -> Vec<MarkLanguageDefinition<Cartesian>> {
         MarkLanguageDefinition {
             kind: "box_plot",
             schema: box_plot_schema(),
-            lowerer: lower_box_plot,
+            lowerer: MarkLanguageLowerer::Declaration(lower_box_plot),
         },
         MarkLanguageDefinition {
             kind: "violin",
             schema: violin_schema(),
-            lowerer: lower_violin,
+            lowerer: MarkLanguageLowerer::Declaration(lower_violin),
         },
     ]
 }

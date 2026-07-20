@@ -22,7 +22,10 @@ use avenger_chart_schema::{
     PartSchema, PropertySchema, ValueShape,
 };
 
-use crate::{Geo, GeoPanZoom, GeoShape, ProjectionKind, RasterTileLayer, TileLoadingPolicy};
+use crate::{
+    Geo, GeoPanZoom, GeoShape, ProjectionKind, RasterTileLayer, TileLoadingPolicy,
+    marks::GeoPositionChannels,
+};
 
 const LINE_CHANNELS: &[&str] = &[
     "x",
@@ -98,7 +101,7 @@ pub fn definition() -> CoordinateLanguageDefinition<Geo> {
             ),
             lower_rect::<Geo>,
         )
-        .mark("symbol", symbol_schema(), lower_geo_symbol)
+        .mark_with_coordinate("symbol", symbol_schema(), lower_geo_symbol)
         .mark(
             "geo_shape",
             primitive_schema(
@@ -579,29 +582,50 @@ fn symbol_schema() -> KindSchema {
 }
 
 fn lower_geo_symbol(
+    geo: &Geo,
     declaration: &ResolvedDeclaration,
 ) -> Result<Vec<avenger_chart_core::PlotMark<Geo>>, NativeLoweringError> {
     let mut mark = Symbol::<Geo>::new();
     if let Some(id) = &declaration.source_name {
         mark = mark.id(id.clone());
     }
+
+    let has_projected_position =
+        declaration.properties.contains_key("x") || declaration.properties.contains_key("y");
+    if let Some(value) = declaration.properties.get("lon_lat") {
+        let ResolvedValue::Array(values) = value else {
+            unreachable!("schema validates lon_lat")
+        };
+        if values.len() != 2 {
+            return Err(NativeLoweringError::InvalidPropertyType {
+                property: "lon_lat".to_string(),
+                expected: "two channel expressions".to_string(),
+            });
+        }
+        let lon = ordinary_expr("lon_lat", &values[0])?;
+        let lat = ordinary_expr("lon_lat", &values[1])?;
+        mark = mark.lon_lat(geo, lon, lat);
+    } else if !has_projected_position
+        && let (Some(lon), Some(lat)) = (
+            declaration.properties.get("lon"),
+            declaration.properties.get("lat"),
+        )
+    {
+        let lon = ordinary_expr("lon", lon)?;
+        let lat = ordinary_expr("lat", lat)?;
+        mark = mark.lon_lat(geo, lon, lat);
+    }
+
     for (name, value) in &declaration.properties {
         if is_common_mark_property(name) {
             continue;
         }
         if name == "lon_lat" {
-            let ResolvedValue::Array(values) = value else {
-                unreachable!("schema validates lon_lat")
-            };
-            if values.len() != 2 {
-                return Err(NativeLoweringError::InvalidPropertyType {
-                    property: name.clone(),
-                    expected: "two channel expressions".to_string(),
-                });
+            continue;
+        } else if matches!(name.as_str(), "lon" | "lat") {
+            if has_projected_position {
+                mark = mark.with_channel_value(name, ordinary_channel(name, value)?.no_scale());
             }
-            mark = mark
-                .with_channel_value("lon", ordinary_channel(name, &values[0])?.no_scale())
-                .with_channel_value("lat", ordinary_channel(name, &values[1])?.no_scale());
         } else if name == "fill_pattern" {
             let value = match value {
                 ResolvedValue::Pattern(value) => value.clone(),
@@ -835,5 +859,70 @@ fn ordinary_channel(
             property: name.to_string(),
             expected: "resolved channel value".to_string(),
         }),
+    }
+}
+
+fn ordinary_expr(
+    name: &str,
+    value: &ResolvedValue,
+) -> Result<datafusion::logical_expr::Expr, NativeLoweringError> {
+    match value {
+        ResolvedValue::Channel(value) => Ok(value.data_expr().clone()),
+        ResolvedValue::Expr(value) => Ok(value.clone()),
+        ResolvedValue::Output(NativeOutputValue::Expr(value)) => Ok(value.clone()),
+        ResolvedValue::Output(NativeOutputValue::Channel(value)) => Ok(value.data_expr().clone()),
+        _ => Err(NativeLoweringError::InvalidPropertyType {
+            property: name.to_string(),
+            expected: "resolved channel expression".to_string(),
+        }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use avenger_chart_core::{ChannelValue, PlotMarkKind};
+    use datafusion::logical_expr::{col, lit};
+
+    use super::*;
+
+    #[test]
+    fn geo_symbol_lon_lat_lowers_projected_and_spherical_channels_together() {
+        let geo = Geo::mercator().center_lon_lat(-73.9857, 40.7484).zoom(10.0);
+        let declarations = [
+            ResolvedDeclaration::new("symbol").property(
+                "lon_lat",
+                ResolvedValue::Array(vec![
+                    ResolvedValue::Expr(lit(-73.9857)),
+                    ResolvedValue::Expr(lit(40.7484)),
+                ]),
+            ),
+            ResolvedDeclaration::new("symbol")
+                .property("lon", ResolvedValue::Expr(col("longitude")))
+                .property("lat", ResolvedValue::Expr(col("latitude"))),
+        ];
+
+        for declaration in declarations {
+            let marks = lower_geo_symbol(&geo, &declaration).expect("lower geo symbol");
+            let PlotMarkKind::Primitive(mark) = marks[0].kind() else {
+                panic!("geo symbol should lower to a primitive mark");
+            };
+            let channels = mark.data_context().channels();
+            assert!(matches!(
+                channels.get("x"),
+                Some(ChannelValue::Scaled { .. })
+            ));
+            assert!(matches!(
+                channels.get("y"),
+                Some(ChannelValue::Scaled { .. })
+            ));
+            assert!(matches!(
+                channels.get("lon"),
+                Some(ChannelValue::Value { .. })
+            ));
+            assert!(matches!(
+                channels.get("lat"),
+                Some(ChannelValue::Value { .. })
+            ));
+        }
     }
 }

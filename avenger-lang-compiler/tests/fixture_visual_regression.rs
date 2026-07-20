@@ -292,10 +292,36 @@ async fn run_case(case: &FixtureCase) -> Result<(), String> {
             let serialized =
                 evaluate_and_render(&round_tripped, serialized_environment.session_context())
                     .await?;
+            assert_case_image_contract(case, &direct)?;
             compare_round_trip(case, &direct, &serialized)?;
             compare_or_bless_image(case, &direct)
         }
     }
+}
+
+fn assert_case_image_contract(case: &FixtureCase, image: &RgbaImage) -> Result<(), String> {
+    match case.root.as_str() {
+        "08_multi_chart_project/geo.avenger" | "09_native_coordinate_families/geo.avenger" => {
+            let (width, height) = image.dimensions();
+            let x0 = width * 2 / 5;
+            let x1 = width * 3 / 5;
+            let y0 = height * 2 / 5;
+            let y1 = height * 3 / 5;
+            let has_centered_symbol = (y0..y1).any(|y| {
+                (x0..x1).any(|x| {
+                    let [red, green, blue, alpha] = image.get_pixel(x, y).0;
+                    alpha > 0
+                        && red.max(green).max(blue) - red.min(green).min(blue) >= 24
+                        && u16::from(red) + u16::from(green) + u16::from(blue) < 700
+                })
+            });
+            if !has_centered_symbol {
+                return Err("geo station must render within the center fifth of the canvas".into());
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 async fn evaluate_and_render(
