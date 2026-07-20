@@ -38,6 +38,10 @@ fn initial_compile_failure_prints_one_stdout_batch_and_exits_one() {
     assert_eq!(stdout.matches("compilation failed").count(), 1, "{stdout}");
     assert!(stdout.contains("chart.avenger"), "{stdout}");
     assert!(stdout.contains("chart cartesian as broken"), "{stdout}");
+    assert!(
+        !stdout.contains(&temporary.path().to_string_lossy().into_owned()),
+        "diagnostics must use project-relative paths: {stdout}"
+    );
     assert_eq!(
         stderr
             .matches("avenger: initial chart compilation failed")

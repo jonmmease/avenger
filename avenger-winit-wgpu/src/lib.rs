@@ -242,7 +242,7 @@ fn complete_host_update_sender(
     outcome: HostUpdateInstallOutcome,
 ) {
     if let Some(completion) = completion {
-        let _ = completion.send(outcome);
+        let _ = completion.try_send(outcome);
     }
 }
 
@@ -311,10 +311,12 @@ impl NativeRuntimeWakeScheduler {
     }
 
     fn request(&self, key: RuntimeWakeKey, deadline: Instant, generation: u64) {
-        self.active
-            .lock()
-            .expect("runtime wake scheduler lock")
-            .insert(key.clone(), generation);
+        let Ok(mut active) = self.active.lock() else {
+            log::error!("runtime wake scheduler lock is poisoned; dropping wake request");
+            return;
+        };
+        active.insert(key.clone(), generation);
+        drop(active);
         let active = self.active.clone();
         let event_proxy = self.event_proxy.clone();
         std::thread::spawn(move || {
@@ -329,10 +331,11 @@ impl NativeRuntimeWakeScheduler {
     }
 
     fn cancel(&self, key: &RuntimeWakeKey) {
-        self.active
-            .lock()
-            .expect("runtime wake scheduler lock")
-            .remove(key);
+        if let Ok(mut active) = self.active.lock() {
+            active.remove(key);
+        } else {
+            log::error!("runtime wake scheduler lock is poisoned; dropping cancellation");
+        }
     }
 }
 
@@ -342,7 +345,10 @@ fn claim_runtime_wakeup(
     key: &RuntimeWakeKey,
     generation: u64,
 ) -> bool {
-    let mut active = active.lock().expect("runtime wake scheduler lock");
+    let Ok(mut active) = active.lock() else {
+        log::error!("runtime wake scheduler lock is poisoned; dropping scheduled wake");
+        return false;
+    };
     if active.get(key) == Some(&generation) {
         active.remove(key);
         true
@@ -368,10 +374,9 @@ fn physical_ime_cursor_area(
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for NativeRuntimeWakeScheduler {
     fn drop(&mut self) {
-        self.active
-            .lock()
-            .expect("runtime wake scheduler lock")
-            .clear();
+        if let Ok(mut active) = self.active.lock() {
+            active.clear();
+        }
     }
 }
 
@@ -1999,6 +2004,10 @@ where
                                     canvas.resize(canvas.get_size());
                                 }
                                 wgpu::SurfaceError::OutOfMemory => {
+                                    self.fatal_error = Some(
+                                        "native rendering stopped because the GPU surface ran out of memory"
+                                            .to_string(),
+                                    );
                                     _event_loop.exit();
                                 }
                                 wgpu::SurfaceError::Timeout => {

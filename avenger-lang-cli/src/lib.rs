@@ -242,6 +242,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
     }
 
     let cache = make_cache(&args);
+    let reporter = ProcessWatchReporter::new(project_root.clone());
     let environment_factory = Arc::new(WatchEnvironmentFactory {
         cache: cache.clone(),
     });
@@ -260,7 +261,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
     let compiled = match attempt.result {
         Ok(compiled) => compiled,
         Err(failure) => {
-            ProcessWatchReporter.stdout(compile_failure_batch(1, &failure));
+            reporter.stdout(compile_failure_batch(1, &failure));
             return Err(CliError::InitialCompile);
         }
     };
@@ -305,7 +306,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
     let dependency_count = dependency_watch_set(&chart, &initial_dependencies).len();
     println!(
         "ready {} ({} local dependencies, {:.1} ms)",
-        chart.display(),
+        project_relative_path(&project_root, &chart),
         dependency_count,
         initial_started.elapsed().as_secs_f64() * 1000.0
     );
@@ -316,7 +317,7 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         compiler,
         runtime: worker_runtime,
         host_updates,
-        reporter: ProcessWatchReporter,
+        reporter,
         initial_dependencies,
         debounce: Duration::from_millis(args.debounce_ms),
         cache,
@@ -444,11 +445,29 @@ trait WatchReporter: Clone + Send + Sync + 'static {
     fn stderr(&self, line: String);
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-struct ProcessWatchReporter;
+#[derive(Clone, Debug)]
+struct ProcessWatchReporter {
+    project_root: PathBuf,
+}
+
+impl ProcessWatchReporter {
+    fn new(project_root: PathBuf) -> Self {
+        Self { project_root }
+    }
+
+    fn redact_project_root(&self, text: String) -> String {
+        let root = self.project_root.to_string_lossy();
+        if root.is_empty() || self.project_root.parent().is_none() {
+            text
+        } else {
+            text.replace(root.as_ref(), ".")
+        }
+    }
+}
 
 impl WatchReporter for ProcessWatchReporter {
     fn stdout(&self, batch: String) {
+        let batch = self.redact_project_root(batch);
         let stdout = io::stdout();
         let mut output = stdout.lock();
         let _ = output.write_all(batch.as_bytes());
@@ -456,7 +475,7 @@ impl WatchReporter for ProcessWatchReporter {
     }
 
     fn stderr(&self, line: String) {
-        eprintln!("{line}");
+        eprintln!("{}", self.redact_project_root(line));
     }
 }
 
@@ -482,6 +501,9 @@ enum ReloadSignal {
 
 const EVENT_QUEUE_CAPACITY: usize = 64;
 const EVENT_PATH_LIMIT: usize = 1_024;
+const WATCHER_STARTUP_TIMEOUT: Duration = Duration::from_secs(10);
+const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+const WORKER_JOIN_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 fn next_reload_burst(
     signal_rx: &mpsc::Receiver<ReloadSignal>,
@@ -524,11 +546,28 @@ impl ReloadWorkerHandle {
         self.stopping.store(true, Ordering::Release);
         let _ = self.signals.try_send(ReloadSignal::Shutdown);
         if let Some(join) = self.join.take() {
-            join.join()
-                .map_err(|_| CliError::Watcher("reload worker panicked during shutdown".into()))?;
+            join_worker_with_timeout(join, WORKER_SHUTDOWN_TIMEOUT)?;
         }
         Ok(())
     }
+}
+
+fn join_worker_with_timeout(
+    join: thread::JoinHandle<()>,
+    timeout: Duration,
+) -> Result<(), CliError> {
+    let started = Instant::now();
+    while !join.is_finished() {
+        if started.elapsed() >= timeout {
+            return Err(CliError::Watcher(format!(
+                "reload worker did not stop within {:.1} seconds",
+                timeout.as_secs_f64()
+            )));
+        }
+        thread::sleep(WORKER_JOIN_POLL_INTERVAL.min(timeout.saturating_sub(started.elapsed())));
+    }
+    join.join()
+        .map_err(|_| CliError::Watcher("reload worker panicked during shutdown".into()))
 }
 
 fn spawn_reload_worker<C, H, R>(
@@ -739,14 +778,16 @@ where
                                         }
                                         displayed_state = replacement_state;
                                         worker.reporter.stdout(reload_success_batch(
-                                            generation,
-                                            started.elapsed(),
-                                            before.as_ref(),
-                                            worker.cache.as_ref(),
-                                            worker.log_cache,
-                                            migration,
-                                            &worker.project_root,
-                                            &affected,
+                                            ReloadSuccessSummary {
+                                                generation,
+                                                elapsed: started.elapsed(),
+                                                before: before.as_ref(),
+                                                cache: worker.cache.as_ref(),
+                                                log_cache: worker.log_cache,
+                                                migration,
+                                                project_root: &worker.project_root,
+                                                affected: &affected,
+                                            },
                                         ));
                                     }
                                     Some(HostUpdateInstallOutcome::Superseded) => continue,
@@ -814,10 +855,34 @@ where
         })
         .map_err(|error| CliError::Watcher(error.to_string()))?;
 
-    ready_rx
-        .recv()
-        .map_err(|error| CliError::Watcher(error.to_string()))?
-        .map_err(CliError::Watcher)?;
+    match ready_rx.recv_timeout(WATCHER_STARTUP_TIMEOUT) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            stopping.store(true, Ordering::Release);
+            let _ = signal_tx.try_send(ReloadSignal::Shutdown);
+            let _ = join_worker_with_timeout(join, WORKER_SHUTDOWN_TIMEOUT);
+            return Err(CliError::Watcher(error));
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            stopping.store(true, Ordering::Release);
+            let _ = signal_tx.try_send(ReloadSignal::Shutdown);
+            let _ = join_worker_with_timeout(join, WORKER_SHUTDOWN_TIMEOUT);
+            return Err(CliError::Watcher(
+                "reload worker exited before filesystem watcher initialization completed".into(),
+            ));
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            stopping.store(true, Ordering::Release);
+            let _ = signal_tx.try_send(ReloadSignal::Shutdown);
+            if join.is_finished() {
+                let _ = join.join();
+            }
+            return Err(CliError::Watcher(format!(
+                "filesystem watcher initialization did not complete within {:.1} seconds",
+                WATCHER_STARTUP_TIMEOUT.as_secs_f64()
+            )));
+        }
+    }
     Ok(ReloadWorkerHandle {
         signals: signal_tx,
         #[cfg(test)]
@@ -1026,25 +1091,28 @@ fn compile_failure_batch(generation: u64, failure: &CompileFailure) -> String {
     )
 }
 
-fn reload_success_batch(
+struct ReloadSuccessSummary<'a> {
     generation: u64,
     elapsed: Duration,
-    before: Option<&avenger_chart::physical_cache::CacheMetricsSnapshot>,
-    cache: Option<&Arc<EvaluationCache>>,
+    before: Option<&'a avenger_chart::physical_cache::CacheMetricsSnapshot>,
+    cache: Option<&'a Arc<EvaluationCache>>,
     log_cache: bool,
     migration: avenger_chart::plot::StateMigrationReport,
-    project_root: &Path,
-    affected: &[PathBuf],
-) -> String {
+    project_root: &'a Path,
+    affected: &'a [PathBuf],
+}
+
+fn reload_success_batch(summary: ReloadSuccessSummary<'_>) -> String {
     use std::fmt::Write as _;
 
     let mut output = format!(
-        "reloaded generation {generation} after {} in {:.1} ms",
-        display_affected_paths(project_root, affected),
-        elapsed.as_secs_f64() * 1000.0
+        "reloaded generation {} after {} in {:.1} ms",
+        summary.generation,
+        display_affected_paths(summary.project_root, summary.affected),
+        summary.elapsed.as_secs_f64() * 1000.0
     );
-    if log_cache {
-        if let (Some(before), Some(cache)) = (before, cache) {
+    if summary.log_cache {
+        if let (Some(before), Some(cache)) = (summary.before, summary.cache) {
             let after = cache.metrics();
             let _ = write!(
                 output,
@@ -1061,8 +1129,8 @@ fn reload_success_batch(
     let _ = writeln!(
         output,
         " (state: {} migrated, {} reset)",
-        migration.migrated(),
-        migration.reset()
+        summary.migration.migrated(),
+        summary.migration.reset()
     );
     output
 }
@@ -1084,6 +1152,13 @@ fn display_affected_paths(project_root: &Path, affected: &[PathBuf]) -> String {
     } else {
         paths.join(", ")
     }
+}
+
+fn project_relative_path(project_root: &Path, path: &Path) -> String {
+    path.strip_prefix(project_root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[cfg(test)]
@@ -1474,6 +1549,30 @@ mod tests {
         .expect("send change");
         tx.send(ReloadSignal::Shutdown).expect("send shutdown");
         assert_eq!(next_reload_burst(&rx, Duration::from_secs(1)), None);
+    }
+
+    #[test]
+    fn worker_join_is_bounded() {
+        join_worker_with_timeout(thread::spawn(|| {}), Duration::from_secs(1))
+            .expect("join completed worker");
+
+        let timeout_error = join_worker_with_timeout(
+            thread::spawn(|| thread::sleep(Duration::from_millis(30))),
+            Duration::from_millis(1),
+        )
+        .expect_err("slow worker must not block shutdown indefinitely");
+        assert!(timeout_error.to_string().contains("did not stop within"));
+    }
+
+    #[test]
+    fn process_output_redacts_the_canonical_project_root() {
+        let reporter = ProcessWatchReporter::new(PathBuf::from("/private/work/chart-project"));
+        assert_eq!(
+            reporter.redact_project_root(
+                "error at /private/work/chart-project/defs/point.mark.avenger".to_string()
+            ),
+            "error at ./defs/point.mark.avenger"
+        );
     }
 
     #[derive(Default)]
