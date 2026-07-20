@@ -10,14 +10,14 @@ use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryBuilder, Registr
 pub use avenger_lang_compiler::{
     AnalyzedColumn, AnalyzedDataset, ArtifactCacheKey, COMPILER_PHASE, CatalogFactory,
     CatalogFactoryError, CatalogFactoryRegistry, CompileAttempt, CompileEnvironment,
-    CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest, CompileFailure,
-    CompiledChartArtifact, CompiledChartGeneration, CompiledChartInterface, CompiledDependency,
-    CompiledProject, Compiler, CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot,
-    CompilerOptions, DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    DefaultSourceLoader, DependencyFingerprint, DependencyRole, DiscoveredDependencySet,
-    LanguageHost, ProjectAnalysis, ProjectChartId, ProjectCompilationMode, ProjectDatasetId,
-    ProjectDependencyFingerprints, ProjectFingerprint, SourceLoaderLimits, TableFactory,
-    TableFactoryError, TableFactoryRegistry,
+    CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest,
+    CompileEnvironmentResourceVersion, CompileFailure, CompiledChartArtifact,
+    CompiledChartGeneration, CompiledChartInterface, CompiledDependency, CompiledProject, Compiler,
+    CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot, CompilerOptions,
+    DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DefaultSourceLoader,
+    DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis,
+    ProjectChartId, ProjectCompilationMode, ProjectDatasetId, ProjectDependencyFingerprints,
+    ProjectFingerprint, SourceLoaderLimits, TableFactory, TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{
     AmbientDataDeclaration, ByteSpan, ContentVersion, DataCapabilities, DefinitionKind, Diagnostic,

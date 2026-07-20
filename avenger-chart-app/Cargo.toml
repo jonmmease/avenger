@@ -18,6 +18,7 @@ avenger-common = { path = "../avenger-common" }
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-core = { path = "../avenger-chart-core" }
 avenger-chart-treemap = { path = "../avenger-chart-treemap" }
+avenger-chart-widgets = { path = "../avenger-chart-widgets" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-geometry = { path = "../avenger-geometry" }
 avenger-image = { path = "../avenger-image", default-features = false, features = ["reqwest"] }
@@ -39,7 +40,6 @@ winit = { workspace = true, optional = true }
 
 [dev-dependencies]
 avenger-chart-geo = { path = "../avenger-chart-geo" }
-avenger-chart-widgets = { path = "../avenger-chart-widgets" }
 bincode = "1.3"
 image = { workspace = true }
 palette = { workspace = true }

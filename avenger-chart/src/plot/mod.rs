@@ -14,7 +14,7 @@ mod title;
 pub use avenger_chart_core::IntoExpr;
 pub use chart::Chart;
 pub use compiled::{
-    CompiledPlot, EvaluationRequest, InMemoryNativeWidgetInstanceStore,
+    ChartSessionSnapshot, CompiledPlot, EvaluationRequest, InMemoryNativeWidgetInstanceStore,
     NativeWidgetAttachmentEpoch, NativeWidgetCtx, NativeWidgetDispatchOutcome,
     NativeWidgetDocumentId, NativeWidgetEnvironment, NativeWidgetEvaluationIntent,
     NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetFactory, NativeWidgetFactoryContext,
@@ -27,7 +27,7 @@ pub use compiled::{
     ResolvedNativeWidgetSpec, ResolvedScopedParamAssignment, ResolvedScopedStoreAssignment,
     ResolvedSelectionAssignment, ResolvedStateTransaction, ScopedParamAssignment,
     ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate,
-    StoreStateUpdate,
+    StateMigrationReport, StoreStateUpdate,
 };
 pub use plot::Plot;
 pub(crate) use plot::{RootChartFurnishings, compile_composed_widget};

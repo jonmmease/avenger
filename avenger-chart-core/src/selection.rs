@@ -773,6 +773,8 @@ impl SelectionPredicateClauseBuilder {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Selection {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migration_key: Option<StateMigrationKey>,
     pub empty: EmptySelectionBehavior,
     #[serde(default)]
     pub combine: SelectionCombine,
@@ -784,6 +786,7 @@ impl Selection {
     fn base(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
+            migration_key: None,
             empty: EmptySelectionBehavior::SelectNothing,
             combine: SelectionCombine::Union,
             facet_context: Vec::new(),
@@ -806,6 +809,11 @@ impl Selection {
 
     pub fn combine(mut self, combine: SelectionCombine) -> Self {
         self.combine = combine;
+        self
+    }
+
+    pub fn migration_key(mut self, migration_key: StateMigrationKey) -> Self {
+        self.migration_key = Some(migration_key);
         self
     }
 
@@ -856,7 +864,7 @@ impl Selection {
         Ok(CompiledSelectionSpec {
             runtime_id: SelectionRef::unresolved_authoring(),
             id: self.id.clone(),
-            migration_key: None,
+            migration_key: self.migration_key.clone(),
             empty: self.empty,
             combine: self.combine,
             facet_context: self.facet_context.clone(),

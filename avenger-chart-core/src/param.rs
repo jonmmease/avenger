@@ -25,6 +25,8 @@ pub struct Param {
     pub name: String,
     /// The default value of the parameter
     pub default: ScalarValue,
+    /// Optional stable identity used only for compatible hot-reload migration.
+    pub migration_key: Option<StateMigrationKey>,
 }
 
 impl Param {
@@ -33,7 +35,13 @@ impl Param {
         Self {
             name: name.into(),
             default: default.into(),
+            migration_key: None,
         }
+    }
+
+    pub fn migration_key(mut self, migration_key: StateMigrationKey) -> Self {
+        self.migration_key = Some(migration_key);
+        self
     }
 
     /// Create a raw-domain parameter for interaction-driven scale domains.
@@ -109,7 +117,7 @@ impl CompiledParamSpec {
         Self {
             runtime_id: ParamRef::unresolved_authoring(),
             name: param.name.clone(),
-            migration_key: None,
+            migration_key: param.migration_key.clone(),
             data_type: param.default.data_type(),
             default: param.default.clone(),
             sharing,

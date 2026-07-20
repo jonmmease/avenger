@@ -53,6 +53,18 @@ impl CompileEnvironment {
 pub struct CompileEnvironmentRequest {
     pub generation: u64,
     pub native_registry_profile: String,
+    /// Immutable local-resource content identities discovered before this
+    /// generation's DataFusion context is constructed.
+    pub local_resource_versions: Vec<CompileEnvironmentResourceVersion>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompileEnvironmentResourceVersion {
+    /// Exact file path, directory root, or static root preceding a glob.
+    pub path: PathBuf,
+    /// Whether the content identity covers descendants of `path`.
+    pub recursive: bool,
+    pub content_version: String,
 }
 
 pub trait CompileEnvironmentFactory: Send + Sync {

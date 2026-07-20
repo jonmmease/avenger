@@ -40,9 +40,9 @@ use datafusion_common::stats::Precision;
 
 use crate::exec::{CacheReadExec, CacheWriteExec};
 use crate::fingerprint::{
-    ExclusionReason, FingerprintContext, FingerprintOutcome, FingerprintedNode,
-    PhysicalPlanFingerprinter, ProtoFingerprinter, cache_key_for, config_fingerprint,
-    fingerprint_tree,
+    CacheVersionProvider, ExclusionReason, FingerprintContext, FingerprintOutcome,
+    FingerprintedNode, PhysicalPlanFingerprinter, ProtoFingerprinter, cache_key_for,
+    config_fingerprint, fingerprint_tree,
 };
 use crate::store::{
     AdmissionDecision, CacheCandidate, CacheLookup, EvaluationCache, PlanObservation,
@@ -60,11 +60,17 @@ use crate::store::{
 pub struct EvaluationCachePlanner {
     cache: Arc<EvaluationCache>,
     fingerprinter: Arc<dyn PhysicalPlanFingerprinter>,
+    context_version_providers: Vec<Arc<dyn CacheVersionProvider>>,
 }
 
 impl std::fmt::Debug for EvaluationCachePlanner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EvaluationCachePlanner").finish()
+        f.debug_struct("EvaluationCachePlanner")
+            .field(
+                "context_version_providers",
+                &self.context_version_providers.len(),
+            )
+            .finish()
     }
 }
 
@@ -84,7 +90,20 @@ impl EvaluationCachePlanner {
         Self {
             cache,
             fingerprinter,
+            context_version_providers: Vec::new(),
         }
+    }
+
+    /// Install the immutable source-version provider snapshot for this
+    /// planner's session context. Context-local providers run before legacy
+    /// process/cache-wide providers, so one reload generation cannot change
+    /// how another generation fingerprints an otherwise identical plan.
+    pub fn with_context_version_providers(
+        mut self,
+        providers: Vec<Arc<dyn CacheVersionProvider>>,
+    ) -> Self {
+        self.context_version_providers = providers;
+        self
     }
 
     /// The cache this planner reads and writes.
@@ -115,9 +134,11 @@ impl EvaluationCachePlanner {
         let started = clock.now();
 
         // Pass A: bottom-up fingerprints, positionally addressed.
+        let mut providers = self.context_version_providers.clone();
+        providers.extend(self.cache.version_providers());
         let ctx = FingerprintContext::new(
             config_fingerprint(config),
-            self.cache.version_providers(),
+            providers,
             Arc::clone(&self.cache.memo),
         );
         let tree = fingerprint_tree(&plan, self.fingerprinter.as_ref(), &ctx);

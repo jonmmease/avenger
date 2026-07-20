@@ -33,7 +33,10 @@
 use std::sync::{Arc, OnceLock};
 
 use avenger_datafusion_cache::EvaluationCachePlanner;
-pub use avenger_datafusion_cache::{CacheMetricsSnapshot, EvaluationCache, EvaluationCacheConfig};
+pub use avenger_datafusion_cache::{
+    CacheMetricsSnapshot, CacheVersion, CacheVersionProvider, EvaluationCache,
+    EvaluationCacheConfig,
+};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::prelude::SessionContext;
 
@@ -80,10 +83,22 @@ pub fn install_physical_cache(
 /// before constructing any `DataFrame`. Callers that disable caching should
 /// omit this helper entirely so no dormant optimizer rule is installed.
 pub fn install_shared_physical_cache(
-    mut builder: SessionStateBuilder,
+    builder: SessionStateBuilder,
     cache: Arc<EvaluationCache>,
 ) -> SessionStateBuilder {
-    let planner = EvaluationCachePlanner::new(Arc::clone(&cache));
+    install_shared_physical_cache_with_version_providers(builder, cache, Vec::new())
+}
+
+/// Install a shared cache with an immutable provider snapshot owned by this
+/// session context. Providers from this snapshot take precedence over any
+/// legacy providers registered process-wide on the cache.
+pub fn install_shared_physical_cache_with_version_providers(
+    mut builder: SessionStateBuilder,
+    cache: Arc<EvaluationCache>,
+    version_providers: Vec<Arc<dyn CacheVersionProvider>>,
+) -> SessionStateBuilder {
+    let planner = EvaluationCachePlanner::new(Arc::clone(&cache))
+        .with_context_version_providers(version_providers);
 
     let config_slot = builder.config();
     let session_config = config_slot.take().unwrap_or_default();

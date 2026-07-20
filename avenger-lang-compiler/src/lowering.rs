@@ -32,9 +32,10 @@ use avenger_chart_core::{
     Param as ChartParam, PatternAnchor, PatternChannelValue, PatternFill, PatternInk, PatternLayer,
     PatternLayerOperation, PrimitiveMarkEffects, SceneGeometryHitPolicy, SceneGeometryQuery,
     SceneQueryClauseId, SceneQueryDatumField, SelectionClauseUpdate, SelectionSceneQuery,
-    SelectionUpdate, StoreData, StoreFieldPatch, StoreKey, StoreRow, StoreUpdate, StripeDash,
-    StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec, ViewRef, WeekStart, event,
-    item_bbox_column_name, item_channel_column_name, item_data_column_name,
+    SelectionUpdate, StateMigrationKey, StoreData, StoreFieldPatch, StoreKey, StoreRow,
+    StoreUpdate, StripeDash, StripePatternLayer, Theme, TimeContext, TransformMarkAdjustmentSpec,
+    ViewRef, WeekStart, event, item_bbox_column_name, item_channel_column_name,
+    item_data_column_name,
 };
 use avenger_chart_lang_registry::{
     NativeOutputValue, NativeRegistry, NativeTransformMode, ResolvedBehaviorExport,
@@ -581,8 +582,12 @@ impl<'a> ProjectLowerer<'a> {
         let data_type = physical_data_type(&param.data_type);
         let default = self.typed_scalar(&param.default, &data_type, param)?;
         let runtime_name = self.param_runtime_name(param);
-        self.params
-            .insert(id.clone(), Param::new(runtime_name, default));
+        let mut lowered = Param::new(runtime_name, default);
+        if let Some(key) = param.migration_key.as_ref() {
+            lowered =
+                lowered.migration_key(StateMigrationKey::from_compiler_identity(key.as_str()));
+        }
+        self.params.insert(id.clone(), lowered);
         Ok(())
     }
 
@@ -624,6 +629,10 @@ impl<'a> ProjectLowerer<'a> {
             })
             .unwrap_or_else(|| selection.source_name.clone());
         let mut lowered = Selection::new(runtime_name);
+        if let Some(key) = selection.migration_key.as_ref() {
+            lowered =
+                lowered.migration_key(StateMigrationKey::from_compiler_identity(key.as_str()));
+        }
         lowered = match selection.empty {
             ResolvedSelectionEmpty::All => lowered.empty_selects_all(),
             ResolvedSelectionEmpty::None => lowered.empty_selects_nothing(),
@@ -698,6 +707,10 @@ impl<'a> ProjectLowerer<'a> {
         lowered = lowered
             .primary_key(store.primary_key.clone())
             .sharing(sharing(store.sharing));
+        if let Some(key) = store.migration_key.as_ref() {
+            lowered =
+                lowered.migration_key(StateMigrationKey::from_compiler_identity(key.as_str()));
+        }
         Ok(lowered)
     }
 

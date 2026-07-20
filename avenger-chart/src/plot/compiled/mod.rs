@@ -136,10 +136,11 @@ pub use self::native_runtime::{
 #[cfg(test)]
 pub(crate) use self::session::TextMeasurementCache;
 pub use self::session::{
-    EvaluationRequest, PlotSession, PlotSessionOptions, ResolvedScopedParamAssignment,
-    ResolvedScopedStoreAssignment, ResolvedSelectionAssignment, ResolvedStateTransaction,
-    ScopedParamAssignment, ScopedParamStoreSnapshot, ScopedStoreAssignment, SelectionAssignment,
-    SelectionStateUpdate, StoreStateUpdate,
+    ChartSessionSnapshot, EvaluationRequest, PlotSession, PlotSessionOptions,
+    ResolvedScopedParamAssignment, ResolvedScopedStoreAssignment, ResolvedSelectionAssignment,
+    ResolvedStateTransaction, ScopedParamAssignment, ScopedParamStoreSnapshot,
+    ScopedStoreAssignment, SelectionAssignment, SelectionStateUpdate, StateMigrationReport,
+    StoreStateUpdate,
 };
 pub(crate) use self::session::{
     GuideOverflowCacheHandle, LegendMeasurementCacheHandle, ScaleDomainCacheHandle,

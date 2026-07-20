@@ -15,11 +15,12 @@ use avenger_app::{
 use avenger_chart::{
     layout::{ChartResizeAxisPolicy, ChartResizePolicy},
     plot::{
-        CompiledPlot, EvaluationRequest, NativeWidgetDispatchOutcome, NativeWidgetEvaluationIntent,
-        NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetHostServices,
-        NativeWidgetHostTransform, NativeWidgetPlotId, NativeWidgetRuntimeResources, PlotSession,
-        PlotSessionOptions, ResolvedScopedParamAssignment, ResolvedScopedStoreAssignment,
-        ResolvedSelectionAssignment, ScopedParamAssignment,
+        ChartSessionSnapshot, CompiledPlot, EvaluationRequest, NativeWidgetDispatchOutcome,
+        NativeWidgetEvaluationIntent, NativeWidgetEvent, NativeWidgetEventRoute,
+        NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetPlotId,
+        NativeWidgetRuntimeResources, PlotSession, PlotSessionOptions,
+        ResolvedScopedParamAssignment, ResolvedScopedStoreAssignment, ResolvedSelectionAssignment,
+        ScopedParamAssignment, StateMigrationReport,
     },
     render::{
         EvaluatedEventDatumState, EvaluatedInteractionScope, EvaluatedInteractionState,
@@ -32,6 +33,7 @@ use avenger_chart_core::{
     ChartEventEvaluationMode, EvaluationInvalidation, EvaluationInvalidationReason,
     EvaluationInvalidationSchedule, EvaluationInvalidationSubscription,
 };
+use avenger_chart_widgets::register_native_widgets;
 use avenger_common::time::{Duration, Instant};
 use avenger_eventstream::{
     manager::EventStreamHandler,
@@ -138,7 +140,14 @@ impl ChartRuntimeResources {
         image_resource_resolver: Arc<dyn ImageResourceResolver>,
         render_invalidation_hub: RenderInvalidationHub,
     ) -> Self {
-        let native_widget_runtime = NativeWidgetRuntimeResources::in_memory();
+        let mut native_widget_registry = avenger_chart::plot::NativeWidgetRegistry::new();
+        register_native_widgets(&mut native_widget_registry)
+            .expect("built-in native widget registration must remain valid");
+        let native_widget_runtime = NativeWidgetRuntimeResources::new(
+            Arc::new(native_widget_registry),
+            Arc::new(avenger_chart::plot::InMemoryNativeWidgetInstanceStore::new()),
+            avenger_chart::plot::NativeWidgetDocumentId::new(),
+        );
         let native_widget_host_services =
             native_widget_runtime.host_services(NativeWidgetPlotId::chart_root());
         Self {
@@ -629,6 +638,14 @@ impl ChartAppState {
             self.sync_param_state_from_runtime(&runtime, 0);
         }
         self.param_snapshot().params
+    }
+
+    /// Capture complete typed document state for a replacement generation.
+    pub async fn snapshot_state(&self) -> ChartSessionSnapshot {
+        let mut runtime = self.runtime.lock().await;
+        self.drain_pending_params_into_runtime(&mut runtime);
+        self.sync_param_state_from_runtime(&runtime, 0);
+        runtime.session.snapshot_state()
     }
 
     pub fn param_snapshot(&self) -> ParamSnapshot {
@@ -1842,7 +1859,9 @@ pub async fn chart_avenger_app(
     ctx: Arc<SessionContext>,
     options: ChartAppOptions,
 ) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
-    chart_avenger_app_inner(compiled_plot, ctx, options, None).await
+    chart_avenger_app_inner(compiled_plot, ctx, options, None, None)
+        .await
+        .map(|(app, _)| app)
 }
 
 pub async fn chart_avenger_app_with_runtime_resources(
@@ -1851,7 +1870,9 @@ pub async fn chart_avenger_app_with_runtime_resources(
     options: ChartAppOptions,
     runtime_resources: ChartRuntimeResources,
 ) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
-    chart_avenger_app_inner(compiled_plot, ctx, options, Some(runtime_resources)).await
+    chart_avenger_app_inner(compiled_plot, ctx, options, Some(runtime_resources), None)
+        .await
+        .map(|(app, _)| app)
 }
 
 pub async fn chart_avenger_app_with_default_runtime_resources(
@@ -1866,11 +1887,12 @@ pub async fn chart_avenger_app_with_default_runtime_resources(
     );
     let runtime_resources =
         ChartRuntimeResources::new(image_resource_resolver, render_invalidation_hub);
-    let app = chart_avenger_app_with_runtime_resources(
+    let (app, _) = chart_avenger_app_inner(
         compiled_plot,
         ctx,
         options,
-        runtime_resources.clone(),
+        Some(runtime_resources.clone()),
+        None,
     )
     .await?;
     Ok(ChartAppBundle {
@@ -1879,12 +1901,46 @@ pub async fn chart_avenger_app_with_default_runtime_resources(
     })
 }
 
+/// Build a replacement app with compatible state restored before its first
+/// evaluation. Generation-local runtime resources remain isolated from the
+/// displayed app.
+pub async fn chart_avenger_app_with_default_runtime_resources_and_snapshot(
+    compiled_plot: CompiledPlot,
+    ctx: Arc<SessionContext>,
+    options: ChartAppOptions,
+    snapshot: &ChartSessionSnapshot,
+) -> Result<(ChartAppBundle, StateMigrationReport), AvengerAppError> {
+    let render_invalidation_hub = RenderInvalidationHub::default();
+    let image_resource_resolver = Arc::new(
+        ImageResourceCache::new()
+            .with_render_invalidation_sink(Arc::new(render_invalidation_hub.clone())),
+    );
+    let runtime_resources =
+        ChartRuntimeResources::new(image_resource_resolver, render_invalidation_hub);
+    let (app, report) = chart_avenger_app_inner(
+        compiled_plot,
+        ctx,
+        options,
+        Some(runtime_resources.clone()),
+        Some(snapshot),
+    )
+    .await?;
+    Ok((
+        ChartAppBundle {
+            app,
+            runtime_resources,
+        },
+        report,
+    ))
+}
+
 async fn chart_avenger_app_inner(
     compiled_plot: CompiledPlot,
     ctx: Arc<SessionContext>,
     options: ChartAppOptions,
     runtime_resources: Option<ChartRuntimeResources>,
-) -> Result<AvengerApp<ChartAppState>, AvengerAppError> {
+    snapshot: Option<&ChartSessionSnapshot>,
+) -> Result<(AvengerApp<ChartAppState>, StateMigrationReport), AvengerAppError> {
     let compiled_plot = Arc::new(compiled_plot);
     let resize_policy = compiled_plot.resize_policy();
     let param_change_graph = Arc::new(param_change_graph_for_plot(&compiled_plot, ctx.as_ref())?);
@@ -1907,6 +1963,9 @@ async fn chart_avenger_app_inner(
             NativeWidgetPlotId::chart_root(),
         ));
     }
+    let migration_report = snapshot
+        .map(|snapshot| session.restore_state(snapshot))
+        .unwrap_or_default();
     let exact_on_resize_settle = options.exact_on_resize_settle;
     let hover_resolver = runtime_resources
         .as_ref()
@@ -2020,7 +2079,8 @@ async fn chart_avenger_app_inner(
         ));
     }
 
-    AvengerApp::try_new(state, Arc::new(ChartSceneGraphBuilder), streams).await
+    let app = AvengerApp::try_new(state, Arc::new(ChartSceneGraphBuilder), streams).await?;
+    Ok((app, migration_report))
 }
 
 /// Streams hover cursor positions (canvas px) to the image fetch
@@ -2813,6 +2873,15 @@ mod tests {
                 .await
         );
         assert_eq!(bundle.runtime_resources.render_invalidation_hub.epoch(), 0);
+        assert!(
+            bundle
+                .runtime_resources
+                .native_widget_runtime
+                .registry
+                .factory("text-input")
+                .is_some(),
+            "default chart runtime resources must install built-in native widgets"
+        );
     }
 
     #[tokio::test]

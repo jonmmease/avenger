@@ -75,6 +75,7 @@ impl From<&FieldRef> for StoreFieldSpec {
 #[derive(Clone, Debug)]
 pub struct Store {
     pub name: String,
+    pub migration_key: Option<StateMigrationKey>,
     pub fields: Vec<StoreFieldSpec>,
     pub initial: Option<RecordBatch>,
     pub primary_key: Vec<String>,
@@ -85,6 +86,7 @@ impl Store {
     pub fn new(name: impl Into<String>, schema: SchemaRef) -> Self {
         Self {
             name: name.into(),
+            migration_key: None,
             fields: schema.fields().iter().map(StoreFieldSpec::from).collect(),
             initial: None,
             primary_key: Vec::new(),
@@ -95,6 +97,7 @@ impl Store {
     pub fn empty(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
+            migration_key: None,
             fields: Vec::new(),
             initial: None,
             primary_key: Vec::new(),
@@ -105,6 +108,7 @@ impl Store {
     pub fn from_record_batch(name: impl Into<String>, batch: RecordBatch) -> Self {
         Self {
             name: name.into(),
+            migration_key: None,
             fields: batch
                 .schema()
                 .fields()
@@ -128,6 +132,11 @@ impl Store {
         self
     }
 
+    pub fn migration_key(mut self, migration_key: StateMigrationKey) -> Self {
+        self.migration_key = Some(migration_key);
+        self
+    }
+
     pub fn sharing(mut self, sharing: CoordinationScope) -> Self {
         self.sharing = sharing;
         self
@@ -137,7 +146,7 @@ impl Store {
         let spec = CompiledStoreSpec {
             runtime_id: StoreRef::unresolved_authoring(),
             name: self.name.clone(),
-            migration_key: None,
+            migration_key: self.migration_key.clone(),
             fields: self.fields.clone(),
             initial: self.initial.clone(),
             primary_key: self.primary_key.clone(),

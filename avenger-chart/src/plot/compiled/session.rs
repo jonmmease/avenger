@@ -17,8 +17,8 @@ use avenger_chart_core::{
     ResolvedSelectionClauseScope, STORE_NAME_COLUMN, STORE_OWNER_KEY_COLUMN, STORE_REVISION_COLUMN,
     ScaleConfigSpec, ScaleDefaultDomain, ScaleDomain, SelectionClause,
     SelectionEqualityDimensionValue, SelectionFacetContextValue, SelectionPredicateSpec,
-    SelectionRef, SerializableExpr, StoreData, StoreRef, StoreRowValue, WidgetItemIdentityCodec,
-    WidgetItemValidation, selection_field_expr_fingerprint,
+    SelectionRef, SerializableExpr, StateMigrationKey, StoreData, StoreRef, StoreRowValue,
+    WidgetItemIdentityCodec, WidgetItemValidation, selection_field_expr_fingerprint,
 };
 use avenger_chart_scales::{PlotScaleSpec, ScaleBuilder};
 use avenger_chart_transforms::Rasterize2DExecutor;
@@ -390,6 +390,59 @@ pub struct ResolvedScopedParamAssignment {
 pub struct ScopedParamStoreSnapshot {
     root: IndexMap<String, ScalarValue>,
     scoped: IndexMap<ScopedParamKey, ScalarValue>,
+}
+
+/// Complete typed document-state snapshot used for compatible hot reload.
+///
+/// Runtime IDs and author-facing names are deliberately absent from the
+/// matching contract. State is keyed only by compiler-derived migration keys
+/// and restored when the destination declaration has the same physical type,
+/// sharing, and kind-specific schema contract.
+#[derive(Clone, Debug, Default)]
+pub struct ChartSessionSnapshot {
+    params: BTreeMap<StateMigrationKey, ParamMigrationSnapshot>,
+    stores: BTreeMap<StateMigrationKey, StoreMigrationSnapshot>,
+    selections: BTreeMap<StateMigrationKey, SelectionMigrationSnapshot>,
+}
+
+#[derive(Clone, Debug)]
+struct ParamMigrationSnapshot {
+    spec: CompiledParamSpec,
+    values: Vec<(Vec<ScalarValue>, ScalarValue)>,
+}
+
+#[derive(Clone, Debug)]
+struct StoreMigrationSnapshot {
+    spec: CompiledStoreSpec,
+    instances: Vec<(Vec<ScalarValue>, Vec<StoreRowValue>, u64)>,
+}
+
+#[derive(Clone, Debug)]
+struct SelectionMigrationSnapshot {
+    spec: CompiledSelectionSpec,
+    clauses: Vec<SelectionClause>,
+    revision: u64,
+}
+
+/// Summary of a typed hot-reload restore operation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StateMigrationReport {
+    pub params_migrated: usize,
+    pub params_reset: usize,
+    pub stores_migrated: usize,
+    pub stores_reset: usize,
+    pub selections_migrated: usize,
+    pub selections_reset: usize,
+}
+
+impl StateMigrationReport {
+    pub fn migrated(self) -> usize {
+        self.params_migrated + self.stores_migrated + self.selections_migrated
+    }
+
+    pub fn reset(self) -> usize {
+        self.params_reset + self.stores_reset + self.selections_reset
+    }
 }
 
 impl ScopedParamStoreSnapshot {
@@ -2628,6 +2681,212 @@ impl PlotSession {
     /// Snapshot the entire scoped parameter store for gesture freezing.
     pub fn snapshot_scoped_params(&self) -> ScopedParamStoreSnapshot {
         self.scoped_params.snapshot()
+    }
+
+    /// Capture all reload-migratable document state.
+    ///
+    /// Native widget editor/focus state, active gestures, cursor state, and
+    /// evaluation caches are intentionally excluded. Widget/tool document
+    /// state participates through its ordinary compiled param/store/selection
+    /// declarations and migration keys.
+    pub fn snapshot_state(&self) -> ChartSessionSnapshot {
+        let mut snapshot = ChartSessionSnapshot::default();
+        for (runtime_id, spec) in &self.scoped_params.specs {
+            let Some(key) = spec.migration_key.clone() else {
+                continue;
+            };
+            let values = self
+                .scoped_params
+                .values
+                .iter()
+                .filter(|(scoped, _)| &scoped.id == runtime_id)
+                .map(|(scoped, value)| (scoped.owner_path.clone(), value.clone()))
+                .collect();
+            snapshot.params.insert(
+                key,
+                ParamMigrationSnapshot {
+                    spec: spec.clone(),
+                    values,
+                },
+            );
+        }
+        for (runtime_id, spec) in &self.scoped_stores.specs {
+            let Some(key) = spec.migration_key.clone() else {
+                continue;
+            };
+            let instances = self
+                .scoped_stores
+                .instances
+                .iter()
+                .filter(|(scoped, _)| &scoped.store_id == runtime_id)
+                .map(|(scoped, table)| {
+                    (
+                        scoped.owner_path.clone(),
+                        table.rows.clone(),
+                        table.revision,
+                    )
+                })
+                .collect();
+            snapshot.stores.insert(
+                key,
+                StoreMigrationSnapshot {
+                    spec: spec.clone(),
+                    instances,
+                },
+            );
+        }
+        for (runtime_id, spec) in &self.scoped_selections.specs {
+            let Some(key) = spec.migration_key.clone() else {
+                continue;
+            };
+            let state = &self.scoped_selections.states[runtime_id];
+            snapshot.selections.insert(
+                key,
+                SelectionMigrationSnapshot {
+                    spec: spec.clone(),
+                    clauses: state.clauses.values().cloned().collect(),
+                    revision: state.revision,
+                },
+            );
+        }
+        snapshot
+    }
+
+    /// Restore compatible state into a newly instantiated replacement session.
+    ///
+    /// Incompatible, missing, or unkeyed declarations retain their new source
+    /// defaults. This operation never matches by source name or runtime ID.
+    pub fn restore_state(&mut self, snapshot: &ChartSessionSnapshot) -> StateMigrationReport {
+        let mut report = StateMigrationReport::default();
+
+        let param_targets = self
+            .scoped_params
+            .specs
+            .iter()
+            .map(|(id, spec)| (id.clone(), spec.clone()))
+            .collect::<Vec<_>>();
+        for (runtime_id, spec) in param_targets {
+            let compatible = spec
+                .migration_key
+                .as_ref()
+                .and_then(|key| snapshot.params.get(key))
+                .filter(|source| {
+                    source.spec.data_type == spec.data_type && source.spec.sharing == spec.sharing
+                });
+            let Some(source) = compatible else {
+                report.params_reset += 1;
+                continue;
+            };
+            self.scoped_params
+                .values
+                .retain(|scoped, _| scoped.id != runtime_id);
+            for (owner_path, value) in &source.values {
+                self.scoped_params.values.insert(
+                    ScopedParamKey {
+                        id: runtime_id.clone(),
+                        owner_path: owner_path.clone(),
+                    },
+                    value.clone(),
+                );
+            }
+            if !source
+                .values
+                .iter()
+                .any(|(owner_path, _)| owner_path.is_empty())
+            {
+                self.scoped_params.values.insert(
+                    ScopedParamKey {
+                        id: runtime_id.clone(),
+                        owner_path: Vec::new(),
+                    },
+                    spec.default.clone(),
+                );
+            }
+            self.scoped_params.revisions.insert(runtime_id, 0);
+            report.params_migrated += 1;
+        }
+
+        let store_targets = self
+            .scoped_stores
+            .specs
+            .iter()
+            .map(|(id, spec)| (id.clone(), spec.clone()))
+            .collect::<Vec<_>>();
+        for (runtime_id, spec) in store_targets {
+            let compatible = spec
+                .migration_key
+                .as_ref()
+                .and_then(|key| snapshot.stores.get(key))
+                .filter(|source| {
+                    source.spec.fields == spec.fields
+                        && source.spec.primary_key == spec.primary_key
+                        && source.spec.sharing == spec.sharing
+                });
+            let Some(source) = compatible else {
+                report.stores_reset += 1;
+                continue;
+            };
+            self.scoped_stores
+                .instances
+                .retain(|scoped, _| scoped.store_id != runtime_id);
+            for (owner_path, rows, revision) in &source.instances {
+                self.scoped_stores.instances.insert(
+                    ScopedStoreKey {
+                        store_id: runtime_id.clone(),
+                        owner_path: owner_path.clone(),
+                    },
+                    MutableStoreTable {
+                        rows: rows.clone(),
+                        revision: *revision,
+                    },
+                );
+            }
+            self.scoped_stores
+                .materialized_cache
+                .lock()
+                .expect("store materialization cache lock poisoned")
+                .clear();
+            report.stores_migrated += 1;
+        }
+
+        let selection_targets = self
+            .scoped_selections
+            .specs
+            .iter()
+            .map(|(id, spec)| (id.clone(), spec.clone()))
+            .collect::<Vec<_>>();
+        for (runtime_id, spec) in selection_targets {
+            let compatible = spec
+                .migration_key
+                .as_ref()
+                .and_then(|key| snapshot.selections.get(key))
+                .filter(|source| {
+                    source.spec.empty == spec.empty
+                        && source.spec.combine == spec.combine
+                        && source.spec.facet_context == spec.facet_context
+                });
+            let Some(source) = compatible else {
+                report.selections_reset += 1;
+                continue;
+            };
+            let clauses = source
+                .clauses
+                .iter()
+                .cloned()
+                .map(|clause| (selection_clause_state_key(&clause), clause))
+                .collect();
+            self.scoped_selections.states.insert(
+                runtime_id,
+                MutableSelectionState {
+                    clauses,
+                    revision: source.revision,
+                },
+            );
+            report.selections_migrated += 1;
+        }
+
+        self.refresh_root_cache();
+        report
     }
 
     /// Resolve effective params for a scope from a frozen scoped-store snapshot.
@@ -10865,6 +11124,109 @@ mod tests {
                 .await?,
         );
         Ok(compiled.instantiate(ctx))
+    }
+
+    async fn migration_session(
+        param_name: &str,
+        param_default: ScalarValue,
+    ) -> Result<PlotSession, AvengerChartError> {
+        let ctx = Arc::new(SessionContext::new());
+        let compiled = Arc::new(
+            crate::plot::Chart::<Cartesian>::new()
+                .param(Param::new(param_name, param_default))
+                .store(brush_store())
+                .selection(Selection::new("picked"))
+                .compile(&ctx)
+                .await?,
+        );
+        let mut session = compiled.instantiate(ctx);
+        session
+            .scoped_params
+            .specs
+            .values_mut()
+            .next()
+            .expect("param spec")
+            .migration_key = Some(StateMigrationKey::from_compiler_identity("param:key"));
+        session
+            .scoped_stores
+            .specs
+            .values_mut()
+            .next()
+            .expect("store spec")
+            .migration_key = Some(StateMigrationKey::from_compiler_identity("store:key"));
+        session
+            .scoped_selections
+            .specs
+            .values_mut()
+            .next()
+            .expect("selection spec")
+            .migration_key = Some(StateMigrationKey::from_compiler_identity("selection:key"));
+        Ok(session)
+    }
+
+    #[tokio::test]
+    async fn typed_session_snapshot_migrates_by_key_and_resets_incompatible_params()
+    -> Result<(), AvengerChartError> {
+        let mut source = migration_session("old_value", ScalarValue::Int64(Some(0))).await?;
+        source.apply_param_patch(IndexMap::from([(
+            "old_value".to_string(),
+            ScalarValue::Int64(Some(42)),
+        )]))?;
+        source.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: Vec::new(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::InsertRows {
+                rows: vec![brush_row("saved", 1.0, Some(2.0))],
+            },
+        }])?;
+        source.apply_selection_patch(vec![SelectionAssignment {
+            selection_id: "picked".to_string(),
+            update: SelectionStateUpdate::UpsertClauses {
+                clauses: vec![category_equality_selection_clause(
+                    "saved",
+                    CoordinationScope::Shared,
+                    ScalarValue::Utf8(Some("A".to_string())),
+                    Vec::new(),
+                )],
+            },
+        }])?;
+        let snapshot = source.snapshot_state();
+
+        let mut renamed = migration_session("renamed_value", ScalarValue::Int64(Some(7))).await?;
+        let report = renamed.restore_state(&snapshot);
+        assert_eq!(
+            report,
+            StateMigrationReport {
+                params_migrated: 1,
+                stores_migrated: 1,
+                selections_migrated: 1,
+                ..StateMigrationReport::default()
+            }
+        );
+        assert_eq!(
+            renamed.params()["renamed_value"],
+            ScalarValue::Int64(Some(42)),
+            "migration must follow the stable key rather than the source name"
+        );
+        assert_eq!(
+            renamed.store_rows_for_diagnostics("brush_boxes")[0].1[0]["id"],
+            ScalarValue::Utf8(Some("saved".to_string()))
+        );
+        assert_eq!(renamed.selection_clauses_for_diagnostics("picked").len(), 1);
+
+        let mut incompatible =
+            migration_session("renamed_value", ScalarValue::Utf8(Some("new".to_string()))).await?;
+        let report = incompatible.restore_state(&snapshot);
+        assert_eq!(report.params_migrated, 0);
+        assert_eq!(report.params_reset, 1);
+        assert_eq!(
+            incompatible.params()["renamed_value"],
+            ScalarValue::Utf8(Some("new".to_string()))
+        );
+        assert_eq!(report.stores_migrated, 1);
+        assert_eq!(report.selections_migrated, 1);
+        Ok(())
     }
 
     #[tokio::test]

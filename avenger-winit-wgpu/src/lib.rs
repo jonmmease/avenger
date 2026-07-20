@@ -71,6 +71,7 @@ pub enum WinitWgpuEvent {
     },
     HostUpdateReady,
     SetWindowTitle(String),
+    ExitRequested,
 }
 
 /// A fully prepared application generation for event-loop-thread installation.
@@ -79,9 +80,21 @@ where
     State: Clone + Send + Sync + 'static,
 {
     pub generation: u64,
+    /// Monotonic source-change epoch this update was prepared from.
+    pub request_epoch: u64,
     pub app: AvengerApp<State>,
     pub render_invalidation_hub: Option<RenderInvalidationHub>,
     pub window_title: Option<String>,
+    pub window_scene_sizing: WindowSceneSizing,
+    pub canvas_frame: Option<CanvasFrameOptions>,
+    pub completion: Option<std::sync::mpsc::SyncSender<HostUpdateInstallOutcome>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HostUpdateInstallOutcome {
+    Installed,
+    Superseded,
+    Failed(String),
 }
 
 /// Thread-safe producer for prepared native host updates.
@@ -92,20 +105,41 @@ where
 {
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
     queue: Arc<Mutex<VecDeque<PreparedHostUpdate<State>>>>,
+    latest_request_epoch: Arc<AtomicU64>,
 }
 
 impl<State> HostUpdateSender<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    pub fn submit(&self, update: PreparedHostUpdate<State>) -> Result<(), HostUpdateSubmitError> {
-        self.queue
+    pub fn submit(
+        &self,
+        update: PreparedHostUpdate<State>,
+    ) -> Result<HostUpdateSubmitOutcome, HostUpdateSubmitError> {
+        if update.request_epoch < self.latest_request_epoch.load(Ordering::Acquire) {
+            complete_host_update(update, HostUpdateInstallOutcome::Superseded);
+            return Ok(HostUpdateSubmitOutcome::Superseded);
+        }
+        let mut queue = self
+            .queue
             .lock()
-            .map_err(|_| HostUpdateSubmitError::QueuePoisoned)?
-            .push_back(update);
+            .map_err(|_| HostUpdateSubmitError::QueuePoisoned)?;
+        for pending in queue.drain(..) {
+            complete_host_update(pending, HostUpdateInstallOutcome::Superseded);
+        }
+        queue.push_back(update);
+        drop(queue);
         self.event_proxy
             .send_event(WinitWgpuEvent::HostUpdateReady)
-            .map_err(|_| HostUpdateSubmitError::EventLoopClosed)
+            .map_err(|_| HostUpdateSubmitError::EventLoopClosed)?;
+        Ok(HostUpdateSubmitOutcome::Queued)
+    }
+
+    /// Publish the newest source-change epoch before starting reload work.
+    /// Prepared updates from older epochs are rejected both at submission and
+    /// again on the event-loop thread.
+    pub fn mark_request_epoch(&self, epoch: u64) {
+        self.latest_request_epoch.fetch_max(epoch, Ordering::AcqRel);
     }
 
     pub fn set_window_title(&self, title: impl Into<String>) -> Result<(), HostUpdateSubmitError> {
@@ -113,6 +147,19 @@ where
             .send_event(WinitWgpuEvent::SetWindowTitle(title.into()))
             .map_err(|_| HostUpdateSubmitError::EventLoopClosed)
     }
+
+    /// Request clean event-loop termination from another thread.
+    pub fn request_exit(&self) -> Result<(), HostUpdateSubmitError> {
+        self.event_proxy
+            .send_event(WinitWgpuEvent::ExitRequested)
+            .map_err(|_| HostUpdateSubmitError::EventLoopClosed)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HostUpdateSubmitOutcome {
+    Queued,
+    Superseded,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -135,23 +182,49 @@ impl std::error::Error for HostUpdateSubmitError {}
 fn take_latest_host_update<State>(
     queue: &mut VecDeque<PreparedHostUpdate<State>>,
     installed_generation: u64,
+    latest_request_epoch: u64,
 ) -> Option<PreparedHostUpdate<State>>
 where
     State: Clone + Send + Sync + 'static,
 {
     let mut latest: Option<PreparedHostUpdate<State>> = None;
     while let Some(candidate) = queue.pop_front() {
-        if candidate.generation <= installed_generation {
+        if candidate.generation <= installed_generation
+            || candidate.request_epoch < latest_request_epoch
+        {
+            complete_host_update(candidate, HostUpdateInstallOutcome::Superseded);
             continue;
         }
         if latest
             .as_ref()
             .is_none_or(|current| candidate.generation > current.generation)
         {
-            latest = Some(candidate);
+            if let Some(previous) = latest.replace(candidate) {
+                complete_host_update(previous, HostUpdateInstallOutcome::Superseded);
+            }
+        } else {
+            complete_host_update(candidate, HostUpdateInstallOutcome::Superseded);
         }
     }
     latest
+}
+
+fn complete_host_update<State>(
+    mut update: PreparedHostUpdate<State>,
+    outcome: HostUpdateInstallOutcome,
+) where
+    State: Clone + Send + Sync + 'static,
+{
+    complete_host_update_sender(update.completion.take(), outcome);
+}
+
+fn complete_host_update_sender(
+    completion: Option<std::sync::mpsc::SyncSender<HostUpdateInstallOutcome>>,
+    outcome: HostUpdateInstallOutcome,
+) {
+    if let Some(completion) = completion {
+        let _ = completion.send(outcome);
+    }
 }
 
 fn send_render_invalidation_event(
@@ -674,6 +747,7 @@ where
     canvas_config: CanvasConfig,
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
     prepared_host_updates: Arc<Mutex<VecDeque<PreparedHostUpdate<State>>>>,
+    latest_host_request_epoch: Arc<AtomicU64>,
     installed_host_generation: u64,
     _render_invalidation_subscription: Option<RenderInvalidationSubscription>,
     /// The hub itself, kept for startup replay: proxy events sent before the
@@ -749,6 +823,7 @@ where
             .expect("Failed to build event loop");
         let event_proxy = event_loop.create_proxy();
         let prepared_host_updates = Arc::new(Mutex::new(VecDeque::new()));
+        let latest_host_request_epoch = Arc::new(AtomicU64::new(0));
         let render_invalidation_subscription =
             options.render_invalidation_hub.as_ref().map(|hub| {
                 let event_proxy_for_subscription = event_proxy.clone();
@@ -796,6 +871,7 @@ where
             canvas_config: options.canvas_config,
             event_proxy,
             prepared_host_updates,
+            latest_host_request_epoch,
             installed_host_generation: 0,
             _render_invalidation_subscription: render_invalidation_subscription,
             render_invalidation_hub: options.render_invalidation_hub,
@@ -836,6 +912,7 @@ where
         HostUpdateSender {
             event_proxy: self.event_proxy.clone(),
             queue: Arc::clone(&self.prepared_host_updates),
+            latest_request_epoch: Arc::clone(&self.latest_host_request_epoch),
         }
     }
 
@@ -845,22 +922,41 @@ where
                 log::error!("prepared host-update queue is poisoned");
                 return;
             };
-            take_latest_host_update(&mut queue, self.installed_host_generation)
+            take_latest_host_update(
+                &mut queue,
+                self.installed_host_generation,
+                self.latest_host_request_epoch.load(Ordering::Acquire),
+            )
         };
         let Some(update) = update else {
             return;
         };
+        let mut update = update;
+        let completion = update.completion.take();
 
         let scene_graph = update.app.scene_graph_arc();
+        let mut replacement_frame = update.canvas_frame.map(CanvasFrameState::new);
         if let Some(canvas) = self.canvas.borrow_mut().as_mut() {
             if let Err(error) = install_scene_graph(
                 canvas,
                 &scene_graph,
-                self.window_scene_sizing,
+                update.window_scene_sizing,
                 self.scale,
-                self.canvas_frame.as_mut(),
+                replacement_frame.as_mut(),
             ) {
                 log::error!("failed to install prepared host update: {error:?}");
+                let old_scene = self.avenger_app.borrow().scene_graph_arc();
+                let _ = install_scene_graph(
+                    canvas,
+                    &old_scene,
+                    self.window_scene_sizing,
+                    self.scale,
+                    self.canvas_frame.as_mut(),
+                );
+                complete_host_update_sender(
+                    completion,
+                    HostUpdateInstallOutcome::Failed(format!("{error:?}")),
+                );
                 return;
             }
             if let Some(title) = update.window_title.as_deref() {
@@ -870,6 +966,8 @@ where
             self.window_attributes = self.window_attributes.clone().with_title(title);
         }
 
+        self.window_scene_sizing = update.window_scene_sizing;
+        self.canvas_frame = replacement_frame;
         *self.avenger_app.borrow_mut() = update.app;
         self._render_invalidation_subscription = None;
         self.render_invalidation_hub = update.render_invalidation_hub;
@@ -897,6 +995,7 @@ where
                 send_render_invalidation_event(proxy, installed_generation, invalidation);
             }
         }
+        complete_host_update_sender(completion, HostUpdateInstallOutcome::Installed);
     }
 
     fn dispatch_avenger_event(&mut self, event: AvengerWindowEvent, force: bool) {
@@ -1744,6 +1843,10 @@ where
                     self.window_attributes = self.window_attributes.clone().with_title(title);
                 }
             }
+            WinitWgpuEvent::ExitRequested => {
+                *self.canvas.borrow_mut() = None;
+                _event_loop.exit();
+            }
         }
     }
 
@@ -2066,28 +2169,61 @@ mod tests {
         let mut queue = VecDeque::from([
             PreparedHostUpdate {
                 generation: 2,
+                request_epoch: 2,
                 app: test_app(200.0),
                 render_invalidation_hub: None,
                 window_title: None,
+                window_scene_sizing: WindowSceneSizing::MatchSceneGraph,
+                canvas_frame: None,
+                completion: None,
             },
             PreparedHostUpdate {
                 generation: 1,
+                request_epoch: 1,
                 app: test_app(100.0),
                 render_invalidation_hub: None,
                 window_title: None,
+                window_scene_sizing: WindowSceneSizing::MatchSceneGraph,
+                canvas_frame: None,
+                completion: None,
             },
             PreparedHostUpdate {
                 generation: 4,
+                request_epoch: 4,
                 app: test_app(400.0),
                 render_invalidation_hub: None,
                 window_title: None,
+                window_scene_sizing: WindowSceneSizing::MatchSceneGraph,
+                canvas_frame: None,
+                completion: None,
             },
         ]);
 
-        let update = take_latest_host_update(&mut queue, 1).unwrap();
+        let update = take_latest_host_update(&mut queue, 1, 4).unwrap();
         assert_eq!(update.generation, 4);
         assert_eq!(update.app.scene_graph().width, 400.0);
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn event_loop_rejects_and_acknowledges_a_superseded_request_epoch() {
+        let (completion, outcome) = std::sync::mpsc::sync_channel(1);
+        let mut queue = VecDeque::from([PreparedHostUpdate {
+            generation: 2,
+            request_epoch: 7,
+            app: test_app(200.0),
+            render_invalidation_hub: None,
+            window_title: None,
+            window_scene_sizing: WindowSceneSizing::MatchSceneGraph,
+            canvas_frame: None,
+            completion: Some(completion),
+        }]);
+
+        assert!(take_latest_host_update(&mut queue, 1, 8).is_none());
+        assert_eq!(
+            outcome.recv().expect("superseded completion"),
+            HostUpdateInstallOutcome::Superseded
+        );
     }
 
     fn frame_state(resize_width: bool, resize_height: bool) -> CanvasFrameState {

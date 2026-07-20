@@ -77,17 +77,17 @@ pub use crate::layout::{
     CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, PlotConstraint,
 };
 pub use crate::plot::{
-    Chart, EvaluationRequest, InMemoryNativeWidgetInstanceStore, NativeWidgetAttachmentEpoch,
-    NativeWidgetCtx, NativeWidgetDispatchOutcome, NativeWidgetDocumentId, NativeWidgetEnvironment,
-    NativeWidgetEvaluationIntent, NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetFactory,
-    NativeWidgetFactoryContext, NativeWidgetFocusRequest, NativeWidgetHostCommandSink,
-    NativeWidgetHostServices, NativeWidgetHostTransform, NativeWidgetInstance,
-    NativeWidgetInstanceKey, NativeWidgetInstanceSlot, NativeWidgetInstanceStore,
-    NativeWidgetMeasurement, NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId,
-    NativeWidgetRegistry, NativeWidgetRuntimeResources, NativeWidgetScene,
-    NativeWidgetSlotInitError, NativeWidgetSlotTypeMismatch, NativeWidgetStateSnapshot, Plot,
-    PlotSession, PlotSessionOptions, PlotSubtitle, PlotTitle, ResolvedNativeWidgetSpec, TitleAlign,
-    TitleSpan,
+    Chart, ChartSessionSnapshot, EvaluationRequest, InMemoryNativeWidgetInstanceStore,
+    NativeWidgetAttachmentEpoch, NativeWidgetCtx, NativeWidgetDispatchOutcome,
+    NativeWidgetDocumentId, NativeWidgetEnvironment, NativeWidgetEvaluationIntent,
+    NativeWidgetEvent, NativeWidgetEventRoute, NativeWidgetFactory, NativeWidgetFactoryContext,
+    NativeWidgetFocusRequest, NativeWidgetHostCommandSink, NativeWidgetHostServices,
+    NativeWidgetHostTransform, NativeWidgetInstance, NativeWidgetInstanceKey,
+    NativeWidgetInstanceSlot, NativeWidgetInstanceStore, NativeWidgetMeasurement,
+    NativeWidgetNamespace, NativeWidgetPartTheme, NativeWidgetPlotId, NativeWidgetRegistry,
+    NativeWidgetRuntimeResources, NativeWidgetScene, NativeWidgetSlotInitError,
+    NativeWidgetSlotTypeMismatch, NativeWidgetStateSnapshot, Plot, PlotSession, PlotSessionOptions,
+    PlotSubtitle, PlotTitle, ResolvedNativeWidgetSpec, StateMigrationReport, TitleAlign, TitleSpan,
 };
 pub use crate::render::{WidgetFrame, WidgetFrameAssignments};
 pub use avenger_chart_core::{

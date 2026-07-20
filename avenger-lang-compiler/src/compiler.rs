@@ -24,10 +24,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AnalyzedDataset, ArtifactCacheKey, CatalogFactoryRegistry, CompileEnvironmentFactory,
-    CompileEnvironmentRequest, CompiledChartArtifact, CompiledProject, CompilerOptions,
-    DatasetLineage, DatasetProvenance, DatasetStageId, DefaultCompileEnvironmentFactory,
-    DefaultSourceLoader, DependencyFingerprint, LanguageHost, ProjectAnalysis, ProjectChartId,
-    ProjectDatasetId, ProjectDependencyFingerprints, ProjectFingerprint, TableFactoryRegistry,
+    CompileEnvironmentRequest, CompileEnvironmentResourceVersion, CompiledChartArtifact,
+    CompiledProject, CompilerOptions, DatasetLineage, DatasetProvenance, DatasetStageId,
+    DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint, LanguageHost,
+    ProjectAnalysis, ProjectChartId, ProjectDatasetId, ProjectDependencyFingerprints,
+    ProjectFingerprint, TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
     lowering::{LoweredProject, analyze_chart_datasets, lower_project, lower_project_chart},
 };
@@ -128,6 +129,26 @@ pub struct CompiledChartGeneration {
 #[derive(Clone, Debug)]
 pub struct CompileFailure {
     pub diagnostics: Vec<Diagnostic>,
+    pub sources: SourceMap,
+}
+
+impl CompileFailure {
+    fn new(diagnostics: Vec<Diagnostic>) -> Self {
+        Self {
+            diagnostics,
+            sources: SourceMap::default(),
+        }
+    }
+
+    fn with_sources(mut self, sources: SourceMap) -> Self {
+        self.sources = sources;
+        self
+    }
+
+    /// Render one deterministic, source-aware diagnostic batch.
+    pub fn render(&self) -> String {
+        avenger_lang_core::render_diagnostics(&self.diagnostics, &self.sources)
+    }
 }
 
 impl std::fmt::Display for CompileFailure {
@@ -233,7 +254,7 @@ impl Compiler {
                 .result
             {
                 Ok(project) => self
-                    .lower_resolved_project(&project, generation)
+                    .lower_resolved_project(&project, generation, &dependencies)
                     .await
                     .and_then(|(mut lowered, environment, catalog)| {
                         if lowered.charts.len() != 1 {
@@ -246,6 +267,7 @@ impl Compiler {
                                         format!("resolved {} charts", lowered.charts.len()),
                                     ),
                                 )],
+                                sources: project.sources.clone(),
                             });
                         }
                         let fingerprints = dependency_fingerprint_layers(
@@ -327,7 +349,9 @@ impl Compiler {
         dependencies: &DiscoveredDependencySet,
         generation: u64,
     ) -> Result<CompiledProject, CompileFailure> {
-        let (environment, catalog) = self.analyze_resolved_project(project, generation).await?;
+        let (environment, catalog) = self
+            .analyze_resolved_project(project, generation, dependencies)
+            .await?;
         let analysis = self
             .finish_project_analysis(parsed, project, dependencies, &environment, &catalog)
             .await?;
@@ -401,7 +425,10 @@ impl Compiler {
         }
         if !diagnostics.is_empty() {
             sort_diagnostics(&mut diagnostics, &project.sources);
-            return Err(CompileFailure { diagnostics });
+            return Err(CompileFailure {
+                diagnostics,
+                sources: project.sources.clone(),
+            });
         }
 
         // One synchronous publication point makes project compilation
@@ -468,7 +495,9 @@ impl Compiler {
                 dependencies: dependencies.clone(),
             })
             .result?;
-        let (environment, catalog) = self.analyze_resolved_project(&project, 0).await?;
+        let (environment, catalog) = self
+            .analyze_resolved_project(&project, 0, &dependencies)
+            .await?;
         self.finish_project_analysis(&parsed, &project, &dependencies, &environment, &catalog)
             .await
     }
@@ -528,6 +557,7 @@ impl Compiler {
                         "catalog dataset analysis indexing failed",
                         SourceLabel::new(span, error.to_string()),
                     )],
+                    sources: project.sources.clone(),
                 })?;
         }
         let chart_datasets = analyze_chart_datasets(
@@ -540,7 +570,10 @@ impl Compiler {
         .await
         .map_err(|mut diagnostics| {
             sort_diagnostics(&mut diagnostics, &project.sources);
-            CompileFailure { diagnostics }
+            CompileFailure {
+                diagnostics,
+                sources: project.sources.clone(),
+            }
         })?;
         let mut ordinals = BTreeMap::new();
         let mut previous = BTreeMap::new();
@@ -581,6 +614,7 @@ impl Compiler {
                         "chart dataset analysis indexing failed",
                         SourceLabel::new(stage_span, error.to_string()),
                     )],
+                    sources: project.sources.clone(),
                 })?;
             analysis
                 .lineage
@@ -597,6 +631,7 @@ impl Compiler {
                         "chart dataset lineage indexing failed",
                         SourceLabel::new(stage_span, error.to_string()),
                     )],
+                    sources: project.sources.clone(),
                 })?;
         }
         analysis.dependency_fingerprints = fingerprints;
@@ -652,9 +687,11 @@ impl Compiler {
             .result
             .map_err(|failure| CompileFailure {
                 diagnostics: failure.diagnostics,
+                sources: project.sources.clone(),
             })?;
         let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
             diagnostics: failure.diagnostics,
+            sources: project.sources.clone(),
         })?;
         let root = project.chart_roots.first().ok_or_else(|| CompileFailure {
             diagnostics: vec![Diagnostic::error(
@@ -665,6 +702,7 @@ impl Compiler {
                     "the loaded project has no chart root",
                 ),
             )],
+            sources: project.sources.clone(),
         })?;
         let text = expanded
             .texts
@@ -679,6 +717,7 @@ impl Compiler {
                         format!("no expansion was emitted for `{}`", root.as_str()),
                     ),
                 )],
+                sources: project.sources.clone(),
             })?;
         Ok(ExpandedSource {
             text,
@@ -782,6 +821,7 @@ impl Compiler {
                             "add a .avenger chart file",
                         ),
                     )],
+                    sources,
                 }),
                 dependencies: DiscoveredDependencySet::default(),
             };
@@ -811,6 +851,7 @@ impl Compiler {
         let mut dependencies = compiler_dependencies(dependencies);
         let result = result.map_err(|failure| CompileFailure {
             diagnostics: failure.diagnostics,
+            sources: failure.sources,
         });
         let result = result.and_then(|mut project| {
             discover_local_resources(
@@ -819,7 +860,8 @@ impl Compiler {
                 &self.options.import_capabilities,
                 &self.options.data_capabilities,
                 &mut dependencies,
-            )?;
+            )
+            .map_err(|failure| failure.with_sources(project.sources.clone()))?;
             project.fingerprint = augment_project_fingerprint(&project.fingerprint, &dependencies);
             Ok(project)
         });
@@ -870,6 +912,7 @@ impl Compiler {
                 .profile_id()
                 .as_str()
                 .to_string(),
+            local_resource_versions: Vec::new(),
         };
         let environment = self
             .options
@@ -930,8 +973,11 @@ impl Compiler {
         &self,
         project: &ResolvedProject,
         generation: u64,
+        dependencies: &DiscoveredDependencySet,
     ) -> Result<(LoweredProject, crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
-        let (environment, catalog) = self.analyze_resolved_project(project, generation).await?;
+        let (environment, catalog) = self
+            .analyze_resolved_project(project, generation, dependencies)
+            .await?;
         let mut lowered = lower_project(
             project,
             self.options.native_registry.as_ref(),
@@ -940,7 +986,10 @@ impl Compiler {
             &self.options.import_capabilities,
         )
         .await
-        .map_err(|diagnostics| CompileFailure { diagnostics })?;
+        .map_err(|diagnostics| CompileFailure {
+            diagnostics,
+            sources: project.sources.clone(),
+        })?;
         for chart in &mut lowered.charts {
             chart.artifact.dependency_fingerprint =
                 DependencyFingerprint::new(catalog.dependency_fingerprint.clone());
@@ -952,6 +1001,7 @@ impl Compiler {
         &self,
         project: &ResolvedProject,
         generation: u64,
+        dependencies: &DiscoveredDependencySet,
     ) -> Result<(crate::CompileEnvironment, CatalogAnalysis), CompileFailure> {
         let request = CompileEnvironmentRequest {
             generation,
@@ -961,6 +1011,7 @@ impl Compiler {
                 .profile_id()
                 .as_str()
                 .to_string(),
+            local_resource_versions: compile_environment_resource_versions(dependencies),
         };
         let environment = self
             .options
@@ -972,6 +1023,7 @@ impl Compiler {
                     "compile environment creation failed",
                     SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
                 )],
+                sources: project.sources.clone(),
             })?;
         let catalog = register_and_analyze_catalog(
             project,
@@ -987,6 +1039,7 @@ impl Compiler {
         .await
         .map_err(|diagnostic| CompileFailure {
             diagnostics: vec![diagnostic],
+            sources: project.sources.clone(),
         })?;
         Ok((environment, catalog))
     }
@@ -1116,13 +1169,11 @@ pub enum CompilerBuildError {
 }
 
 fn phase_zero_failure(message: String) -> CompileFailure {
-    CompileFailure {
-        diagnostics: vec![Diagnostic::error(
-            "AV0004",
-            "programmatic chart compilation failed",
-            SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), message),
-        )],
-    }
+    CompileFailure::new(vec![Diagnostic::error(
+        "AV0004",
+        "programmatic chart compilation failed",
+        SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), message),
+    )])
 }
 
 fn nearest_existing_parent(path: &Path) -> Option<PathBuf> {
@@ -1164,20 +1215,75 @@ fn compiler_dependencies(
     result
 }
 
+fn compile_environment_resource_versions(
+    dependencies: &DiscoveredDependencySet,
+) -> Vec<CompileEnvironmentResourceVersion> {
+    let mut versions = BTreeMap::new();
+    for dependency in dependencies
+        .iter()
+        .filter(|dependency| dependency.role == DependencyRole::LocalResource)
+    {
+        let Some(content_version) = dependency.content_version.as_ref() else {
+            continue;
+        };
+        for origin in [&dependency.requested_origin, &dependency.canonical_origin] {
+            let SourceOrigin::File(path) = origin else {
+                continue;
+            };
+            let (path, recursive) = if let Some(root) = static_glob_root(path) {
+                (root, true)
+            } else {
+                (path.clone(), path.is_dir())
+            };
+            versions.insert((path, recursive), content_version.clone());
+        }
+    }
+    versions
+        .into_iter()
+        .map(
+            |((path, recursive), content_version)| CompileEnvironmentResourceVersion {
+                path,
+                recursive,
+                content_version,
+            },
+        )
+        .collect()
+}
+
+fn static_glob_root(path: &Path) -> Option<PathBuf> {
+    let mut root = PathBuf::new();
+    let mut found_pattern = false;
+    for component in path.components() {
+        if component
+            .as_os_str()
+            .to_string_lossy()
+            .contains(['*', '?', '['])
+        {
+            found_pattern = true;
+            break;
+        }
+        root.push(component.as_os_str());
+    }
+    found_pattern.then_some(root)
+}
+
 fn resolve_parsed_project(
     project: ParsedProject,
     schema: &avenger_chart_schema::NativeSchemaSnapshot,
 ) -> Result<ResolvedProject, CompileFailure> {
+    let sources = project.sources.clone();
     let resolved = resolve_semantics(&project, schema)
         .result
         .map_err(|failure| CompileFailure {
             diagnostics: failure.diagnostics,
+            sources: sources.clone(),
         })?;
     if resolved.definitions.is_empty() {
         return Ok(resolved);
     }
     let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
         diagnostics: failure.diagnostics,
+        sources: sources.clone(),
     })?;
     match resolve_semantics(&expanded.project, schema).result {
         Ok(mut resolved) => {
@@ -1190,6 +1296,7 @@ fn resolve_parsed_project(
                 .remap_diagnostics(&mut failure.diagnostics);
             Err(CompileFailure {
                 diagnostics: failure.diagnostics,
+                sources: expanded.project.sources,
             })
         }
     }
@@ -1240,6 +1347,14 @@ fn is_chart_path(path: &Path) -> bool {
 }
 
 fn discovery_failure<T>(root: &Path, error: std::io::Error) -> CompileAttempt<T> {
+    let mut sources = SourceMap::default();
+    sources
+        .insert(SourceFile::new(
+            SourceId::new(0),
+            SourceOrigin::File(root.to_path_buf()),
+            "",
+        ))
+        .expect("fresh source id");
     CompileAttempt {
         result: Err(CompileFailure {
             diagnostics: vec![Diagnostic::error(
@@ -1247,6 +1362,7 @@ fn discovery_failure<T>(root: &Path, error: std::io::Error) -> CompileAttempt<T>
                 "project discovery failed",
                 SourceLabel::new(SourceSpan::empty(SourceId::new(0), 0), error.to_string()),
             )],
+            sources,
         }),
         dependencies: {
             let mut dependencies = DiscoveredDependencySet::default();
@@ -1366,6 +1482,7 @@ fn discover_resource(
                     "invalid local data resource",
                     SourceLabel::new(SourceSpan::empty(source, 0), message),
                 )],
+                sources: SourceMap::default(),
             }
         })?
     };
@@ -1503,13 +1620,11 @@ pub(crate) fn glob_content_version(pattern: &Path) -> Result<String, String> {
 }
 
 fn resource_failure(source: SourceId, message: &str, label: String) -> CompileFailure {
-    CompileFailure {
-        diagnostics: vec![Diagnostic::error(
-            "AVENGER-PROJECT-019",
-            message,
-            SourceLabel::new(SourceSpan::empty(source, 0), label),
-        )],
-    }
+    CompileFailure::new(vec![Diagnostic::error(
+        "AVENGER-PROJECT-019",
+        message,
+        SourceLabel::new(SourceSpan::empty(source, 0), label),
+    )])
 }
 
 fn source_dependency_fingerprints(

@@ -234,6 +234,7 @@ async fn generation_compile_retains_its_environment_and_generation() {
                 .profile_id()
                 .as_str()
                 .to_string(),
+            local_resource_versions: Vec::new(),
         }]
     );
     let context = compiled.environment.session_context_arc();
@@ -256,6 +257,38 @@ async fn generation_compile_retains_its_environment_and_generation() {
         43,
         "each reload requests a fresh generation environment"
     );
+}
+
+#[tokio::test]
+async fn generation_environment_receives_immutable_local_resource_versions() {
+    let root =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/projects/phase9-files");
+    let factory = Arc::new(RecordingEnvironmentFactory::default());
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .environment_factory(factory.clone())
+        .build()
+        .unwrap();
+
+    compiler
+        .compile_file_generation_attempt(root.join("chart.avenger"), 9)
+        .await
+        .result
+        .expect("compile local-file fixture");
+    let requests = factory.requests.lock().unwrap();
+    let request = requests.last().expect("generation environment request");
+    assert_eq!(request.generation, 9);
+    assert!(request.local_resource_versions.iter().any(|version| {
+        version.path.ends_with("data/rows.csv")
+            && !version.recursive
+            && version.content_version.starts_with("sha256:")
+    }));
+    assert!(request.local_resource_versions.iter().any(|version| {
+        version.path.ends_with("data/parts")
+            && version.recursive
+            && (version.content_version.starts_with("directory-sha256:")
+                || version.content_version.starts_with("glob-sha256:"))
+    }));
 }
 
 #[test]

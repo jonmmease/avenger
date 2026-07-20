@@ -109,6 +109,20 @@ fn cached_context(config: EvaluationCacheConfig) -> (SessionContext, Arc<Evaluat
     (ctx, cache)
 }
 
+fn cached_context_with_provider(
+    cache: Arc<EvaluationCache>,
+    provider: Arc<dyn CacheVersionProvider>,
+) -> SessionContext {
+    let planner = EvaluationCachePlanner::new(cache).with_context_version_providers(vec![provider]);
+    let state = SessionStateBuilder::new()
+        .with_default_features()
+        .with_physical_optimizer_rule(Arc::new(planner))
+        .build();
+    let ctx = SessionContext::new_with_state(state);
+    register_fixtures(&ctx);
+    ctx
+}
+
 fn plain_context() -> SessionContext {
     let ctx = SessionContext::new();
     register_fixtures(&ctx);
@@ -223,6 +237,47 @@ async fn version_provider_invalidates_without_content_change() {
     assert!(
         cache.metrics().hits > hits_before,
         "new-version entry commits and hits again"
+    );
+}
+
+#[tokio::test]
+async fn context_provider_snapshots_are_isolated_and_precede_cache_providers() {
+    #[derive(Debug)]
+    struct FixedVersion(u128);
+    impl CacheVersionProvider for FixedVersion {
+        fn source_version(&self, _plan: &dyn ExecutionPlan) -> Option<CacheVersion> {
+            Some(CacheVersion(self.0))
+        }
+    }
+
+    let cache = EvaluationCache::new(EvaluationCacheConfig {
+        min_seen_count: 1,
+        ..EvaluationCacheConfig::default()
+    });
+    cache.register_version_provider(Arc::new(FixedVersion(99)));
+    let first = cached_context_with_provider(cache.clone(), Arc::new(FixedVersion(1)));
+    let second = cached_context_with_provider(cache.clone(), Arc::new(FixedVersion(2)));
+    let sql = "SELECT count(*) AS c FROM sales";
+
+    run(&first, sql).await;
+    run(&first, sql).await;
+    let warm = cache.metrics();
+    assert!(
+        warm.hits >= 1,
+        "first context should warm its key: {warm:?}"
+    );
+
+    run(&second, sql).await;
+    assert_eq!(
+        cache.metrics().hits,
+        warm.hits,
+        "a second context's provider snapshot must not cross-hit the first"
+    );
+
+    run(&first, sql).await;
+    assert!(
+        cache.metrics().hits > warm.hits,
+        "the first planner keeps its immutable provider snapshot"
     );
 }
 

@@ -32,8 +32,9 @@ pub use compiler::{
 };
 pub use options::{
     CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment,
-    CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest, CompilerOptions,
-    DefaultCompileEnvironmentFactory, TableFactory, TableFactoryError, TableFactoryRegistry,
+    CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest,
+    CompileEnvironmentResourceVersion, CompilerOptions, DefaultCompileEnvironmentFactory,
+    TableFactory, TableFactoryError, TableFactoryRegistry,
 };
 pub use schema::{LanguageHost, SemanticJsonSchema};
 pub use source_loader::{DefaultSourceLoader, SourceLoaderLimits};

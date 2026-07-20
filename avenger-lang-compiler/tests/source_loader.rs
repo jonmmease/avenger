@@ -130,6 +130,12 @@ async fn source_loader_missing_import_keeps_watch_anchor_and_repairs() {
     let compiler = Compiler::builder().project_root(&root).build().unwrap();
     let failed = compiler.load_file_project_attempt("chart.avenger").await;
     assert!(failed.result.is_err());
+    let rendered = failed.result.as_ref().unwrap_err().render();
+    assert!(rendered.contains("chart.avenger:"), "{rendered}");
+    assert!(
+        rendered.contains("import 'nested/badge.mark.avenger'"),
+        "{rendered}"
+    );
     let missing = failed
         .dependencies
         .iter()
