@@ -1,0 +1,11 @@
+avenger 1;
+
+schema tables as shared {
+  table inline as points {
+    values: [
+      { x: 1.0; y: 2.0; theta: 0.4; radius: 1.5; },
+      { x: 2.0; y: 3.5; theta: 1.2; radius: 2.5; },
+      { x: 3.0; y: 2.8; theta: 2.0; radius: 2.0; },
+    ];
+  }
+}

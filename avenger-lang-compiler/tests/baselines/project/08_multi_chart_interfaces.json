@@ -1,0 +1,45 @@
+{
+  "cartesian": {
+    "params": {
+      "point_size": {
+        "runtime_id": "state:11-compiled-plot-v1::param:0000000000000000",
+        "migration_key": "av1_9069f8351cd39f4eb3084a708e9ecdde"
+      }
+    },
+    "stores": {},
+    "selections": {},
+    "widget_exports": {},
+    "public_targets": {
+      "cartesian.point_size": "state:11-compiled-plot-v1::param:0000000000000000"
+    }
+  },
+  "geo": {
+    "params": {
+      "station_size": {
+        "runtime_id": "state:11-compiled-plot-v1::param:0000000000000000",
+        "migration_key": "av1_d8204d0ee33a46101b8bc54ba6a761ed"
+      }
+    },
+    "stores": {},
+    "selections": {},
+    "widget_exports": {},
+    "public_targets": {
+      "geo.station": "mark:11-compiled-plot-v1::0000000000000000",
+      "geo.station_size": "state:11-compiled-plot-v1::param:0000000000000000"
+    }
+  },
+  "polar": {
+    "params": {
+      "point_size": {
+        "runtime_id": "state:11-compiled-plot-v1::param:0000000000000000",
+        "migration_key": "av1_609f05dda3c903d3b0cb422d0b1880cb"
+      }
+    },
+    "stores": {},
+    "selections": {},
+    "widget_exports": {},
+    "public_targets": {
+      "polar.point_size": "state:11-compiled-plot-v1::param:0000000000000000"
+    }
+  }
+}

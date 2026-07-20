@@ -1,0 +1,14 @@
+avenger 1;
+
+import 'pass.transform.avenger';
+
+chart cartesian as cartesian {
+  param as point_size { type: float64; default: 64.0; }
+  data: { table: 'shared.points'; }
+  transform pass { }
+  mark symbol as points {
+    x: "x";
+    y: "y";
+    size: $point_size;
+  }
+}

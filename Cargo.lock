@@ -1299,6 +1299,7 @@ dependencies = [
  "avenger-lang-compiler",
  "avenger-lang-core",
  "datafusion",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
