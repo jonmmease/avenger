@@ -12,10 +12,12 @@ use std::{
 use arrow::datatypes::{DataType, Field, Schema};
 use async_trait::async_trait;
 use avenger_lang_compiler::{
-    CompileEnvironment, Compiler, ProjectCompilationMode, TableFactory, TableFactoryError,
+    CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
+    CompileEnvironmentRequest, Compiler, ProjectCompilationMode, TableFactory, TableFactoryError,
     TableFactoryRegistry,
 };
 use datafusion::datasource::{TableProvider, memory::MemTable};
+use datafusion::prelude::SessionContext;
 use tokio::sync::Notify;
 
 fn fixture() -> PathBuf {
@@ -338,10 +340,54 @@ async fn project_compile_parallel_and_sequential_artifacts_and_diagnostics_match
                 .collect::<Vec<_>>()
         }
     };
-    assert_eq!(
-        diagnostics(ProjectCompilationMode::Sequential).await,
-        diagnostics(ProjectCompilationMode::Parallel).await
+    let sequential = diagnostics(ProjectCompilationMode::Sequential).await;
+    let parallel = diagnostics(ProjectCompilationMode::Parallel).await;
+    assert_eq!(sequential.len(), 2);
+    assert_eq!(sequential, parallel);
+}
+
+struct FingerprintedEnvironmentFactory(String);
+
+impl CompileEnvironmentFactory for FingerprintedEnvironmentFactory {
+    fn create(
+        &self,
+        _request: &CompileEnvironmentRequest,
+    ) -> Result<CompileEnvironment, CompileEnvironmentError> {
+        Ok(CompileEnvironment::new(SessionContext::new())
+            .with_dependency_fingerprint(self.0.clone()))
+    }
+}
+
+#[tokio::test]
+async fn project_compile_environment_snapshot_participates_in_every_chart_key() {
+    let root = fixture();
+    let compile = |fingerprint: &str| {
+        let root = root.clone();
+        let fingerprint = fingerprint.to_owned();
+        async move {
+            Compiler::builder()
+                .project_root(&root)
+                .environment_factory(Arc::new(FingerprintedEnvironmentFactory(fingerprint)))
+                .build()
+                .unwrap()
+                .compile_project(&root)
+                .await
+                .unwrap()
+        }
+    };
+    let first = compile("environment-snapshot-a").await;
+    let second = compile("environment-snapshot-b").await;
+    assert_ne!(first.project_fingerprint, second.project_fingerprint);
+    assert_ne!(
+        first.dependency_fingerprints.compile_environment,
+        second.dependency_fingerprints.compile_environment
     );
+    for (id, chart) in &first.charts {
+        assert_ne!(
+            chart.dependency_fingerprint, second.charts[id].dependency_fingerprint,
+            "environment change must invalidate {id:?}"
+        );
+    }
 }
 
 struct BlockingTableFactory {
