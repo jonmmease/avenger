@@ -467,9 +467,115 @@ fn assert_case_scene_contract(case: &FixtureCase, scene: &SceneGraph) -> Result<
                 ));
             }
         }
+        "09_native_coordinate_families/polar.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            let center = [scene.width * 0.5, scene.height * 0.5];
+            if positions.len() != 1 || distance(positions[0], center) < scene.width * 0.2 {
+                return Err(format!(
+                    "singleton polar radius must place its symbol away from the origin; got {positions:?} around {center:?}"
+                ));
+            }
+        }
+        "09_native_coordinate_families/concat.avenger" => {
+            let positions = scene_symbol_positions(scene);
+            if positions.len() != 2
+                || !positions
+                    .iter()
+                    .any(|position| position[0] > scene.width * 0.9)
+            {
+                return Err(format!(
+                    "concat polar child must place its singleton radial symbol away from the right-child origin; got {positions:?}"
+                ));
+            }
+        }
+        "09_native_coordinate_families/subplot.avenger" => {
+            let Some((origin, size)) = positioned_subplot_frame(scene) else {
+                return Err("subplot scene must contain a named positioned child frame".into());
+            };
+            let frame_center = [origin[0] + size[0] * 0.5, origin[1] + size[1] * 0.5];
+            let scene_center = [scene.width * 0.5, scene.height * 0.5];
+            if (frame_center[0] - scene_center[0]).abs() > 1.0
+                || (frame_center[1] - scene_center[1]).abs() > 1.0
+                || size != [120.0, 90.0]
+            {
+                return Err(format!(
+                    "120-by-90 subplot must be centered at its evaluated parent position; got origin {origin:?}, size {size:?}, scene center {scene_center:?}"
+                ));
+            }
+            let positions = scene_symbol_positions(scene);
+            if positions.len() != 1 || distance(positions[0], frame_center) < size[1] * 0.25 {
+                return Err(format!(
+                    "subplot polar radius must place its symbol away from the child origin; got {positions:?} around {frame_center:?}"
+                ));
+            }
+        }
         _ => {}
     }
     Ok(())
+}
+
+fn scene_symbol_positions(scene: &SceneGraph) -> Vec<[f32; 2]> {
+    let mut positions = Vec::new();
+    for mark in &scene.marks {
+        collect_symbol_positions(mark, scene.origin, &mut positions);
+    }
+    positions
+}
+
+fn collect_symbol_positions(mark: &SceneMark, origin: [f32; 2], positions: &mut Vec<[f32; 2]>) {
+    match mark {
+        SceneMark::Symbol(symbol) => {
+            positions.extend(
+                symbol
+                    .x_iter()
+                    .zip(symbol.y_iter())
+                    .map(|(x, y)| [origin[0] + x, origin[1] + y]),
+            );
+        }
+        SceneMark::Group(group) => {
+            let child_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
+            for child in &group.marks {
+                collect_symbol_positions(child, child_origin, positions);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn positioned_subplot_frame(scene: &SceneGraph) -> Option<([f32; 2], [f32; 2])> {
+    scene
+        .marks
+        .iter()
+        .find_map(|mark| find_positioned_subplot_frame(mark, scene.origin))
+}
+
+fn find_positioned_subplot_frame(
+    mark: &SceneMark,
+    origin: [f32; 2],
+) -> Option<([f32; 2], [f32; 2])> {
+    let SceneMark::Group(group) = mark else {
+        return None;
+    };
+    let group_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];
+    if group.name.starts_with("cartesian_subplot_") {
+        let frame = group
+            .marks
+            .iter()
+            .filter_map(|mark| match mark {
+                SceneMark::Group(group) => group.pattern_reference_frame.as_ref(),
+                _ => None,
+            })
+            .next()?;
+        return Some((group_origin, [frame.width, frame.height]));
+    }
+    group
+        .marks
+        .iter()
+        .find_map(|child| find_positioned_subplot_frame(child, group_origin))
+}
+
+fn distance(left: [f32; 2], right: [f32; 2]) -> f32 {
+    ((left[0] - right[0]).powi(2) + (left[1] - right[1]).powi(2)).sqrt()
 }
 
 fn collect_facet_cell_symbol_counts(mark: &SceneMark, counts: &mut Vec<usize>) {

@@ -3902,7 +3902,27 @@ impl<'a> Resolver<'a> {
     ) {
         match shape {
             ValueShape::SqlExpression => {
-                if matches!(source, Value::Call { .. })
+                if let (
+                    Value::Block {
+                        head: Some(source_head),
+                        ..
+                    },
+                    ResolvedValue::Object {
+                        head: Some(resolved_head),
+                        ..
+                    },
+                ) = (source, &mut *resolved)
+                {
+                    self.normalize_definition_arguments(
+                        scope,
+                        source_head,
+                        resolved_head,
+                        &ValueShape::SqlExpression,
+                        span,
+                        in_event,
+                        owner,
+                    );
+                } else if matches!(source, Value::Call { .. })
                     && let Ok(expression) =
                         crate::ast::SqlExpression::parse(&crate::print::print_value(source))
                 {

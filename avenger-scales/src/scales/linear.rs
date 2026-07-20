@@ -106,8 +106,10 @@ impl LinearScale {
     ) -> Result<(f32, f32), AvengerScaleError> {
         let (mut domain_start, mut domain_end) = config.domain;
 
-        // Early return for degenerate cases
-        if domain_start == domain_end || domain_start.is_nan() || domain_end.is_nan() {
+        // NaN domains cannot be normalized. A finite singleton must continue:
+        // `zero: true` can still turn a positive or negative singleton into a
+        // meaningful interval such as [0, value].
+        if domain_start.is_nan() || domain_end.is_nan() {
             return Ok(config.domain);
         }
 
@@ -1411,6 +1413,18 @@ mod tests {
         assert_approx_eq!(f32, result.0, 0.0);
         assert_approx_eq!(f32, result.1, 10.0);
 
+        // Positive singleton extends down to zero.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (2.0, 2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f32, result.0, 0.0);
+        assert_approx_eq!(f32, result.1, 2.0);
+
         // Both negative
         let result = LinearScale::apply_normalization(NormalizationConfig {
             domain: (-10.0, -2.0),
@@ -1421,6 +1435,18 @@ mod tests {
             nice: None,
         })?;
         assert_approx_eq!(f32, result.0, -10.0);
+        assert_approx_eq!(f32, result.1, 0.0);
+
+        // Negative singleton extends up to zero.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (-2.0, -2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f32, result.0, -2.0);
         assert_approx_eq!(f32, result.1, 0.0);
 
         // Spans zero (no change)
@@ -1435,6 +1461,18 @@ mod tests {
         assert_approx_eq!(f32, result.0, -5.0);
         assert_approx_eq!(f32, result.1, 5.0);
 
+        // A zero singleton is already the zero-inclusive interval.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (0.0, 0.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&true.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f32, result.0, 0.0);
+        assert_approx_eq!(f32, result.1, 0.0);
+
         // Zero false (no change)
         let result = LinearScale::apply_normalization(NormalizationConfig {
             domain: (2.0, 10.0),
@@ -1446,6 +1484,18 @@ mod tests {
         })?;
         assert_approx_eq!(f32, result.0, 2.0);
         assert_approx_eq!(f32, result.1, 10.0);
+
+        // A singleton remains degenerate when zero extension is disabled.
+        let result = LinearScale::apply_normalization(NormalizationConfig {
+            domain: (2.0, 2.0),
+            range: (0.0, 1.0),
+            clip_padding_lower: None,
+            clip_padding_upper: None,
+            zero: Some(&false.into()),
+            nice: None,
+        })?;
+        assert_approx_eq!(f32, result.0, 2.0);
+        assert_approx_eq!(f32, result.1, 2.0);
 
         Ok(())
     }

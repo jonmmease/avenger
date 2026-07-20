@@ -124,6 +124,32 @@ async fn test_symbol_radius_expression() {
 }
 
 #[tokio::test]
+async fn test_polar_symbol_radius_expression_only_pads_r() {
+    let ctx = SessionContext::new();
+    let df = ctx.read_empty().unwrap();
+    let symbol = Symbol::<Polar>::new()
+        .data(df)
+        .r(col("r"))
+        .theta(col("theta"));
+    let renderer = symbol.compile_untransformed(&ctx).await.unwrap();
+    let resolve_channel = |channel: &str| match channel {
+        "size" => lit(80.0),
+        "stroke_width" => lit(1.0),
+        _ => lit(datafusion::scalar::ScalarValue::Null),
+    };
+
+    assert!(matches!(
+        renderer.radius_expression("r", &resolve_channel),
+        Some(RadiusExpression::Symmetric(_))
+    ));
+    assert!(
+        renderer
+            .radius_expression("theta", &resolve_channel)
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn test_symbol_radius_expression_with_mapped_size() {
     use datafusion::arrow::array::Float64Array;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};

@@ -646,7 +646,9 @@ async fn native_surface_positioned_subplot_marks_embed_mixed_coordinate_plots() 
     for (coordinate, placement, child_coordinate, child_channels) in [
         (
             "cartesian",
-            r#"x: avg("x"); y: avg("y"); key: "category"; width: 120; height: 90;"#,
+            r#"x: avg("x") { scale: linear { domain: [0.0, 2.0]; } }
+               y: avg("y") { scale: linear { domain: [0.0, 4.0]; } }
+               key: "category"; width: 120; height: 90;"#,
             "polar",
             r#"r: "r"; theta: "theta";"#,
         ),

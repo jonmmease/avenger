@@ -172,7 +172,7 @@
       "sources": [
         "09_native_coordinate_families/concat.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/facet.avenger",
@@ -204,7 +204,7 @@
       "sources": [
         "09_native_coordinate_families/polar.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/repeat.avenger",
@@ -220,7 +220,7 @@
       "sources": [
         "09_native_coordinate_families/subplot.avenger"
       ],
-      "review": "known_incorrect"
+      "review": "reviewed"
     },
     {
       "root": "09_native_coordinate_families/treemap.avenger",

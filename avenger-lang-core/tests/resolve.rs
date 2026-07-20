@@ -151,6 +151,49 @@ chart cartesian {
 }
 
 #[tokio::test]
+async fn resolved_configured_value_normalizes_a_function_head_as_sql() {
+    let valid_project = project(
+        &[(
+            "configured_aggregate_channel.avenger",
+            r#"
+avenger 1;
+chart cartesian {
+  data: { values: [{ x: 1.0; y: 2.0; }]; }
+  mark subplot {
+    x: avg("x") { scale: linear { domain: [0.0, 2.0]; } }
+    y: avg("y");
+    plot polar { mark symbol { r: 1.0; theta: 0.0; } }
+  }
+}
+"#,
+        )],
+        "configured_aggregate_channel.avenger",
+    )
+    .await;
+    let resolved = resolve_project(&valid_project, &bootstrap_schema())
+        .result
+        .unwrap();
+    let chart = resolved
+        .files
+        .values()
+        .flat_map(|file| &file.roots)
+        .find(|declaration| declaration.keyword == "chart")
+        .unwrap();
+    let mark = chart
+        .children
+        .iter()
+        .find(|declaration| declaration.keyword == "mark")
+        .unwrap();
+    let avenger_lang_core::ResolvedValue::Object { head, .. } = &mark.properties["x"] else {
+        panic!("configured aggregate channel must resolve to an object")
+    };
+    assert!(matches!(
+        head.as_deref(),
+        Some(avenger_lang_core::ResolvedValue::Expression(_))
+    ));
+}
+
+#[tokio::test]
 async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
     let project = project(
         &[(
