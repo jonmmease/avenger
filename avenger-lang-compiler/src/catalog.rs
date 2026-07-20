@@ -29,12 +29,14 @@ use sqlparser::{
 use crate::{
     AnalyzedColumn, AnalyzedDataset, CatalogFactoryRegistry, CompileEnvironment, DatasetLineage,
     DatasetLineageIndex, DatasetProvenance, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
-    ProjectDatasetId, TableFactoryRegistry, lowering::physical_data_type,
+    DependencyFingerprint, ProjectDatasetId, TableFactoryRegistry, lowering::physical_data_type,
 };
 
 pub(crate) struct CatalogAnalysis {
     pub datasets: DatasetSchemaIndex,
     pub lineage: DatasetLineageIndex,
+    pub dataset_fingerprints: BTreeMap<ProjectDatasetId, DependencyFingerprint>,
+    pub table_fingerprints: BTreeMap<DeclarationId, DependencyFingerprint>,
     pub dependency_fingerprint: String,
 }
 
@@ -52,8 +54,7 @@ pub(crate) async fn register_and_analyze_catalog(
     options: CatalogOptions<'_>,
 ) -> Result<CatalogAnalysis, Diagnostic> {
     let context = environment.session_context();
-    let mut provider_fingerprints =
-        register_external_catalogs(project, environment, &options).await?;
+    let external_fingerprints = register_external_catalogs(project, environment, &options).await?;
 
     let declarations = declaration_index(project);
     let table_by_id = project
@@ -65,8 +66,18 @@ pub(crate) async fn register_and_analyze_catalog(
     let mut stages = BTreeMap::<DeclarationId, DatasetStageId>::new();
     let mut datasets = DatasetSchemaIndex::default();
     let mut lineage = DatasetLineageIndex::default();
+    let mut dataset_fingerprints = BTreeMap::new();
+    let mut table_fingerprints = BTreeMap::new();
 
-    analyze_external_catalogs(project, context, &mut datasets, &mut lineage).await?;
+    analyze_external_catalogs(
+        project,
+        context,
+        &external_fingerprints,
+        &mut datasets,
+        &mut lineage,
+        &mut dataset_fingerprints,
+    )
+    .await?;
 
     for id in &project.table_order {
         let Some(table) = table_by_id.get(id).copied() else {
@@ -83,6 +94,7 @@ pub(crate) async fn register_and_analyze_catalog(
         ) {
             provider = Arc::new(SessionMaterializedTable::new(provider));
         }
+        let mut provider_snapshot = None;
         if !matches!(
             table.kind.as_str(),
             "inline" | "sql" | "csv" | "json" | "parquet" | "arrow" | "ipc"
@@ -101,7 +113,15 @@ pub(crate) async fn register_and_analyze_catalog(
                     declaration_diagnostic(declaration, "AVENGER-DATA-047", error.to_string())
                 })?
             {
-                provider_fingerprints.push(format!("table:{}:{fingerprint}", table.path.join(".")));
+                provider_snapshot = Some(hash_parts(
+                    "avenger-table-provider-v1",
+                    [provider_options.to_string().as_str(), fingerprint.as_str()],
+                ));
+            } else {
+                provider_snapshot = Some(hash_parts(
+                    "avenger-table-provider-v1",
+                    [provider_options.to_string().as_str()],
+                ));
             }
         }
         register_table(context, &table.path, Arc::clone(&provider))
@@ -127,9 +147,18 @@ pub(crate) async fn register_and_analyze_catalog(
             })
             .collect();
         let schema = Arc::new(dataframe.schema().as_arrow().clone());
+        let table_fingerprint = table_dependency_fingerprint(
+            project,
+            declaration,
+            table,
+            &table_fingerprints,
+            logical_plan_fingerprint.as_deref(),
+            provider_snapshot.as_deref(),
+            &options,
+        )?;
         datasets
             .insert(AnalyzedDataset {
-                id: dataset_id,
+                id: dataset_id.clone(),
                 stage: stage.clone(),
                 provenance: DatasetProvenance {
                     declaration_span: table.span,
@@ -146,6 +175,7 @@ pub(crate) async fn register_and_analyze_catalog(
                 logical_plan_fingerprint,
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
+        dataset_fingerprints.insert(dataset_id, table_fingerprint.clone());
         let upstream_stages = table
             .dependencies
             .iter()
@@ -161,6 +191,7 @@ pub(crate) async fn register_and_analyze_catalog(
             )
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
         stages.insert(id.clone(), stage);
+        table_fingerprints.insert(id.clone(), table_fingerprint);
     }
 
     // Imported packs keep their declaration-local registrations for planning
@@ -187,7 +218,7 @@ pub(crate) async fn register_and_analyze_catalog(
         let stage = DatasetStageId::new(dataset_id.clone(), 0);
         datasets
             .insert(AnalyzedDataset {
-                id: dataset_id,
+                id: dataset_id.clone(),
                 stage: stage.clone(),
                 provenance: DatasetProvenance {
                     declaration_span: table.span,
@@ -213,19 +244,22 @@ pub(crate) async fn register_and_analyze_catalog(
                 logical_plan_fingerprint: None,
             })
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
+        if let Some(fingerprint) = table_fingerprints.get(&table.id).cloned() {
+            dataset_fingerprints.insert(dataset_id, fingerprint);
+        }
         lineage
             .insert(stage, DatasetLineage::default())
             .map_err(|error| catalog_diagnostic(table, "AVENGER-DATA-005", error.to_string()))?;
     }
 
-    provider_fingerprints.sort();
+    let dependency_fingerprint =
+        catalog_dependency_fingerprint(environment.dependency_fingerprint(), &dataset_fingerprints);
     Ok(CatalogAnalysis {
         datasets,
         lineage,
-        dependency_fingerprint: catalog_dependency_fingerprint(
-            &project.source_fingerprint,
-            &provider_fingerprints,
-        ),
+        dataset_fingerprints,
+        table_fingerprints,
+        dependency_fingerprint,
     })
 }
 
@@ -233,8 +267,8 @@ async fn register_external_catalogs(
     project: &ResolvedProject,
     environment: &CompileEnvironment,
     options: &CatalogOptions<'_>,
-) -> Result<Vec<String>, Diagnostic> {
-    let mut fingerprints = Vec::new();
+) -> Result<BTreeMap<String, String>, Diagnostic> {
+    let mut fingerprints = BTreeMap::new();
     for declaration in project
         .files
         .values()
@@ -292,15 +326,21 @@ async fn register_external_catalogs(
             .map_err(|error| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-021", error.to_string())
             })?;
-        if let Some(fingerprint) = factory
+        let provider_fingerprint = factory
             .dependency_fingerprint(&provider_options, environment)
             .await
             .map_err(|error| {
                 declaration_diagnostic(declaration, "AVENGER-DATA-027", error.to_string())
-            })?
-        {
-            fingerprints.push(format!("catalog:{name}:{fingerprint}"));
-        }
+            })?;
+        fingerprints.insert(
+            name.to_owned(),
+            external_catalog_fingerprint(
+                declaration,
+                &provider_options,
+                provider_fingerprint.as_deref(),
+                environment.dependency_fingerprint(),
+            ),
+        );
         if environment
             .session_context()
             .register_catalog(name, provider)
@@ -316,14 +356,103 @@ async fn register_external_catalogs(
     Ok(fingerprints)
 }
 
-fn catalog_dependency_fingerprint(source: &str, providers: &[String]) -> String {
+fn catalog_dependency_fingerprint(
+    environment: &str,
+    datasets: &BTreeMap<ProjectDatasetId, DependencyFingerprint>,
+) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(b"avenger-catalog-analysis-v1\0");
-    hasher.update(source.as_bytes());
-    for provider in providers {
-        hasher.update(b"\0provider\0");
-        hasher.update(provider.as_bytes());
+    hasher.update(environment.as_bytes());
+    for (dataset, fingerprint) in datasets {
+        hasher.update(b"\0dataset\0");
+        hasher.update(dataset.as_str().as_bytes());
+        hasher.update(b"\0");
+        hasher.update(fingerprint.as_str().as_bytes());
+    }
+    format!("sha256:{:x}", hasher.finalize())
+}
+
+fn external_catalog_fingerprint(
+    declaration: &ResolvedDeclaration,
+    options: &serde_json::Value,
+    provider_snapshot: Option<&str>,
+    environment: &str,
+) -> String {
+    let declaration = serde_json::to_string(declaration).unwrap_or_default();
+    let options = options.to_string();
+    hash_parts(
+        "avenger-external-catalog-v1",
+        [
+            declaration.as_str(),
+            options.as_str(),
+            provider_snapshot.unwrap_or(""),
+            environment,
+        ],
+    )
+}
+
+fn table_dependency_fingerprint(
+    project: &ResolvedProject,
+    declaration: &ResolvedDeclaration,
+    table: &ResolvedCatalogTable,
+    dependencies: &BTreeMap<DeclarationId, DependencyFingerprint>,
+    logical_plan: Option<&str>,
+    provider_snapshot: Option<&str>,
+    options: &CatalogOptions<'_>,
+) -> Result<DependencyFingerprint, Diagnostic> {
+    let declaration_json = serde_json::to_string(declaration).map_err(|error| {
+        declaration_diagnostic(declaration, "AVENGER-DATA-048", error.to_string())
+    })?;
+    let mut parts = vec![
+        table.path.join("."),
+        table.kind.clone(),
+        declaration_json,
+        logical_plan.unwrap_or("").to_owned(),
+        provider_snapshot.unwrap_or("").to_owned(),
+        options
+            .capabilities
+            .object_store_schemes
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\0"),
+    ];
+    for dependency in &table.dependencies {
+        if let Some(fingerprint) = dependencies.get(dependency) {
+            parts.push(fingerprint.as_str().to_owned());
+        }
+    }
+    if matches!(
+        table.kind.as_str(),
+        "csv" | "json" | "parquet" | "arrow" | "ipc"
+    ) {
+        let path = table_path(project, declaration, options)?;
+        let resource = if path.contains("://") {
+            format!("object:{path}")
+        } else if path.contains(['*', '?', '[']) {
+            crate::compiler::glob_content_version(std::path::Path::new(&path))
+                .map_err(|error| declaration_diagnostic(declaration, "AVENGER-DATA-049", error))?
+        } else {
+            crate::compiler::resource_content_version(std::path::Path::new(&path)).map_err(
+                |error| declaration_diagnostic(declaration, "AVENGER-DATA-049", error.to_string()),
+            )?
+        };
+        parts.push(resource);
+    }
+    Ok(DependencyFingerprint::new(hash_parts(
+        "avenger-catalog-table-v1",
+        parts.iter().map(String::as_str),
+    )))
+}
+
+fn hash_parts<'a>(domain: &str, parts: impl IntoIterator<Item = &'a str>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(domain.as_bytes());
+    for part in parts {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
     }
     format!("sha256:{:x}", hasher.finalize())
 }
@@ -331,8 +460,10 @@ fn catalog_dependency_fingerprint(source: &str, providers: &[String]) -> String 
 async fn analyze_external_catalogs(
     project: &ResolvedProject,
     context: &SessionContext,
+    external_fingerprints: &BTreeMap<String, String>,
     datasets: &mut DatasetSchemaIndex,
     lineage: &mut DatasetLineageIndex,
+    dataset_fingerprints: &mut BTreeMap<ProjectDatasetId, DependencyFingerprint>,
 ) -> Result<(), Diagnostic> {
     for declaration in project
         .files
@@ -392,7 +523,7 @@ async fn analyze_external_catalogs(
                 let stage = DatasetStageId::new(dataset_id.clone(), 0);
                 datasets
                     .insert(AnalyzedDataset {
-                        id: dataset_id,
+                        id: dataset_id.clone(),
                         stage: stage.clone(),
                         provenance: DatasetProvenance {
                             declaration_span: declaration.span,
@@ -417,6 +548,17 @@ async fn analyze_external_catalogs(
                     .map_err(|error| {
                         declaration_diagnostic(projection, "AVENGER-DATA-026", error.to_string())
                     })?;
+                let catalog_fingerprint = external_fingerprints
+                    .get(catalog_name)
+                    .map(String::as_str)
+                    .unwrap_or("external-catalog-without-provider-fingerprint");
+                dataset_fingerprints.insert(
+                    dataset_id,
+                    DependencyFingerprint::new(hash_parts(
+                        "avenger-external-dataset-v1",
+                        [catalog_fingerprint, qualified.as_str()],
+                    )),
+                );
                 lineage
                     .insert(stage, DatasetLineage::default())
                     .map_err(|error| {
@@ -1079,6 +1221,13 @@ fn resolve_table_name<'a>(
         .catalog_tables
         .get(&normalized)
         .or_else(|| imported_table_aliases(project).get(&normalized).copied())
+}
+
+pub(crate) fn resolved_table_for_name<'a>(
+    project: &'a ResolvedProject,
+    name: &str,
+) -> Option<&'a ResolvedCatalogTable> {
+    resolve_table_name(project, &[], name)
 }
 
 fn imported_table_aliases(project: &ResolvedProject) -> BTreeMap<String, &ResolvedCatalogTable> {

@@ -12,10 +12,11 @@ pub use avenger_lang_compiler::{
     CatalogFactoryError, CatalogFactoryRegistry, CompileAttempt, CompileEnvironment,
     CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest, CompileFailure,
     CompiledChartArtifact, CompiledChartGeneration, CompiledChartInterface, CompiledDependency,
-    CompiledProject, Compiler, CompilerBuildError, CompilerBuilder, CompilerOptions,
-    DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DefaultSourceLoader,
-    DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis,
-    ProjectChartId, ProjectDatasetId, ProjectFingerprint, SourceLoaderLimits, TableFactory,
+    CompiledProject, Compiler, CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot,
+    CompilerOptions, DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind,
+    DefaultSourceLoader, DependencyFingerprint, DependencyRole, DiscoveredDependencySet,
+    LanguageHost, ProjectAnalysis, ProjectChartId, ProjectCompilationMode, ProjectDatasetId,
+    ProjectDependencyFingerprints, ProjectFingerprint, SourceLoaderLimits, TableFactory,
     TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{

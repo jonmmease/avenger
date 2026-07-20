@@ -23,11 +23,12 @@ pub use analysis::{
 pub use artifact::{
     ArtifactCacheKey, ArtifactSerializationError, COMPILED_ARTIFACT_FORMAT_MAJOR,
     CompiledChartArtifact, CompiledChartInterface, CompiledProject, DependencyFingerprint,
-    InterfaceStateBinding, ProjectChartId, ProjectFingerprint,
+    InterfaceStateBinding, ProjectChartId, ProjectDependencyFingerprints, ProjectFingerprint,
 };
 pub use compiler::{
     CompileAttempt, CompileFailure, CompiledChartGeneration, CompiledDependency, Compiler,
-    CompilerBuildError, CompilerBuilder, DependencyRole, DiscoveredDependencySet, ExpandedSource,
+    CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot, DependencyRole,
+    DiscoveredDependencySet, ExpandedSource, ProjectCompilationMode,
 };
 pub use options::{
     CatalogFactory, CatalogFactoryError, CatalogFactoryRegistry, CompileEnvironment,

@@ -8,13 +8,26 @@ use datafusion::{catalog::CatalogProvider, datasource::TableProvider, prelude::S
 #[derive(Clone)]
 pub struct CompileEnvironment {
     session_context: Arc<SessionContext>,
+    dependency_fingerprint: String,
 }
 
 impl CompileEnvironment {
     pub fn new(session_context: SessionContext) -> Self {
         Self {
             session_context: Arc::new(session_context),
+            dependency_fingerprint: "avenger-default-compile-environment-v1".to_owned(),
         }
+    }
+
+    /// Attach an immutable host snapshot identity (for example the installed
+    /// object-store configuration and shared physical-plan-cache version).
+    pub fn with_dependency_fingerprint(mut self, fingerprint: impl Into<String>) -> Self {
+        self.dependency_fingerprint = fingerprint.into();
+        self
+    }
+
+    pub fn dependency_fingerprint(&self) -> &str {
+        &self.dependency_fingerprint
     }
 
     pub fn session_context(&self) -> &SessionContext {
@@ -23,6 +36,16 @@ impl CompileEnvironment {
 
     pub fn session_context_arc(&self) -> Arc<SessionContext> {
         Arc::clone(&self.session_context)
+    }
+
+    /// Fork one chart-local session from the immutable project generation.
+    /// Catalog providers and runtime/cache configuration are cloned from the
+    /// base state, while chart-local temporary registrations remain isolated.
+    pub fn fork(&self) -> Self {
+        Self {
+            session_context: Arc::new(SessionContext::new_with_state(self.session_context.state())),
+            dependency_fingerprint: self.dependency_fingerprint.clone(),
+        }
     }
 }
 
@@ -99,6 +122,10 @@ impl CatalogFactoryRegistry {
     pub fn get(&self, kind: &str) -> Option<&Arc<dyn CatalogFactory>> {
         self.factories.get(kind)
     }
+
+    pub fn kinds(&self) -> impl Iterator<Item = &str> {
+        self.factories.keys().map(String::as_str)
+    }
 }
 
 impl std::fmt::Debug for CatalogFactoryRegistry {
@@ -157,6 +184,10 @@ impl TableFactoryRegistry {
 
     pub fn get(&self, kind: &str) -> Option<&Arc<dyn TableFactory>> {
         self.factories.get(kind)
+    }
+
+    pub fn kinds(&self) -> impl Iterator<Item = &str> {
+        self.factories.keys().map(String::as_str)
     }
 }
 

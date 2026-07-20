@@ -3,13 +3,15 @@ use std::{collections::BTreeMap, fmt, sync::Arc};
 use avenger_chart::plot::CompiledPlot;
 use avenger_chart_core::StateMigrationKey;
 use avenger_chart_lang_registry::{NativeRegistry, NativeRegistryProfileId};
-use avenger_lang_core::{SourceId, SourceMap};
+use avenger_lang_core::{ProjectFileId, SourceId, SourceMap};
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 macro_rules! string_id {
     ($name:ident) => {
-        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(
+            Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        )]
         #[serde(transparent)]
         pub struct $name(String);
 
@@ -28,6 +30,19 @@ macro_rules! string_id {
 string_id!(ProjectChartId);
 string_id!(ProjectFingerprint);
 string_id!(DependencyFingerprint);
+
+/// Reviewed fingerprint layers used by project analysis and incremental chart
+/// compilation. These values describe immutable inputs; they never retain a
+/// DataFusion session or provider registry.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectDependencyFingerprints {
+    pub sources: BTreeMap<ProjectFileId, DependencyFingerprint>,
+    pub definition_closures: BTreeMap<ProjectChartId, DependencyFingerprint>,
+    pub datasets: BTreeMap<crate::ProjectDatasetId, DependencyFingerprint>,
+    pub data_catalog: DependencyFingerprint,
+    pub compile_environment: DependencyFingerprint,
+    pub charts: BTreeMap<ProjectChartId, DependencyFingerprint>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InterfaceStateBinding {
@@ -254,6 +269,7 @@ pub struct CompiledProject {
     pub sources: SourceMap,
     pub native_registry_profile: NativeRegistryProfileId,
     pub project_fingerprint: ProjectFingerprint,
+    pub dependency_fingerprints: ProjectDependencyFingerprints,
 }
 
 impl CompiledProject {

@@ -64,10 +64,7 @@ use datafusion::{
 };
 use indexmap::IndexMap;
 
-use crate::{
-    CompiledChartArtifact, CompiledProject, DependencyFingerprint, ProjectChartId,
-    ProjectFingerprint,
-};
+use crate::{CompiledChartArtifact, DependencyFingerprint, ProjectChartId};
 
 pub(crate) struct LoweredProject {
     pub charts: Vec<LoweredChart>,
@@ -107,6 +104,33 @@ pub(crate) async fn lower_project(
     let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
     match lowerer.lower().await {
         Ok(project) => Ok(project),
+        Err(mut diagnostic) => {
+            project
+                .expansion_source_map
+                .remap_diagnostic(&mut diagnostic);
+            Err(vec![diagnostic])
+        }
+    }
+}
+
+/// Lower one chart root in a chart-local session cloned from the project's
+/// analyzed catalog generation. This is the unit used by Phase 10's
+/// deterministic sequential/parallel scheduler and artifact cache.
+pub(crate) async fn lower_project_chart(
+    project: &ResolvedProject,
+    chart_id: &DeclarationId,
+    registry: &NativeRegistry,
+    context: &SessionContext,
+    source_loader: &dyn SourceLoader,
+    capabilities: &ImportCapabilities,
+) -> Result<LoweredChart, Vec<Diagnostic>> {
+    let mut lowerer = ProjectLowerer::new(project, registry, context, source_loader, capabilities);
+    let result = match lowerer.lower_state() {
+        Ok(()) => lowerer.lower_one(chart_id).await,
+        Err(diagnostic) => Err(diagnostic),
+    };
+    match result {
+        Ok(chart) => Ok(chart),
         Err(mut diagnostic) => {
             project
                 .expansion_source_map
@@ -206,35 +230,7 @@ impl<'a> ProjectLowerer<'a> {
         self.lower_state()?;
         let mut charts = Vec::new();
         for chart_id in &self.project.charts {
-            let declaration = find_declaration(self.project, chart_id).ok_or_else(|| {
-                diagnostic(
-                    SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
-                    "AVENGER-LOWER-001",
-                    "resolved chart declaration is missing",
-                    chart_id.to_string(),
-                )
-            })?;
-            self.active_chart_path = declaration
-                .public_path
-                .clone()
-                .or_else(|| declaration.name.clone());
-            self.active_chart_id = Some(declaration.id.clone());
-            let plot = self.lower_chart(declaration).await?;
-            let compiled = self
-                .registry
-                .compile_root(&plot, self.context)
-                .await
-                .map_err(|error| lowerer_error(declaration, error.to_string()))?;
-            let mut artifact = CompiledChartArtifact::new(
-                ProjectChartId::new(declaration.id.as_str()),
-                declaration.name.clone(),
-                declaration.source,
-                Arc::new(compiled),
-                self.registry.profile_id().clone(),
-                DependencyFingerprint::new(self.project.source_fingerprint.clone()),
-            );
-            self.enrich_interface(&mut artifact, declaration);
-            charts.push(LoweredChart { artifact });
+            charts.push(self.lower_one(chart_id).await?);
         }
         self.active_chart_path = None;
         self.active_chart_id = None;
@@ -242,6 +238,40 @@ impl<'a> ProjectLowerer<'a> {
             charts,
             analysis_schemas: std::mem::take(&mut self.analysis_schemas),
         })
+    }
+
+    async fn lower_one(&mut self, chart_id: &DeclarationId) -> Result<LoweredChart, Diagnostic> {
+        let declaration = find_declaration(self.project, chart_id).ok_or_else(|| {
+            diagnostic(
+                SourceSpan::empty(avenger_lang_core::SourceId::new(0), 0),
+                "AVENGER-LOWER-001",
+                "resolved chart declaration is missing",
+                chart_id.to_string(),
+            )
+        })?;
+        self.active_chart_path = declaration
+            .public_path
+            .clone()
+            .or_else(|| declaration.name.clone());
+        self.active_chart_id = Some(declaration.id.clone());
+        let plot = self.lower_chart(declaration).await?;
+        let compiled = self
+            .registry
+            .compile_root(&plot, self.context)
+            .await
+            .map_err(|error| lowerer_error(declaration, error.to_string()))?;
+        let mut artifact = CompiledChartArtifact::new(
+            ProjectChartId::new(declaration.id.as_str()),
+            declaration.name.clone(),
+            declaration.source,
+            Arc::new(compiled),
+            self.registry.profile_id().clone(),
+            DependencyFingerprint::new(self.project.source_fingerprint.clone()),
+        );
+        self.enrich_interface(&mut artifact, declaration);
+        self.active_chart_path = None;
+        self.active_chart_id = None;
+        Ok(LoweredChart { artifact })
     }
 
     fn lower_state(&mut self) -> Result<(), Diagnostic> {
@@ -4796,31 +4826,6 @@ fn logical_plan_fingerprint(data: &DataFrame) -> String {
     use sha2::{Digest, Sha256};
     let plan = data.logical_plan().display_indent_schema().to_string();
     format!("sha256:{:x}", Sha256::digest(plan.as_bytes()))
-}
-
-pub(crate) fn compiled_project_from_lowered(
-    project: &ResolvedProject,
-    registry: &NativeRegistry,
-    lowered: LoweredProject,
-) -> CompiledProject {
-    let project_fingerprint = lowered
-        .charts
-        .first()
-        .map(|chart| {
-            ProjectFingerprint::new(chart.artifact.dependency_fingerprint.as_str().to_owned())
-        })
-        .unwrap_or_else(|| ProjectFingerprint::new(project.source_fingerprint.clone()));
-    let charts = lowered
-        .charts
-        .into_iter()
-        .map(|chart| (chart.artifact.id.clone(), chart.artifact))
-        .collect();
-    CompiledProject {
-        charts,
-        sources: project.sources.clone(),
-        native_registry_profile: registry.profile_id().clone(),
-        project_fingerprint,
-    }
 }
 
 fn widget_owned_params(project: &ResolvedProject) -> BTreeSet<ParamId> {

@@ -5,7 +5,7 @@ use avenger_chart_lang_registry::NativeRegistryProfileId;
 use avenger_lang_core::{SourceMap, SourceSpan};
 use serde::{Deserialize, Serialize};
 
-use crate::ProjectFingerprint;
+use crate::{ProjectDependencyFingerprints, ProjectFingerprint};
 
 /// Stable compiler identity for one project dataset declaration.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -171,6 +171,7 @@ pub struct ProjectAnalysis {
     pub lineage: DatasetLineageIndex,
     pub native_registry_profile: NativeRegistryProfileId,
     pub project_fingerprint: ProjectFingerprint,
+    pub dependency_fingerprints: ProjectDependencyFingerprints,
 }
 
 impl ProjectAnalysis {
@@ -185,6 +186,7 @@ impl ProjectAnalysis {
             lineage: DatasetLineageIndex::default(),
             native_registry_profile,
             project_fingerprint,
+            dependency_fingerprints: ProjectDependencyFingerprints::default(),
         }
     }
 }
