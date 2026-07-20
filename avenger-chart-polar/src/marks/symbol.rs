@@ -6,7 +6,6 @@ use avenger_chart_core::{
     MarkRuntimeContext, PointGeometry, RadiusExpression, ScalarValueHelpers, ScaleTypePreference,
     coerce_color_channel_with_renderer, coerce_numeric_channel_with_renderer,
     default_scale_type_for_data_type, impl_mark_trait_common, is_continuous_scale,
-    serialization::DefaultLogicalExprNodeExt,
 };
 use avenger_chart_marks::{Symbol, symbol_channel_defaults, symbol_legend_renderer_kind};
 use avenger_common::{types::SymbolShape, value::ScalarOrArray};
@@ -17,10 +16,8 @@ use avenger_scenegraph::marks::{
 use datafusion::{
     arrow::{array::RecordBatch, datatypes::DataType as ArrowDataType},
     common::ScalarValue,
-    functions::expr_fn::sqrt,
     logical_expr::{Expr, lit},
 };
-use datafusion_proto::protobuf::LogicalExprNode;
 use serde::{Deserialize, Serialize};
 
 use super::super::Polar;
@@ -133,21 +130,13 @@ impl CompiledMarkCore for CompiledPolarSymbol {
     fn radius_expression(
         &self,
         dimension: &str,
-        resolve_channel: &dyn Fn(&str) -> Expr,
+        _resolve_channel: &dyn Fn(&str) -> Expr,
     ) -> Option<RadiusExpression> {
+        // The circular coordinate clip permits symbols to straddle its
+        // boundary. Radius padding would shrink the radial guide independently
+        // of the theta guide and make the two frames disagree.
         match dimension {
-            // Radial scale padding keeps a symbol at the outer inferred
-            // radius inside the circular plot boundary. Theta wraps around
-            // the circle and therefore does not need endpoint padding.
-            "r" => {
-                let size_expr = resolve_channel("size");
-                let stroke_width_expr = resolve_channel("stroke_width");
-                let radius_expr =
-                    sqrt(size_expr) * lit(0.5) + stroke_width_expr / lit(2.0) + lit(4.0);
-                let radius_expr_node = LogicalExprNode::from_default_expr(radius_expr)
-                    .expect("Failed to serialize Polar symbol radius expr");
-                Some(RadiusExpression::Symmetric(radius_expr_node))
-            }
+            "r" | "theta" => None,
             _ => None,
         }
     }
@@ -339,7 +328,9 @@ impl CompiledMark for CompiledPolarSymbol {
 
         let symbol_mark = SceneSymbolMark {
             name: "symbol".to_string(),
-            clip: true,
+            // Symbols may straddle the circular plot boundary. Clipping their
+            // visual extent would turn an outer-radius point into a semicircle.
+            clip: false,
             len,
             gradients: vec![],
             shapes,

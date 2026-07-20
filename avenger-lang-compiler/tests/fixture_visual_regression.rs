@@ -632,14 +632,12 @@ fn scene_symbol_positions(scene: &SceneGraph) -> Vec<[f32; 2]> {
 fn collect_symbol_positions(mark: &SceneMark, origin: [f32; 2], positions: &mut Vec<[f32; 2]>) {
     match mark {
         SceneMark::Symbol(symbol) => {
-            if symbol.clip {
-                positions.extend(
-                    symbol
-                        .x_iter()
-                        .zip(symbol.y_iter())
-                        .map(|(x, y)| [origin[0] + x, origin[1] + y]),
-                );
-            }
+            positions.extend(
+                symbol
+                    .x_iter()
+                    .zip(symbol.y_iter())
+                    .map(|(x, y)| [origin[0] + x, origin[1] + y]),
+            );
         }
         SceneMark::Group(group) => {
             let child_origin = [origin[0] + group.origin[0], origin[1] + group.origin[1]];

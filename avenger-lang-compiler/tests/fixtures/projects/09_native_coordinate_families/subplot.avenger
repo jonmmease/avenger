@@ -11,7 +11,11 @@ chart cartesian as subplot {
     width: 120;
     height: 90;
     plot polar {
-      mark symbol { r: "r"; theta: "theta"; size: value 80.0; }
+      mark symbol {
+        r: "r" { scale: linear { domain: [0.0, 4.0]; } }
+        theta: "theta";
+        size: value 80.0;
+      }
     }
   }
 }
