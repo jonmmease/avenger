@@ -11133,7 +11133,10 @@ mod tests {
         let ctx = Arc::new(SessionContext::new());
         let compiled = Arc::new(
             crate::plot::Chart::<Cartesian>::new()
-                .param(Param::new(param_name, param_default))
+                .param_with_sharing(
+                    Param::new(param_name, param_default),
+                    CoordinationScope::Free,
+                )
                 .store(brush_store())
                 .selection(Selection::new("picked"))
                 .compile(&ctx)
@@ -11165,19 +11168,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn typed_session_snapshot_migrates_by_key_and_resets_incompatible_params()
+    async fn typed_session_snapshot_migrates_by_key_and_resets_incompatible_state()
     -> Result<(), AvengerChartError> {
         let mut source = migration_session("old_value", ScalarValue::Int64(Some(0))).await?;
         source.apply_param_patch(IndexMap::from([(
             "old_value".to_string(),
             ScalarValue::Int64(Some(42)),
         )]))?;
+        let facet_owner = vec![ScalarValue::Utf8(Some("facet-a".to_string()))];
+        source.apply_scoped_param_patch(vec![ScopedParamAssignment {
+            name: "old_value".to_string(),
+            owner_path: facet_owner.clone(),
+            value: ScalarValue::Int64(Some(84)),
+            replace_scoped_values: false,
+        }])?;
         source.apply_scoped_store_patch(vec![ScopedStoreAssignment {
             store_name: "brush_boxes".to_string(),
             owner_path: Vec::new(),
             replace_scoped_values: false,
             update: StoreStateUpdate::InsertRows {
                 rows: vec![brush_row("saved", 1.0, Some(2.0))],
+            },
+        }])?;
+        source.apply_scoped_store_patch(vec![ScopedStoreAssignment {
+            store_name: "brush_boxes".to_string(),
+            owner_path: facet_owner.clone(),
+            replace_scoped_values: false,
+            update: StoreStateUpdate::InsertRows {
+                rows: vec![brush_row("scoped", 3.0, Some(4.0))],
             },
         }])?;
         source.apply_selection_patch(vec![SelectionAssignment {
@@ -11210,8 +11228,23 @@ mod tests {
             "migration must follow the stable key rather than the source name"
         );
         assert_eq!(
+            renamed.effective_params_for_owner_paths(&HashMap::from([(
+                CoordinationScope::Free.to_level(),
+                facet_owner.clone(),
+            )]))["renamed_value"],
+            ScalarValue::Int64(Some(84)),
+            "facet-scoped values must migrate with their owner path"
+        );
+        assert_eq!(
             renamed.store_rows_for_diagnostics("brush_boxes")[0].1[0]["id"],
             ScalarValue::Utf8(Some("saved".to_string()))
+        );
+        assert!(
+            renamed
+                .store_rows_for_diagnostics("brush_boxes")
+                .iter()
+                .any(|(owner, rows)| owner == &facet_owner
+                    && rows[0]["id"] == ScalarValue::Utf8(Some("scoped".to_string())))
         );
         assert_eq!(renamed.selection_clauses_for_diagnostics("picked").len(), 1);
 
@@ -11226,6 +11259,48 @@ mod tests {
         );
         assert_eq!(report.stores_migrated, 1);
         assert_eq!(report.selections_migrated, 1);
+
+        let mut incompatible_store =
+            migration_session("renamed_value", ScalarValue::Int64(Some(7))).await?;
+        incompatible_store
+            .scoped_stores
+            .specs
+            .values_mut()
+            .next()
+            .expect("store spec")
+            .fields[2]
+            .nullable = false;
+        let report = incompatible_store.restore_state(&snapshot);
+        assert_eq!(report.params_migrated, 1);
+        assert_eq!(report.stores_migrated, 0);
+        assert_eq!(report.stores_reset, 1);
+        assert_eq!(report.selections_migrated, 1);
+        assert!(
+            incompatible_store
+                .store_rows_for_diagnostics("brush_boxes")
+                .iter()
+                .all(|(_, rows)| rows.is_empty())
+        );
+
+        let mut incompatible_selection =
+            migration_session("renamed_value", ScalarValue::Int64(Some(7))).await?;
+        incompatible_selection
+            .scoped_selections
+            .specs
+            .values_mut()
+            .next()
+            .expect("selection spec")
+            .empty = EmptySelectionBehavior::SelectAll;
+        let report = incompatible_selection.restore_state(&snapshot);
+        assert_eq!(report.params_migrated, 1);
+        assert_eq!(report.stores_migrated, 1);
+        assert_eq!(report.selections_migrated, 0);
+        assert_eq!(report.selections_reset, 1);
+        assert!(
+            incompatible_selection
+                .selection_clauses_for_diagnostics("picked")
+                .is_empty()
+        );
         Ok(())
     }
 

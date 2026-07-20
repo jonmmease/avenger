@@ -179,6 +179,25 @@ impl fmt::Display for HostUpdateSubmitError {
 
 impl std::error::Error for HostUpdateSubmitError {}
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WinitWgpuHostInitError {
+    EventLoop(String),
+    FileWatcher(String),
+}
+
+impl fmt::Display for WinitWgpuHostInitError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::EventLoop(message) => write!(f, "failed to build native event loop: {message}"),
+            Self::FileWatcher(message) => {
+                write!(f, "failed to initialize app file watcher: {message}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for WinitWgpuHostInitError {}
+
 fn take_latest_host_update<State>(
     queue: &mut VecDeque<PreparedHostUpdate<State>>,
     installed_generation: u64,
@@ -774,6 +793,7 @@ where
     coalesced_event_count: usize,
     stale_canvas_resize_count: usize,
     pending_canvas_resize: Option<CanvasResizeEvent>,
+    fatal_error: Option<String>,
 
     #[cfg(not(target_arch = "wasm32"))]
     clipboard: Option<arboard::Clipboard>,
@@ -817,10 +837,26 @@ where
         options: WinitWgpuAvengerAppOptions,
         #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
     ) -> (Self, EventLoop<WinitWgpuEvent>) {
+        Self::try_new_and_event_loop_with_options(
+            avenger_app,
+            options,
+            #[cfg(not(target_arch = "wasm32"))]
+            tokio_runtime,
+        )
+        .expect("failed to initialize winit/wgpu host")
+    }
+
+    /// Construct a native host without panicking on event-loop or legacy app
+    /// file-watcher initialization failures.
+    pub fn try_new_and_event_loop_with_options(
+        avenger_app: AvengerApp<State>,
+        options: WinitWgpuAvengerAppOptions,
+        #[cfg(not(target_arch = "wasm32"))] tokio_runtime: tokio::runtime::Runtime,
+    ) -> Result<(Self, EventLoop<WinitWgpuEvent>), WinitWgpuHostInitError> {
         // Create event loop with WinitWgpuEvent as custom event type
         let event_loop = EventLoop::<WinitWgpuEvent>::with_user_event()
             .build()
-            .expect("Failed to build event loop");
+            .map_err(|error| WinitWgpuHostInitError::EventLoop(error.to_string()))?;
         let event_proxy = event_loop.create_proxy();
         let prepared_host_updates = Arc::new(Mutex::new(VecDeque::new()));
         let latest_host_request_epoch = Arc::new(AtomicU64::new(0));
@@ -847,7 +883,7 @@ where
             if !watched_files.is_empty() {
                 Some(
                     FileWatcher::new(event_proxy.clone(), watched_files)
-                        .expect("Failed to create file watcher"),
+                        .map_err(|error| WinitWgpuHostInitError::FileWatcher(error.to_string()))?,
                 )
             } else {
                 None
@@ -887,6 +923,7 @@ where
             coalesced_event_count: 0,
             stale_canvas_resize_count: 0,
             pending_canvas_resize: None,
+            fatal_error: None,
             #[cfg(not(target_arch = "wasm32"))]
             clipboard: None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -903,7 +940,7 @@ where
             tokio_runtime,
         };
 
-        (winit_app, event_loop)
+        Ok((winit_app, event_loop))
     }
 
     /// Return a thread-safe handle for publishing fully prepared replacement
@@ -914,6 +951,11 @@ where
             queue: Arc::clone(&self.prepared_host_updates),
             latest_request_epoch: Arc::clone(&self.latest_host_request_epoch),
         }
+    }
+
+    /// Take a fatal initialization error recorded by the event-loop handler.
+    pub fn take_fatal_error(&mut self) -> Option<String> {
+        self.fatal_error.take()
     }
 
     fn install_latest_prepared_host_update(&mut self) {
@@ -1079,9 +1121,16 @@ where
                     .map(|hub| hub.epoch());
                 let mut scene_graph_opt = {
                     let mut app = self.avenger_app.borrow_mut();
-                    self.tokio_runtime
+                    match self
+                        .tokio_runtime
                         .block_on(app.update_with_status(&event, Instant::now()))
-                        .expect("Failed to update app")
+                    {
+                        Ok(update) => update,
+                        Err(error) => {
+                            log::error!("failed to update app; keeping current scene: {error:?}");
+                            return;
+                        }
+                    }
                 };
                 let app_update_elapsed = app_update_start.elapsed();
                 if let (true, Some(epoch)) = (scene_graph_opt.scene_graph.is_some(), hub_epoch_before)
@@ -1673,9 +1722,14 @@ where
     State: Clone + Send + Sync + 'static,
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = event_loop
-            .create_window(self.window_attributes.clone())
-            .expect("Failed to create window");
+        let window = match event_loop.create_window(self.window_attributes.clone()) {
+            Ok(window) => window,
+            Err(error) => {
+                self.fatal_error = Some(format!("failed to create native window: {error}"));
+                event_loop.exit();
+                return;
+            }
+        };
 
         #[cfg(target_arch = "wasm32")]
         self.setup_wasm_canvas(&window);
@@ -1768,7 +1822,10 @@ where
                             dimensions.scale,
                             self.canvas_frame.as_mut(),
                         ) {
-                            log::error!("Failed to set initial scene: {err:?}");
+                            self.fatal_error =
+                                Some(format!("failed to install initial scene: {err:?}"));
+                            event_loop.exit();
+                            return;
                         }
                         *canvas_shared.borrow_mut() = Some(canvas);
                         // Replay any invalidation that arrived while the
@@ -1809,7 +1866,8 @@ where
                         }
                     }
                     Err(e) => {
-                        log::error!("Failed to create canvas: {e:?}");
+                        self.fatal_error = Some(format!("failed to create canvas: {e:?}"));
+                        event_loop.exit();
                     }
                 }
             }

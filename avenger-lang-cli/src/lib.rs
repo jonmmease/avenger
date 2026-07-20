@@ -290,11 +290,12 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
     let host_runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    let (mut host, event_loop) = WinitWgpuAvengerApp::new_and_event_loop_with_options(
+    let (mut host, event_loop) = WinitWgpuAvengerApp::try_new_and_event_loop_with_options(
         bundle.app,
         window_options,
         host_runtime,
-    );
+    )
+    .map_err(|error| CliError::EventLoop(error.to_string()))?;
     let host_updates = host.host_update_sender();
     let signal_host_updates = host_updates.clone();
     ctrlc::set_handler(move || {
@@ -327,8 +328,12 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
     let event_loop_result = event_loop
         .run_app(&mut host)
         .map_err(|error| CliError::EventLoop(error.to_string()));
+    let host_result = host
+        .take_fatal_error()
+        .map_or(Ok(()), |error| Err(CliError::EventLoop(error)));
     let shutdown_result = reload_worker.shutdown();
     event_loop_result?;
+    host_result?;
     shutdown_result
 }
 
@@ -475,6 +480,32 @@ enum ReloadSignal {
     Shutdown,
 }
 
+const EVENT_QUEUE_CAPACITY: usize = 64;
+const EVENT_PATH_LIMIT: usize = 1_024;
+
+fn next_reload_burst(
+    signal_rx: &mpsc::Receiver<ReloadSignal>,
+    debounce: Duration,
+) -> Option<Vec<PathBuf>> {
+    let mut affected = match signal_rx.recv() {
+        Ok(ReloadSignal::Changed(paths)) => paths,
+        Ok(ReloadSignal::Shutdown) | Err(_) => return None,
+    };
+    loop {
+        match signal_rx.recv_timeout(debounce) {
+            Ok(ReloadSignal::Changed(paths)) => {
+                let remaining = EVENT_PATH_LIMIT.saturating_sub(affected.len());
+                affected.extend(paths.into_iter().take(remaining));
+            }
+            Ok(ReloadSignal::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+            Err(mpsc::RecvTimeoutError::Timeout) => break,
+        }
+    }
+    affected.sort();
+    affected.dedup();
+    Some(affected)
+}
+
 struct ReloadWorkerHandle {
     signals: mpsc::SyncSender<ReloadSignal>,
     #[cfg(test)]
@@ -508,8 +539,6 @@ where
     H: ReloadHost,
     R: WatchReporter,
 {
-    const EVENT_QUEUE_CAPACITY: usize = 64;
-    const EVENT_PATH_LIMIT: usize = 1_024;
     let (signal_tx, signal_rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let targets = Arc::new(Mutex::new(DependencyWatchSet::new()));
@@ -529,6 +558,12 @@ where
         let epoch = request_epoch.fetch_add(1, Ordering::AcqRel) + 1;
         request_host_updates.mark_request_epoch(epoch);
         paths.truncate(EVENT_PATH_LIMIT);
+        tracing::trace!(
+            target: "avenger_lang_cli::watch",
+            epoch,
+            path_count = paths.len(),
+            "queued filesystem change"
+        );
         let _ = request_tx.try_send(ReloadSignal::Changed(paths));
     });
     let callback_reload = request_reload.clone();
@@ -576,29 +611,22 @@ where
             let _ = ready_tx.send(Ok(()));
 
             'worker: loop {
-                let mut affected = match signal_rx.recv() {
-                    Ok(ReloadSignal::Changed(paths)) => paths,
-                    Ok(ReloadSignal::Shutdown) | Err(_) => break,
+                let Some(affected) = next_reload_burst(&signal_rx, worker.debounce) else {
+                    break 'worker;
                 };
-                loop {
-                    match signal_rx.recv_timeout(worker.debounce) {
-                        Ok(ReloadSignal::Changed(paths)) => {
-                            let remaining = EVENT_PATH_LIMIT.saturating_sub(affected.len());
-                            affected.extend(paths.into_iter().take(remaining));
-                        }
-                        Ok(ReloadSignal::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            break 'worker;
-                        }
-                        Err(mpsc::RecvTimeoutError::Timeout) => break,
-                    }
-                }
                 if worker_stopping.load(Ordering::Acquire) {
                     break;
                 }
-                affected.sort();
-                affected.dedup();
                 generation = generation.saturating_add(1);
                 let compile_epoch = change_epoch.load(Ordering::Acquire);
+                let _reload_span = tracing::debug_span!(
+                    target: "avenger_lang_cli::watch",
+                    "reload_generation",
+                    generation,
+                    request_epoch = compile_epoch,
+                    affected_path_count = affected.len()
+                )
+                .entered();
                 let before = worker.cache.as_ref().map(|cache| cache.metrics());
                 let started = Instant::now();
                 let Some(attempt) = block_on_until_stopped(
@@ -1344,6 +1372,41 @@ mod tests {
     }
 
     #[test]
+    fn filesystem_event_filter_covers_atomic_rename_remove_and_recreate() {
+        use notify::event::{CreateKind, ModifyKind, RemoveKind, RenameMode};
+
+        let target = PathBuf::from("/tmp/project/chart.avenger");
+        let targets = DependencyWatchSet::from([WatchTarget {
+            path: target.clone(),
+            kind: WatchTargetKind::Exact,
+        }]);
+        let events = [
+            Event {
+                kind: EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+                paths: vec![
+                    PathBuf::from("/tmp/project/.chart.avenger.tmp"),
+                    target.clone(),
+                ],
+                attrs: Default::default(),
+            },
+            Event {
+                kind: EventKind::Remove(RemoveKind::File),
+                paths: vec![target.clone()],
+                attrs: Default::default(),
+            },
+            Event {
+                kind: EventKind::Create(CreateKind::File),
+                paths: vec![target],
+                attrs: Default::default(),
+            },
+        ];
+        for event in events {
+            assert!(relevant_event(&event));
+            assert!(event_matches_targets(&event, &targets));
+        }
+    }
+
+    #[test]
     fn newly_created_missing_parent_wakes_the_target() {
         let targets = DependencyWatchSet::from([WatchTarget {
             path: PathBuf::from("/tmp/project/missing/chart.avenger"),
@@ -1376,6 +1439,41 @@ mod tests {
             glob_watch_root(Path::new("/tmp/project/data/parts/*.csv")),
             Some(PathBuf::from("/tmp/project/data/parts"))
         );
+    }
+
+    #[test]
+    fn debounce_coalesces_and_bounds_one_reload_burst() {
+        let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        let first = PathBuf::from("/tmp/project/chart.avenger");
+        let second = PathBuf::from("/tmp/project/data.csv");
+        tx.send(ReloadSignal::Changed(vec![first.clone(), second.clone()]))
+            .expect("send first change");
+        tx.send(ReloadSignal::Changed(vec![first.clone()]))
+            .expect("send duplicate change");
+        tx.send(ReloadSignal::Changed(
+            (0..EVENT_PATH_LIMIT + 50)
+                .map(|index| PathBuf::from(format!("/tmp/project/generated/{index}")))
+                .collect(),
+        ))
+        .expect("send oversized change set");
+
+        let burst =
+            next_reload_burst(&rx, Duration::from_millis(1)).expect("receive one debounced burst");
+        assert!(burst.contains(&first));
+        assert!(burst.contains(&second));
+        assert!(burst.len() <= EVENT_PATH_LIMIT);
+        assert_eq!(burst.iter().filter(|path| *path == &first).count(), 1);
+    }
+
+    #[test]
+    fn shutdown_during_debounce_discards_the_partial_burst() {
+        let (tx, rx) = mpsc::sync_channel(EVENT_QUEUE_CAPACITY);
+        tx.send(ReloadSignal::Changed(vec![PathBuf::from(
+            "/tmp/project/chart.avenger",
+        )]))
+        .expect("send change");
+        tx.send(ReloadSignal::Shutdown).expect("send shutdown");
+        assert_eq!(next_reload_burst(&rx, Duration::from_secs(1)), None);
     }
 
     #[derive(Default)]
