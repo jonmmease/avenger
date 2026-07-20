@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "root": "00_hello_scatter/chart.avenger",
+      "expectation": "visual",
+      "sources": ["00_hello_scatter/chart.avenger"]
+    },
+    {
+      "root": "02_sql_pipeline/chart.avenger",
+      "expectation": "visual",
+      "sources": ["02_sql_pipeline/chart.avenger"]
+    },
+    {
+      "root": "03_interactive_brush/chart.avenger",
+      "expectation": "visual",
+      "sources": ["03_interactive_brush/chart.avenger"]
+    },
+    {
+      "root": "03_widget_vertical_slice/chart.avenger",
+      "expectation": "visual",
+      "sources": ["03_widget_vertical_slice/chart.avenger"]
+    },
+    {
+      "root": "04_composed_extension/external_compound.avenger",
+      "expectation": "visual",
+      "host": "composed_registry",
+      "sources": ["04_composed_extension/external_compound.avenger"]
+    },
+    {
+      "root": "04_composed_extension/external_coordinate.avenger",
+      "expectation": "visual",
+      "host": "composed_registry",
+      "sources": ["04_composed_extension/external_coordinate.avenger"]
+    },
+    {
+      "root": "04_composed_extension/external_primitive.avenger",
+      "expectation": "visual",
+      "host": "composed_registry",
+      "sources": ["04_composed_extension/external_primitive.avenger"]
+    },
+    {
+      "root": "04_composed_extension/mixed_coordinates.avenger",
+      "expectation": "visual",
+      "host": "composed_registry",
+      "sources": ["04_composed_extension/mixed_coordinates.avenger"]
+    },
+    {
+      "root": "04_custom_error_bar/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "04_custom_error_bar/chart.avenger",
+        "04_custom_error_bar/error_bar.mark.avenger"
+      ]
+    },
+    {
+      "root": "05_custom_tool/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "05_custom_tool/chart.avenger",
+        "05_custom_tool/inspect_points.tool.avenger"
+      ]
+    },
+    {
+      "root": "05_custom_transform_pipeline/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "05_custom_transform_pipeline/chart.avenger",
+        "05_custom_transform_pipeline/summarize.transform.avenger"
+      ]
+    },
+    {
+      "root": "05_definition_lowering_error/chart.avenger",
+      "expectation": "diagnostic",
+      "sources": [
+        "05_definition_lowering_error/chart.avenger",
+        "05_definition_lowering_error/broken.transform.avenger"
+      ]
+    },
+    {
+      "root": "05_definition_widget_adjacency/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "05_definition_widget_adjacency/chart.avenger",
+        "05_definition_widget_adjacency/cursor_tool.tool.avenger",
+        "05_definition_widget_adjacency/dot.mark.avenger",
+        "05_definition_widget_adjacency/pass.transform.avenger"
+      ]
+    },
+    {
+      "root": "06_catalog_project/movies.avenger",
+      "expectation": "visual",
+      "sources": [
+        "06_catalog_project/movies.avenger",
+        "06_catalog_project/catalog.data.avenger"
+      ]
+    },
+    {
+      "root": "06_catalog_project/regions.avenger",
+      "expectation": "visual",
+      "sources": ["06_catalog_project/regions.avenger"]
+    },
+    {
+      "root": "07_inline_view_raster/chart.avenger",
+      "expectation": "visual",
+      "sources": ["07_inline_view_raster/chart.avenger"]
+    },
+    {
+      "root": "08_multi_chart_project/cartesian.avenger",
+      "expectation": "visual",
+      "sources": [
+        "08_multi_chart_project/cartesian.avenger",
+        "08_multi_chart_project/pass.transform.avenger",
+        "08_multi_chart_project/shared.data.avenger"
+      ]
+    },
+    {
+      "root": "08_multi_chart_project/geo.avenger",
+      "expectation": "visual",
+      "sources": ["08_multi_chart_project/geo.avenger"]
+    },
+    {
+      "root": "08_multi_chart_project/polar.avenger",
+      "expectation": "visual",
+      "sources": ["08_multi_chart_project/polar.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/concat.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/concat.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/facet.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/facet.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/geo.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/geo.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/parallel.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/parallel.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/polar.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/polar.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/repeat.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/repeat.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/subplot.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/subplot.avenger"]
+    },
+    {
+      "root": "09_native_coordinate_families/treemap.avenger",
+      "expectation": "visual",
+      "sources": ["09_native_coordinate_families/treemap.avenger"]
+    },
+    {
+      "root": "10_native_surface_contracts/mark_effects.avenger",
+      "expectation": "visual",
+      "sources": ["10_native_surface_contracts/mark_effects.avenger"]
+    },
+    {
+      "root": "10_native_surface_contracts/public_routing.avenger",
+      "expectation": "visual",
+      "sources": ["10_native_surface_contracts/public_routing.avenger"]
+    },
+    {
+      "root": "10_native_surface_contracts/store_backed.avenger",
+      "expectation": "visual",
+      "sources": ["10_native_surface_contracts/store_backed.avenger"]
+    },
+    {
+      "root": "10_native_surface_contracts/theme_parts.avenger",
+      "expectation": "visual",
+      "sources": ["10_native_surface_contracts/theme_parts.avenger"]
+    },
+    {
+      "root": "11_widget_surface/button.avenger",
+      "expectation": "visual",
+      "sources": ["11_widget_surface/button.avenger"]
+    },
+    {
+      "root": "11_widget_surface/checkbox.avenger",
+      "expectation": "visual",
+      "sources": ["11_widget_surface/checkbox.avenger"]
+    },
+    {
+      "root": "11_widget_surface/checkbox_list.avenger",
+      "expectation": "visual",
+      "sources": ["11_widget_surface/checkbox_list.avenger"]
+    },
+    {
+      "root": "11_widget_surface/radio_button_list.avenger",
+      "expectation": "visual",
+      "sources": ["11_widget_surface/radio_button_list.avenger"]
+    },
+    {
+      "root": "11_widget_surface/slider.avenger",
+      "expectation": "visual",
+      "sources": ["11_widget_surface/slider.avenger"]
+    },
+    {
+      "root": "11_widget_surface/text_input.avenger",
+      "expectation": "visual",
+      "sources": ["11_widget_surface/text_input.avenger"]
+    },
+    {
+      "root": "phase9-files/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "phase9-files/chart.avenger",
+        "phase9-files/catalog.data.avenger"
+      ]
+    },
+    {
+      "root": "phase9-pack/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "phase9-pack/chart.avenger",
+        "phase9-pack/vega.data.avenger"
+      ]
+    },
+    {
+      "root": "phase9-parameterized/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "phase9-parameterized/chart.avenger",
+        "phase9-parameterized/catalog.data.avenger"
+      ]
+    },
+    {
+      "root": "phase9-providers/chart.avenger",
+      "expectation": "visual",
+      "host": "provider_mocks",
+      "sources": [
+        "phase9-providers/chart.avenger",
+        "phase9-providers/catalog.data.avenger"
+      ]
+    },
+    {
+      "root": "phase9-schema-chain/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "phase9-schema-chain/chart.avenger",
+        "phase9-schema-chain/catalog.data.avenger"
+      ]
+    },
+    {
+      "root": "relative-import/charts/chart.avenger",
+      "expectation": "visual",
+      "sources": [
+        "relative-import/charts/chart.avenger",
+        "relative-import/catalog.data.avenger",
+        "relative-import/marks/badge.mark.avenger"
+      ]
+    },
+    {
+      "root": "stdlib/chart.avenger",
+      "expectation": "diagnostic",
+      "sources": ["stdlib/chart.avenger"]
+    }
+  ]
+}

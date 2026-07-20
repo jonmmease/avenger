@@ -30,6 +30,7 @@ reqwest = { workspace = true, features = ["rustls-tls"] }
 [dev-dependencies]
 avenger-chart-app = { path = "../avenger-chart-app" }
 avenger-chart-external-test = { path = "../avenger-chart-external-test" }
+avenger-chart-widgets = { path = "../avenger-chart-widgets" }
 avenger-common = { path = "../avenger-common" }
 avenger-eventstream = { path = "../avenger-eventstream" }
 avenger-scenegraph = { path = "../avenger-scenegraph" }

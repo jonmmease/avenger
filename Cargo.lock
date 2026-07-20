@@ -1334,6 +1334,7 @@ dependencies = [
  "avenger-chart-external-test",
  "avenger-chart-lang-registry",
  "avenger-chart-schema",
+ "avenger-chart-widgets",
  "avenger-color",
  "avenger-common",
  "avenger-eventstream",

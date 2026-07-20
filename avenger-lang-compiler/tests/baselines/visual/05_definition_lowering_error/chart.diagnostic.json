@@ -1,0 +1,31 @@
+[
+  {
+    "code": "AVENGER-LOWER-002",
+    "severity": "error",
+    "message": "native chart lowering failed",
+    "primary": {
+      "span": {
+        "source": 1,
+        "range": {
+          "start": 12,
+          "end": 126
+        }
+      },
+      "message": "DataFusion error: `Schema error: No field named missing. Valid fields are input.value.`"
+    },
+    "secondary": [],
+    "notes": [],
+    "trace": [
+      {
+        "span": {
+          "source": 0,
+          "range": {
+            "start": 116,
+            "end": 146
+          }
+        },
+        "message": "while expanding this definition instance"
+      }
+    ]
+  }
+]

@@ -5,3 +5,11 @@
 schema_version = "tests/baselines/full-v1-schema-version.json"
 semantic_schema = "tests/baselines/full-v1-semantic-schema.json"
 visual_owner = "../../avenger-chart/tests/baselines/symbol/simple_scatter_plot.png"
+
+[fixture_visual]
+manifest = "tests/fixtures/visual_cases.json"
+baseline_dir = "tests/baselines/visual"
+source_count = 61
+case_count = 44
+visual_count = 42
+diagnostic_count = 2
