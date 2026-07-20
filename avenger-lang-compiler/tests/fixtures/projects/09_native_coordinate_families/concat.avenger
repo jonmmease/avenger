@@ -7,6 +7,9 @@ chart hconcat as concat {
     mark symbol { x: "x"; y: "y"; }
   }
   cell polar as right {
-    mark symbol { theta: "x"; r: "y"; }
+    mark symbol {
+      theta: "x";
+      r: "y" { scale: linear { domain: [0.0, 2.5]; } }
+    }
   }
 }

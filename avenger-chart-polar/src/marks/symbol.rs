@@ -328,9 +328,7 @@ impl CompiledMark for CompiledPolarSymbol {
 
         let symbol_mark = SceneSymbolMark {
             name: "symbol".to_string(),
-            // Symbols may straddle the circular plot boundary. Clipping their
-            // visual extent would turn an outer-radius point into a semicircle.
-            clip: false,
+            clip: true,
             len,
             gradients: vec![],
             shapes,

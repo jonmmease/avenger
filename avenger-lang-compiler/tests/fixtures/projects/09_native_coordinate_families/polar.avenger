@@ -4,7 +4,7 @@ chart polar as polar {
   data: { values: [{ theta: 0.5; radius: 2.0; }]; }
   mark symbol as point {
     theta: "theta";
-    r: "radius";
+    r: "radius" { scale: linear { domain: [0.0, 2.5]; } }
     size: value 80.0;
   }
 }
