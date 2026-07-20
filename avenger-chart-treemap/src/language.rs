@@ -12,7 +12,9 @@ use avenger_chart_schema::{
     ValueShape,
 };
 
-use crate::{TreeHeader, TreeLabel, TreeLabelFit, TreeRect, TreeRectNodeMode, Treemap};
+use crate::{
+    TreeHeader, TreeLabel, TreeLabelFit, TreeRect, TreeRectNodeMode, Treemap, TreemapPathLevel,
+};
 
 const RECT_CHANNELS: &[&str] = &[
     "fill",
@@ -98,8 +100,15 @@ fn lower_treemap(declaration: &ResolvedDeclaration) -> Result<Treemap, NativeLow
     };
     let path = path
         .iter()
-        .map(|value| match value {
-            ResolvedValue::Expr(value) => Ok(value.clone()),
+        .enumerate()
+        .map(|(index, value)| match value {
+            ResolvedValue::Expr(value) => {
+                let name = match value {
+                    datafusion::logical_expr::Expr::Column(column) => column.name.clone(),
+                    _ => format!("level_{index}"),
+                };
+                Ok(TreemapPathLevel::new(name, value.clone()))
+            }
             _ => Err(NativeLoweringError::InvalidPropertyType {
                 property: "path".to_string(),
                 expected: "SQL expression array".to_string(),
@@ -115,7 +124,7 @@ fn lower_treemap(declaration: &ResolvedDeclaration) -> Result<Treemap, NativeLow
             });
         }
     };
-    let mut treemap = Treemap::new().path(path).value(value);
+    let mut treemap = Treemap::new().path_levels(path).value(value);
     if let Some(ResolvedValue::String(value)) = declaration.properties.get("root_path_id") {
         treemap = treemap.root_path_id(value.clone());
     }
@@ -306,7 +315,15 @@ fn lower_tree_label(
                 "node_mode" | "fit" | "padding_px" | "min_width_px" | "min_height_px"
             )
         {
-            mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
+            let channel = ordinary_channel(name, value)?;
+            mark = mark.with_channel_value(
+                name,
+                if name == "text" {
+                    channel.no_scale()
+                } else {
+                    channel
+                },
+            );
         }
     }
     apply_common_mark_state::<Treemap, _>(&mut mark, declaration)?;
@@ -330,7 +347,15 @@ fn lower_tree_header(
         if !is_common_mark_property(name)
             && !matches!(name.as_str(), "min_depth" | "max_depth" | "padding_px")
         {
-            mark = mark.with_channel_value(name, ordinary_channel(name, value)?);
+            let channel = ordinary_channel(name, value)?;
+            mark = mark.with_channel_value(
+                name,
+                if name == "text" {
+                    channel.no_scale()
+                } else {
+                    channel
+                },
+            );
         }
     }
     apply_common_mark_state::<Treemap, _>(&mut mark, declaration)?;

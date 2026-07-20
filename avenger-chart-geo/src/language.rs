@@ -600,8 +600,8 @@ fn lower_geo_symbol(
                 });
             }
             mark = mark
-                .with_channel_value("lon", ordinary_channel(name, &values[0])?)
-                .with_channel_value("lat", ordinary_channel(name, &values[1])?);
+                .with_channel_value("lon", ordinary_channel(name, &values[0])?.no_scale())
+                .with_channel_value("lat", ordinary_channel(name, &values[1])?.no_scale());
         } else if name == "fill_pattern" {
             let value = match value {
                 ResolvedValue::Pattern(value) => value.clone(),

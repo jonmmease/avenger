@@ -28,6 +28,6 @@ chart zerod as button {
   }
 
   mark text as activation_label {
-    text: $clear.activations;
+    text: value $clear.activations;
   }
 }

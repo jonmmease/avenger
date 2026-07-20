@@ -22,6 +22,6 @@ chart zerod as radio_button_list {
   }
 
   mark text as value_label {
-    text: $choice.value;
+    text: value $choice.value;
   }
 }

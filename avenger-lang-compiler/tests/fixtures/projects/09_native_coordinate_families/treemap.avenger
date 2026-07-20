@@ -8,7 +8,7 @@ chart treemap as treemap {
     ];
   }
   path: ["region", "category"];
-  value: "value";
+  value: sum("value");
   mark tree_rect as cells {
     fill: "region";
   }

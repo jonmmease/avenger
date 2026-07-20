@@ -592,7 +592,15 @@ where
                 }
             };
         } else {
-            mark = mark.with_channel_value(name, ordinary_channel(name, value)?)
+            let channel = ordinary_channel(name, value)?;
+            mark = mark.with_channel_value(
+                name,
+                if name == "text" {
+                    channel.no_scale()
+                } else {
+                    channel
+                },
+            )
         }
     }
     apply_common_mark_state::<C, _>(&mut mark, declaration)?;

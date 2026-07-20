@@ -9,6 +9,6 @@ chart cartesian as cartesian {
   mark symbol as points {
     x: "x";
     y: "y";
-    size: $point_size;
+    size: value $point_size;
   }
 }

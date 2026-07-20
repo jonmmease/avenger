@@ -19,6 +19,6 @@ chart zerod as slider {
   }
 
   mark text as value_label {
-    text: $threshold.value;
+    text: value $threshold.value;
   }
 }

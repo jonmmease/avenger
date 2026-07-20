@@ -16,9 +16,9 @@ chart zerod as text_input {
   }
 
   mark text as cursor_label {
-    text: $query.cursor_position;
+    text: value $query.cursor_position;
   }
   mark text as selection_label {
-    text: $query.selected_text;
+    text: value $query.selected_text;
   }
 }

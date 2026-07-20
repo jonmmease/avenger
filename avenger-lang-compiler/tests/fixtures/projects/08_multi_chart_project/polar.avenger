@@ -9,6 +9,6 @@ chart polar as polar {
   mark symbol as points {
     theta: "theta";
     r: "radius";
-    size: $point_size;
+    size: value $point_size;
   }
 }

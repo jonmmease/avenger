@@ -1,5 +1,6 @@
 avenger 1;
 
 chart cartesian as external_compound {
+  data: { values: [{ value: 2.0; }]; }
   mark external_mean_point as mean_point {}
 }
