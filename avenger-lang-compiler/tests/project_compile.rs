@@ -165,6 +165,11 @@ async fn project_compile_single_chart_edit_invalidates_only_that_artifact() {
     assert!(!same_compiled_plot(before["cartesian"], after["cartesian"]));
     assert!(same_compiled_plot(before["polar"], after["polar"]));
     assert!(same_compiled_plot(before["geo"], after["geo"]));
+    assert_eq!(
+        compiler.cache_snapshot().chart_artifacts,
+        3,
+        "the superseded chart artifact must be evicted"
+    );
 }
 
 #[tokio::test]

@@ -50,6 +50,12 @@ pub struct CompilerCacheSnapshot {
     pub artifact_keys: Vec<ArtifactCacheKey>,
 }
 
+#[derive(Default)]
+struct ArtifactCache {
+    artifacts: BTreeMap<ArtifactCacheKey, CompiledChartArtifact>,
+    chart_keys: BTreeMap<ProjectChartId, ArtifactCacheKey>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DependencyRole {
@@ -157,7 +163,7 @@ pub struct Compiler {
     resolved_project_cache: Arc<Mutex<BTreeMap<String, ResolvedProject>>>,
     analysis_cache: Arc<Mutex<BTreeMap<String, ProjectAnalysis>>>,
     dataset_analysis_cache: Arc<Mutex<BTreeMap<String, AnalyzedDataset>>>,
-    artifact_cache: Arc<Mutex<BTreeMap<ArtifactCacheKey, CompiledChartArtifact>>>,
+    artifact_cache: Arc<Mutex<ArtifactCache>>,
     project_compilation_mode: ProjectCompilationMode,
 }
 
@@ -195,8 +201,8 @@ impl Compiler {
                 .lock()
                 .expect("dataset-analysis cache lock poisoned")
                 .len(),
-            chart_artifacts: artifact_cache.len(),
-            artifact_keys: artifact_cache.keys().cloned().collect(),
+            chart_artifacts: artifact_cache.artifacts.len(),
+            artifact_keys: artifact_cache.artifacts.keys().cloned().collect(),
         }
     }
 
@@ -346,7 +352,7 @@ impl Compiler {
                     .cloned()
                     .unwrap_or_default();
                 let key = ArtifactCacheKey::new(profile, fingerprint);
-                if let Some(artifact) = cache.get(&key).cloned() {
+                if let Some(artifact) = cache.artifacts.get(&key).cloned() {
                     artifacts.insert(public_id, artifact);
                 } else {
                     misses.push((chart.clone(), public_id, key));
@@ -390,8 +396,8 @@ impl Compiler {
             match result {
                 Ok(mut chart) => {
                     chart.artifact.dependency_fingerprint = key.dependency_fingerprint.clone();
-                    artifacts.insert(public_id, chart.artifact.clone());
-                    completed.push((key, chart.artifact));
+                    artifacts.insert(public_id.clone(), chart.artifact.clone());
+                    completed.push((public_id, key, chart.artifact));
                 }
                 Err(mut errors) => diagnostics.append(&mut errors),
             }
@@ -404,10 +410,36 @@ impl Compiler {
         // One synchronous publication point makes project compilation
         // cancellation-safe: dropping the future before this point cannot
         // expose a partially compiled chart set.
-        self.artifact_cache
-            .lock()
-            .expect("artifact cache lock poisoned")
-            .extend(completed);
+        {
+            let mut cache = self
+                .artifact_cache
+                .lock()
+                .expect("artifact cache lock poisoned");
+            let current_ids = project
+                .charts
+                .iter()
+                .map(|id| ProjectChartId::new(id.as_str()))
+                .collect::<BTreeSet<_>>();
+            let removed = cache
+                .chart_keys
+                .keys()
+                .filter(|id| !current_ids.contains(*id))
+                .cloned()
+                .collect::<Vec<_>>();
+            for id in removed {
+                if let Some(key) = cache.chart_keys.remove(&id) {
+                    cache.artifacts.remove(&key);
+                }
+            }
+            for (id, key, artifact) in completed {
+                if let Some(previous) = cache.chart_keys.insert(id, key.clone())
+                    && previous != key
+                {
+                    cache.artifacts.remove(&previous);
+                }
+                cache.artifacts.insert(key, artifact);
+            }
+        }
 
         let charts = project
             .charts
@@ -1055,7 +1087,7 @@ impl CompilerBuilder {
             resolved_project_cache: Arc::new(Mutex::new(BTreeMap::new())),
             analysis_cache: Arc::new(Mutex::new(BTreeMap::new())),
             dataset_analysis_cache: Arc::new(Mutex::new(BTreeMap::new())),
-            artifact_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            artifact_cache: Arc::new(Mutex::new(ArtifactCache::default())),
             project_compilation_mode: self.project_compilation_mode,
         })
     }
