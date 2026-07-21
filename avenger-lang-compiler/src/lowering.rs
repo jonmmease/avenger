@@ -782,8 +782,7 @@ impl<'a> ProjectLowerer<'a> {
             } else if let Some(ResolvedValue::String(path)) = declaration.properties.get("from") {
                 let declaring_origin = &self
                     .project
-                    .sources
-                    .get(declaration.source)
+                    .authored_source(declaration.span)
                     .ok_or_else(|| lowerer_error(declaration, "theme source file is unavailable"))?
                     .origin;
                 let origin =

@@ -53,6 +53,13 @@ pub struct ExpansionSourceMap {
 }
 
 impl ExpansionSourceMap {
+    /// Return the authored span corresponding to an expanded span, or the
+    /// original span when no expansion mapping applies.
+    pub fn authored_span(&self, span: SourceSpan) -> SourceSpan {
+        self.mapping_for(span)
+            .map_or(span, |mapping| mapping.authored)
+    }
+
     /// Re-anchor a diagnostic emitted against canonical expanded source to the
     /// authored declaration and retain macro-style definition/instance context.
     pub fn remap_diagnostic(&self, diagnostic: &mut Diagnostic) {

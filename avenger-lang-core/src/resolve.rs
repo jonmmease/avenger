@@ -19,8 +19,8 @@ use sqlparser::ast::{
 };
 
 use crate::{
-    Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceId,
-    SourceLabel, SourceMap, SourceSpan,
+    Diagnostic, ExpansionOrImportFrame, LANGUAGE_MAJOR, PhysicalField, PhysicalType, SourceFile,
+    SourceId, SourceLabel, SourceMap, SourceSpan,
     ast::{AstNodeRole, BindingKind, BindingTime, Decl, Name, RefKind, Root, Value, Visibility},
     expand::ExpansionSourceMap,
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
@@ -219,6 +219,15 @@ pub struct ResolvedProject {
     /// Empty for ordinary projects; populated by the compiler when imported
     /// definitions were expanded before final semantic resolution.
     pub expansion_source_map: ExpansionSourceMap,
+}
+
+impl ResolvedProject {
+    /// Find the authored source for a declaration span, including declarations
+    /// reparsed from canonical definition-expanded source.
+    pub fn authored_source(&self, span: SourceSpan) -> Option<&SourceFile> {
+        let authored = self.expansion_source_map.authored_span(span);
+        self.sources.get(authored.source)
+    }
 }
 
 /// Planning metadata for one catalog table declaration.

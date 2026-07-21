@@ -637,7 +637,7 @@ async fn compiler_applies_syntax_and_expansion_limits() {
     );
     write(
         root.join("badge.mark.avenger"),
-        "avenger 1; define mark badge { mark symbol {} }",
+        "avenger 1; define mark badge { mark symbol as glyph {} }",
     );
 
     let compiler = Compiler::builder()
@@ -678,6 +678,34 @@ async fn compiler_applies_syntax_and_expansion_limits() {
         .result
         .unwrap_err();
     assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PARSE-024");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn expanded_chart_resolves_external_theme_against_authored_file() {
+    let root = fixture_dir("expanded-external-theme");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { theme css from 'theme.css'; mark badge {} }",
+    );
+    write(
+        root.join("badge.mark.avenger"),
+        "avenger 1; define mark badge { mark symbol as glyph {} }",
+    );
+    write(root.join("theme.css"), "mark { opacity: 0.8; }");
+
+    let compiler = Compiler::builder().project_root(&root).build().unwrap();
+    let attempt = compiler.compile_file_attempt("chart.avenger").await;
+    if let Err(failure) = attempt.result {
+        panic!("external theme compilation failed: {failure:?}");
+    }
+    assert!(attempt.dependencies.iter().any(|dependency| {
+        dependency.role == DependencyRole::LocalResource
+            && dependency
+                .requested_origin
+                .display_name()
+                .ends_with("theme.css")
+    }));
     fs::remove_dir_all(root).unwrap();
 }
 

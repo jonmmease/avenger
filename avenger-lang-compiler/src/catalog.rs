@@ -933,7 +933,7 @@ fn table_path(
             "data capability denies filesystem access",
         ));
     }
-    let source = project.sources.get(declaration.source).ok_or_else(|| {
+    let source = project.authored_source(declaration.span).ok_or_else(|| {
         declaration_diagnostic(
             declaration,
             "AVENGER-DATA-042",
