@@ -12,8 +12,9 @@ suite, and a 37-root stock-host preparation matrix.
 
 This document remains the requirements and hardening tracker. Native-window
 behavior has been exercised manually on macOS, but the complete cross-platform
-manual editor matrix and the broader language resource-limit/security audit
-remain open. The complete local release test matrix passes. Checkboxes below
+manual editor matrix remains open. Compiler-owned source/import/discovery,
+syntax/SQL/expansion, and local-resource limits are implemented and inherited
+by the CLI. The complete local release test matrix passes. Checkboxes below
 reflect only behavior backed by current code and tests.
 
 The initial user-facing command is:
@@ -940,7 +941,7 @@ Implementation checkpoint (2026-07-20):
 - [x] Add cancellation and clean shutdown of watcher/worker/event loop.
 - [x] Audit reload paths for panics, deadlocks, RefCell borrow overlap, and stale
   invalidation races.
-- [ ] Add file/import/resource size and event-burst limits inherited from the
+- [x] Add file/import/resource size and event-burst limits inherited from the
   compiler.
 - [x] Complete structured tracing and secret-redaction audit.
 - [x] Run release-mode unit, integration, visual, app, and cache tests.
@@ -968,11 +969,11 @@ Implementation checkpoint (2026-07-20):
   rewrites the canonical project root to project-relative paths. Compiler
   diagnostics intentionally retain authored source excerpts, so source must not
   contain secrets.
-- The compiler already limits each loaded Avenger source to 2 MiB and HTTP
-  redirects to five; CLI event bursts are bounded. The broader Phase 11
-  compiler limits for import depth/count, declarations, expansion, SQL
-  complexity, and local resource trees remain open, so the combined limits
-  checkbox and Phase 5 gate remain unchecked.
+- Commits `23b79d68c` and `311249d27` add configurable compiler-owned bounds for
+  project discovery, source and import closures, syntax/declaration nesting,
+  SQL token/recursion complexity, definition expansion, and aggregate local
+  file/directory/glob fingerprinting. The CLI inherits their safe defaults;
+  its event queue and affected-path bursts are separately bounded.
 - `cargo fmt --all -- --check`, strict no-dependency CLI Clippy, and the complete
   release suites for the CLI, language facade/compiler (including all fixture
   visual baselines), chart app, winit host, physical cache, and `avenger-chart`

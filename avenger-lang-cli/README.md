@@ -116,11 +116,17 @@ worker shutdown to five seconds; exceeding either bound returns an operational
 error instead of waiting indefinitely. Filesystem changes use a bounded
 latest-work queue and bounded affected-path bursts.
 
-The production source loader currently limits each Avenger source to 2 MiB and
-HTTP redirect chains to five (HTTP imports remain disabled by this stock
-command). Broader compiler hardening limits for import/declaration depth,
-expansion and SQL complexity, and local resource trees belong to language
-Phase 11 and are not yet a release claim of this CLI.
+The stock command inherits configurable compiler limits. Defaults cap each
+Avenger source at 2 MiB, all loaded source at 64 MiB, the project/import
+closure at 1,024 sources, imports per source at 256, import and project
+directory depth at 64, and project discovery at 100,000 directory entries.
+Each source is limited to 500,000 tokens, 100,000 declarations, and 128 DSL
+nesting levels; each SQL island is limited to 50,000 tokens and 128 parser
+recursion levels. Definition expansion is capped at 100,000 declarations, 128
+levels, 16 MiB per chart, and 64 MiB per project. Local-resource fingerprinting
+is capped at 512 MiB per file and 2 GiB total, 100,000 files and directory
+entries, and 64 directory levels. HTTP redirect chains are limited to five
+(HTTP imports remain disabled by this stock command).
 
 ## Tests and fixture
 
