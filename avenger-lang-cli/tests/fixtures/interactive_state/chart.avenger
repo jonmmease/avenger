@@ -80,11 +80,12 @@ chart cartesian as chart {
   }
 
   on cursor_moved as drag {
+    filter: datum('id') IS NULL;
     between: {
       start: mouse_down {}
       end: mouse_up {}
     }
-    set store dragged = insert_rows {
+    set store dragged = upsert_rows {
       row { id: 'drag'; x: event_coord(x); y: event_coord(y); }
     }
     set cursor = 'crosshair';

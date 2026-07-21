@@ -53,9 +53,9 @@ adapter. Keep stdout and stderr for the acceptance record.
   generation prints exactly one diagnostic batch.
 - [ ] Run
   `avenger-lang-cli/tests/fixtures/interactive_state/chart.avenger`. Drag
-  inside the plot to create the red store-backed marker, then click a blue
-  point to grow the amber param-backed indicator. Make a harmless source edit:
-  both must survive reload. Click the same blue point again: the amber
+  through blank plot space to create the red store-backed marker, then click a
+  blue point to grow the amber param-backed indicator. Make a harmless source
+  edit: both must survive reload. Click the same blue point again: the amber
   indicator must shrink, proving the migrated selection toggled off. Repeat
   with an incompatible state-type/contract edit and verify only that state
   resets.

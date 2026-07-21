@@ -3,7 +3,7 @@
 This fixture makes the document state used by the native `watch` acceptance
 test observable without an inspector:
 
-- drag inside the plot to create or move the red store-backed marker;
+- drag through blank plot space to create or move the red store-backed marker;
 - click either blue source point to enlarge the amber param-backed indicator;
 - save a harmless source edit and confirm both indicators survive reload;
 - click the same blue point again: the amber indicator must shrink, proving
@@ -11,3 +11,7 @@ test observable without an inspector:
 
 The chart also declares direct `float64` canvas-size parameters so the virtual
 canvas frame can be resized before and after reload.
+
+The drag binding ignores source-point hits so a point click cannot move the
+store marker over the point before the click assertion is observed. It uses a
+keyed upsert so repeated cursor-move events update the one visible marker.
