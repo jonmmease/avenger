@@ -1,8 +1,8 @@
 use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadRequest,
-    ProjectLoader, ProjectRoot, ResolvedDeclaration, ResolvedTarget, ResolvedValue, SourceOrigin,
-    expand_project, resolve_project,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadLimits,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedDeclaration, ResolvedTarget,
+    ResolvedValue, SourceOrigin, expand_project, resolve_project,
 };
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
@@ -30,6 +30,7 @@ async fn project(sources: &[(&str, &str)]) -> avenger_lang_core::ParsedProject {
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
+            limits: ProjectLoadLimits::default(),
         })
         .await
         .result
@@ -238,6 +239,7 @@ async fn definitions_reject_recursive_import_graphs() {
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
+            limits: ProjectLoadLimits::default(),
         })
         .await
         .result

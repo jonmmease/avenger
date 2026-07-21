@@ -42,7 +42,7 @@ pub use physical_type::{
 pub use project::{
     AmbientDataDeclaration, DefinitionKind, ImportEdge, ParsedProject, ProjectDependency,
     ProjectDependencyRole, ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt,
-    ProjectLoadFailure, ProjectLoadRequest, ProjectLoader, ProjectRoot,
+    ProjectLoadFailure, ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot,
 };
 pub use resolve::{
     DeclarationId, DefinitionChannel, DefinitionExport, DefinitionExportKind, DefinitionLocalSeed,

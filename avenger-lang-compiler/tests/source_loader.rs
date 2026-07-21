@@ -6,8 +6,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use avenger_lang_compiler::{Compiler, DefaultSourceLoader, DependencyRole};
-use avenger_lang_core::{ImportCapabilities, SourceLoader, SourceOrigin};
+use avenger_lang_compiler::{
+    Compiler, CompilerLimits, DefaultSourceLoader, DependencyRole, LocalResourceLimits,
+};
+use avenger_lang_core::{ImportCapabilities, ProjectLoadLimits, SourceLoader, SourceOrigin};
 
 fn fixture_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -451,6 +453,252 @@ async fn source_loader_records_remote_and_glob_table_resources_without_providers
                 .as_deref()
                 .is_some_and(|version| version.starts_with("glob-sha256:"))
     }));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn compiler_enforces_local_resource_file_size_limit() {
+    let root = fixture_dir("resource-file-limit");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    );
+    write(
+        root.join("catalog.data.avenger"),
+        "avenger 1; table csv as rows { path: 'rows.csv'; }",
+    );
+    write(root.join("rows.csv"), "value\n12345\n");
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits::default(),
+            resources: LocalResourceLimits {
+                max_file_bytes: 4,
+                ..LocalResourceLimits::default()
+            },
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-019");
+    assert!(
+        failure.diagnostics[0]
+            .primary
+            .message
+            .contains("per-file limit")
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn compiler_enforces_aggregate_local_resource_budget() {
+    let root = fixture_dir("aggregate-resource-limit");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    );
+    write(
+        root.join("catalog.data.avenger"),
+        "avenger 1; table csv as one { path: 'one.csv'; } table csv as two { path: 'two.csv'; }",
+    );
+    write(root.join("one.csv"), "1234");
+    write(root.join("two.csv"), "5678");
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits::default(),
+            resources: LocalResourceLimits {
+                max_total_bytes: 7,
+                ..LocalResourceLimits::default()
+            },
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-019");
+    assert!(
+        failure.diagnostics[0]
+            .primary
+            .message
+            .contains("totals 8 bytes")
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn compiler_enforces_project_discovery_limits_before_loading() {
+    let root = fixture_dir("project-discovery-limits");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    );
+    write(
+        root.join("other.avenger"),
+        "avenger 1; chart cartesian as other {}",
+    );
+
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits {
+                max_sources: 1,
+                ..ProjectLoadLimits::default()
+            },
+            resources: LocalResourceLimits::default(),
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-017");
+    assert!(
+        failure.diagnostics[0]
+            .primary
+            .message
+            .contains("exceeds 1 Avenger source files")
+    );
+
+    fs::create_dir(root.join("nested")).unwrap();
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits {
+                max_sources: 10,
+                max_project_directory_depth: 0,
+                ..ProjectLoadLimits::default()
+            },
+            resources: LocalResourceLimits::default(),
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        failure.diagnostics[0]
+            .primary
+            .message
+            .contains("directory depth exceeds 0")
+    );
+
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits {
+                max_sources: 10,
+                max_project_directory_depth: 10,
+                max_project_directory_entries: 2,
+                ..ProjectLoadLimits::default()
+            },
+            resources: LocalResourceLimits::default(),
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        failure.diagnostics[0]
+            .primary
+            .message
+            .contains("exceeds 2 directory entries")
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn compiler_enforces_local_resource_tree_limits() {
+    let root = fixture_dir("resource-tree-limits");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; chart cartesian as chart {}",
+    );
+    write(
+        root.join("catalog.data.avenger"),
+        "avenger 1; table parquet as rows { path: 'data'; }",
+    );
+    write(root.join("data/one.bin"), "1234");
+    write(root.join("data/two.bin"), "5678");
+
+    for (limits, expected) in [
+        (
+            LocalResourceLimits {
+                max_files: 1,
+                ..LocalResourceLimits::default()
+            },
+            "exceeds 1 files",
+        ),
+        (
+            LocalResourceLimits {
+                max_total_bytes: 7,
+                ..LocalResourceLimits::default()
+            },
+            "totals 8 bytes",
+        ),
+        (
+            LocalResourceLimits {
+                max_directory_entries: 1,
+                ..LocalResourceLimits::default()
+            },
+            "exceeds 1 directory entries",
+        ),
+    ] {
+        let compiler = Compiler::builder()
+            .project_root(&root)
+            .limits(CompilerLimits {
+                project: ProjectLoadLimits::default(),
+                resources: limits,
+            })
+            .build()
+            .unwrap();
+        let failure = compiler
+            .load_project_graph_attempt(&root)
+            .await
+            .result
+            .unwrap_err();
+        assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-019");
+        assert!(failure.diagnostics[0].primary.message.contains(expected));
+    }
+
+    fs::create_dir(root.join("data/nested")).unwrap();
+    write(root.join("data/nested/three.bin"), "9");
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits::default(),
+            resources: LocalResourceLimits {
+                max_directory_depth: 0,
+                ..LocalResourceLimits::default()
+            },
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_project_graph_attempt(&root)
+        .await
+        .result
+        .unwrap_err();
+    assert!(
+        failure.diagnostics[0]
+            .primary
+            .message
+            .contains("directory depth exceeds 0")
+    );
     fs::remove_dir_all(root).unwrap();
 }
 

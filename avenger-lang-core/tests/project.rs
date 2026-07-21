@@ -3,8 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectDependencyRole,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceLoader, SourceLoaderError, SourceOrigin,
-    render_diagnostics,
+    ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceLoader,
+    SourceLoaderError, SourceOrigin, render_diagnostics,
 };
 use sha2::{Digest, Sha256};
 
@@ -19,6 +19,7 @@ fn request(roots: Vec<ProjectRoot>) -> ProjectLoadRequest {
         capabilities: ImportCapabilities::in_memory("/project"),
         schema_version: "schema-1".into(),
         registry_version: "registry-1".into(),
+        limits: ProjectLoadLimits::default(),
     }
 }
 
@@ -342,6 +343,86 @@ async fn project_failed_attempt_keeps_prefix_and_repairs_through_the_same_api() 
             .result
             .is_ok()
     );
+}
+
+#[tokio::test]
+async fn project_enforces_source_and_import_closure_limits() {
+    let chart = SourceOrigin::Memory("chart.avenger".into());
+    let a = SourceOrigin::Memory("a.mark.avenger".into());
+    let b = SourceOrigin::Memory("b.mark.avenger".into());
+    let loader = InMemorySourceLoader::default()
+        .with_source(source(
+            chart.clone(),
+            "avenger 1; import 'a.mark.avenger'; chart cartesian as chart {}",
+        ))
+        .with_source(source(
+            a.clone(),
+            "avenger 1; import 'b.mark.avenger'; define mark a { mark symbol {} }",
+        ))
+        .with_source(source(
+            b.clone(),
+            "avenger 1; define mark b { mark symbol {} }",
+        ));
+
+    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
+    limited.limits.max_import_depth = 1;
+    let failure = ProjectLoader::new(&loader)
+        .load(limited)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-021");
+
+    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
+    limited.limits.max_source_bytes = 16;
+    let failure = ProjectLoader::new(&loader)
+        .load(limited)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-022");
+
+    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
+    limited.limits.max_sources = 1;
+    let failure = ProjectLoader::new(&loader)
+        .load(limited)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-023");
+
+    let root_bytes = loader
+        .load(&chart, &ImportCapabilities::in_memory("/project"))
+        .await
+        .unwrap()
+        .text
+        .len();
+    let mut limited = request(vec![ProjectRoot::chart(chart.clone())]);
+    limited.limits.max_total_source_bytes = root_bytes;
+    let failure = ProjectLoader::new(&loader)
+        .load(limited)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-024");
+
+    let second = SourceOrigin::Memory("second.mark.avenger".into());
+    loader.insert(source(
+        second,
+        "avenger 1; define mark second { mark symbol {} }",
+    ));
+    loader.insert(source(
+        chart.clone(),
+        "avenger 1; import 'a.mark.avenger'; import 'second.mark.avenger'; chart cartesian as chart {}",
+    ));
+    let mut limited = request(vec![ProjectRoot::chart(chart)]);
+    limited.limits.max_imports_per_source = 1;
+    let failure = ProjectLoader::new(&loader)
+        .load(limited)
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PROJECT-025");
 }
 
 struct CountingLoader {

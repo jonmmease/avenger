@@ -2,9 +2,9 @@ use std::{fs, path::PathBuf};
 
 use avenger_chart_schema::{NativeKindKey, NativeKindNamespace, NativeSchemaSnapshot};
 use avenger_lang_core::{
-    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadRequest,
-    ProjectLoader, ProjectRoot, ResolvedSelectionCombine, ResolvedSelectionEmpty, ResolvedTarget,
-    SourceOrigin, render_diagnostics, resolve_project,
+    ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, ProjectLoadLimits,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolvedSelectionCombine,
+    ResolvedSelectionEmpty, ResolvedTarget, SourceOrigin, render_diagnostics, resolve_project,
 };
 
 fn bootstrap_schema() -> NativeSchemaSnapshot {
@@ -60,6 +60,7 @@ async fn project(sources: &[(&str, &str)], root: &str) -> avenger_lang_core::Par
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
+            limits: ProjectLoadLimits::default(),
         })
         .await
         .result

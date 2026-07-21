@@ -13,20 +13,22 @@ pub use avenger_lang_compiler::{
     CompileEnvironmentError, CompileEnvironmentFactory, CompileEnvironmentRequest,
     CompileEnvironmentResourceVersion, CompileFailure, CompiledChartArtifact,
     CompiledChartGeneration, CompiledChartInterface, CompiledDependency, CompiledProject, Compiler,
-    CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot, CompilerOptions,
+    CompilerBuildError, CompilerBuilder, CompilerCacheSnapshot, CompilerLimits, CompilerOptions,
     DatasetLineageIndex, DatasetSchemaIndex, DatasetStageId, DatasetStageKind, DefaultSourceLoader,
-    DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost, ProjectAnalysis,
-    ProjectChartId, ProjectCompilationMode, ProjectDatasetId, ProjectDependencyFingerprints,
-    ProjectFingerprint, SourceLoaderLimits, TableFactory, TableFactoryError, TableFactoryRegistry,
+    DependencyFingerprint, DependencyRole, DiscoveredDependencySet, LanguageHost,
+    LocalResourceLimits, ProjectAnalysis, ProjectChartId, ProjectCompilationMode, ProjectDatasetId,
+    ProjectDependencyFingerprints, ProjectFingerprint, SourceLoaderLimits, TableFactory,
+    TableFactoryError, TableFactoryRegistry,
 };
 pub use avenger_lang_core::{
     AmbientDataDeclaration, ByteSpan, ContentVersion, DataCapabilities, DefinitionKind, Diagnostic,
     DiagnosticCode, DiagnosticSeverity, EmptyEnvironmentProvider, EnvironmentProvider,
     ImportCapabilities, ImportEdge, InMemorySourceLoader, LANGUAGE_MAJOR, LineIndex, LoadedSource,
     MapEnvironmentProvider, ParsedProject, ProjectDependency, ProjectDependencyRole, ProjectFile,
-    ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure, ProjectLoadRequest,
-    ProjectLoader, ProjectRoot, ResolveAttempt, ResolveFailure, ResolvedProject, SourceFile,
-    SourceId, SourceLabel, SourceLoader, SourceMap, SourceOrigin, SourceSpan,
+    ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure, ProjectLoadLimits,
+    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolveAttempt, ResolveFailure,
+    ResolvedProject, SourceFile, SourceId, SourceLabel, SourceLoader, SourceMap, SourceOrigin,
+    SourceSpan,
 };
 
 /// Build the current canonical stock language registry.

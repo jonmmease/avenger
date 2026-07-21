@@ -25,10 +25,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AnalyzedDataset, ArtifactCacheKey, CatalogFactoryRegistry, CompileEnvironmentFactory,
     CompileEnvironmentRequest, CompileEnvironmentResourceVersion, CompiledChartArtifact,
-    CompiledProject, CompilerOptions, DatasetLineage, DatasetProvenance, DatasetStageId,
-    DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint, LanguageHost,
-    ProjectAnalysis, ProjectChartId, ProjectDatasetId, ProjectDependencyFingerprints,
-    ProjectFingerprint, TableFactoryRegistry,
+    CompiledProject, CompilerLimits, CompilerOptions, DatasetLineage, DatasetProvenance,
+    DatasetStageId, DefaultCompileEnvironmentFactory, DefaultSourceLoader, DependencyFingerprint,
+    LanguageHost, LocalResourceLimits, ProjectAnalysis, ProjectChartId, ProjectDatasetId,
+    ProjectDependencyFingerprints, ProjectFingerprint, SourceLoaderLimits, TableFactoryRegistry,
     catalog::{CatalogAnalysis, CatalogOptions, register_and_analyze_catalog},
     lowering::{LoweredProject, analyze_chart_datasets, lower_project, lower_project_chart},
 };
@@ -762,7 +762,7 @@ impl Compiler {
     ) -> CompileAttempt<ParsedProject> {
         let chart = canonicalize_if_exists(&self.resolve_path(path.as_ref()));
         let ambient = if self.options.project_root.exists() {
-            match discover_avenger_files(&self.options.project_root) {
+            match discover_avenger_files(&self.options.project_root, self.options.limits.project) {
                 Ok(files) => files
                     .into_iter()
                     .filter(|path| is_data_path(path))
@@ -788,7 +788,7 @@ impl Compiler {
         root: impl AsRef<Path>,
     ) -> CompileAttempt<ParsedProject> {
         let root = canonicalize_if_exists(&self.resolve_path(root.as_ref()));
-        let files = match discover_avenger_files(&root) {
+        let files = match discover_avenger_files(&root, self.options.limits.project) {
             Ok(files) => files,
             Err(error) => return discovery_failure(&root, error),
         };
@@ -841,6 +841,7 @@ impl Compiler {
                 .profile_id()
                 .as_str()
                 .to_owned(),
+            limits: self.options.limits.project,
         };
         let ProjectLoadAttempt {
             result,
@@ -859,6 +860,7 @@ impl Compiler {
                 &self.options.project_root,
                 &self.options.import_capabilities,
                 &self.options.data_capabilities,
+                self.options.limits.resources,
                 &mut dependencies,
             )
             .map_err(|failure| failure.with_sources(project.sources.clone()))?;
@@ -1057,6 +1059,7 @@ pub struct CompilerBuilder {
     table_factories: TableFactoryRegistry,
     environment_factory: Option<Arc<dyn CompileEnvironmentFactory>>,
     project_compilation_mode: ProjectCompilationMode,
+    limits: CompilerLimits,
 }
 
 impl CompilerBuilder {
@@ -1113,6 +1116,11 @@ impl CompilerBuilder {
         self
     }
 
+    pub fn limits(mut self, limits: CompilerLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
     pub fn build(self) -> Result<Compiler, CompilerBuildError> {
         let project_root = self
             .project_root
@@ -1123,9 +1131,16 @@ impl CompilerBuilder {
             Some(registry) => registry,
             None => Arc::new(builtins::stock_registry()?),
         };
+        let limits = self.limits;
         let source_loader = self.source_loader.map(Ok).unwrap_or_else(|| {
-            DefaultSourceLoader::new(&project_root)
-                .map(|loader| Arc::new(loader) as Arc<dyn SourceLoader>)
+            DefaultSourceLoader::with_limits(
+                &project_root,
+                SourceLoaderLimits {
+                    max_source_bytes: limits.project.max_source_bytes,
+                    max_redirects: 5,
+                },
+            )
+            .map(|loader| Arc::new(loader) as Arc<dyn SourceLoader>)
         })?;
         let options = CompilerOptions {
             import_capabilities: self
@@ -1145,6 +1160,7 @@ impl CompilerBuilder {
             environment_factory: self
                 .environment_factory
                 .unwrap_or_else(|| Arc::new(DefaultCompileEnvironmentFactory)),
+            limits,
         };
         Ok(Compiler {
             options: Arc::new(options),
@@ -1302,7 +1318,10 @@ fn resolve_parsed_project(
     }
 }
 
-fn discover_avenger_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
+fn discover_avenger_files(
+    root: &Path,
+    limits: avenger_lang_core::ProjectLoadLimits,
+) -> Result<Vec<PathBuf>, std::io::Error> {
     if !root.exists() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -1312,17 +1331,43 @@ fn discover_avenger_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
     if root.is_file() {
         return Ok(vec![normalize_path(root)]);
     }
-    let mut pending = vec![root.to_path_buf()];
+    let mut pending = vec![(root.to_path_buf(), 0_usize)];
     let mut files = Vec::new();
-    while let Some(directory) = pending.pop() {
-        let mut entries = std::fs::read_dir(&directory)?.collect::<Result<Vec<_>, _>>()?;
+    let mut visited_entries = 0_usize;
+    while let Some((directory, depth)) = pending.pop() {
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(&directory)? {
+            visited_entries = visited_entries.checked_add(1).ok_or_else(|| {
+                resource_limit_error("project directory entry count overflowed".to_string())
+            })?;
+            if visited_entries > limits.max_project_directory_entries {
+                return Err(resource_limit_error(format!(
+                    "project discovery exceeds {} directory entries",
+                    limits.max_project_directory_entries
+                )));
+            }
+            entries.push(entry?);
+        }
         entries.sort_by_key(std::fs::DirEntry::path);
         for entry in entries.into_iter().rev() {
             let file_type = entry.file_type()?;
             let path = entry.path();
             if file_type.is_dir() {
-                pending.push(path);
+                if depth >= limits.max_project_directory_depth {
+                    return Err(resource_limit_error(format!(
+                        "project directory depth exceeds {} at `{}`",
+                        limits.max_project_directory_depth,
+                        path.display()
+                    )));
+                }
+                pending.push((path, depth + 1));
             } else if file_type.is_file() && path.to_string_lossy().ends_with(".avenger") {
+                if files.len() >= limits.max_sources {
+                    return Err(resource_limit_error(format!(
+                        "project discovery exceeds {} Avenger source files",
+                        limits.max_sources
+                    )));
+                }
                 files.push(normalize_path(&path));
             }
         }
@@ -1383,8 +1428,10 @@ fn discover_local_resources(
     project_root: &Path,
     import_capabilities: &ImportCapabilities,
     data_capabilities: &DataCapabilities,
+    limits: LocalResourceLimits,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
+    let mut budget = ResourceFingerprintBudget::default();
     for file in project.files.values() {
         for declaration in file.parsed.ast.root.declarations() {
             discover_declaration_resources(
@@ -1394,6 +1441,8 @@ fn discover_local_resources(
                 project_root,
                 import_capabilities,
                 data_capabilities,
+                limits,
+                &mut budget,
                 dependencies,
             )?;
         }
@@ -1408,6 +1457,8 @@ fn discover_declaration_resources(
     project_root: &Path,
     import_capabilities: &ImportCapabilities,
     data_capabilities: &DataCapabilities,
+    limits: LocalResourceLimits,
+    budget: &mut ResourceFingerprintBudget,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
     if declaration.keyword.as_str() == "table"
@@ -1422,6 +1473,8 @@ fn discover_declaration_resources(
                 declaring_origin,
                 project_root,
                 data_capabilities.allow_filesystem,
+                limits,
+                budget,
                 dependencies,
             )?;
         }
@@ -1435,6 +1488,8 @@ fn discover_declaration_resources(
             declaring_origin,
             project_root,
             import_capabilities.allow_filesystem,
+            limits,
+            budget,
             dependencies,
         )?;
     }
@@ -1446,6 +1501,8 @@ fn discover_declaration_resources(
             project_root,
             import_capabilities,
             data_capabilities,
+            limits,
+            budget,
             dependencies,
         )?;
     }
@@ -1470,6 +1527,8 @@ fn discover_resource(
     declaring_origin: &SourceOrigin,
     project_root: &Path,
     allow_filesystem: bool,
+    limits: LocalResourceLimits,
+    budget: &mut ResourceFingerprintBudget,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
     let origin = if path.split_once("://").is_some() {
@@ -1514,9 +1573,13 @@ fn discover_resource(
         ));
     }
     if path.contains(['*', '?', '[']) {
-        dependency.content_version = Some(glob_content_version(&normalized_candidate).map_err(
-            |error| resource_failure(source, "local data glob could not be fingerprinted", error),
-        )?);
+        dependency.content_version = Some(
+            glob_content_version_with_budget(&normalized_candidate, limits, budget).map_err(
+                |error| {
+                    resource_failure(source, "local data glob could not be fingerprinted", error)
+                },
+            )?,
+        );
         dependencies.insert_owned(source, dependency);
         return Ok(());
     }
@@ -1536,22 +1599,48 @@ fn discover_resource(
     }
     dependency.canonical_origin = SourceOrigin::File(canonical.clone());
     dependency.nearest_existing_parent = canonical.parent().map(Path::to_path_buf);
-    dependency.content_version = Some(resource_content_version(&canonical).map_err(|error| {
-        resource_failure(
-            source,
-            "local data resource could not be fingerprinted",
-            error.to_string(),
-        )
-    })?);
+    dependency.content_version = Some(
+        resource_content_version_with_budget(&canonical, limits, budget).map_err(|error| {
+            resource_failure(
+                source,
+                "local data resource could not be fingerprinted",
+                error.to_string(),
+            )
+        })?,
+    );
     dependencies.insert_owned(source, dependency);
     Ok(())
 }
 
 pub(crate) fn resource_content_version(path: &Path) -> Result<String, std::io::Error> {
+    resource_content_version_with_limits(path, LocalResourceLimits::default())
+}
+
+fn resource_content_version_with_limits(
+    path: &Path,
+    limits: LocalResourceLimits,
+) -> Result<String, std::io::Error> {
+    let mut budget = ResourceFingerprintBudget::default();
+    resource_content_version_with_budget(path, limits, &mut budget)
+}
+
+#[derive(Default)]
+struct ResourceFingerprintBudget {
+    files: usize,
+    bytes: u64,
+    directory_entries: usize,
+}
+
+fn resource_content_version_with_budget(
+    path: &Path,
+    limits: LocalResourceLimits,
+    budget: &mut ResourceFingerprintBudget,
+) -> Result<String, std::io::Error> {
     use sha2::{Digest, Sha256};
     if path.is_dir() {
         let mut files = Vec::new();
-        collect_directory_files(path, path, &mut files)?;
+        let max_new_files = limits.max_files.saturating_sub(budget.files);
+        collect_directory_files(path, path, 0, limits, max_new_files, budget, &mut files)?;
         let mut hasher = Sha256::new();
         hasher.update(b"avenger-directory-v1\0");
         for file in files {
@@ -1562,21 +1651,115 @@ pub(crate) fn resource_content_version(path: &Path) -> Result<String, std::io::E
                     .as_bytes(),
             );
             hasher.update(b"\0");
-            hasher.update(std::fs::read(file)?);
+            hash_resource_file(&file, limits, budget, &mut hasher)?;
             hasher.update(b"\0");
         }
         return Ok(format!("directory-sha256:{:x}", hasher.finalize()));
     }
-    let bytes = std::fs::read(path)?;
-    Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
+    let mut hasher = Sha256::new();
+    hash_resource_file(path, limits, budget, &mut hasher)?;
+    Ok(format!("sha256:{:x}", hasher.finalize()))
+}
+
+fn hash_resource_file(
+    path: &Path,
+    limits: LocalResourceLimits,
+    budget: &mut ResourceFingerprintBudget,
+    hasher: &mut sha2::Sha256,
+) -> Result<(), std::io::Error> {
+    use sha2::Digest;
+    use std::io::Read;
+
+    let metadata = std::fs::metadata(path)?;
+    if metadata.len() > limits.max_file_bytes {
+        return Err(resource_limit_error(format!(
+            "resource `{}` is {} bytes; per-file limit is {} bytes",
+            path.display(),
+            metadata.len(),
+            limits.max_file_bytes
+        )));
+    }
+    if budget.files >= limits.max_files {
+        return Err(resource_limit_error(format!(
+            "resource tree exceeds {} files",
+            limits.max_files
+        )));
+    }
+    let projected_total_bytes = budget
+        .bytes
+        .checked_add(metadata.len())
+        .ok_or_else(|| resource_limit_error("resource byte count overflowed".to_string()))?;
+    if projected_total_bytes > limits.max_total_bytes {
+        return Err(resource_limit_error(format!(
+            "resource tree totals {projected_total_bytes} bytes; limit is {} bytes",
+            limits.max_total_bytes
+        )));
+    }
+
+    let mut file = std::fs::File::open(path)?;
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut file_bytes = 0_u64;
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        file_bytes = file_bytes
+            .checked_add(read as u64)
+            .ok_or_else(|| resource_limit_error("resource byte count overflowed".to_string()))?;
+        if file_bytes > limits.max_file_bytes {
+            return Err(resource_limit_error(format!(
+                "resource `{}` grew beyond the {} byte per-file limit while reading",
+                path.display(),
+                limits.max_file_bytes
+            )));
+        }
+        let actual_total_bytes = budget
+            .bytes
+            .checked_add(file_bytes)
+            .ok_or_else(|| resource_limit_error("resource byte count overflowed".to_string()))?;
+        if actual_total_bytes > limits.max_total_bytes {
+            return Err(resource_limit_error(format!(
+                "resource tree grew beyond the {} byte total limit while reading",
+                limits.max_total_bytes
+            )));
+        }
+        hasher.update(&buffer[..read]);
+    }
+    budget.files += 1;
+    budget.bytes += file_bytes;
+    Ok(())
 }
 
 fn collect_directory_files(
     root: &Path,
     directory: &Path,
+    depth: usize,
+    limits: LocalResourceLimits,
+    max_new_files: usize,
+    budget: &mut ResourceFingerprintBudget,
     files: &mut Vec<PathBuf>,
 ) -> Result<(), std::io::Error> {
-    let mut entries = std::fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    if depth > limits.max_directory_depth {
+        return Err(resource_limit_error(format!(
+            "resource directory depth exceeds {} at `{}`",
+            limits.max_directory_depth,
+            directory.display()
+        )));
+    }
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(directory)? {
+        budget.directory_entries = budget.directory_entries.checked_add(1).ok_or_else(|| {
+            resource_limit_error("resource directory entry count overflowed".to_string())
+        })?;
+        if budget.directory_entries > limits.max_directory_entries {
+            return Err(resource_limit_error(format!(
+                "resource discovery exceeds {} directory entries",
+                limits.max_directory_entries
+            )));
+        }
+        entries.push(entry?);
+    }
     entries.sort_by_key(std::fs::DirEntry::path);
     for entry in entries {
         let path = entry.path();
@@ -1591,8 +1774,14 @@ fn collect_directory_files(
             }
         }
         if metadata.is_dir() {
-            collect_directory_files(root, &path, files)?;
+            collect_directory_files(root, &path, depth + 1, limits, max_new_files, budget, files)?;
         } else if metadata.is_file() {
+            if files.len() >= max_new_files {
+                return Err(resource_limit_error(format!(
+                    "resource tree exceeds {} files",
+                    limits.max_files
+                )));
+            }
             files.push(path);
         }
     }
@@ -1600,23 +1789,50 @@ fn collect_directory_files(
 }
 
 pub(crate) fn glob_content_version(pattern: &Path) -> Result<String, String> {
+    glob_content_version_with_limits(pattern, LocalResourceLimits::default())
+}
+
+fn glob_content_version_with_limits(
+    pattern: &Path,
+    limits: LocalResourceLimits,
+) -> Result<String, String> {
+    let mut budget = ResourceFingerprintBudget::default();
+    glob_content_version_with_budget(pattern, limits, &mut budget)
+}
+
+fn glob_content_version_with_budget(
+    pattern: &Path,
+    limits: LocalResourceLimits,
+    budget: &mut ResourceFingerprintBudget,
+) -> Result<String, String> {
     use sha2::{Digest, Sha256};
     let pattern = pattern.to_string_lossy();
-    let mut matches = glob::glob(&pattern)
-        .map_err(|error| error.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| error.to_string())?;
+    let mut matches = Vec::new();
+    for matched in glob::glob(&pattern).map_err(|error| error.to_string())? {
+        if matches.len() >= limits.max_files.saturating_sub(budget.files) {
+            return Err(format!(
+                "resource glob exceeds {} top-level matches",
+                limits.max_files
+            ));
+        }
+        matches.push(matched.map_err(|error| error.to_string())?);
+    }
     matches.sort();
     let mut hasher = Sha256::new();
     hasher.update(b"avenger-glob-v1\0");
     for path in matches {
         hasher.update(path.to_string_lossy().as_bytes());
         hasher.update(b"\0");
-        let version = resource_content_version(&path).map_err(|error| error.to_string())?;
+        let version = resource_content_version_with_budget(&path, limits, budget)
+            .map_err(|error| error.to_string())?;
         hasher.update(version.as_bytes());
         hasher.update(b"\0");
     }
     Ok(format!("glob-sha256:{:x}", hasher.finalize()))
+}
+
+fn resource_limit_error(message: String) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
 }
 
 fn resource_failure(source: SourceId, message: &str, label: String) -> CompileFailure {

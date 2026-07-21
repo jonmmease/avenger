@@ -2,7 +2,9 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use async_trait::async_trait;
 use avenger_chart_lang_registry::NativeRegistry;
-use avenger_lang_core::{DataCapabilities, EnvironmentProvider, ImportCapabilities, SourceLoader};
+use avenger_lang_core::{
+    DataCapabilities, EnvironmentProvider, ImportCapabilities, ProjectLoadLimits, SourceLoader,
+};
 use datafusion::{catalog::CatalogProvider, datasource::TableProvider, prelude::SessionContext};
 
 #[derive(Clone)]
@@ -230,6 +232,45 @@ pub struct CompilerOptions {
     pub catalog_factories: CatalogFactoryRegistry,
     pub table_factories: TableFactoryRegistry,
     pub environment_factory: Arc<dyn CompileEnvironmentFactory>,
+    pub limits: CompilerLimits,
+}
+
+/// Bounds used by project loading and local-resource fingerprinting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CompilerLimits {
+    pub project: ProjectLoadLimits,
+    pub resources: LocalResourceLimits,
+}
+
+impl Default for CompilerLimits {
+    fn default() -> Self {
+        Self {
+            project: ProjectLoadLimits::default(),
+            resources: LocalResourceLimits::default(),
+        }
+    }
+}
+
+/// Bounds for files, directories, and globs consulted as local data resources.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LocalResourceLimits {
+    pub max_file_bytes: u64,
+    pub max_total_bytes: u64,
+    pub max_files: usize,
+    pub max_directory_depth: usize,
+    pub max_directory_entries: usize,
+}
+
+impl Default for LocalResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_file_bytes: 512 * 1024 * 1024,
+            max_total_bytes: 2 * 1024 * 1024 * 1024,
+            max_files: 100_000,
+            max_directory_depth: 64,
+            max_directory_entries: 100_000,
+        }
+    }
 }
 
 impl std::fmt::Debug for CompilerOptions {
@@ -244,6 +285,7 @@ impl std::fmt::Debug for CompilerOptions {
             )
             .field("catalog_factories", &self.catalog_factories)
             .field("table_factories", &self.table_factories)
+            .field("limits", &self.limits)
             .finish_non_exhaustive()
     }
 }

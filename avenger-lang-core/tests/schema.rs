@@ -1,7 +1,8 @@
 use avenger_chart_schema::NativeSchemaSnapshot;
 use avenger_lang_core::{
     ContentVersion, ImportCapabilities, InMemorySourceLoader, LoadedSource, PhysicalType,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId, SourceOrigin,
+    ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot, SourceFile, SourceId,
+    SourceOrigin,
     ast::{Root, Value},
     resolve_project, semantic_json_schema,
     syntax::parse_file,
@@ -30,6 +31,7 @@ async fn semantic_project(text: &str) -> avenger_lang_core::ParsedProject {
             capabilities: ImportCapabilities::in_memory("/project"),
             schema_version: "semantic-v1".to_owned(),
             registry_version: "bootstrap".to_owned(),
+            limits: ProjectLoadLimits::default(),
         })
         .await
         .result

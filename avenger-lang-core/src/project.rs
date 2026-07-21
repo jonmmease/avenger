@@ -107,6 +107,33 @@ pub struct ProjectLoadRequest {
     pub capabilities: ImportCapabilities,
     pub schema_version: String,
     pub registry_version: String,
+    pub limits: ProjectLoadLimits,
+}
+
+/// Bounds applied while loading an untrusted project and its import closure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProjectLoadLimits {
+    pub max_source_bytes: usize,
+    pub max_total_source_bytes: usize,
+    pub max_sources: usize,
+    pub max_import_depth: usize,
+    pub max_imports_per_source: usize,
+    pub max_project_directory_depth: usize,
+    pub max_project_directory_entries: usize,
+}
+
+impl Default for ProjectLoadLimits {
+    fn default() -> Self {
+        Self {
+            max_source_bytes: 2 * 1024 * 1024,
+            max_total_source_bytes: 64 * 1024 * 1024,
+            max_sources: 1_024,
+            max_import_depth: 64,
+            max_imports_per_source: 256,
+            max_project_directory_depth: 64,
+            max_project_directory_entries: 100_000,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -217,6 +244,20 @@ impl<'a> ProjectLoader<'a> {
         pending: PendingSource,
     ) -> ProjectResult<()> {
         let dependency_index = state.record_candidate(&pending);
+        if pending.trace.len() > request.limits.max_import_depth {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-021",
+                "project import depth limit exceeded",
+                pending
+                    .site
+                    .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
+                format!(
+                    "import depth is {}; limit is {}",
+                    pending.trace.len(),
+                    request.limits.max_import_depth
+                ),
+            ));
+        }
         if matches!(pending.origin, SourceOrigin::Http(_)) && pending.sha256.is_none() {
             return Err(project_diagnostic(
                 "AVENGER-PROJECT-008",
@@ -246,6 +287,56 @@ impl<'a> ProjectLoader<'a> {
             });
             return Ok(());
         }
+
+        if loaded.text.len() > request.limits.max_source_bytes {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-022",
+                "project source size limit exceeded",
+                pending
+                    .site
+                    .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
+                format!(
+                    "source is {} bytes; per-source limit is {} bytes",
+                    loaded.text.len(),
+                    request.limits.max_source_bytes
+                ),
+            ));
+        }
+        if state.loaded.len() >= request.limits.max_sources {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-023",
+                "project source-count limit exceeded",
+                pending
+                    .site
+                    .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
+                format!("project source limit is {}", request.limits.max_sources),
+            ));
+        }
+        let Some(total_source_bytes) = state.total_source_bytes.checked_add(loaded.text.len())
+        else {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-024",
+                "project total source-size limit exceeded",
+                pending
+                    .site
+                    .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
+                "project source byte count overflowed".to_string(),
+            ));
+        };
+        if total_source_bytes > request.limits.max_total_source_bytes {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-024",
+                "project total source-size limit exceeded",
+                pending
+                    .site
+                    .unwrap_or_else(|| SourceSpan::empty(state.fallback_source(), 0)),
+                format!(
+                    "project sources total {total_source_bytes} bytes; limit is {} bytes",
+                    request.limits.max_total_source_bytes
+                ),
+            ));
+        }
+        state.total_source_bytes = total_source_bytes;
 
         let source_id = SourceId::new(state.next_source_id);
         state.next_source_id += 1;
@@ -293,6 +384,18 @@ impl<'a> ProjectLoader<'a> {
             .clone()
             .into_iter()
             .zip(state.loaded[&source_id].parsed.import_spans.clone());
+        let import_count = state.loaded[&source_id].parsed.ast.imports.len();
+        if import_count > request.limits.max_imports_per_source {
+            return Err(project_diagnostic(
+                "AVENGER-PROJECT-025",
+                "per-source import-count limit exceeded",
+                SourceSpan::empty(source_id, 0),
+                format!(
+                    "source has {import_count} imports; limit is {}",
+                    request.limits.max_imports_per_source
+                ),
+            ));
+        }
         for (import, import_site) in imports {
             let target =
                 resolve_import_origin(&loaded.origin, &import.source, &request.project_root)
@@ -357,6 +460,7 @@ struct LoadState<'a> {
     source_to_file: BTreeMap<SourceId, ProjectFileId>,
     finalized_edges: Vec<ImportEdge>,
     next_source_id: u32,
+    total_source_bytes: usize,
 }
 
 impl<'a> LoadState<'a> {
@@ -372,6 +476,7 @@ impl<'a> LoadState<'a> {
             source_to_file: BTreeMap::new(),
             finalized_edges: Vec::new(),
             next_source_id: 0,
+            total_source_bytes: 0,
         }
     }
 
