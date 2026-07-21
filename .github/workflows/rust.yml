@@ -39,6 +39,24 @@ jobs:
       - name: Run doc tests
         run: cargo test --release --workspace --doc --verbose
 
+  check-cli-windows:
+    runs-on: windows-latest
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "check-cli-windows"
+      - name: Check native CLI portability
+        run: cargo check --release -p avenger-lang-cli --all-targets
+      - name: Run non-headful CLI tests
+        run: cargo test --release -p avenger-lang-cli -- --nocapture
+
 # # Cleanup fails with: [__NSCFString bytes]: unrecognized selector sent to instance 0x600002fc62c0
 #  test-rs-macos:
 #    runs-on: macos-latest

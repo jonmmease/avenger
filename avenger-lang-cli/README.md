@@ -144,6 +144,10 @@ cargo test --release -p avenger-lang-cli headful_watch_smoke \
   -- --ignored --nocapture
 ```
 
+Run the platform and editor scenarios in
+[`MANUAL_ACCEPTANCE.md`](MANUAL_ACCEPTANCE.md) before claiming native release
+support. The checklist deliberately requires a human-visible desktop session.
+
 Formatting, checking, rendering, inspection protocols, LSP/DAP/MCP adapters,
 multi-chart galleries, and additional CLI subcommands are separate milestones;
 they are not partially scaffolded in this crate.

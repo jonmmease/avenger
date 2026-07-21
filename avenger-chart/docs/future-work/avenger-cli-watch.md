@@ -945,7 +945,8 @@ Implementation checkpoint (2026-07-20):
   compiler.
 - [x] Complete structured tracing and secret-redaction audit.
 - [x] Run release-mode unit, integration, visual, app, and cache tests.
-- [ ] Complete the manual OS/editor acceptance matrix.
+- [ ] Complete the manual OS/editor acceptance matrix using
+  [`avenger-lang-cli/MANUAL_ACCEPTANCE.md`](../../../avenger-lang-cli/MANUAL_ACCEPTANCE.md).
 - [x] Document installation and `watch` usage with the fixture project.
 - [x] Record deferred CLI subcommands/features without scaffolding them.
 - [ ] **Phase 5 gate:** all completion criteria below are satisfied.
