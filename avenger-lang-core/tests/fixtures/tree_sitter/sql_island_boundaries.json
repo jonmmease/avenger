@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "authority": {
+    "spec": "avenger-chart/docs/future-work/chart-dsl.md",
+    "parser": "avenger-lang-core/src/syntax/parser.rs",
+    "purpose": "Smallest complete SQL islands owned by each structural DSL context"
+  },
+  "contexts": [
+    {
+      "name": "query_property",
+      "root": "query",
+      "outer_delimiters": [";"],
+      "sites": ["query_property"]
+    },
+    {
+      "name": "property_expression",
+      "root": "expression",
+      "outer_delimiters": [";", "{"],
+      "sites": ["value_property_payload", "property_value"]
+    },
+    {
+      "name": "terminated_expression",
+      "root": "expression",
+      "outer_delimiters": [";"],
+      "sites": ["field_type", "output_value", "cursor_action_rhs", "state_action_rhs"]
+    },
+    {
+      "name": "array_expression",
+      "root": "expression",
+      "outer_delimiters": [",", "]"],
+      "sites": ["array_value_payload", "array_element"]
+    }
+  ],
+  "boundary_cases": [
+    {
+      "id": "query_standard_semicolon",
+      "context": "query_property",
+      "source": "SELECT ';,{[]}' AS punctuation;",
+      "island": "SELECT ';,{[]}' AS punctuation",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "query_from_first_semicolon",
+      "context": "query_property",
+      "source": "FROM vega.movies AS m SELECT m.\"title\";",
+      "island": "FROM vega.movies AS m SELECT m.\"title\"",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "query_ddl_rejected",
+      "context": "query_property",
+      "source": "CREATE TABLE t (x INT);",
+      "island": "CREATE TABLE t (x INT)",
+      "outer": ";",
+      "accepted": false
+    },
+    {
+      "id": "query_dml_rejected",
+      "context": "query_property",
+      "source": "INSERT INTO t VALUES (1);",
+      "island": "INSERT INTO t VALUES (1)",
+      "outer": ";",
+      "accepted": false
+    },
+    {
+      "id": "property_expression_semicolon",
+      "context": "property_expression",
+      "source": "\"amount\" + coalesce($offset, 0);",
+      "island": "\"amount\" + coalesce($offset, 0)",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "property_expression_configuration",
+      "context": "property_expression",
+      "source": "coalesce(\"amount\", [1, 2][1]){enabled: true;}",
+      "island": "coalesce(\"amount\", [1, 2][1])",
+      "outer": "{",
+      "accepted": true
+    },
+    {
+      "id": "property_expression_delimiters_in_comment",
+      "context": "property_expression",
+      "source": "coalesce(\"amount\", 0)/* ; { , ] */{enabled: true;}",
+      "island": "coalesce(\"amount\", 0)/* ; { , ] */",
+      "outer": "{",
+      "accepted": true
+    },
+    {
+      "id": "terminated_scalar_subquery",
+      "context": "terminated_expression",
+      "source": "(SELECT count(*) FROM $rows WHERE \"note\" = ';,{}[]');",
+      "island": "(SELECT count(*) FROM $rows WHERE \"note\" = ';,{}[]')",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "terminated_temporal_binding",
+      "context": "terminated_expression",
+      "source": "$width@previous + 1;",
+      "island": "$width@previous + 1",
+      "outer": ";",
+      "accepted": true
+    },
+    {
+      "id": "terminated_incomplete_call",
+      "context": "terminated_expression",
+      "source": "coalesce(1,;",
+      "island": "coalesce(1,",
+      "outer": ";",
+      "accepted": false
+    },
+    {
+      "id": "array_nested_array_comma",
+      "context": "array_expression",
+      "source": "coalesce([1, 2], [3, 4]),next",
+      "island": "coalesce([1, 2], [3, 4])",
+      "outer": ",",
+      "accepted": true
+    },
+    {
+      "id": "array_struct_comma",
+      "context": "array_expression",
+      "source": "{key: '],}', nested: {enabled: true}},next",
+      "island": "{key: '],}', nested: {enabled: true}}",
+      "outer": ",",
+      "accepted": true
+    },
+    {
+      "id": "array_closing_bracket",
+      "context": "array_expression",
+      "source": "coalesce(1, 2)]",
+      "island": "coalesce(1, 2)",
+      "outer": "]",
+      "accepted": true
+    }
+  ],
+  "structural_cases": [
+    {
+      "id": "query_and_sql_are_equivalent",
+      "accepted": true,
+      "source": "avenger 1; chart cartesian { sql: SELECT 1; query: FROM vega.movies AS m SELECT m.\"title\"; }"
+    },
+    {
+      "id": "multiple_query_statements_are_rejected",
+      "accepted": false,
+      "source": "avenger 1; chart cartesian { sql: SELECT 1; SELECT 2; }"
+    },
+    {
+      "id": "configured_and_terminated_forms",
+      "accepted": true,
+      "source": "avenger 1; define mark sample { channel x; output result: $width + 1; mark symbol as points { x: coalesce(\"x\", 0) { scale: linear {} } filter: \"x\" > 0; } }"
+    },
+    {
+      "id": "terminated_output_cannot_open_configuration",
+      "accepted": false,
+      "source": "avenger 1; define mark sample { output result: $width + 1 { enabled: true; } }"
+    },
+    {
+      "id": "mixed_structural_array",
+      "accepted": true,
+      "source": "avenger 1; chart cartesian { values: [{ id: 'object'; }, value coalesce(1, 2), pattern { angle: 45; }, none, coalesce([1, 2], [3, 4])]; }"
+    },
+    {
+      "id": "invalid_middle_array_expression",
+      "accepted": false,
+      "source": "avenger 1; chart cartesian { values: [1, coalesce(, 2), 3]; }"
+    },
+    {
+      "id": "all_terminated_action_sites",
+      "accepted": true,
+      "source": "avenger 1; chart cartesian { on pointermove { set param width = event_coord(x); set store rows = $rows; set selection brush = clear; set cursor = 'crosshair'; } }"
+    },
+    {
+      "id": "field_type_is_terminated",
+      "accepted": true,
+      "source": "avenger 1; define transform sample { field payload: struct(field('x', float64)); }"
+    }
+  ]
+}

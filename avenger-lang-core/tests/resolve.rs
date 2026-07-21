@@ -195,6 +195,53 @@ chart cartesian {
 }
 
 #[tokio::test]
+async fn typed_object_does_not_satisfy_a_configured_expression_shape() {
+    let configured = project(
+        &[(
+            "configured_facet.avenger",
+            r#"
+avenger 1;
+chart facet_wrap {
+  facet: "region" { slots: shared; }
+  cell cartesian { mark symbol { x: "x"; y: "y"; } }
+}
+"#,
+        )],
+        "configured_facet.avenger",
+    )
+    .await;
+    assert!(
+        resolve_project(&configured, &bootstrap_schema())
+            .result
+            .is_ok()
+    );
+
+    let typed = project(
+        &[(
+            "typed_facet.avenger",
+            r#"
+avenger 1;
+chart facet_wrap {
+  facet: linear { slots: shared; }
+  cell cartesian { mark symbol { x: "x"; y: "y"; } }
+}
+"#,
+        )],
+        "typed_facet.avenger",
+    )
+    .await;
+    let failure = resolve_project(&typed, &bootstrap_schema())
+        .result
+        .unwrap_err();
+    assert!(
+        failure
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-RESOLVE-050")
+    );
+}
+
+#[tokio::test]
 async fn resolve_shared_param_store_namespace_shadows_without_kind_fallback() {
     let project = project(
         &[(

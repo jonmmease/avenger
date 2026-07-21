@@ -23,6 +23,8 @@ const VALID_FIXTURES: &[&str] = &[
     "catalog.data.avenger",
     "dedicated-shapes.avenger",
     "query-entry.avenger",
+    "selection-payloads.avenger",
+    "headed-blocks.avenger",
 ];
 
 const INVALID_FIXTURES: &[&str] = &[
@@ -35,6 +37,7 @@ const INVALID_FIXTURES: &[&str] = &[
     "invalid-slot-shape.avenger",
     "late-interface.avenger",
     "wrong-root.avenger",
+    "id-declaration.avenger",
 ];
 
 fn fixture(relative: impl AsRef<Path>) -> PathBuf {
@@ -334,6 +337,55 @@ fn numeric_and_sql_normalization_boundaries_are_exact() {
         commented,
         SqlQuery::parse(&commented.canonical_sql()).unwrap()
     );
+}
+
+#[test]
+fn headed_block_disambiguation_is_stable() {
+    let path = fixture("headed-blocks.avenger");
+    let parsed = parse_file(&loaded(&path, 1)).unwrap();
+    let Root::Chart(chart) = &parsed.ast.root else {
+        panic!("expected chart root")
+    };
+
+    let head = |property: &str| match chart.props.get(property) {
+        Some(Value::Block {
+            head: Some(head), ..
+        }) => head.as_ref(),
+        value => panic!("expected configured block for {property}, got {value:?}"),
+    };
+
+    assert!(matches!(head("typed"), Value::Atom(name) if name.as_str() == "linear"));
+    assert!(matches!(head("column"), Value::Column(column) if column == "amount"));
+    assert!(matches!(head("binding"), Value::Binding { path, .. } if path[0].as_str() == "radius"));
+    assert!(matches!(head("qualified"), Value::Expr(_)));
+    assert!(matches!(head("literal"), Value::Num(_)));
+    assert!(matches!(head("parenthesized"), Value::Expr(_)));
+    assert!(matches!(head("call"), Value::Call { function, .. } if function.as_str() == "clamp"));
+}
+
+#[test]
+fn id_is_a_property_or_block_slot_splice_but_not_a_declaration() {
+    let property = SourceFile::new(
+        SourceId::new(1),
+        SourceOrigin::Memory("id-property.avenger".into()),
+        "avenger 1; chart cartesian { id: 'valid'; }",
+    );
+    assert!(parse_file(&property).is_ok());
+
+    let splice = SourceFile::new(
+        SourceId::new(2),
+        SourceOrigin::Memory("id-splice.avenger".into()),
+        "avenger 1; define mark example { slot block as id; id; }",
+    );
+    assert!(parse_file(&splice).is_ok());
+
+    let declaration = SourceFile::new(
+        SourceId::new(3),
+        SourceOrigin::Memory("id-declaration.avenger".into()),
+        "avenger 1; chart cartesian { id { value: 1; } }",
+    );
+    let error = parse_file(&declaration).unwrap_err();
+    assert_eq!(error.diagnostic().code.as_str(), "AVENGER-PARSE-025");
 }
 
 #[test]

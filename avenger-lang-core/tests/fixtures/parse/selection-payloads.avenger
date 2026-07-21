@@ -1,0 +1,30 @@
+avenger 1;
+
+chart cartesian {
+  on pointermove {
+    set selection brush = update {
+      clause {
+        id: 'primary';
+        equality {
+          dimension as category {
+            field: "category";
+            value: datum('category');
+          }
+        }
+        interval {
+          dimension as x {
+            field: "x";
+            from: start_coord(x);
+            to: event_coord(x);
+          }
+        }
+      }
+      fields {
+        values: [
+          { id: 'x'; field: "x"; },
+          { id: 'category'; field: "category"; },
+        ];
+      }
+    }
+  }
+}

@@ -1,0 +1,7 @@
+avenger 1;
+
+chart cartesian {
+  id {
+    value: 'obsolete';
+  }
+}

@@ -28,6 +28,116 @@ pub struct SyntaxLimits {
     pub sql: SqlParseLimits,
 }
 
+/// The four structural contexts that can own an embedded SQL island.
+///
+/// This is intentionally a closed compiler/editor contract. Adding a context
+/// requires updating the checked Tree-sitter boundary manifest.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SqlIslandContext {
+    QueryProperty,
+    PropertyExpression,
+    TerminatedExpression,
+    ArrayExpression,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SqlIslandRoot {
+    Query,
+    Expression,
+}
+
+/// Every strict-parser call site that delegates one source range to the SQL
+/// frontend. Keeping this inventory closed prevents a new island-bearing DSL
+/// form from bypassing the editor-boundary contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SqlIslandSite {
+    QueryProperty,
+    ValuePropertyPayload,
+    PropertyValue,
+    ArrayValuePayload,
+    ArrayElement,
+    FieldType,
+    OutputValue,
+    CursorActionRhs,
+    StateActionRhs,
+}
+
+impl SqlIslandContext {
+    pub const ALL: [Self; 4] = [
+        Self::QueryProperty,
+        Self::PropertyExpression,
+        Self::TerminatedExpression,
+        Self::ArrayExpression,
+    ];
+
+    pub const fn manifest_name(self) -> &'static str {
+        match self {
+            Self::QueryProperty => "query_property",
+            Self::PropertyExpression => "property_expression",
+            Self::TerminatedExpression => "terminated_expression",
+            Self::ArrayExpression => "array_expression",
+        }
+    }
+
+    pub const fn root(self) -> SqlIslandRoot {
+        match self {
+            Self::QueryProperty => SqlIslandRoot::Query,
+            Self::PropertyExpression | Self::TerminatedExpression | Self::ArrayExpression => {
+                SqlIslandRoot::Expression
+            }
+        }
+    }
+
+    pub const fn outer_delimiters(self) -> &'static [&'static str] {
+        match self {
+            Self::QueryProperty | Self::TerminatedExpression => &[";"],
+            Self::PropertyExpression => &[";", "{"],
+            Self::ArrayExpression => &[",", "]"],
+        }
+    }
+}
+
+impl SqlIslandSite {
+    pub const ALL: [Self; 9] = [
+        Self::QueryProperty,
+        Self::ValuePropertyPayload,
+        Self::PropertyValue,
+        Self::ArrayValuePayload,
+        Self::ArrayElement,
+        Self::FieldType,
+        Self::OutputValue,
+        Self::CursorActionRhs,
+        Self::StateActionRhs,
+    ];
+
+    pub const fn manifest_name(self) -> &'static str {
+        match self {
+            Self::QueryProperty => "query_property",
+            Self::ValuePropertyPayload => "value_property_payload",
+            Self::PropertyValue => "property_value",
+            Self::ArrayValuePayload => "array_value_payload",
+            Self::ArrayElement => "array_element",
+            Self::FieldType => "field_type",
+            Self::OutputValue => "output_value",
+            Self::CursorActionRhs => "cursor_action_rhs",
+            Self::StateActionRhs => "state_action_rhs",
+        }
+    }
+
+    pub const fn context(self) -> SqlIslandContext {
+        match self {
+            Self::QueryProperty => SqlIslandContext::QueryProperty,
+            Self::ValuePropertyPayload | Self::PropertyValue => {
+                SqlIslandContext::PropertyExpression
+            }
+            Self::ArrayValuePayload | Self::ArrayElement => SqlIslandContext::ArrayExpression,
+            Self::FieldType | Self::OutputValue | Self::CursorActionRhs | Self::StateActionRhs => {
+                SqlIslandContext::TerminatedExpression
+            }
+        }
+    }
+}
+
 impl Default for SyntaxLimits {
     fn default() -> Self {
         Self {
@@ -401,7 +511,7 @@ impl Parser {
         }
         if self.word_is("value") {
             self.expect_word("value")?;
-            let inner = self.expression(BindingKind::Param)?;
+            let inner = self.expression(BindingKind::Param, SqlIslandSite::ValuePropertyPayload)?;
             return self
                 .terminated(inner)
                 .map(|value| Value::Visual(Box::new(value)));
@@ -456,8 +566,7 @@ impl Parser {
             self.index = checkpoint;
         }
         if matches!(property, "sql" | "query") {
-            let start = self.sig();
-            let parsed = parse_sql_query_with_limits(&self.stream, start, self.limits.sql)?;
+            let parsed = self.query(SqlIslandSite::QueryProperty)?;
             self.index = parsed.next_token;
             self.expect(Token::SemiColon, "`;` after SQL query")?;
             return SqlQuery::from_parsed(parsed)
@@ -496,7 +605,7 @@ impl Parser {
         } else {
             BindingKind::Param
         };
-        let value = self.expression(kind)?;
+        let value = self.expression(kind, SqlIslandSite::PropertyValue)?;
         self.terminated(value)
     }
 
@@ -534,7 +643,9 @@ impl Parser {
                 }
             } else if self.word_is("value") {
                 self.expect_word("value")?;
-                Value::Visual(Box::new(self.expression(BindingKind::Param)?))
+                Value::Visual(Box::new(
+                    self.expression(BindingKind::Param, SqlIslandSite::ArrayValuePayload)?,
+                ))
             } else if self.word_is("pattern") {
                 self.expect_word("pattern")?;
                 Value::Pattern(Box::new(Value::Block {
@@ -545,7 +656,7 @@ impl Parser {
                 self.expect_word("none")?;
                 Value::None
             } else {
-                self.expression(BindingKind::Param)?
+                self.expression(BindingKind::Param, SqlIslandSite::ArrayElement)?
             };
             values.push(value);
             if self.consume(Token::Comma) {
@@ -559,7 +670,21 @@ impl Parser {
         }
     }
 
-    fn expression(&mut self, binding_kind: BindingKind) -> Result<Value, ParseError> {
+    fn query(
+        &mut self,
+        site: SqlIslandSite,
+    ) -> Result<ParsedSqlIsland<Box<sqlparser::ast::Query>>, ParseError> {
+        debug_assert_eq!(site.context().root(), SqlIslandRoot::Query);
+        let start = self.sig();
+        parse_sql_query_with_limits(&self.stream, start, self.limits.sql).map_err(Into::into)
+    }
+
+    fn expression(
+        &mut self,
+        binding_kind: BindingKind,
+        site: SqlIslandSite,
+    ) -> Result<Value, ParseError> {
+        debug_assert_eq!(site.context().root(), SqlIslandRoot::Expression);
         let start = self.sig();
         let parsed = parse_sql_expression_with_limits(&self.stream, start, self.limits.sql)?;
         self.index = parsed.next_token;
@@ -595,7 +720,12 @@ impl Parser {
             "level" => self.level()?,
             "adjust" => self.adjust()?,
             "row" | "when" | "key" | "fields" | "scale_edit" | "scale_hint" | "clause"
-            | "equality" | "interval" | "id" => self.plain_body()?,
+            | "equality" | "interval" => self.plain_body()?,
+            "id" if self.nth_is(1, &Token::LBrace) => {
+                return Err(
+                    self.error("AVENGER-PARSE-025", "`id` is a property, not a declaration")
+                );
+            }
             "field" => self.field()?,
             "slot" => self.slot()?,
             "channel" => self.channel()?,
@@ -733,9 +863,10 @@ impl Parser {
         let keyword = self.name()?;
         let binder = self.name()?;
         self.expect(Token::Colon, "`:` after field name")?;
-        let value = self
-            .try_generic_call()?
-            .map_or_else(|| self.expression(BindingKind::Param), Ok)?;
+        let value = self.try_generic_call()?.map_or_else(
+            || self.expression(BindingKind::Param, SqlIslandSite::FieldType),
+            Ok,
+        )?;
         let mut props = PropertyMap::default();
         props.insert(n("type"), value).expect("new property");
         if self.consume_word("nullable") {
@@ -801,7 +932,7 @@ impl Parser {
         let binder = self.name()?;
         let mut props = PropertyMap::default();
         if self.consume(Token::Colon) {
-            let value = self.expression(BindingKind::Param)?;
+            let value = self.expression(BindingKind::Param, SqlIslandSite::OutputValue)?;
             props.insert(n("value"), value).expect("new property");
         }
         self.expect(Token::SemiColon, "`;` after output")?;
@@ -871,7 +1002,7 @@ impl Parser {
         let mut props = PropertyMap::default();
         if kind.as_str() == "cursor" {
             self.expect(Token::Eq, "`=` in cursor action")?;
-            let value = self.expression(BindingKind::Param)?;
+            let value = self.expression(BindingKind::Param, SqlIslandSite::CursorActionRhs)?;
             props.insert(n("value"), value).expect("new property");
             self.expect(Token::SemiColon, "`;` after cursor action")?;
         } else {
@@ -903,7 +1034,7 @@ impl Parser {
                     body: self.body()?,
                 }
             } else {
-                let value = self.expression(BindingKind::Param)?;
+                let value = self.expression(BindingKind::Param, SqlIslandSite::StateActionRhs)?;
                 self.expect(Token::SemiColon, "`;` after set action")?;
                 value
             };

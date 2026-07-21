@@ -5,10 +5,11 @@ use sqlparser::{
     parser::{Parser, ParserError},
 };
 
-use crate::{SourceSpan, sql::normalize::error};
+use crate::{ByteSpan, SourceSpan, sql::normalize::error};
 
 use super::{
-    AvengerSqlDialect, BindingOccurrence, SqlFrontendError, TokenStream, normalize_bindings,
+    AvengerSqlDialect, BindingOccurrence, SqlFrontendError, TokenClass, TokenStream,
+    normalize_bindings,
 };
 
 pub const RESERVED_HELPER_NAMES: &[&str] = &["EXISTS", "INTERVAL", "STRUCT", "TRIM"];
@@ -38,6 +39,10 @@ pub fn is_reserved_helper_name(name: &str) -> bool {
 #[derive(Clone, Debug)]
 pub struct ParsedSqlIsland<T> {
     pub ast: T,
+    /// Exact source range owned by the SQL island. Outer DSL delimiters are
+    /// excluded even when sqlparser uses them to determine that the island is
+    /// complete.
+    pub span: SourceSpan,
     /// First outer token not consumed by sqlparser.
     pub next_token: usize,
     /// Binding occurrences consumed by this island only.
@@ -100,6 +105,7 @@ pub fn parse_sql_query_with_limits(
     }
     Ok(ParsedSqlIsland {
         ast: query,
+        span: parsed.span,
         next_token: parsed.next_token,
         bindings: parsed.bindings,
     })
@@ -165,7 +171,15 @@ fn parse_island<T>(
     })?;
 
     let normalized_count = parser.get_current_index().saturating_add(1);
-    let next_token = normalized.original_cursor_after(normalized_count, start_token);
+    let parsed_next_token = normalized.original_cursor_after(normalized_count, start_token);
+    let next_token = (parsed_next_token..stream.tokens().len())
+        .find(|index| {
+            !matches!(
+                stream.tokens()[*index].class(),
+                TokenClass::Whitespace(_) | TokenClass::Comment(_)
+            )
+        })
+        .unwrap_or(stream.tokens().len());
     if next_token.saturating_sub(start_token) > limits.max_tokens {
         return Err(sql_token_limit_error(
             stream,
@@ -179,8 +193,18 @@ fn parse_island<T>(
         .filter(|binding| binding.token_range.start < next_token)
         .cloned()
         .collect();
+    let start = stream
+        .token(start_token)
+        .map_or(stream.text().len(), |token| token.span().range.start);
+    let end = stream
+        .token(next_token)
+        .map_or(stream.text().len(), |token| token.span().range.start);
     Ok(ParsedSqlIsland {
         ast,
+        span: SourceSpan {
+            source: stream.source(),
+            range: ByteSpan { start, end },
+        },
         next_token,
         bindings,
     })

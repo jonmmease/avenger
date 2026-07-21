@@ -1,0 +1,3 @@
+AVENGER-PARSE-025
+`id` is a property, not a declaration
+32..34
