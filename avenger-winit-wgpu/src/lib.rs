@@ -246,6 +246,14 @@ fn complete_host_update_sender(
     }
 }
 
+fn cancel_transient_input_after_host_update(
+    pending_canvas_resize: &mut Option<CanvasResizeEvent>,
+    interaction_settle_generation: &AtomicU64,
+) {
+    *pending_canvas_resize = None;
+    interaction_settle_generation.fetch_add(1, Ordering::Relaxed);
+}
+
 fn send_render_invalidation_event(
     event_proxy: EventLoopProxy<WinitWgpuEvent>,
     host_generation: u64,
@@ -1023,6 +1031,16 @@ where
         self.hub_epoch_at_last_evaluation_start = 0;
         self.pending_startup_render_invalidation = None;
         self.render_invalidation_pending = false;
+        cancel_transient_input_after_host_update(
+            &mut self.pending_canvas_resize,
+            &self.interaction_settle_generation,
+        );
+        if let Some(canvas) = self.canvas.borrow().as_ref() {
+            // The replacement app and canvas-frame state contain no active
+            // gesture. Keep the native cursor in the same reset state rather
+            // than retaining `grabbing`/resize feedback from the old app.
+            canvas.window().set_cursor(CursorIcon::Default);
+        }
         self.installed_host_generation = update.generation;
         let installed_generation = update.generation;
 
@@ -2302,6 +2320,19 @@ mod tests {
             outcome.recv().expect("superseded completion"),
             HostUpdateInstallOutcome::Superseded
         );
+    }
+
+    #[test]
+    fn host_update_cancels_pending_resize_and_interaction_settle() {
+        let mut pending_resize = Some(CanvasResizeEvent {
+            size: [720.0, 480.0],
+        });
+        let settle_generation = AtomicU64::new(11);
+
+        cancel_transient_input_after_host_update(&mut pending_resize, &settle_generation);
+
+        assert!(pending_resize.is_none());
+        assert_eq!(settle_generation.load(Ordering::Relaxed), 12);
     }
 
     fn frame_state(resize_width: bool, resize_height: bool) -> CanvasFrameState {
