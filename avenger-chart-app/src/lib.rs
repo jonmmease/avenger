@@ -1955,7 +1955,14 @@ async fn chart_avenger_app_inner(
         resize_policy,
         &options.resize_binding,
         options.resize_throttle_ms,
-    );
+    )
+    .into_iter()
+    .map(|binding| {
+        compiled_plot
+            .resolve_host_event_binding(binding)
+            .map_err(|error| AvengerAppError::InternalError(error.to_string()))
+    })
+    .collect::<Result<Vec<_>, _>>()?;
     let mut session = compiled_plot.clone().instantiate(ctx.clone());
     if let Some(resources) = runtime_resources.as_ref() {
         session.set_options(PlotSessionOptions::from_native_widget_resources(
@@ -2243,6 +2250,30 @@ pub fn window_scene_sizing_for_resize_policy(policy: ChartResizePolicy) -> Windo
     }
 }
 
+/// Choose native window sizing using both chart ownership and the host's
+/// explicit canvas-resize bindings.
+///
+/// A canvas-constrained axis without a compatible binding is still controlled
+/// by the chart expression, so the native window follows the evaluated scene
+/// on that axis. Only an effectively bound axis follows the user-resized
+/// virtual canvas.
+#[cfg(feature = "winit-wgpu")]
+pub fn window_scene_sizing_for_resize_policy_and_binding(
+    policy: ChartResizePolicy,
+    binding: &ChartResizeBinding,
+) -> WindowSceneSizing {
+    let resize_width = policy.width.is_canvas_constrained() && binding.has_width();
+    let resize_height = policy.height.is_canvas_constrained() && binding.has_height();
+    if resize_width && resize_height {
+        WindowSceneSizing::SurfaceFollowsWindow
+    } else {
+        WindowSceneSizing::MatchSceneGraphAxes {
+            width: !resize_width,
+            height: !resize_height,
+        }
+    }
+}
+
 #[cfg(feature = "winit-wgpu")]
 pub fn canvas_frame_options_for_resize_policy(
     policy: ChartResizePolicy,
@@ -2254,6 +2285,25 @@ pub fn canvas_frame_options_for_resize_policy(
     Some(CanvasFrameOptions {
         resize_width: policy.width.is_canvas_constrained(),
         resize_height: policy.height.is_canvas_constrained(),
+        ..Default::default()
+    })
+}
+
+/// Enable virtual-canvas handles only for axes that the chart owns and the
+/// host can patch through an explicit parameter binding.
+#[cfg(feature = "winit-wgpu")]
+pub fn canvas_frame_options_for_resize_policy_and_binding(
+    policy: ChartResizePolicy,
+    binding: &ChartResizeBinding,
+) -> Option<CanvasFrameOptions> {
+    let resize_width = policy.width.is_canvas_constrained() && binding.has_width();
+    let resize_height = policy.height.is_canvas_constrained() && binding.has_height();
+    if !resize_width && !resize_height {
+        return None;
+    }
+    Some(CanvasFrameOptions {
+        resize_width,
+        resize_height,
         ..Default::default()
     })
 }
@@ -2343,7 +2393,7 @@ mod tests {
     use avenger_eventstream::{
         scene::{ModifiersState, SceneGraphEvent, SceneMouseDownEvent, SceneMouseUpEvent},
         stream::EventStreamEventSnapshot,
-        window::{CanvasResizeEvent, MouseButton, WindowResizeEvent},
+        window::{CanvasResizeEvent, MouseButton, WindowEvent, WindowResizeEvent},
     };
     use avenger_image::{ImageResourceResolver, ImageResourceState};
     use avenger_resource::{
@@ -2508,6 +2558,54 @@ mod tests {
                 log_metrics: false,
             },
         )
+    }
+
+    #[tokio::test]
+    async fn full_chart_app_resolves_and_runs_host_resize_binding() {
+        let ctx = Arc::new(SessionContext::new());
+        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let compiled = Chart::<Cartesian>::new()
+            .param(width.clone())
+            .canvas_constraint(CanvasConstraint::width(width.expr()))
+            .compile(ctx.as_ref())
+            .await
+            .expect("compile resize plot");
+        let mut app = chart_avenger_app(
+            compiled,
+            ctx,
+            ChartAppOptions {
+                resize_binding: ChartResizeBinding::width("width"),
+                ..ChartAppOptions::default()
+            },
+        )
+        .await
+        .expect("build chart app with resolved host resize binding");
+
+        let status = app
+            .update_state(
+                &WindowEvent::CanvasResize(CanvasResizeEvent {
+                    size: [800.0, 300.0],
+                }),
+                Instant::now(),
+            )
+            .await;
+        assert!(status.rerender);
+        assert!(
+            !status.rebuild_geometry,
+            "preview resize defers hit-tree rebuild"
+        );
+        assert_eq!(app.app_state_mut().param_f64("width"), Some(800.0));
+
+        let settled = app
+            .update_state(
+                &WindowEvent::CanvasResizeSettled(CanvasResizeEvent {
+                    size: [800.0, 300.0],
+                }),
+                Instant::now(),
+            )
+            .await;
+        assert!(settled.rerender);
+        assert!(settled.rebuild_geometry);
     }
 
     #[test]
@@ -3855,5 +3953,45 @@ mod tests {
             height: ChartResizeAxisPolicy::PlotConstrained,
         };
         assert!(canvas_frame_options_for_resize_policy(fixed_size).is_none());
+    }
+
+    #[cfg(feature = "winit-wgpu")]
+    #[test]
+    fn binding_aware_winit_helpers_expose_only_effectively_bound_axes() {
+        use avenger_winit_wgpu::WindowSceneSizing;
+
+        let canvas = ChartResizePolicy {
+            width: ChartResizeAxisPolicy::CanvasConstrained,
+            height: ChartResizeAxisPolicy::CanvasConstrained,
+        };
+        let width_only = ChartResizeBinding::width("width");
+        assert_eq!(
+            window_scene_sizing_for_resize_policy_and_binding(canvas, &width_only),
+            WindowSceneSizing::MatchSceneGraphAxes {
+                width: false,
+                height: true,
+            }
+        );
+        assert_eq!(
+            canvas_frame_options_for_resize_policy_and_binding(canvas, &width_only),
+            Some(CanvasFrameOptions {
+                resize_width: true,
+                resize_height: false,
+                ..Default::default()
+            })
+        );
+
+        let unbound = ChartResizeBinding::none();
+        assert_eq!(
+            window_scene_sizing_for_resize_policy_and_binding(canvas, &unbound),
+            WindowSceneSizing::MatchSceneGraphAxes {
+                width: true,
+                height: true,
+            }
+        );
+        assert_eq!(
+            canvas_frame_options_for_resize_policy_and_binding(canvas, &unbound),
+            None
+        );
     }
 }

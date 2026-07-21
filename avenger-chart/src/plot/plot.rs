@@ -676,7 +676,7 @@ fn validate_param_change_binding_registry(
     Ok(())
 }
 
-fn resolve_event_binding_state_targets(
+pub(super) fn resolve_event_binding_state_targets(
     binding: ChartEventBinding,
     param_specs: &IndexMap<String, CompiledParamSpec>,
     store_specs: &IndexMap<String, avenger_chart_core::CompiledStoreSpec>,

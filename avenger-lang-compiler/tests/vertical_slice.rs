@@ -786,6 +786,33 @@ async fn vertical_slice_title_subtitle_and_fixed_auto_layout_lower_through_regis
 }
 
 #[tokio::test]
+async fn direct_canvas_params_remain_available_for_host_resize_binding() {
+    let source = r#"avenger 1;
+        chart cartesian as chart {
+          param as canvas_width { type: float64; default: 640.0; }
+          param as canvas_height { type: float64; default: 420.0; }
+          layout: {
+            canvas: { width: $canvas_width; height: $canvas_height; }
+            plot: auto;
+          }
+          data: { values: [{ x: 1.0; y: 2.0; }]; }
+          mark symbol { x: "x"; y: "y"; }
+        }"#;
+    let artifact = source_compiler(source, None)
+        .compile_file("chart.avenger")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        artifact.compiled_plot().get_layout_spec().resize_params(),
+        avenger_chart::layout::ChartResizeParams {
+            width_param: Some("canvas_width".to_string()),
+            height_param: Some("canvas_height".to_string()),
+        }
+    );
+}
+
+#[tokio::test]
 async fn native_surface_chart_theme_time_and_format_context_lower() {
     let source = r#"avenger 1;
         chart cartesian as chart {

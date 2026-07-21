@@ -33,8 +33,10 @@ adapter. Keep stdout and stderr for the acceptance record.
 ## Checklist
 
 - [ ] The initial chart appears and remains interactive in one window.
-- [ ] Resize before and after a reload; content and hit testing follow the new
-  size, and the window itself is not recreated.
+- [ ] Drag the virtual canvas frame's corner or edge handle before and after a
+  reload; content and hit testing follow the new size, and the native window
+  itself is not recreated. Resizing only the native window changes surface
+  space, not the chart's authored virtual canvas.
 - [ ] Save the root in place, then through the editor's atomic rename mode.
   Each produces one successful latest-generation reload.
 - [ ] Save three or more times inside the debounce interval. The final content

@@ -66,6 +66,14 @@ go to stderr. The canonical project root is rewritten to `.` in process output;
 success lines show project-relative affected paths and state migration totals;
 cache metrics appear only with `--log-cache`.
 
+For interactive canvas sizing, declare a canvas dimension as a bare `float64`
+parameter, for example `canvas: { width: $canvas_width; }`. The stock host
+infers that direct binding and enables only its corresponding virtual-canvas
+frame handle. Constants, compound expressions, non-`float64` params, and
+plot-controlled dimensions remain chart-controlled. On reload, compatible
+canvas-size params migrate with other document state and the existing virtual
+canvas dimensions are retained.
+
 ## Cache and state guarantees
 
 One bounded `EvaluationCache` is shared by isolated generation contexts. Each

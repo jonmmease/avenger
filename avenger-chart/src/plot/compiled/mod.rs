@@ -719,6 +719,40 @@ impl CompiledPlot {
         &self.event_bindings
     }
 
+    /// Resolve a host-generated event binding against this compiled plot's
+    /// opaque state identities.
+    ///
+    /// Authored bindings are resolved during chart compilation. Native hosts
+    /// may add a narrow binding after compilation (for example canvas-resize
+    /// parameter updates) and must cross the same source-name adapter before
+    /// the app runtime consumes it.
+    pub fn resolve_host_event_binding(
+        &self,
+        binding: ChartEventBinding,
+    ) -> Result<ChartEventBinding, AvengerChartError> {
+        let param_specs = self
+            .param_specs
+            .iter()
+            .map(|(name, spec)| (name.clone(), spec.clone()))
+            .collect();
+        let store_specs = self
+            .store_specs
+            .iter()
+            .map(|(name, spec)| (name.clone(), spec.clone()))
+            .collect();
+        let selection_specs = self
+            .selection_specs
+            .iter()
+            .map(|(name, spec)| (name.clone(), spec.clone()))
+            .collect();
+        super::plot::resolve_event_binding_state_targets(
+            binding,
+            &param_specs,
+            &store_specs,
+            &selection_specs,
+        )
+    }
+
     /// Get root/shared parameter-change reactions.
     pub fn param_change_bindings(&self) -> &[ChartParamChangeBinding] {
         &self.param_change_bindings

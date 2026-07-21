@@ -74,7 +74,7 @@ pub use avenger_chart_polar::Polar;
 
 // Re-export root Chart and position-neutral Plot types
 pub use crate::layout::{
-    CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, PlotConstraint,
+    CanvasConstraint, ChartResizeAxisPolicy, ChartResizeParams, ChartResizePolicy, PlotConstraint,
 };
 pub use crate::plot::{
     Chart, ChartSessionSnapshot, EvaluationRequest, InMemoryNativeWidgetInstanceStore,

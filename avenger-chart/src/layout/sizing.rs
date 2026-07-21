@@ -48,7 +48,7 @@
 //! expandable and will grow to center the plot within the canvas.
 
 use datafusion::prelude::{Expr, lit};
-use datafusion_proto::protobuf::LogicalExprNode;
+use datafusion_proto::protobuf::{LogicalExprNode, logical_expr_node};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -212,6 +212,17 @@ impl ChartResizePolicy {
     pub fn has_conflict(self) -> bool {
         self.width.is_conflict() || self.height.is_conflict()
     }
+}
+
+/// Direct chart parameters that a host may patch from canvas-resize input.
+///
+/// A binding is inferred only when the corresponding canvas dimension is a
+/// bare parameter placeholder. Compound expressions remain chart-controlled:
+/// hosts cannot safely invert an arbitrary expression back into one parameter.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ChartResizeParams {
+    pub width_param: Option<String>,
+    pub height_param: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -574,6 +585,48 @@ impl LayoutSpec {
             height: resize_axis_policy(&self.canvas, &self.plot_area, Axis::Height),
         }
     }
+
+    /// Infer direct parameter bindings for canvas-constrained dimensions.
+    ///
+    /// This is host metadata derived from the serialized layout expressions;
+    /// it does not change the chart's layout policy. Only a bare `$param`
+    /// expression is returned. Numeric constants, casts, arithmetic, and
+    /// plot-constrained dimensions do not produce bindings.
+    pub fn resize_params(&self) -> ChartResizeParams {
+        let policy = self.resize_policy();
+        let (width, height) = canvas_dimension_exprs(&self.canvas);
+        ChartResizeParams {
+            width_param: policy
+                .width
+                .is_canvas_constrained()
+                .then(|| width.and_then(direct_placeholder_name))
+                .flatten(),
+            height_param: policy
+                .height
+                .is_canvas_constrained()
+                .then(|| height.and_then(direct_placeholder_name))
+                .flatten(),
+        }
+    }
+}
+
+fn canvas_dimension_exprs(
+    mode: &SizeMode,
+) -> (Option<&SerializableExpr>, Option<&SerializableExpr>) {
+    match mode {
+        SizeMode::Fixed { width, height } => (Some(width), Some(height)),
+        SizeMode::Width(width) => (Some(width), None),
+        SizeMode::Height(height) => (None, Some(height)),
+        SizeMode::Auto => (None, None),
+    }
+}
+
+fn direct_placeholder_name(expr: &SerializableExpr) -> Option<String> {
+    let node: LogicalExprNode = expr.clone().into();
+    let logical_expr_node::ExprType::Placeholder(placeholder) = node.expr_type? else {
+        return None;
+    };
+    placeholder.id.strip_prefix('$').map(str::to_string)
 }
 
 fn resize_axis_policy(
@@ -686,5 +739,57 @@ impl Margins {
             LogicalExprNode::from_expr(expr).expect("Failed to serialize margin expr"),
         ));
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use datafusion::{logical_expr::Expr, scalar::ScalarValue};
+
+    use super::*;
+    use avenger_chart_core::Param;
+
+    #[test]
+    fn resize_params_infer_only_direct_canvas_placeholders() {
+        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let height = Param::new("height", ScalarValue::Float64(Some(420.0)));
+        let layout = LayoutSpec::default().canvas_size(width.expr(), height.expr());
+
+        assert_eq!(
+            layout.resize_params(),
+            ChartResizeParams {
+                width_param: Some("width".to_string()),
+                height_param: Some("height".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn resize_params_do_not_invert_compound_or_plot_expressions() {
+        let width = Param::new("width", ScalarValue::Float64(Some(640.0)));
+        let height = Param::new("height", ScalarValue::Float64(Some(420.0)));
+        let compound = LayoutSpec::default().canvas_size(
+            width.expr() + datafusion::prelude::lit(20.0),
+            datafusion::prelude::lit(420.0),
+        );
+        assert_eq!(compound.resize_params(), ChartResizeParams::default());
+
+        let plot = LayoutSpec::default().plot_size(width.expr(), height.expr());
+        assert_eq!(plot.resize_params(), ChartResizeParams::default());
+
+        let cast = LayoutSpec::default().canvas_size(
+            Expr::Cast(datafusion::logical_expr::expr::Cast::new(
+                Box::new(width.expr()),
+                datafusion::arrow::datatypes::DataType::Float64,
+            )),
+            height.expr(),
+        );
+        assert_eq!(
+            cast.resize_params(),
+            ChartResizeParams {
+                width_param: None,
+                height_param: Some("height".to_string()),
+            }
+        );
     }
 }

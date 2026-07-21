@@ -2065,18 +2065,29 @@ fn install_scene_graph(
     if let Some(frame) = canvas_frame {
         frame.update_scene_size([scene_graph.width, scene_graph.height]);
         canvas.set_frame_overlay(Some(frame.overlay()));
+        sync_canvas_size_to_logical_size(
+            canvas,
+            frame.initial_window_size(),
+            window_scene_sizing,
+            scale,
+        );
     } else {
         canvas.set_frame_overlay(None);
-        sync_canvas_size_to_scene_graph(canvas, scene_graph, window_scene_sizing, scale);
+        sync_canvas_size_to_logical_size(
+            canvas,
+            [scene_graph.width, scene_graph.height],
+            window_scene_sizing,
+            scale,
+        );
     }
     canvas.set_scene(scene_graph)?;
     canvas.window().request_redraw();
     Ok(())
 }
 
-fn sync_canvas_size_to_scene_graph(
+fn sync_canvas_size_to_logical_size(
     canvas: &mut WindowCanvas<'static>,
-    scene_graph: &avenger_scenegraph::scene_graph::SceneGraph,
+    logical_size: [f32; 2],
     window_scene_sizing: WindowSceneSizing,
     scale: f32,
 ) {
@@ -2088,12 +2099,12 @@ fn sync_canvas_size_to_scene_graph(
     let current = canvas.get_size();
     let target = PhysicalSize {
         width: if match_width {
-            logical_to_physical(scene_graph.width, scale)
+            logical_to_physical(logical_size[0], scale)
         } else {
             current.width
         },
         height: if match_height {
-            logical_to_physical(scene_graph.height, scale)
+            logical_to_physical(logical_size[1], scale)
         } else {
             current.height
         },

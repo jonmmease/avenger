@@ -2906,6 +2906,11 @@ Chart-level properties live in the mixed `chart` body:
 
 ```avenger
 chart cartesian as sales {
+  param as canvas_height {
+    type: float64;
+    default: 520.0;
+  }
+
   title: 'Sales by region' {
     align: center;
     span: plot;
@@ -2919,10 +2924,9 @@ chart cartesian as sales {
   }
 
   layout: {
-    canvas: { width: 900; height: 520; }
-    plot: { width: auto; height: 340; }
+    canvas: { width: 900; height: $canvas_height; }
+    plot: auto;
     margins: { left: 56; right: 20; top: 30; bottom: 46; }
-    resize: { width: fixed; height: responsive; }
     debug_overlay: components;
   }
 
@@ -2940,6 +2944,11 @@ chart cartesian as sales {
 `layout.canvas` and `layout.plot` accept fixed width/height objects,
 single-axis constraints, or `auto`; `debug_overlay` maps to
 `LayoutDebugOverlayMode` (`off`, `components`, `allocation_demand`, `all`).
+When a canvas dimension is a bare `float64` parameter reference, a native host
+may bind that parameter to virtual-canvas resize input. Constants and compound
+expressions remain chart-controlled because a host cannot invert them safely.
+This direct binding is the resize declaration; there is no separate
+`layout.resize` property.
 Non-channel color-valued properties take plain strings — `value` marks
 unscaled *channel* values only.
 

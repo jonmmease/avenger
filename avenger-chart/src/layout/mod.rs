@@ -40,7 +40,8 @@ pub(crate) use frame_solver::{
 pub use info::LegendLayoutInfo;
 pub(crate) use placement::{BoundaryDemand, EdgeTargets, Orientation};
 pub use sizing::{
-    CanvasConstraint, ChartResizeAxisPolicy, ChartResizePolicy, LayoutSpec, Margins, PlotConstraint,
+    CanvasConstraint, ChartResizeAxisPolicy, ChartResizeParams, ChartResizePolicy, LayoutSpec,
+    Margins, PlotConstraint,
 };
 pub(crate) use sizing::{
     EvaluatedLayoutSpec, EvaluatedMargins, EvaluatedSizeMode, ResolvedLayoutDimensions, SizeMode,

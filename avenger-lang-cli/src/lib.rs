@@ -20,10 +20,11 @@ use avenger_chart::physical_cache::{
     install_shared_physical_cache_with_version_providers, physical_cache_disabled_by_env,
 };
 use avenger_chart_app::{
-    ChartAppOptions, ChartAppState, WinitWgpuAvengerApp, WinitWgpuAvengerAppOptions,
-    canvas_frame_options_for_resize_policy, chart_avenger_app_with_default_runtime_resources,
+    ChartAppOptions, ChartAppState, ChartResizeBinding, WinitWgpuAvengerApp,
+    WinitWgpuAvengerAppOptions, canvas_frame_options_for_resize_policy_and_binding,
+    chart_avenger_app_with_default_runtime_resources,
     chart_avenger_app_with_default_runtime_resources_and_snapshot,
-    window_scene_sizing_for_resize_policy,
+    window_scene_sizing_for_resize_policy_and_binding,
 };
 use avenger_lang::{
     CompileAttempt, CompileEnvironment, CompileEnvironmentError, CompileEnvironmentFactory,
@@ -36,6 +37,7 @@ use avenger_winit_wgpu::{
 };
 use clap::{Args, Parser, Subcommand};
 use datafusion::{
+    arrow::datatypes::DataType,
     datasource::{physical_plan::FileScanConfig, source::DataSourceExec},
     execution::session_state::SessionStateBuilder,
     physical_plan::ExecutionPlan,
@@ -266,12 +268,21 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
         }
     };
     let resize_policy = compiled.artifact.compiled_plot().resize_policy();
+    let chart_app_options = chart_app_options_for_compiled(compiled.artifact.compiled_plot());
+    let window_scene_sizing = window_scene_sizing_for_resize_policy_and_binding(
+        resize_policy,
+        &chart_app_options.resize_binding,
+    );
+    let canvas_frame = canvas_frame_options_for_resize_policy_and_binding(
+        resize_policy,
+        &chart_app_options.resize_binding,
+    );
     let context = compiled.environment.session_context_arc();
     let mut bundle = worker_runtime
         .block_on(chart_avenger_app_with_default_runtime_resources(
             compiled.artifact.compiled_plot().clone(),
             context,
-            ChartAppOptions::default(),
+            chart_app_options,
         ))
         .map_err(|error| CliError::App(error.to_string()))?;
     let displayed_state = bundle.app.app_state_mut().clone();
@@ -284,8 +295,8 @@ fn run_watch(args: WatchArgs) -> Result<(), CliError> {
                     .with_title(title.clone())
                     .with_resizable(true),
             )
-            .window_scene_sizing(window_scene_sizing_for_resize_policy(resize_policy))
-            .canvas_frame(canvas_frame_options_for_resize_policy(resize_policy))
+            .window_scene_sizing(window_scene_sizing)
+            .canvas_frame(canvas_frame)
             .resize_settle_delay_ms(Some(120)),
     );
     let host_runtime = tokio::runtime::Builder::new_multi_thread()
@@ -348,6 +359,36 @@ fn make_cache(args: &WatchArgs) -> Option<Arc<EvaluationCache>> {
         min_seen_count: 1,
         ..EvaluationCacheConfig::default()
     }))
+}
+
+fn chart_app_options_for_compiled(compiled: &avenger_chart::plot::CompiledPlot) -> ChartAppOptions {
+    let inferred = compiled.get_layout_spec().resize_params();
+    let valid_float64_param = |name: Option<String>, axis: &str| {
+        name.and_then(|name| {
+            let valid = compiled
+                .param_specs()
+                .get(&name)
+                .is_some_and(|spec| spec.data_type == DataType::Float64);
+            if valid {
+                Some(name)
+            } else {
+                tracing::warn!(
+                    target: "avenger_lang_cli::resize",
+                    axis,
+                    param = name,
+                    "direct canvas resize parameter is unavailable or is not float64; leaving the axis unbound"
+                );
+                None
+            }
+        })
+    };
+    ChartAppOptions {
+        resize_binding: ChartResizeBinding {
+            width_param: valid_float64_param(inferred.width_param, "width"),
+            height_param: valid_float64_param(inferred.height_param, "height"),
+        },
+        ..ChartAppOptions::default()
+    }
 }
 
 fn canonical_chart_path(path: &Path) -> Result<PathBuf, CliError> {
@@ -687,6 +728,17 @@ where
                 match attempt.result {
                     Ok(compiled) => {
                         let resize_policy = compiled.artifact.compiled_plot().resize_policy();
+                        let chart_app_options =
+                            chart_app_options_for_compiled(compiled.artifact.compiled_plot());
+                        let window_scene_sizing =
+                            window_scene_sizing_for_resize_policy_and_binding(
+                                resize_policy,
+                                &chart_app_options.resize_binding,
+                            );
+                        let canvas_frame = canvas_frame_options_for_resize_policy_and_binding(
+                            resize_policy,
+                            &chart_app_options.resize_binding,
+                        );
                         let context = compiled.environment.session_context_arc();
                         let bundle = block_on_until_stopped(
                             &worker.runtime,
@@ -696,7 +748,7 @@ where
                                 chart_avenger_app_with_default_runtime_resources_and_snapshot(
                                 compiled.artifact.compiled_plot().clone(),
                                 context,
-                                ChartAppOptions::default(),
+                                chart_app_options,
                                 &snapshot,
                                 )
                                 .await
@@ -733,11 +785,8 @@ where
                                         app: bundle.app,
                                         render_invalidation_hub: Some(hub),
                                         window_title: Some(worker.normal_title.clone()),
-                                        window_scene_sizing:
-                                            window_scene_sizing_for_resize_policy(resize_policy),
-                                        canvas_frame: canvas_frame_options_for_resize_policy(
-                                            resize_policy,
-                                        ),
+                                        window_scene_sizing,
+                                        canvas_frame,
                                         completion: Some(completion_tx),
                                     });
                                 match submit {
@@ -1212,22 +1261,29 @@ mod tests {
         compiler: &Compiler,
         chart: &Path,
         generation: u64,
-    ) -> (Value, ChartAppState, DiscoveredDependencySet) {
+    ) -> (
+        Value,
+        ChartAppState,
+        DiscoveredDependencySet,
+        ChartResizeBinding,
+    ) {
         let attempt = runtime.block_on(compiler.compile_file_generation_attempt(chart, generation));
         let dependencies = attempt.dependencies;
         let compiled = attempt
             .result
             .unwrap_or_else(|failure| panic!("compile {}: {}", chart.display(), failure.render()));
+        let app_options = chart_app_options_for_compiled(compiled.artifact.compiled_plot());
+        let resize_binding = app_options.resize_binding.clone();
         let mut bundle = runtime
             .block_on(chart_avenger_app_with_default_runtime_resources(
                 compiled.artifact.compiled_plot().clone(),
                 compiled.environment.session_context_arc(),
-                ChartAppOptions::default(),
+                app_options,
             ))
             .unwrap_or_else(|error| panic!("prepare {}: {error}", chart.display()));
         let scene = serde_json::to_value(bundle.app.scene_graph()).expect("serialize scene graph");
         let state = bundle.app.app_state_mut().clone();
-        (scene, state, dependencies)
+        (scene, state, dependencies, resize_binding)
     }
 
     struct FakeCompileStep {
@@ -1783,13 +1839,17 @@ mod tests {
             .project_root(project.path())
             .build()
             .expect("build watch fixture compiler");
-        let (scene, state, dependencies) =
+        let (scene, state, dependencies, resize_binding) =
             compile_and_prepare_scene(&runtime, &compiler, &chart, 1);
 
         assert!(!scene["marks"].as_array().expect("scene marks").is_empty());
         assert_eq!(
             runtime.block_on(state.params())["point_size"],
             datafusion::scalar::ScalarValue::Float64(Some(180.0))
+        );
+        assert_eq!(
+            resize_binding,
+            ChartResizeBinding::width_height("canvas_width", "canvas_height")
         );
         let dependency_paths = dependencies
             .iter()
@@ -1842,9 +1902,9 @@ mod tests {
             .build()
             .expect("build uncached watch compiler");
 
-        let (cached_initial, _, _) =
+        let (cached_initial, _, _, _) =
             compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 1);
-        let (uncached_initial, _, _) =
+        let (uncached_initial, _, _, _) =
             compile_and_prepare_scene(&runtime, &uncached_compiler, &chart, 1);
         assert_eq!(cached_initial, uncached_initial);
 
@@ -1852,7 +1912,7 @@ mod tests {
         fs::write(&definition, definition_source.replace("#7c3aed", "#dc2626"))
             .expect("edit mark style");
         let before_style = cache.metrics();
-        let (styled, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 2);
+        let (styled, _, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 2);
         let after_style = cache.metrics();
         assert_ne!(styled, cached_initial, "style edit must change the scene");
         assert!(
@@ -1870,7 +1930,8 @@ mod tests {
         );
         set_file_mtime(&data, original_mtime).expect("restore CSV modification time");
         let before_data = cache.metrics();
-        let (changed_data, _, _) = compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 3);
+        let (changed_data, _, _, _) =
+            compile_and_prepare_scene(&runtime, &cached_compiler, &chart, 3);
         let after_data = cache.metrics();
         assert_ne!(
             changed_data, styled,
@@ -1885,7 +1946,7 @@ mod tests {
             .project_root(project.path())
             .build()
             .expect("build current uncached compiler");
-        let (uncached_changed_data, _, _) =
+        let (uncached_changed_data, _, _, _) =
             compile_and_prepare_scene(&runtime, &current_uncached, &chart, 3);
         assert_eq!(changed_data, uncached_changed_data);
     }
