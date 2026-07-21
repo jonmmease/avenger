@@ -14,6 +14,21 @@ use super::{
 pub const RESERVED_HELPER_NAMES: &[&str] = &["EXISTS", "INTERVAL", "STRUCT", "TRIM"];
 pub const DOMAIN_RANGE_HELPERS: &[&str] = &["span", "span_ordered"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SqlParseLimits {
+    pub max_tokens: usize,
+    pub max_recursion_depth: usize,
+}
+
+impl Default for SqlParseLimits {
+    fn default() -> Self {
+        Self {
+            max_tokens: 50_000,
+            max_recursion_depth: 128,
+        }
+    }
+}
+
 pub fn is_reserved_helper_name(name: &str) -> bool {
     RESERVED_HELPER_NAMES
         .iter()
@@ -33,14 +48,32 @@ pub fn parse_sql_expression(
     stream: &TokenStream,
     start_token: usize,
 ) -> Result<ParsedSqlIsland<Expr>, SqlFrontendError> {
-    parse_island(stream, start_token, |parser| parser.parse_expr())
+    parse_sql_expression_with_limits(stream, start_token, SqlParseLimits::default())
+}
+
+pub fn parse_sql_expression_with_limits(
+    stream: &TokenStream,
+    start_token: usize,
+    limits: SqlParseLimits,
+) -> Result<ParsedSqlIsland<Expr>, SqlFrontendError> {
+    parse_island(stream, start_token, limits, |parser| parser.parse_expr())
 }
 
 pub fn parse_sql_query(
     stream: &TokenStream,
     start_token: usize,
 ) -> Result<ParsedSqlIsland<Box<Query>>, SqlFrontendError> {
-    let parsed = parse_island(stream, start_token, |parser| parser.parse_statement())?;
+    parse_sql_query_with_limits(stream, start_token, SqlParseLimits::default())
+}
+
+pub fn parse_sql_query_with_limits(
+    stream: &TokenStream,
+    start_token: usize,
+    limits: SqlParseLimits,
+) -> Result<ParsedSqlIsland<Box<Query>>, SqlFrontendError> {
+    let parsed = parse_island(stream, start_token, limits, |parser| {
+        parser.parse_statement()
+    })?;
     let Statement::Query(query) = parsed.ast else {
         let span = stream.token(start_token).map_or(
             SourceSpan::empty(stream.source(), stream.text().len()),
@@ -75,6 +108,7 @@ pub fn parse_sql_query(
 fn parse_island<T>(
     stream: &TokenStream,
     start_token: usize,
+    limits: SqlParseLimits,
     parse: impl FnOnce(&mut Parser<'_>) -> Result<T, ParserError>,
 ) -> Result<ParsedSqlIsland<T>, SqlFrontendError> {
     if start_token >= stream.tokens().len() {
@@ -85,9 +119,15 @@ fn parse_island<T>(
             "invalid SQL island start",
         ));
     }
-    let normalized = normalize_bindings(stream, start_token..stream.tokens().len())?;
+    let range_end = start_token
+        .saturating_add(limits.max_tokens.saturating_add(1))
+        .min(stream.tokens().len());
+    let truncated = range_end < stream.tokens().len();
+    let normalized = normalize_bindings(stream, start_token..range_end)?;
     let dialect = AvengerSqlDialect::new();
-    let mut parser = Parser::new(&dialect).with_tokens_with_locations(normalized.tokens().to_vec());
+    let mut parser = Parser::new(&dialect)
+        .with_recursion_limit(limits.max_recursion_depth)
+        .with_tokens_with_locations(normalized.tokens().to_vec());
     let ast = parse(&mut parser).map_err(|parser_error| {
         let token = parser.peek_token();
         let span = normalized
@@ -100,16 +140,39 @@ fn parse_island<T>(
                 || SourceSpan::empty(stream.source(), stream.text().len()),
                 |token| token.span(),
             );
-        error(
-            "AVENGER-SQL-007",
-            "invalid SQL island",
-            span,
-            &parser_error.to_string(),
-        )
+        if matches!(parser_error, ParserError::RecursionLimitExceeded) {
+            error(
+                "AVENGER-SQL-011",
+                "SQL recursion limit exceeded",
+                span,
+                &format!(
+                    "SQL nesting exceeds the configured depth of {}",
+                    limits.max_recursion_depth
+                ),
+            )
+        } else if truncated
+            && parser.get_current_index().saturating_add(1) >= normalized.tokens().len()
+        {
+            sql_token_limit_error(stream, start_token, limits.max_tokens)
+        } else {
+            error(
+                "AVENGER-SQL-007",
+                "invalid SQL island",
+                span,
+                &parser_error.to_string(),
+            )
+        }
     })?;
 
     let normalized_count = parser.get_current_index().saturating_add(1);
     let next_token = normalized.original_cursor_after(normalized_count, start_token);
+    if next_token.saturating_sub(start_token) > limits.max_tokens {
+        return Err(sql_token_limit_error(
+            stream,
+            start_token,
+            limits.max_tokens,
+        ));
+    }
     let bindings = normalized
         .bindings()
         .iter()
@@ -121,6 +184,23 @@ fn parse_island<T>(
         next_token,
         bindings,
     })
+}
+
+fn sql_token_limit_error(
+    stream: &TokenStream,
+    start_token: usize,
+    max_tokens: usize,
+) -> SqlFrontendError {
+    let span = stream.token(start_token).map_or(
+        SourceSpan::empty(stream.source(), stream.text().len()),
+        |token| token.span(),
+    );
+    error(
+        "AVENGER-SQL-010",
+        "SQL token limit exceeded",
+        span,
+        &format!("SQL island exceeds the configured limit of {max_tokens} tokens"),
+    )
 }
 
 fn contains_from_first_without_select(query: &Query) -> bool {

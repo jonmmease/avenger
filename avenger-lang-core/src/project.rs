@@ -13,7 +13,7 @@ use crate::{
     Diagnostic, ExpansionOrImportFrame, ImportCapabilities, LoadedSource, SourceFile, SourceId,
     SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
     ast::{Decl, Name, Root, is_name},
-    syntax::{ParsedFile, parse_file},
+    syntax::{ParsedFile, SyntaxLimits, parse_file_with_limits},
 };
 
 type ProjectResult<T> = Result<T, Box<Diagnostic>>;
@@ -120,6 +120,7 @@ pub struct ProjectLoadLimits {
     pub max_imports_per_source: usize,
     pub max_project_directory_depth: usize,
     pub max_project_directory_entries: usize,
+    pub syntax: SyntaxLimits,
 }
 
 impl Default for ProjectLoadLimits {
@@ -132,6 +133,7 @@ impl Default for ProjectLoadLimits {
             max_imports_per_source: 256,
             max_project_directory_depth: 64,
             max_project_directory_entries: 100_000,
+            syntax: SyntaxLimits::default(),
         }
     }
 }
@@ -345,11 +347,12 @@ impl<'a> ProjectLoader<'a> {
             .sources
             .insert(source.clone())
             .expect("fresh source id");
-        let mut parsed = parse_file(&source).map_err(|error| {
-            let mut diagnostic = error.into_diagnostic();
-            add_trace(&mut diagnostic, &pending.trace);
-            Box::new(diagnostic)
-        })?;
+        let mut parsed =
+            parse_file_with_limits(&source, request.limits.syntax).map_err(|error| {
+                let mut diagnostic = error.into_diagnostic();
+                add_trace(&mut diagnostic, &pending.trace);
+                Box::new(diagnostic)
+            })?;
         let kind = classify_and_validate(&loaded.origin, &mut parsed, source_id)?;
         let file_id = project_file_id(&request.project_root, &loaded.origin)?;
         let content_sha256 = sha256_hex(loaded.text.as_bytes());

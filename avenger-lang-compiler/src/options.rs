@@ -3,7 +3,8 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use async_trait::async_trait;
 use avenger_chart_lang_registry::NativeRegistry;
 use avenger_lang_core::{
-    DataCapabilities, EnvironmentProvider, ImportCapabilities, ProjectLoadLimits, SourceLoader,
+    DataCapabilities, EnvironmentProvider, ExpansionLimits, ImportCapabilities, ProjectLoadLimits,
+    SourceLoader,
 };
 use datafusion::{catalog::CatalogProvider, datasource::TableProvider, prelude::SessionContext};
 
@@ -236,19 +237,11 @@ pub struct CompilerOptions {
 }
 
 /// Bounds used by project loading and local-resource fingerprinting.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CompilerLimits {
     pub project: ProjectLoadLimits,
     pub resources: LocalResourceLimits,
-}
-
-impl Default for CompilerLimits {
-    fn default() -> Self {
-        Self {
-            project: ProjectLoadLimits::default(),
-            resources: LocalResourceLimits::default(),
-        }
-    }
+    pub expansion: ExpansionLimits,
 }
 
 /// Bounds for files, directories, and globs consulted as local data resources.

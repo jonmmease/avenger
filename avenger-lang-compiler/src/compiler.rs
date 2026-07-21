@@ -15,7 +15,7 @@ use avenger_lang_core::{
     ResolvedDeclaration, ResolvedProject, ResolvedTarget, ResolvedValue, SourceFile, SourceId,
     SourceLabel, SourceLoader, SourceLoaderError, SourceMap, SourceOrigin, SourceSpan,
     ast::{Decl, Value},
-    expand_project,
+    expand_project_with_limits,
     project::{normalize_path, resolve_import_origin},
     resolve_project as resolve_semantics, sort_diagnostics,
 };
@@ -689,10 +689,12 @@ impl Compiler {
                 diagnostics: failure.diagnostics,
                 sources: project.sources.clone(),
             })?;
-        let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
-            diagnostics: failure.diagnostics,
-            sources: project.sources.clone(),
-        })?;
+        let expanded =
+            expand_project_with_limits(&project, &resolved, self.options.limits.expansion)
+                .map_err(|failure| CompileFailure {
+                    diagnostics: failure.diagnostics,
+                    sources: project.sources.clone(),
+                })?;
         let root = project.chart_roots.first().ok_or_else(|| CompileFailure {
             diagnostics: vec![Diagnostic::error(
                 "AVENGER-EXPAND-003",
@@ -889,7 +891,11 @@ impl Compiler {
                 return Ok(cached);
             }
             let fingerprint = project.fingerprint.clone();
-            let resolved = resolve_parsed_project(project, self.host.authoring_schema())?;
+            let resolved = resolve_parsed_project(
+                project,
+                self.host.authoring_schema(),
+                self.options.limits.expansion,
+            )?;
             self.resolved_project_cache
                 .lock()
                 .expect("resolved-project cache lock poisoned")
@@ -1286,6 +1292,7 @@ fn static_glob_root(path: &Path) -> Option<PathBuf> {
 fn resolve_parsed_project(
     project: ParsedProject,
     schema: &avenger_chart_schema::NativeSchemaSnapshot,
+    expansion_limits: avenger_lang_core::ExpansionLimits,
 ) -> Result<ResolvedProject, CompileFailure> {
     let sources = project.sources.clone();
     let resolved = resolve_semantics(&project, schema)
@@ -1297,10 +1304,13 @@ fn resolve_parsed_project(
     if resolved.definitions.is_empty() {
         return Ok(resolved);
     }
-    let expanded = expand_project(&project, &resolved).map_err(|failure| CompileFailure {
-        diagnostics: failure.diagnostics,
-        sources: sources.clone(),
-    })?;
+    let expanded =
+        expand_project_with_limits(&project, &resolved, expansion_limits).map_err(|failure| {
+            CompileFailure {
+                diagnostics: failure.diagnostics,
+                sources: sources.clone(),
+            }
+        })?;
     match resolve_semantics(&expanded.project, schema).result {
         Ok(mut resolved) => {
             resolved.expansion_source_map = expanded.source_map;
@@ -1431,35 +1441,36 @@ fn discover_local_resources(
     limits: LocalResourceLimits,
     dependencies: &mut DiscoveredDependencySet,
 ) -> Result<(), CompileFailure> {
-    let mut budget = ResourceFingerprintBudget::default();
+    let mut context = ResourceDiscoveryContext {
+        project_root,
+        import_capabilities,
+        data_capabilities,
+        limits,
+        budget: ResourceFingerprintBudget::default(),
+        dependencies,
+    };
     for file in project.files.values() {
         for declaration in file.parsed.ast.root.declarations() {
-            discover_declaration_resources(
-                declaration,
-                file.source,
-                &file.origin,
-                project_root,
-                import_capabilities,
-                data_capabilities,
-                limits,
-                &mut budget,
-                dependencies,
-            )?;
+            discover_declaration_resources(declaration, file.source, &file.origin, &mut context)?;
         }
     }
     Ok(())
+}
+
+struct ResourceDiscoveryContext<'a> {
+    project_root: &'a Path,
+    import_capabilities: &'a ImportCapabilities,
+    data_capabilities: &'a DataCapabilities,
+    limits: LocalResourceLimits,
+    budget: ResourceFingerprintBudget,
+    dependencies: &'a mut DiscoveredDependencySet,
 }
 
 fn discover_declaration_resources(
     declaration: &Decl,
     source: SourceId,
     declaring_origin: &SourceOrigin,
-    project_root: &Path,
-    import_capabilities: &ImportCapabilities,
-    data_capabilities: &DataCapabilities,
-    limits: LocalResourceLimits,
-    budget: &mut ResourceFingerprintBudget,
-    dependencies: &mut DiscoveredDependencySet,
+    context: &mut ResourceDiscoveryContext<'_>,
 ) -> Result<(), CompileFailure> {
     if declaration.keyword.as_str() == "table"
         && let Some(value) = declaration.props.get("path")
@@ -1471,11 +1482,8 @@ fn discover_declaration_resources(
                 path,
                 source,
                 declaring_origin,
-                project_root,
-                data_capabilities.allow_filesystem,
-                limits,
-                budget,
-                dependencies,
+                context.data_capabilities.allow_filesystem,
+                context,
             )?;
         }
     }
@@ -1486,25 +1494,12 @@ fn discover_declaration_resources(
             path,
             source,
             declaring_origin,
-            project_root,
-            import_capabilities.allow_filesystem,
-            limits,
-            budget,
-            dependencies,
+            context.import_capabilities.allow_filesystem,
+            context,
         )?;
     }
     for child in &declaration.children {
-        discover_declaration_resources(
-            child,
-            source,
-            declaring_origin,
-            project_root,
-            import_capabilities,
-            data_capabilities,
-            limits,
-            budget,
-            dependencies,
-        )?;
+        discover_declaration_resources(child, source, declaring_origin, context)?;
     }
     Ok(())
 }
@@ -1525,16 +1520,13 @@ fn discover_resource(
     path: &str,
     source: SourceId,
     declaring_origin: &SourceOrigin,
-    project_root: &Path,
     allow_filesystem: bool,
-    limits: LocalResourceLimits,
-    budget: &mut ResourceFingerprintBudget,
-    dependencies: &mut DiscoveredDependencySet,
+    context: &mut ResourceDiscoveryContext<'_>,
 ) -> Result<(), CompileFailure> {
     let origin = if path.split_once("://").is_some() {
         SourceOrigin::Http(path.to_owned())
     } else {
-        resolve_import_origin(declaring_origin, path, project_root).map_err(|message| {
+        resolve_import_origin(declaring_origin, path, context.project_root).map_err(|message| {
             CompileFailure {
                 diagnostics: vec![Diagnostic::error(
                     "AVENGER-PROJECT-018",
@@ -1559,11 +1551,13 @@ fn discover_resource(
             _ => None,
         },
     };
-    dependencies.insert_owned(source, dependency.clone());
+    context
+        .dependencies
+        .insert_owned(source, dependency.clone());
     let SourceOrigin::File(candidate) = origin else {
         return Ok(());
     };
-    let normalized_root = normalize_path(project_root);
+    let normalized_root = normalize_path(context.project_root);
     let normalized_candidate = normalize_path(&candidate);
     if !allow_filesystem || !normalized_candidate.starts_with(&normalized_root) {
         return Err(resource_failure(
@@ -1574,13 +1568,16 @@ fn discover_resource(
     }
     if path.contains(['*', '?', '[']) {
         dependency.content_version = Some(
-            glob_content_version_with_budget(&normalized_candidate, limits, budget).map_err(
-                |error| {
-                    resource_failure(source, "local data glob could not be fingerprinted", error)
-                },
-            )?,
+            glob_content_version_with_budget(
+                &normalized_candidate,
+                context.limits,
+                &mut context.budget,
+            )
+            .map_err(|error| {
+                resource_failure(source, "local data glob could not be fingerprinted", error)
+            })?,
         );
-        dependencies.insert_owned(source, dependency);
+        context.dependencies.insert_owned(source, dependency);
         return Ok(());
     }
     let canonical = std::fs::canonicalize(&normalized_candidate).map_err(|error| {
@@ -1600,15 +1597,16 @@ fn discover_resource(
     dependency.canonical_origin = SourceOrigin::File(canonical.clone());
     dependency.nearest_existing_parent = canonical.parent().map(Path::to_path_buf);
     dependency.content_version = Some(
-        resource_content_version_with_budget(&canonical, limits, budget).map_err(|error| {
-            resource_failure(
-                source,
-                "local data resource could not be fingerprinted",
-                error.to_string(),
-            )
-        })?,
+        resource_content_version_with_budget(&canonical, context.limits, &mut context.budget)
+            .map_err(|error| {
+                resource_failure(
+                    source,
+                    "local data resource could not be fingerprinted",
+                    error.to_string(),
+                )
+            })?,
     );
-    dependencies.insert_owned(source, dependency);
+    context.dependencies.insert_owned(source, dependency);
     Ok(())
 }
 

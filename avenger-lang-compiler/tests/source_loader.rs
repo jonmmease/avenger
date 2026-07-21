@@ -9,7 +9,9 @@ use std::{
 use avenger_lang_compiler::{
     Compiler, CompilerLimits, DefaultSourceLoader, DependencyRole, LocalResourceLimits,
 };
-use avenger_lang_core::{ImportCapabilities, ProjectLoadLimits, SourceLoader, SourceOrigin};
+use avenger_lang_core::{
+    ExpansionLimits, ImportCapabilities, ProjectLoadLimits, SourceLoader, SourceOrigin,
+};
 
 fn fixture_dir(name: &str) -> PathBuf {
     let nonce = SystemTime::now()
@@ -476,6 +478,7 @@ async fn compiler_enforces_local_resource_file_size_limit() {
                 max_file_bytes: 4,
                 ..LocalResourceLimits::default()
             },
+            ..CompilerLimits::default()
         })
         .build()
         .unwrap();
@@ -515,6 +518,7 @@ async fn compiler_enforces_aggregate_local_resource_budget() {
                 max_total_bytes: 7,
                 ..LocalResourceLimits::default()
             },
+            ..CompilerLimits::default()
         })
         .build()
         .unwrap();
@@ -553,6 +557,7 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
                 ..ProjectLoadLimits::default()
             },
             resources: LocalResourceLimits::default(),
+            ..CompilerLimits::default()
         })
         .build()
         .unwrap();
@@ -579,6 +584,7 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
                 ..ProjectLoadLimits::default()
             },
             resources: LocalResourceLimits::default(),
+            ..CompilerLimits::default()
         })
         .build()
         .unwrap();
@@ -604,6 +610,7 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
                 ..ProjectLoadLimits::default()
             },
             resources: LocalResourceLimits::default(),
+            ..CompilerLimits::default()
         })
         .build()
         .unwrap();
@@ -618,6 +625,59 @@ async fn compiler_enforces_project_discovery_limits_before_loading() {
             .message
             .contains("exceeds 2 directory entries")
     );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn compiler_applies_syntax_and_expansion_limits() {
+    let root = fixture_dir("compiler-language-limits");
+    write(
+        root.join("chart.avenger"),
+        "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge {} }",
+    );
+    write(
+        root.join("badge.mark.avenger"),
+        "avenger 1; define mark badge { mark symbol {} }",
+    );
+
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            expansion: ExpansionLimits {
+                max_declarations: 0,
+                ..ExpansionLimits::default()
+            },
+            ..CompilerLimits::default()
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .resolve_file_project_attempt("chart.avenger")
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-EXPAND-005");
+
+    let compiler = Compiler::builder()
+        .project_root(&root)
+        .limits(CompilerLimits {
+            project: ProjectLoadLimits {
+                syntax: avenger_lang_core::syntax::SyntaxLimits {
+                    max_declarations: 0,
+                    ..avenger_lang_core::syntax::SyntaxLimits::default()
+                },
+                ..ProjectLoadLimits::default()
+            },
+            ..CompilerLimits::default()
+        })
+        .build()
+        .unwrap();
+    let failure = compiler
+        .load_file_project_attempt("chart.avenger")
+        .await
+        .result
+        .unwrap_err();
+    assert_eq!(failure.diagnostics[0].code.as_str(), "AVENGER-PARSE-024");
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -663,6 +723,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
             .limits(CompilerLimits {
                 project: ProjectLoadLimits::default(),
                 resources: limits,
+                ..CompilerLimits::default()
             })
             .build()
             .unwrap();
@@ -685,6 +746,7 @@ async fn compiler_enforces_local_resource_tree_limits() {
                 max_directory_depth: 0,
                 ..LocalResourceLimits::default()
             },
+            ..CompilerLimits::default()
         })
         .build()
         .unwrap();

@@ -15,10 +15,29 @@ use crate::{
         Visibility,
     },
     sql::{
-        ParsedSqlIsland, SqlFrontendError, TokenClass, TokenStream, parse_sql_expression,
-        parse_sql_query, tokenize,
+        ParsedSqlIsland, SqlFrontendError, SqlParseLimits, TokenClass, TokenStream,
+        parse_sql_expression_with_limits, parse_sql_query_with_limits, tokenize,
     },
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SyntaxLimits {
+    pub max_tokens: usize,
+    pub max_nesting_depth: usize,
+    pub max_declarations: usize,
+    pub sql: SqlParseLimits,
+}
+
+impl Default for SyntaxLimits {
+    fn default() -> Self {
+        Self {
+            max_tokens: 500_000,
+            max_nesting_depth: 128,
+            max_declarations: 100_000,
+            sql: SqlParseLimits::default(),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct ConcreteFile {
@@ -103,10 +122,33 @@ impl From<SqlFrontendError> for ParseError {
 }
 
 pub fn parse_file(source: &SourceFile) -> Result<ParsedFile, ParseError> {
+    parse_file_with_limits(source, SyntaxLimits::default())
+}
+
+pub fn parse_file_with_limits(
+    source: &SourceFile,
+    limits: SyntaxLimits,
+) -> Result<ParsedFile, ParseError> {
     let tokens = tokenize(source).map_err(|error| ParseError {
         diagnostic: Box::new(error.into_diagnostic()),
     })?;
-    let mut parser = Parser::new(tokens.clone());
+    if tokens.tokens().len() > limits.max_tokens {
+        return Err(ParseError {
+            diagnostic: Box::new(Diagnostic::error(
+                "AVENGER-PARSE-022",
+                "source token limit exceeded",
+                SourceLabel::new(
+                    SourceSpan::empty(source.id, source.text().len()),
+                    format!(
+                        "source has {} tokens; limit is {}",
+                        tokens.tokens().len(),
+                        limits.max_tokens
+                    ),
+                ),
+            )),
+        });
+    }
+    let mut parser = Parser::new(tokens.clone(), limits);
     let ast = parser.file()?;
     let source_map = parser.source_map;
     let import_spans = parser.import_spans;
@@ -129,16 +171,22 @@ struct Parser {
     next_node_id: u32,
     source_map: AstSourceMap,
     import_spans: Vec<SourceSpan>,
+    limits: SyntaxLimits,
+    nesting_depth: usize,
+    declaration_count: usize,
 }
 
 impl Parser {
-    fn new(stream: TokenStream) -> Self {
+    fn new(stream: TokenStream, limits: SyntaxLimits) -> Self {
         Self {
             stream,
             index: 0,
             next_node_id: 0,
             source_map: AstSourceMap::default(),
             import_spans: Vec::new(),
+            limits,
+            nesting_depth: 0,
+            declaration_count: 0,
         }
     }
 
@@ -253,6 +301,13 @@ impl Parser {
     }
 
     fn body(&mut self) -> Result<Body, ParseError> {
+        self.enter_nesting()?;
+        let result = self.body_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn body_inner(&mut self) -> Result<Body, ParseError> {
         self.expect(Token::LBrace, "`{` to start a body")?;
         let mut body = Body::default();
         loop {
@@ -402,7 +457,7 @@ impl Parser {
         }
         if matches!(property, "sql" | "query") {
             let start = self.sig();
-            let parsed = parse_sql_query(&self.stream, start)?;
+            let parsed = parse_sql_query_with_limits(&self.stream, start, self.limits.sql)?;
             self.index = parsed.next_token;
             self.expect(Token::SemiColon, "`;` after SQL query")?;
             return SqlQuery::from_parsed(parsed)
@@ -459,6 +514,13 @@ impl Parser {
     }
 
     fn array(&mut self) -> Result<Vec<Value>, ParseError> {
+        self.enter_nesting()?;
+        let result = self.array_inner();
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn array_inner(&mut self) -> Result<Vec<Value>, ParseError> {
         self.expect(Token::LBracket, "`[` to start array")?;
         let mut values = Vec::new();
         if self.consume(Token::RBracket) {
@@ -499,7 +561,7 @@ impl Parser {
 
     fn expression(&mut self, binding_kind: BindingKind) -> Result<Value, ParseError> {
         let start = self.sig();
-        let parsed = parse_sql_expression(&self.stream, start)?;
+        let parsed = parse_sql_expression_with_limits(&self.stream, start, self.limits.sql)?;
         self.index = parsed.next_token;
         expression_value(parsed, binding_kind).map_err(|error| self.ast_error(error))
     }
@@ -914,6 +976,18 @@ impl Parser {
     }
 
     fn finish(&mut self, start: usize, decl: Decl) -> Result<Decl, ParseError> {
+        self.declaration_count = self.declaration_count.checked_add(1).ok_or_else(|| {
+            self.error("AVENGER-PARSE-024", "source declaration count overflowed")
+        })?;
+        if self.declaration_count > self.limits.max_declarations {
+            return Err(self.error(
+                "AVENGER-PARSE-024",
+                format!(
+                    "source declaration count exceeds {}",
+                    self.limits.max_declarations
+                ),
+            ));
+        }
         self.record(
             start,
             self.end(),
@@ -985,6 +1059,17 @@ impl Parser {
             return Ok(None);
         }
 
+        self.enter_nesting()?;
+        let result = self.finish_generic_call(checkpoint, function);
+        self.nesting_depth -= 1;
+        result
+    }
+
+    fn finish_generic_call(
+        &mut self,
+        checkpoint: usize,
+        function: Name,
+    ) -> Result<Option<Value>, ParseError> {
         let mut args = Vec::new();
         if self.consume(Token::RParen) {
             return Ok(Some(Value::Call { function, args }));
@@ -1004,6 +1089,20 @@ impl Parser {
             self.index = checkpoint;
             return Ok(None);
         }
+    }
+
+    fn enter_nesting(&mut self) -> Result<(), ParseError> {
+        if self.nesting_depth >= self.limits.max_nesting_depth {
+            return Err(self.error(
+                "AVENGER-PARSE-023",
+                format!(
+                    "source nesting exceeds {} levels",
+                    self.limits.max_nesting_depth
+                ),
+            ));
+        }
+        self.nesting_depth += 1;
+        Ok(())
     }
 
     fn try_generic_call_arg(&mut self) -> Result<Option<Value>, ParseError> {

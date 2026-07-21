@@ -11,8 +11,33 @@ use crate::{
     print::print_file,
     project::{DefinitionKind, ParsedProject, ProjectFile, ProjectFileId, ProjectFileKind},
     resolve::{DefinitionSchema, ResolvedProject},
-    syntax::parse_file,
+    syntax::{SyntaxLimits, parse_file_with_limits},
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExpansionLimits {
+    pub max_declarations: usize,
+    pub max_depth: usize,
+    pub max_output_bytes_per_chart: usize,
+    pub max_total_output_bytes: usize,
+    pub syntax: SyntaxLimits,
+}
+
+impl Default for ExpansionLimits {
+    fn default() -> Self {
+        Self {
+            max_declarations: 100_000,
+            max_depth: 128,
+            max_output_bytes_per_chart: 16 * 1024 * 1024,
+            max_total_output_bytes: 64 * 1024 * 1024,
+            syntax: SyntaxLimits {
+                max_tokens: 2_000_000,
+                max_declarations: 100_000,
+                ..SyntaxLimits::default()
+            },
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpansionMapping {
@@ -151,11 +176,23 @@ pub fn expand_project(
     project: &ParsedProject,
     resolved: &ResolvedProject,
 ) -> Result<ExpandedProject, ExpansionFailure> {
+    expand_project_with_limits(project, resolved, ExpansionLimits::default())
+}
+
+pub fn expand_project_with_limits(
+    project: &ParsedProject,
+    resolved: &ResolvedProject,
+    limits: ExpansionLimits,
+) -> Result<ExpandedProject, ExpansionFailure> {
     let mut expander = Expander {
         project,
         resolved,
+        limits,
         diagnostics: Vec::new(),
         pending_origins: BTreeMap::new(),
+        expanded_declarations: 0,
+        expansion_depth: 0,
+        total_output_bytes: 0,
     };
     expander.expand()
 }
@@ -163,8 +200,12 @@ pub fn expand_project(
 struct Expander<'a> {
     project: &'a ParsedProject,
     resolved: &'a ResolvedProject,
+    limits: ExpansionLimits,
     diagnostics: Vec<Diagnostic>,
     pending_origins: BTreeMap<ProjectFileId, Vec<PendingOrigin>>,
+    expanded_declarations: usize,
+    expansion_depth: usize,
+    total_output_bytes: usize,
 }
 
 impl Expander<'_> {
@@ -218,15 +259,64 @@ impl Expander<'_> {
                         root: Root::Chart(expanded_root),
                     };
                     let text = print_file(&ast);
+                    if text.len() > self.limits.max_output_bytes_per_chart {
+                        return Err(ExpansionFailure {
+                            diagnostics: vec![Diagnostic::error(
+                                "AVENGER-EXPAND-007",
+                                "expanded chart size limit exceeded",
+                                SourceLabel::new(
+                                    root_span(file),
+                                    format!(
+                                        "expanded chart is {} bytes; limit is {} bytes",
+                                        text.len(),
+                                        self.limits.max_output_bytes_per_chart
+                                    ),
+                                ),
+                            )],
+                            sources,
+                        });
+                    }
+                    self.total_output_bytes = self
+                        .total_output_bytes
+                        .checked_add(text.len())
+                        .ok_or_else(|| ExpansionFailure {
+                            diagnostics: vec![Diagnostic::error(
+                                "AVENGER-EXPAND-008",
+                                "expanded project size limit exceeded",
+                                SourceLabel::new(
+                                    root_span(file),
+                                    "expanded project byte count overflowed",
+                                ),
+                            )],
+                            sources: sources.clone(),
+                        })?;
+                    if self.total_output_bytes > self.limits.max_total_output_bytes {
+                        return Err(ExpansionFailure {
+                            diagnostics: vec![Diagnostic::error(
+                                "AVENGER-EXPAND-008",
+                                "expanded project size limit exceeded",
+                                SourceLabel::new(
+                                    root_span(file),
+                                    format!(
+                                        "expanded charts total {} bytes; limit is {} bytes",
+                                        self.total_output_bytes, self.limits.max_total_output_bytes
+                                    ),
+                                ),
+                            )],
+                            sources,
+                        });
+                    }
                     let source = SourceId::new(next_source);
                     next_source = next_source.saturating_add(1);
                     let origin =
                         SourceOrigin::Memory(format!("<expanded:{}>", file.origin.canonical_uri()));
                     let source_file = SourceFile::new(source, origin, text.clone());
-                    let parsed = parse_file(&source_file).map_err(|error| ExpansionFailure {
-                        diagnostics: vec![error.diagnostic().clone()],
-                        sources: sources.clone(),
-                    })?;
+                    let parsed = parse_file_with_limits(&source_file, self.limits.syntax).map_err(
+                        |error| ExpansionFailure {
+                            diagnostics: vec![error.diagnostic().clone()],
+                            sources: sources.clone(),
+                        },
+                    )?;
                     sources
                         .insert(source_file)
                         .map_err(|error| ExpansionFailure {
@@ -327,6 +417,45 @@ impl Expander<'_> {
         context: Option<&ExpansionContext>,
         origin: PendingOrigin,
     ) -> Decl {
+        if self.expanded_declarations >= self.limits.max_declarations {
+            self.push_limit_diagnostic(
+                "AVENGER-EXPAND-005",
+                "expanded declaration limit exceeded",
+                origin.authored,
+                format!(
+                    "expanded project exceeds {} declarations",
+                    self.limits.max_declarations
+                ),
+            );
+            return declaration.clone();
+        }
+        if self.expansion_depth >= self.limits.max_depth {
+            self.push_limit_diagnostic(
+                "AVENGER-EXPAND-006",
+                "definition expansion depth limit exceeded",
+                origin.authored,
+                format!(
+                    "definition expansion exceeds {} levels",
+                    self.limits.max_depth
+                ),
+            );
+            return declaration.clone();
+        }
+        self.expanded_declarations += 1;
+        self.expansion_depth += 1;
+        let expanded = self.expand_declaration_inner(owner, declaration, path, context, origin);
+        self.expansion_depth -= 1;
+        expanded
+    }
+
+    fn expand_declaration_inner(
+        &mut self,
+        owner: &ProjectFileId,
+        declaration: &Decl,
+        path: &[usize],
+        context: Option<&ExpansionContext>,
+        origin: PendingOrigin,
+    ) -> Decl {
         if let Some(kind) = declaration.kind.as_ref().map(Name::as_str)
             && let Some(definition) = self.imported_definition(owner, kind)
         {
@@ -389,6 +518,27 @@ impl Expander<'_> {
         );
         substituted.children = body.children;
         substituted
+    }
+
+    fn push_limit_diagnostic(
+        &mut self,
+        code: &'static str,
+        message: &'static str,
+        span: SourceSpan,
+        label: String,
+    ) {
+        if self
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == code)
+        {
+            return;
+        }
+        self.diagnostics.push(Diagnostic::error(
+            code,
+            message,
+            SourceLabel::new(span, label),
+        ));
     }
 
     #[allow(clippy::too_many_arguments)]

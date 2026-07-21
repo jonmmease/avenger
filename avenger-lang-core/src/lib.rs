@@ -31,7 +31,8 @@ pub use diagnostic::{
     render_diagnostics, sort_diagnostics,
 };
 pub use expand::{
-    ExpandedProject, ExpansionFailure, ExpansionMapping, ExpansionSourceMap, expand_project,
+    ExpandedProject, ExpansionFailure, ExpansionLimits, ExpansionMapping, ExpansionSourceMap,
+    expand_project, expand_project_with_limits,
 };
 pub use loader::{
     ContentVersion, InMemorySourceLoader, LoadedSource, SourceLoader, SourceLoaderError,

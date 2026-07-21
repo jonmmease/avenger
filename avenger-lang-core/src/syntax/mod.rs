@@ -5,5 +5,6 @@ mod parser;
 
 pub use format::{format_parsed, format_source};
 pub use parser::{
-    ConcreteFile, ConcreteNode, ConcreteNodeKind, ParseError, ParsedFile, SyntaxNodeId, parse_file,
+    ConcreteFile, ConcreteNode, ConcreteNodeKind, ParseError, ParsedFile, SyntaxLimits,
+    SyntaxNodeId, parse_file, parse_file_with_limits,
 };

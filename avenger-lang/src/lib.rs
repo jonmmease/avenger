@@ -23,13 +23,14 @@ pub use avenger_lang_compiler::{
 pub use avenger_lang_core::{
     AmbientDataDeclaration, ByteSpan, ContentVersion, DataCapabilities, DefinitionKind, Diagnostic,
     DiagnosticCode, DiagnosticSeverity, EmptyEnvironmentProvider, EnvironmentProvider,
-    ImportCapabilities, ImportEdge, InMemorySourceLoader, LANGUAGE_MAJOR, LineIndex, LoadedSource,
-    MapEnvironmentProvider, ParsedProject, ProjectDependency, ProjectDependencyRole, ProjectFile,
-    ProjectFileId, ProjectFileKind, ProjectLoadAttempt, ProjectLoadFailure, ProjectLoadLimits,
-    ProjectLoadRequest, ProjectLoader, ProjectRoot, ResolveAttempt, ResolveFailure,
-    ResolvedProject, SourceFile, SourceId, SourceLabel, SourceLoader, SourceMap, SourceOrigin,
-    SourceSpan,
+    ExpansionLimits, ImportCapabilities, ImportEdge, InMemorySourceLoader, LANGUAGE_MAJOR,
+    LineIndex, LoadedSource, MapEnvironmentProvider, ParsedProject, ProjectDependency,
+    ProjectDependencyRole, ProjectFile, ProjectFileId, ProjectFileKind, ProjectLoadAttempt,
+    ProjectLoadFailure, ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot,
+    ResolveAttempt, ResolveFailure, ResolvedProject, SourceFile, SourceId, SourceLabel,
+    SourceLoader, SourceMap, SourceOrigin, SourceSpan,
 };
+pub use avenger_lang_core::{sql::SqlParseLimits, syntax::SyntaxLimits};
 
 /// Build the current canonical stock language registry.
 ///
