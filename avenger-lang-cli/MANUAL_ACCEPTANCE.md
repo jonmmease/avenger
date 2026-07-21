@@ -52,10 +52,13 @@ adapter. Keep stdout and stderr for the acceptance record.
   interactive, the title shows and clears its error state, and each failed
   generation prints exactly one diagnostic batch.
 - [ ] Run
-  `avenger-lang-compiler/tests/fixtures/projects/03_interactive_brush/chart.avenger`.
-  Drag across the chart, edit a harmless source value, and verify compatible
-  param, store, and selection state survives. Repeat with an incompatible type
-  edit and verify safe reset.
+  `avenger-lang-cli/tests/fixtures/interactive_state/chart.avenger`. Drag
+  inside the plot to create the red store-backed marker, then click a blue
+  point to grow the amber param-backed indicator. Make a harmless source edit:
+  both must survive reload. Click the same blue point again: the amber
+  indicator must shrink, proving the migrated selection toggled off. Repeat
+  with an incompatible state-type/contract edit and verify only that state
+  resets.
 - [ ] Begin a drag, reload before releasing it, and verify the documented
   gesture/cursor reset without a crash or stuck cursor.
 - [ ] Trigger a reload and immediately close the window. Repeat during a known

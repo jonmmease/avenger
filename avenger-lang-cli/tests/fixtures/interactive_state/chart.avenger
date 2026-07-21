@@ -1,0 +1,92 @@
+avenger 1;
+
+chart cartesian as chart {
+  param as canvas_width {
+    type: float64;
+    default: 640.0;
+  }
+
+  param as canvas_height {
+    type: float64;
+    default: 420.0;
+  }
+
+  param as selected_size {
+    type: float64;
+    default: 80.0;
+  }
+
+  store as dragged {
+    field id: utf8;
+    field x: float64;
+    field y: float64;
+    primary_key: [id];
+  }
+
+  selection as picked {
+    empty: none;
+    combine: union;
+  }
+
+  layout: {
+    canvas: { width: $canvas_width; height: $canvas_height; }
+    plot: auto;
+  }
+
+  data: {
+    values: [
+      { id: 'a'; x: 1.0; y: 2.0; },
+      { id: 'b'; x: 3.0; y: 4.0; }
+    ];
+  }
+
+  mark symbol as points {
+    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
+    size: value 180.0;
+    fill: value '#2563eb';
+  }
+
+  mark symbol as selection_indicator {
+    data: { values: [{ x: 4.5; y: 4.5; }]; }
+    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
+    size: value $selected_size;
+    fill: value '#f59e0b';
+  }
+
+  mark symbol as drag_indicator {
+    data: $dragged;
+    x: "x" { scale: linear { domain: [0.0, 5.0]; } }
+    y: "y" { scale: linear { domain: [0.0, 5.0]; } }
+    size: value 260.0;
+    fill: value '#dc2626';
+  }
+
+  on click as toggle_point {
+    target: mark points;
+    set selection picked = toggle_clauses {
+      clause {
+        id: 'clicked';
+        equality {
+          dimension as id { field: "id"; value: datum('id'); }
+        }
+      }
+    }
+    set param selected_size = CASE
+      WHEN selection_contains(picked, datum('id')) THEN 520.0
+      ELSE 80.0
+    END;
+  }
+
+  on cursor_moved as drag {
+    between: {
+      start: mouse_down {}
+      end: mouse_up {}
+    }
+    set store dragged = insert_rows {
+      row { id: 'drag'; x: event_coord(x); y: event_coord(y); }
+    }
+    set cursor = 'crosshair';
+  }
+}

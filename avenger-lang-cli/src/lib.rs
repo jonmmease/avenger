@@ -1876,6 +1876,46 @@ mod tests {
     }
 
     #[test]
+    fn interactive_acceptance_fixture_prepares_visible_state_contracts() {
+        let project_root =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/interactive_state");
+        let chart = project_root.join("chart.avenger");
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("build interactive acceptance runtime");
+        let compiler = Compiler::builder()
+            .project_root(&project_root)
+            .build()
+            .expect("build interactive acceptance compiler");
+        let generation = runtime
+            .block_on(compiler.compile_file_generation_attempt(&chart, 1))
+            .result
+            .expect("compile interactive acceptance fixture");
+        let plot = generation.artifact.compiled_plot();
+
+        assert!(plot.store_specs().get("dragged").is_some());
+        assert!(plot.selection_specs().get("picked").is_some());
+        assert_eq!(
+            chart_app_options_for_compiled(plot).resize_binding,
+            ChartResizeBinding::width_height("canvas_width", "canvas_height")
+        );
+
+        let mut bundle = runtime
+            .block_on(chart_avenger_app_with_default_runtime_resources(
+                plot.clone(),
+                generation.environment.session_context_arc(),
+                chart_app_options_for_compiled(plot),
+            ))
+            .expect("prepare interactive acceptance fixture");
+        assert_eq!(
+            runtime.block_on(bundle.app.app_state_mut().params())["selected_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(80.0))
+        );
+        assert!(!bundle.app.scene_graph().marks.is_empty());
+    }
+
+    #[test]
     fn shared_cache_reuses_style_reload_and_invalidates_same_metadata_data_change() {
         let project = watch_fixture_copy();
         let chart = project.path().join("chart.avenger");
