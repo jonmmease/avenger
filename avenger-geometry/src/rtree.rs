@@ -171,12 +171,6 @@ impl SceneGraphRTree {
         }
 
         let segments = target.split('.').collect::<Vec<_>>();
-        let Some((part, owners)) = segments.split_last() else {
-            return false;
-        };
-        if instance.name != *part || owners.is_empty() {
-            return false;
-        }
         let mut ancestors = self
             .group_names_by_path
             .iter()
@@ -189,6 +183,16 @@ impl SceneGraphRTree {
             .into_iter()
             .map(|(_, name)| name.as_str())
             .collect::<Vec<_>>();
+        if !segments.is_empty() && ancestor_names.ends_with(&segments) {
+            return true;
+        }
+
+        let Some((part, owners)) = segments.split_last() else {
+            return false;
+        };
+        if instance.name != *part || owners.is_empty() {
+            return false;
+        }
         ancestor_names.ends_with(owners)
     }
 
@@ -647,7 +651,10 @@ mod tests {
             instance_index: Some(0),
         };
         assert!(tree.mark_target_matches(&row, "filters.regions.row"));
+        assert!(tree.mark_target_matches(&row, "filters.regions"));
+        assert!(tree.mark_target_matches(&row, "regions"));
         assert!(!tree.mark_target_matches(&row, "unrelated.regions.row"));
+        assert!(!tree.mark_target_matches(&row, "unrelated.regions"));
     }
 
     #[test]

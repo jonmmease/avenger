@@ -381,6 +381,42 @@ impl CompiledPlot {
         &self.mark_runtime_paths
     }
 
+    /// Build the stable rendered-name index corresponding to opaque mark IDs.
+    ///
+    /// Scene paths are transport details and may share suffixes across nested
+    /// groups. Event routing therefore uses the first public alias that is also
+    /// installed as the rendered scene-mark name. Secondary aliases resolve to
+    /// the same opaque ID and consequently route through this canonical name.
+    pub fn mark_runtime_name_index(&self) -> BTreeMap<avenger_chart_core::MarkId, Vec<String>> {
+        fn insert_mark_names(
+            index: &mut BTreeMap<avenger_chart_core::MarkId, Vec<String>>,
+            marks: &[Arc<dyn CompiledMark>],
+        ) {
+            for mark in marks {
+                let identity = &mark.state().identity;
+                if let Some(name) = identity.public_aliases.first() {
+                    index
+                        .entry(identity.runtime_id.clone())
+                        .or_default()
+                        .push(name.clone());
+                }
+            }
+        }
+
+        let mut index = BTreeMap::new();
+        insert_mark_names(&mut index, &self.marks);
+        for attachment in &self.widgets {
+            if let avenger_chart_core::CompiledWidget::Composed(widget) = &attachment.widget {
+                insert_mark_names(&mut index, &widget.marks);
+            }
+        }
+        for names in index.values_mut() {
+            names.sort();
+            names.dedup();
+        }
+        index
+    }
+
     pub fn runtime_paths_for_mark_ids(
         &self,
         ids: &[avenger_chart_core::MarkId],

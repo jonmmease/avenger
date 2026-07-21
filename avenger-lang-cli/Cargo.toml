@@ -29,6 +29,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 winit = { workspace = true }
 
 [dev-dependencies]
+avenger-common = { path = "../avenger-common" }
+avenger-eventstream = { path = "../avenger-eventstream" }
+avenger-geometry = { path = "../avenger-geometry" }
 filetime = "0.2"
+rstar = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

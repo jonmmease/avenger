@@ -1310,6 +1310,9 @@ version = "0.1.0"
 dependencies = [
  "avenger-chart",
  "avenger-chart-app",
+ "avenger-common",
+ "avenger-eventstream",
+ "avenger-geometry",
  "avenger-lang",
  "avenger-winit-wgpu",
  "clap",
@@ -1317,6 +1320,7 @@ dependencies = [
  "datafusion",
  "filetime",
  "notify",
+ "rstar 0.12.2 (git+https://github.com/georust/rstar.git?branch=master)",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",

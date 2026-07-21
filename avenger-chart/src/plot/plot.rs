@@ -3670,6 +3670,18 @@ mod tests {
         assert_eq!(component.component_id.as_deref(), Some("summary"));
         assert_eq!(component.part_alias, "box");
 
+        let runtime_names = compiled.mark_runtime_name_index();
+        assert_eq!(
+            runtime_names.get(&exported.runtime_id),
+            Some(&vec!["points".to_string()]),
+            "secondary public aliases resolve through the canonical rendered name"
+        );
+        assert!(!runtime_names.contains_key(&private.runtime_id));
+        assert_eq!(
+            runtime_names.get(&compiled.marks[2].state().identity.runtime_id),
+            Some(&vec!["summary.box".to_string()])
+        );
+
         let restored: CompiledPlot = bincode::deserialize(
             &bincode::serialize(&compiled).expect("serialize identity fixture"),
         )

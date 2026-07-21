@@ -1213,8 +1213,14 @@ fn project_relative_path(project_root: &Path, path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use avenger_common::time::Instant as ChartInstant;
+    use avenger_eventstream::window::{
+        ElementState, MouseButton, WindowCursorMoved, WindowEvent, WindowMouseInput,
+    };
+    use avenger_geometry::rtree::SceneGraphRTree;
     use clap::Parser;
     use filetime::{FileTime, set_file_mtime};
+    use rstar::RTreeObject;
     use serde_json::Value;
     use std::collections::VecDeque;
     use std::sync::Condvar;
@@ -1888,11 +1894,11 @@ mod tests {
             .project_root(&project_root)
             .build()
             .expect("build interactive acceptance compiler");
-        let generation = runtime
+        let first = runtime
             .block_on(compiler.compile_file_generation_attempt(&chart, 1))
             .result
             .expect("compile interactive acceptance fixture");
-        let plot = generation.artifact.compiled_plot();
+        let plot = first.artifact.compiled_plot();
 
         assert!(plot.store_specs().get("dragged").is_some());
         assert!(plot.selection_specs().get("picked").is_some());
@@ -1901,18 +1907,166 @@ mod tests {
             ChartResizeBinding::width_height("canvas_width", "canvas_height")
         );
 
-        let mut bundle = runtime
+        let mut first_bundle = runtime
             .block_on(chart_avenger_app_with_default_runtime_resources(
                 plot.clone(),
-                generation.environment.session_context_arc(),
+                first.environment.session_context_arc(),
                 chart_app_options_for_compiled(plot),
             ))
             .expect("prepare interactive acceptance fixture");
+        let initial_scene = serde_json::to_value(first_bundle.app.scene_graph())
+            .expect("serialize initial acceptance scene");
+        let point_center = {
+            let rtree = SceneGraphRTree::from_scene_graph(first_bundle.app.scene_graph());
+            let point = rtree
+                .iter()
+                .filter(|geometry| geometry.mark_instance.name == "points")
+                .min_by_key(|geometry| geometry.mark_instance.instance_index)
+                .expect("interactive source point geometry");
+            let envelope = point.envelope();
+            let lower = envelope.lower();
+            let upper = envelope.upper();
+            (1..10)
+                .flat_map(|x_step| (1..10).map(move |y_step| (x_step, y_step)))
+                .map(|(x_step, y_step)| {
+                    [
+                        lower[0] + (upper[0] - lower[0]) * x_step as f32 / 10.0,
+                        lower[1] + (upper[1] - lower[1]) * y_step as f32 / 10.0,
+                    ]
+                })
+                .find(|position| {
+                    rtree
+                        .pick_top_mark_at_point(position)
+                        .is_some_and(|instance| instance.name == "points")
+                })
+                .expect("clickable source point area away from guide rules")
+        };
+
+        for event in [
+            WindowEvent::CursorMoved(WindowCursorMoved {
+                position: point_center,
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+            }),
+        ] {
+            runtime
+                .block_on(first_bundle.app.update(&event, ChartInstant::now()))
+                .expect("dispatch selection click");
+        }
+        let first_metrics = runtime.block_on(first_bundle.app.app_state_mut().event_metrics());
         assert_eq!(
-            runtime.block_on(bundle.app.app_state_mut().params())["selected_size"],
-            datafusion::scalar::ScalarValue::Float64(Some(80.0))
+            runtime.block_on(first_bundle.app.app_state_mut().params())["selected_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(520.0)),
+            "selection click metrics: {first_metrics:?}"
         );
-        assert!(!bundle.app.scene_graph().marks.is_empty());
+
+        for event in [
+            WindowEvent::CursorMoved(WindowCursorMoved {
+                position: [80.0, 80.0],
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::CursorMoved(WindowCursorMoved {
+                position: [160.0, 80.0],
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+            }),
+        ] {
+            runtime
+                .block_on(first_bundle.app.update(&event, ChartInstant::now()))
+                .expect("dispatch store drag");
+        }
+        let interacted_scene = serde_json::to_value(first_bundle.app.scene_graph())
+            .expect("serialize interacted acceptance scene");
+        assert_ne!(interacted_scene, initial_scene);
+        assert_eq!(
+            runtime.block_on(first_bundle.app.app_state_mut().params())["selected_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(520.0)),
+            "a drag on an unrelated mark must not retrigger the point click binding"
+        );
+        let snapshot = runtime.block_on(first_bundle.app.app_state_mut().snapshot_state());
+
+        let second = runtime
+            .block_on(compiler.compile_file_generation_attempt(&chart, 2))
+            .result
+            .expect("compile replacement acceptance fixture");
+        let (mut second_bundle, migration) = runtime
+            .block_on(
+                chart_avenger_app_with_default_runtime_resources_and_snapshot(
+                    second.artifact.compiled_plot().clone(),
+                    second.environment.session_context_arc(),
+                    chart_app_options_for_compiled(second.artifact.compiled_plot()),
+                    &snapshot,
+                ),
+            )
+            .expect("prepare migrated acceptance fixture");
+        assert_eq!(migration.params_migrated, 3);
+        assert_eq!(migration.stores_migrated, 1);
+        assert_eq!(migration.selections_migrated, 1);
+        assert_eq!(migration.reset(), 0);
+        assert_eq!(
+            serde_json::to_value(second_bundle.app.scene_graph())
+                .expect("serialize migrated acceptance scene"),
+            interacted_scene
+        );
+
+        let migrated_point_center = {
+            let rtree = SceneGraphRTree::from_scene_graph(second_bundle.app.scene_graph());
+            let point = rtree
+                .iter()
+                .filter(|geometry| geometry.mark_instance.name == "points")
+                .min_by_key(|geometry| geometry.mark_instance.instance_index)
+                .expect("migrated source point geometry");
+            let envelope = point.envelope();
+            let lower = envelope.lower();
+            let upper = envelope.upper();
+            (1..10)
+                .flat_map(|x_step| (1..10).map(move |y_step| (x_step, y_step)))
+                .map(|(x_step, y_step)| {
+                    [
+                        lower[0] + (upper[0] - lower[0]) * x_step as f32 / 10.0,
+                        lower[1] + (upper[1] - lower[1]) * y_step as f32 / 10.0,
+                    ]
+                })
+                .find(|position| {
+                    rtree
+                        .pick_top_mark_at_point(position)
+                        .is_some_and(|instance| instance.name == "points")
+                })
+                .expect("clickable migrated source point area away from guide rules")
+        };
+        for event in [
+            WindowEvent::CursorMoved(WindowCursorMoved {
+                position: migrated_point_center,
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            }),
+            WindowEvent::MouseInput(WindowMouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+            }),
+        ] {
+            runtime
+                .block_on(second_bundle.app.update(&event, ChartInstant::now()))
+                .expect("dispatch migrated selection toggle");
+        }
+        assert_eq!(
+            runtime.block_on(second_bundle.app.app_state_mut().params())["selected_size"],
+            datafusion::scalar::ScalarValue::Float64(Some(80.0)),
+            "the same point click must toggle the migrated selection off"
+        );
     }
 
     #[test]

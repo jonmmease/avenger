@@ -78,10 +78,26 @@ type CompiledEventStream = (
 );
 type CompiledEventStreams = Vec<CompiledEventStream>;
 type MarkRuntimePathIndex = BTreeMap<MarkId, Vec<Vec<usize>>>;
+type MarkRuntimeNameIndex = BTreeMap<MarkId, Vec<String>>;
+
+#[derive(Clone, Debug, Default)]
+struct MarkRuntimeTargetIndex {
+    paths: MarkRuntimePathIndex,
+    names: MarkRuntimeNameIndex,
+}
+
+impl MarkRuntimeTargetIndex {
+    fn for_plot(plot: &CompiledPlot) -> Self {
+        Self {
+            paths: plot.mark_runtime_path_index().clone(),
+            names: plot.mark_runtime_name_index(),
+        }
+    }
+}
 
 fn runtime_paths_for_mark_ids(
     ids: &[MarkId],
-    index: Option<&MarkRuntimePathIndex>,
+    index: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<Option<Vec<Vec<usize>>>, AvengerAppError> {
     if ids.is_empty() {
         return Ok(None);
@@ -93,7 +109,7 @@ fn runtime_paths_for_mark_ids(
     })?;
     let mut paths = Vec::new();
     for id in ids {
-        paths.extend(index.get(id).cloned().ok_or_else(|| {
+        paths.extend(index.paths.get(id).cloned().ok_or_else(|| {
             AvengerAppError::InternalError(format!(
                 "compiled mark identity '{id}' has no runtime scene path"
             ))
@@ -102,6 +118,30 @@ fn runtime_paths_for_mark_ids(
     paths.sort();
     paths.dedup();
     Ok(Some(paths))
+}
+
+fn runtime_names_for_mark_targets(
+    ids: &[MarkId],
+    source_names: &[String],
+    index: Option<&MarkRuntimeTargetIndex>,
+) -> Option<Vec<String>> {
+    let mut names = Vec::new();
+    let mut needs_source_names = ids.is_empty() || index.is_none();
+    if let Some(index) = index {
+        for id in ids {
+            if let Some(runtime_names) = index.names.get(id) {
+                names.extend(runtime_names.iter().cloned());
+            } else {
+                needs_source_names = true;
+            }
+        }
+    }
+    if needs_source_names {
+        names.extend(source_names.iter().cloned());
+    }
+    names.sort();
+    names.dedup();
+    (!names.is_empty()).then_some(names)
 }
 pub(crate) type StreamParamProvider =
     Arc<dyn Fn(&SceneGraphEvent) -> IndexMap<String, ScalarValue> + Send + Sync>;
@@ -171,6 +211,7 @@ pub(crate) fn event_streams_for_plot_bindings_with_param_provider(
     let event_coord_types = compiled_plot
         .event_coord_types(ctx)
         .map_err(|err| AvengerAppError::InternalError(err.to_string()))?;
+    let mark_runtime_targets = MarkRuntimeTargetIndex::for_plot(compiled_plot);
     event_streams_for_bindings_with_coord_types(
         compiled_plot.event_bindings(),
         ctx,
@@ -180,7 +221,7 @@ pub(crate) fn event_streams_for_plot_bindings_with_param_provider(
         &event_datum_types,
         &event_coord_types,
         stream_param_provider,
-        Some(compiled_plot.mark_runtime_path_index()),
+        Some(&mark_runtime_targets),
     )
 }
 
@@ -217,7 +258,7 @@ fn event_streams_for_bindings_with_coord_types(
     event_datum_types: &IndexMap<String, DataType>,
     event_coord_types: &IndexMap<String, DataType>,
     stream_param_provider: Option<StreamParamProvider>,
-    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+    mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<CompiledEventStreams, AvengerAppError> {
     let mut streams = Vec::new();
     for (binding_index, binding) in bindings.iter().enumerate() {
@@ -231,7 +272,7 @@ fn event_streams_for_bindings_with_coord_types(
             event_datum_types,
             event_coord_types,
             stream_param_provider.clone(),
-            mark_runtime_paths,
+            mark_runtime_targets,
         )?);
         streams.push((
             runtime.event_stream_config.clone(),
@@ -422,6 +463,7 @@ struct CompiledSceneGeometryQuery {
     hit_policy: SceneGeometryHitPolicy,
     target: SceneGeometryTarget,
     runtime_mark_paths: Option<Vec<Vec<usize>>>,
+    runtime_mark_names: Option<Vec<String>>,
     datum_fields: Vec<SceneQueryDatumField>,
     unique_by: Vec<String>,
     max_hits: Option<usize>,
@@ -803,6 +845,7 @@ struct SceneGeometryQueryExpression {
     hit_policy: SceneGeometryHitPolicy,
     target: SceneGeometryTarget,
     runtime_mark_paths: Option<Vec<Vec<usize>>>,
+    runtime_mark_names: Option<Vec<String>>,
     datum_fields: Vec<SceneQueryDatumField>,
     unique_by: Vec<String>,
     max_hits: Option<usize>,
@@ -889,7 +932,7 @@ impl CompiledChartEventBinding {
         event_datum_types: &IndexMap<String, DataType>,
         event_coord_types: &IndexMap<String, DataType>,
         stream_param_provider: Option<StreamParamProvider>,
-        mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+        mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
@@ -979,7 +1022,7 @@ impl CompiledChartEventBinding {
                         update: compile_selection_expression_update(
                             &action.update,
                             ctx,
-                            mark_runtime_paths,
+                            mark_runtime_targets,
                         )?,
                     }))
                 }
@@ -1209,7 +1252,7 @@ impl CompiledChartEventBinding {
             ctx,
             param_specs,
             stream_param_provider,
-            mark_runtime_paths,
+            mark_runtime_targets,
         )?;
 
         Ok(Self {
@@ -1239,13 +1282,14 @@ pub(crate) fn param_change_graph_for_plot(
     compiled_plot: &CompiledPlot,
     ctx: &SessionContext,
 ) -> Result<CompiledChartParamChangeGraph, AvengerAppError> {
+    let mark_runtime_targets = MarkRuntimeTargetIndex::for_plot(compiled_plot);
     CompiledChartParamChangeGraph::compile(
         compiled_plot.param_change_bindings(),
         ctx,
         compiled_plot.param_specs(),
         compiled_plot.selection_specs(),
         compiled_plot.store_specs(),
-        Some(compiled_plot.mark_runtime_path_index()),
+        Some(&mark_runtime_targets),
     )
 }
 
@@ -1256,7 +1300,7 @@ impl CompiledChartParamChangeGraph {
         param_specs: &ParamSpecRegistry,
         selection_specs: &SelectionSpecRegistry,
         store_specs: &StoreSpecRegistry,
-        mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+        mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
     ) -> Result<Self, AvengerAppError> {
         let edges = validate_param_change_graph(bindings, param_specs)?;
         let mut compiled_bindings = Vec::with_capacity(bindings.len());
@@ -1269,7 +1313,7 @@ impl CompiledChartParamChangeGraph {
                 param_specs,
                 selection_specs,
                 store_specs,
-                mark_runtime_paths,
+                mark_runtime_targets,
             )?;
             bindings_by_source
                 .entry(compiled.source_runtime_id.clone())
@@ -1638,7 +1682,7 @@ impl CompiledChartParamChangeBinding {
         param_specs: &ParamSpecRegistry,
         selection_specs: &SelectionSpecRegistry,
         store_specs: &StoreSpecRegistry,
-        mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+        mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
     ) -> Result<Self, AvengerAppError> {
         binding
             .validate()
@@ -1785,7 +1829,7 @@ impl CompiledChartParamChangeBinding {
                     let update = compile_selection_expression_update(
                         &assignment.update,
                         ctx,
-                        mark_runtime_paths,
+                        mark_runtime_targets,
                     )?;
                     let update = append_selection_expression_update_specs(
                         &assignment.target.source_name,
@@ -2063,7 +2107,7 @@ fn append_store_row_specs(
 fn compile_selection_expression_update(
     update: &SelectionUpdate,
     ctx: &SessionContext,
-    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+    mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<SelectionExpressionUpdate, AvengerAppError> {
     Ok(match update {
         SelectionUpdate::Clear => SelectionExpressionUpdate::Clear,
@@ -2100,22 +2144,22 @@ fn compile_selection_expression_update(
         },
         SelectionUpdate::ReplaceAllFromSceneQuery { query } => {
             SelectionExpressionUpdate::ReplaceAllFromSceneQuery {
-                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_targets)?,
             }
         }
         SelectionUpdate::ReplaceFromSceneQueryInScope { query } => {
             SelectionExpressionUpdate::ReplaceFromSceneQueryInScope {
-                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_targets)?,
             }
         }
         SelectionUpdate::UpsertFromSceneQuery { query } => {
             SelectionExpressionUpdate::UpsertFromSceneQuery {
-                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_targets)?,
             }
         }
         SelectionUpdate::ToggleFromSceneQuery { query } => {
             SelectionExpressionUpdate::ToggleFromSceneQuery {
-                query: compile_selection_scene_query(query, ctx, mark_runtime_paths)?,
+                query: compile_selection_scene_query(query, ctx, mark_runtime_targets)?,
             }
         }
         SelectionUpdate::DeleteClauses { ids } => SelectionExpressionUpdate::DeleteClauses {
@@ -2237,10 +2281,10 @@ fn selection_value_expr_to_expr(
 fn compile_selection_scene_query(
     update: &SelectionSceneQuery,
     ctx: &SessionContext,
-    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+    mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<SelectionSceneQueryExpression, AvengerAppError> {
     Ok(SelectionSceneQueryExpression {
-        query: compile_scene_geometry_query(&update.query, ctx, mark_runtime_paths)?,
+        query: compile_scene_geometry_query(&update.query, ctx, mark_runtime_targets)?,
         sharing: update.sharing,
         clause_id: compile_scene_query_clause_id(&update.clause_id, ctx)?,
     })
@@ -2249,7 +2293,7 @@ fn compile_selection_scene_query(
 fn compile_scene_geometry_query(
     query: &SceneGeometryQuery,
     ctx: &SessionContext,
-    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+    mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<SceneGeometryQueryExpression, AvengerAppError> {
     query
         .target
@@ -2299,8 +2343,13 @@ fn compile_scene_geometry_query(
         target: query.target.clone(),
         runtime_mark_paths: runtime_paths_for_mark_ids(
             query.target.resolved_mark_ids(),
-            mark_runtime_paths,
+            mark_runtime_targets,
         )?,
+        runtime_mark_names: runtime_names_for_mark_targets(
+            query.target.resolved_mark_ids(),
+            query.target.mark_ids(),
+            mark_runtime_targets,
+        ),
         datum_fields: query.datum_fields.clone(),
         unique_by: query.unique_by.clone(),
         max_hits: query.max_hits,
@@ -2417,6 +2466,7 @@ fn append_scene_geometry_query_specs(
         hit_policy: query.hit_policy,
         target: query.target,
         runtime_mark_paths: query.runtime_mark_paths,
+        runtime_mark_names: query.runtime_mark_names,
         datum_fields: query.datum_fields,
         unique_by: query.unique_by,
         max_hits: query.max_hits,
@@ -4301,8 +4351,10 @@ fn scene_geometry_query_result(
             scene_query_target_matches(
                 &query.target,
                 query.runtime_mark_paths.as_deref(),
+                query.runtime_mark_names.as_deref(),
                 &instance.mark_instance,
                 event_datums,
+                rtree,
             )
         })
         .map(|instance| instance.mark_instance.clone())
@@ -4500,8 +4552,10 @@ fn geometry_hit_policy(policy: SceneGeometryHitPolicy) -> GeometryQueryHitPolicy
 fn scene_query_target_matches(
     target: &SceneGeometryTarget,
     runtime_mark_paths: Option<&[Vec<usize>]>,
+    runtime_mark_names: Option<&[String]>,
     mark_instance: &MarkInstance,
     event_datums: &EvaluatedEventDatumState,
+    rtree: &SceneGraphRTree,
 ) -> bool {
     if let Some(group) = target.resolved_source_group()
         && (mark_instance.mark_path.len() < group.len()
@@ -4509,14 +4563,22 @@ fn scene_query_target_matches(
     {
         return false;
     }
-    if let Some(paths) = runtime_mark_paths
+    if let Some(names) = runtime_mark_names {
+        if !names
+            .iter()
+            .any(|name| rtree.mark_target_matches(mark_instance, name))
+        {
+            return false;
+        }
+    } else if let Some(paths) = runtime_mark_paths
         && !paths
             .iter()
             .any(|path| mark_path_matches_resolved_path(&mark_instance.mark_path, path))
     {
         return false;
     }
-    if runtime_mark_paths.is_none()
+    if runtime_mark_names.is_none()
+        && runtime_mark_paths.is_none()
         && !target.mark_ids().is_empty()
         && !target.mark_ids().contains(&mark_instance.name)
     {
@@ -5395,12 +5457,16 @@ fn event_stream_config_for_binding(
     ctx: &SessionContext,
     param_specs: &ParamSpecRegistry,
     stream_param_provider: Option<StreamParamProvider>,
-    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+    mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     let mut config = EventStreamConfig {
         types: vec![scene_event_type_from_chart(binding.event_type)],
-        mark_paths: runtime_paths_for_mark_ids(binding.resolved_mark_ids(), mark_runtime_paths)?,
-        mark_names: None,
+        mark_paths: runtime_paths_for_mark_ids(binding.resolved_mark_ids(), mark_runtime_targets)?,
+        mark_names: runtime_names_for_mark_targets(
+            binding.resolved_mark_ids(),
+            binding.mark_ids(),
+            mark_runtime_targets,
+        ),
         throttle: binding.throttle_ms,
         consume: binding.consume,
         ..Default::default()
@@ -5415,7 +5481,7 @@ fn event_stream_config_for_binding(
                 ctx,
                 param_specs,
                 stream_param_provider.clone(),
-                mark_runtime_paths,
+                mark_runtime_targets,
             )?),
             Box::new(stream_config_for_chart_stream(
                 &between.end,
@@ -5424,7 +5490,7 @@ fn event_stream_config_for_binding(
                 ctx,
                 param_specs,
                 stream_param_provider,
-                mark_runtime_paths,
+                mark_runtime_targets,
             )?),
         ));
     }
@@ -5438,7 +5504,7 @@ fn stream_config_for_chart_stream(
     ctx: &SessionContext,
     param_specs: &ParamSpecRegistry,
     stream_param_provider: Option<StreamParamProvider>,
-    mark_runtime_paths: Option<&MarkRuntimePathIndex>,
+    mark_runtime_targets: Option<&MarkRuntimeTargetIndex>,
 ) -> Result<EventStreamConfig, AvengerAppError> {
     stream
         .validate()
@@ -5449,8 +5515,12 @@ fn stream_config_for_chart_stream(
             .map(|event_type| vec![scene_event_type_from_chart(event_type)])
             .unwrap_or_default(),
         source_group: stream.resolved_source_group().map(ToOwned::to_owned),
-        mark_paths: runtime_paths_for_mark_ids(stream.resolved_mark_ids(), mark_runtime_paths)?,
-        mark_names: None,
+        mark_paths: runtime_paths_for_mark_ids(stream.resolved_mark_ids(), mark_runtime_targets)?,
+        mark_names: runtime_names_for_mark_targets(
+            stream.resolved_mark_ids(),
+            stream.mark_ids(),
+            mark_runtime_targets,
+        ),
         throttle,
         consume,
         ..Default::default()
@@ -6275,7 +6345,16 @@ mod tests {
         let stream = ChartEventStream::on(ChartEventType::MouseDown)
             .mark("manual_box_plot")
             .with_resolved_mark_ids(vec![first.clone(), second.clone()]);
-        let index = BTreeMap::from([(first, vec![vec![0]]), (second, vec![vec![1]])]);
+        let index = MarkRuntimeTargetIndex {
+            paths: BTreeMap::from([
+                (first.clone(), vec![vec![0]]),
+                (second.clone(), vec![vec![1]]),
+            ]),
+            names: BTreeMap::from([
+                (first, vec!["manual_box_plot.box".to_string()]),
+                (second, vec!["manual_box_plot.whisker".to_string()]),
+            ]),
+        };
         let config = stream_config_for_chart_stream(
             &stream,
             None,
@@ -6288,9 +6367,12 @@ mod tests {
         .expect("stream config");
 
         assert_eq!(config.mark_paths, Some(vec![vec![0], vec![1]]));
-        assert!(
-            config.filter.is_none(),
-            "resolved mark paths should not also install a mark-name filter"
+        assert_eq!(
+            config.mark_names,
+            Some(vec![
+                "manual_box_plot.box".to_string(),
+                "manual_box_plot.whisker".to_string(),
+            ])
         );
     }
 
@@ -6303,7 +6385,10 @@ mod tests {
         let binding = ChartEventBinding::on(ChartEventType::Click)
             .mark("contract.box")
             .with_resolved_mark_ids(vec![mark_id.clone()]);
-        let index = BTreeMap::from([(mark_id, vec![vec![0, 0]])]);
+        let index = MarkRuntimeTargetIndex {
+            paths: BTreeMap::from([(mark_id.clone(), vec![vec![0, 0]])]),
+            names: BTreeMap::from([(mark_id, vec!["contract.box".to_string()])]),
+        };
         let config = event_stream_config_for_binding(
             &binding,
             &ctx,
@@ -6314,9 +6399,37 @@ mod tests {
         .expect("binding config");
 
         assert_eq!(config.mark_paths, Some(vec![vec![0, 0]]));
-        assert!(
-            config.filter.is_none(),
-            "resolved mark paths should not also install a mark-name filter"
+        assert_eq!(config.mark_names, Some(vec!["contract.box".to_string()]));
+    }
+
+    #[test]
+    fn stream_config_retains_group_target_for_unnamed_mark_ids() {
+        let ctx = SessionContext::new();
+        let mut allocator =
+            avenger_chart_core::CompiledIdentityAllocator::new("unnamed-group-config-test");
+        let mark_id = allocator.allocate_mark();
+        let stream = ChartEventStream::on(ChartEventType::MouseDown)
+            .mark("interactive_group")
+            .with_resolved_mark_ids(vec![mark_id.clone()]);
+        let index = MarkRuntimeTargetIndex {
+            paths: BTreeMap::from([(mark_id, vec![vec![0, 0]])]),
+            names: BTreeMap::new(),
+        };
+        let config = stream_config_for_chart_stream(
+            &stream,
+            None,
+            false,
+            &ctx,
+            &ParamSpecRegistry::default(),
+            None,
+            Some(&index),
+        )
+        .expect("stream config");
+
+        assert_eq!(config.mark_paths, Some(vec![vec![0, 0]]));
+        assert_eq!(
+            config.mark_names,
+            Some(vec!["interactive_group".to_string()])
         );
     }
 
@@ -6386,6 +6499,7 @@ mod tests {
                 hit_policy: SceneGeometryHitPolicy::AnchorInside,
                 target: SceneGeometryTarget::default(),
                 runtime_mark_paths: None,
+                runtime_mark_names: None,
                 datum_fields: vec![
                     SceneQueryDatumField::new("item")
                         .datum("item")
@@ -6467,6 +6581,7 @@ mod tests {
 
     #[test]
     fn scene_query_target_matching_filters_ids_and_resolved_paths() {
+        let rtree = empty_rtree();
         let mark_instance = MarkInstance {
             name: "points".to_string(),
             mark_path: vec![2, 1, 0],
@@ -6478,40 +6593,50 @@ mod tests {
         assert!(scene_query_target_matches(
             &target,
             None,
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
         ));
 
         let target = SceneGeometryTarget::default();
         assert!(scene_query_target_matches(
             &target,
             Some(&[vec![2, 1, 0]]),
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
         ));
 
         let target = SceneGeometryTarget::default();
         assert!(scene_query_target_matches(
             &target,
             Some(&[vec![0]]),
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
         ));
 
         let target = SceneGeometryTarget::default();
         assert!(!scene_query_target_matches(
             &target,
             Some(&[vec![2, 1, 1]]),
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
         ));
 
         let target = SceneGeometryTarget::default();
         assert!(!scene_query_target_matches(
             &target,
             Some(&[vec![1]]),
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
         ));
 
         let target = SceneGeometryQuery::rect(lit(0), lit(0), lit(1), lit(1))
@@ -6520,8 +6645,10 @@ mod tests {
         assert!(scene_query_target_matches(
             &target,
             None,
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
         ));
 
         let target = SceneGeometryQuery::rect(lit(0), lit(0), lit(1), lit(1))
@@ -6530,8 +6657,28 @@ mod tests {
         assert!(!scene_query_target_matches(
             &target,
             None,
+            None,
             &mark_instance,
-            &event_datums
+            &event_datums,
+            &rtree,
+        ));
+
+        let target = SceneGeometryTarget::default();
+        assert!(scene_query_target_matches(
+            &target,
+            Some(&[vec![9, 9, 0]]),
+            Some(&["points".to_string()]),
+            &mark_instance,
+            &event_datums,
+            &rtree,
+        ));
+        assert!(!scene_query_target_matches(
+            &target,
+            Some(&[vec![0]]),
+            Some(&["other".to_string()]),
+            &mark_instance,
+            &event_datums,
+            &rtree,
         ));
     }
 
@@ -7102,6 +7249,7 @@ mod tests {
         let event_coord_types = compiled
             .event_coord_types(ctx)
             .expect("infer event coord types");
+        let mark_runtime_targets = MarkRuntimeTargetIndex::for_plot(compiled);
         let runtime = CompiledChartEventBinding::compile_with_event_coord_types(
             binding_index,
             &compiled.event_bindings()[binding_index],
@@ -7112,7 +7260,7 @@ mod tests {
             &compiled.event_datum_types(),
             &event_coord_types,
             None,
-            Some(compiled.mark_runtime_path_index()),
+            Some(&mark_runtime_targets),
         )
         .expect("compile binding runtime");
         ChartEventBindingHandler {
