@@ -224,19 +224,11 @@ fn parse_binding(
             if word.quote_style.is_some() {
                 return Err(invalid_path_segment(segment_token.span()));
             }
-            let (segment, temporal) = split_temporal(&word.value);
-            if !valid_identifier(segment) {
+            if !valid_identifier(&word.value) {
                 return Err(invalid_path_segment(segment_token.span()));
             }
-            path.push(segment.to_owned());
-            if let Some(temporal) = temporal {
-                version = temporal;
-            }
+            path.push(word.value.clone());
             end = segment_index + 1;
-            if temporal.is_some() {
-                reject_following_path_or_temporal(stream, end, limit)?;
-                break;
-            }
             continue;
         }
 
@@ -245,8 +237,7 @@ fn parse_binding(
                 Token::Number(value, _) if value.starts_with('.') => {
                     return Err(invalid_path_segment(stream.tokens()[significant].span()));
                 }
-                Token::Word(word) if exact_temporal(&word.value).is_some() => {
-                    let temporal = exact_temporal(&word.value).expect("matched temporal suffix");
+                Token::AtSign => {
                     if before_trivia != significant {
                         return Err(error(
                             "AVENGER-SQL-005",
@@ -255,8 +246,18 @@ fn parse_binding(
                             "remove whitespace before `@start` or `@previous`",
                         ));
                     }
+                    let suffix_index = significant + 1;
+                    let Some(suffix) = stream
+                        .tokens()
+                        .get(suffix_index)
+                        .filter(|_| suffix_index < limit)
+                    else {
+                        return Err(unknown_temporal(stream.tokens()[significant].span()));
+                    };
                     if stream.tokens()[end - 1].span().range.end
                         != stream.tokens()[significant].span().range.start
+                        || stream.tokens()[significant].span().range.end
+                            != suffix.span().range.start
                     {
                         return Err(error(
                             "AVENGER-SQL-005",
@@ -265,20 +266,13 @@ fn parse_binding(
                             "remove whitespace before `@start` or `@previous`",
                         ));
                     }
-                    version = temporal;
-                    end = significant + 1;
-                }
-                Token::Word(word)
-                    if word.value.starts_with('@')
-                        && stream.tokens()[end - 1].span().range.end
-                            == stream.tokens()[significant].span().range.start =>
-                {
-                    return Err(error(
-                        "AVENGER-SQL-006",
-                        "unknown temporal binding suffix",
-                        stream.tokens()[significant].span(),
-                        "only `@start` and `@previous` are supported",
-                    ));
+                    let Token::Word(word) = suffix.token() else {
+                        return Err(unknown_temporal(suffix.span()));
+                    };
+                    version = exact_temporal(&word.value)
+                        .ok_or_else(|| unknown_temporal(suffix.span()))?;
+                    end = suffix_index + 1;
+                    reject_following_path_or_temporal(stream, end, limit)?;
                 }
                 _ => {}
             }
@@ -295,33 +289,38 @@ fn reject_following_path_or_temporal(
     limit: usize,
 ) -> Result<(), SqlFrontendError> {
     let next = skip_trivia(stream, end, limit);
-    if next < limit && matches!(stream.tokens()[next].token(), Token::Period) {
-        return Err(error(
-            "AVENGER-SQL-004",
-            "binding path cannot continue after a temporal suffix",
-            stream.tokens()[next].span(),
-            "move `@start` or `@previous` to the end of the binding path",
-        ));
+    if next < limit {
+        match stream.tokens()[next].token() {
+            Token::Period => {
+                return Err(error(
+                    "AVENGER-SQL-004",
+                    "binding path cannot continue after a temporal suffix",
+                    stream.tokens()[next].span(),
+                    "move `@start` or `@previous` to the end of the binding path",
+                ));
+            }
+            Token::AtSign => return Err(unknown_temporal(stream.tokens()[next].span())),
+            _ => {}
+        }
     }
     Ok(())
 }
 
-fn split_temporal(value: &str) -> (&str, Option<BindingVersion>) {
-    if let Some(segment) = value.strip_suffix("@start") {
-        (segment, Some(BindingVersion::Start))
-    } else if let Some(segment) = value.strip_suffix("@previous") {
-        (segment, Some(BindingVersion::Previous))
-    } else {
-        (value, None)
+fn exact_temporal(value: &str) -> Option<BindingVersion> {
+    match value {
+        "start" => Some(BindingVersion::Start),
+        "previous" => Some(BindingVersion::Previous),
+        _ => None,
     }
 }
 
-fn exact_temporal(value: &str) -> Option<BindingVersion> {
-    match value {
-        "@start" => Some(BindingVersion::Start),
-        "@previous" => Some(BindingVersion::Previous),
-        _ => None,
-    }
+fn unknown_temporal(span: SourceSpan) -> SqlFrontendError {
+    error(
+        "AVENGER-SQL-006",
+        "unknown temporal binding suffix",
+        span,
+        "only `@start` and `@previous` are supported",
+    )
 }
 
 fn skip_trivia(stream: &TokenStream, mut index: usize, limit: usize) -> usize {

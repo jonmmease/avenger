@@ -2,6 +2,8 @@ use std::any::TypeId;
 
 use sqlparser::dialect::{Dialect, GenericDialect};
 
+use super::{is_unquoted_identifier_part, is_unquoted_identifier_start};
+
 /// The single SQL dialect used by Avenger tokenization and SQL islands.
 ///
 /// This deliberately pins the complete feature surface enabled by
@@ -25,20 +27,15 @@ impl Dialect for AvengerSqlDialect {
     }
 
     fn is_delimited_identifier_start(&self, ch: char) -> bool {
-        ch == '"' || ch == '`'
+        ch == '"'
     }
 
     fn is_identifier_start(&self, ch: char) -> bool {
-        ch.is_alphabetic() || ch == '_' || ch == '#' || ch == '@'
+        is_unquoted_identifier_start(ch)
     }
 
     fn is_identifier_part(&self, ch: char) -> bool {
-        ch.is_alphabetic()
-            || ch.is_ascii_digit()
-            || ch == '@'
-            || ch == '$'
-            || ch == '#'
-            || ch == '_'
+        is_unquoted_identifier_part(ch)
     }
 
     fn requires_single_line_comment_whitespace(&self) -> bool {
@@ -46,7 +43,7 @@ impl Dialect for AvengerSqlDialect {
     }
 
     fn supports_unicode_string_literal(&self) -> bool {
-        true
+        false
     }
     fn supports_partition_by_after_order_by(&self) -> bool {
         true
@@ -190,7 +187,7 @@ impl Dialect for AvengerSqlDialect {
         true
     }
     fn supports_quote_delimited_string(&self) -> bool {
-        true
+        false
     }
     fn supports_select_wildcard_replace(&self) -> bool {
         true
@@ -262,6 +259,13 @@ mod tests {
         let dialect = AvengerSqlDialect::new();
         let dialect: &dyn Dialect = &dialect;
         assert!(dialect.is::<GenericDialect>());
+        assert!(dialect.is_delimited_identifier_start('"'));
+        assert!(!dialect.is_delimited_identifier_start('`'));
+        assert!(!dialect.is_identifier_start('@'));
+        assert!(!dialect.is_identifier_start('#'));
+        assert!(!dialect.is_identifier_part('$'));
+        assert!(!dialect.supports_unicode_string_literal());
+        assert!(!dialect.supports_quote_delimited_string());
         assert!(dialect.requires_single_line_comment_whitespace());
         assert!(dialect.supports_nested_comments());
         assert!(dialect.supports_from_first_select());

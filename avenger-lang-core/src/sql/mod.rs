@@ -1,6 +1,7 @@
 //! Shared lexical and SQL-island frontend for the Avenger language.
 
 mod dialect;
+mod identifier;
 mod normalize;
 mod parser;
 mod token;
@@ -17,4 +18,8 @@ pub use parser::{
 pub use token::{
     CommentKind, DocCommentBlock, LanguageToken, TokenClass, TokenStream, TokenizeError,
     WhitespaceKind, tokenize,
+};
+
+pub(crate) use identifier::{
+    is_unquoted_identifier, is_unquoted_identifier_part, is_unquoted_identifier_start,
 };

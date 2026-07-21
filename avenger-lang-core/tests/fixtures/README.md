@@ -11,3 +11,6 @@ under `tests/baselines/parse/`.
 The DataFusion expression fixture translates representative column, literal,
 predicate, aggregate/window, temporal, array, and placeholder expression shapes
 already used by the Rust chart and partial-evaluation code into their SQL forms.
+`tokens/tree_sitter_conformance.json` is the machine-readable editor-grammar
+contract. The Rust token/query tests execute every row against the strict
+frontend; peer Tree-sitter repositories consume a revision-and-hash-pinned copy.

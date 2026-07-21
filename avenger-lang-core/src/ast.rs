@@ -12,8 +12,8 @@ use sqlparser::ast::{Expr, ObjectName, Query, Visit, Visitor};
 use crate::{
     SourceFile, SourceId, SourceOrigin, SourceSpan,
     sql::{
-        BindingOccurrence, BindingVersion, ParsedSqlIsland, parse_sql_expression, parse_sql_query,
-        tokenize,
+        BindingOccurrence, BindingVersion, ParsedSqlIsland, is_unquoted_identifier,
+        parse_sql_expression, parse_sql_query, tokenize,
     },
 };
 
@@ -61,9 +61,7 @@ impl<'de> Deserialize<'de> for Name {
 }
 
 pub fn is_name(value: &str) -> bool {
-    let mut characters = value.chars();
-    matches!(characters.next(), Some(first) if first.is_ascii_alphabetic() || first == '_')
-        && characters.all(|character| character.is_ascii_alphanumeric() || character == '_')
+    is_unquoted_identifier(value)
 }
 
 /// Exact canonical spelling of one SQL numeric literal.

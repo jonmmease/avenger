@@ -10,6 +10,7 @@ use avenger_lang_core::{
         normalize_bindings, parse_sql_expression, parse_sql_query, tokenize,
     },
 };
+use serde::Deserialize;
 use sqlparser::{
     ast::{Expr, SelectFlavor, SetExpr},
     dialect::GenericDialect,
@@ -39,6 +40,23 @@ const CURSOR_STYLES: &[&str] = &[
     "resize_ne_sw",
 ];
 
+#[derive(Deserialize)]
+struct TreeSitterConformanceManifest {
+    schema_version: u32,
+    cases: Vec<TreeSitterConformanceCase>,
+}
+
+#[derive(Deserialize)]
+struct TreeSitterConformanceCase {
+    id: String,
+    category: String,
+    stage: String,
+    source: String,
+    accepted: bool,
+    #[serde(default)]
+    significant_classes: Vec<String>,
+}
+
 fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/tokens")
@@ -66,6 +84,108 @@ fn first_significant(tokens: &[avenger_lang_core::sql::LanguageToken], start: us
     (start..tokens.len())
         .find(|index| !matches!(tokens[*index].token(), Token::Whitespace(_)))
         .expect("EOF is significant")
+}
+
+fn tree_sitter_manifest() -> TreeSitterConformanceManifest {
+    let path = fixture_path("tree_sitter_conformance.json");
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn significant_class_names(stream: &avenger_lang_core::sql::TokenStream) -> Vec<&'static str> {
+    stream
+        .tokens()
+        .iter()
+        .filter_map(|token| match token.class() {
+            TokenClass::Word => Some("word"),
+            TokenClass::QuotedIdentifier => Some("quoted_identifier"),
+            TokenClass::String => Some("string"),
+            TokenClass::Number => Some("number"),
+            TokenClass::Punctuation => Some("punctuation"),
+            TokenClass::Binding => Some("binding"),
+            TokenClass::TemporalVersion => Some("temporal"),
+            TokenClass::PositionalPlaceholder => Some("positional_placeholder"),
+            TokenClass::OtherPlaceholder => Some("other_placeholder"),
+            TokenClass::Comment(avenger_lang_core::sql::CommentKind::Line) => Some("comment_line"),
+            TokenClass::Comment(avenger_lang_core::sql::CommentKind::Block) => {
+                Some("comment_block")
+            }
+            TokenClass::Whitespace(_) | TokenClass::Eof => None,
+        })
+        .collect()
+}
+
+fn parsed_to_eof(stream: &avenger_lang_core::sql::TokenStream, next_token: usize) -> bool {
+    first_significant(stream.tokens(), next_token) == stream.tokens().len() - 1
+}
+
+#[test]
+fn tree_sitter_conformance_manifest_matches_the_strict_frontend() {
+    let manifest = tree_sitter_manifest();
+    assert_eq!(manifest.schema_version, 1);
+    assert!(manifest.cases.len() >= 60);
+
+    for case in manifest.cases {
+        let source = memory_source(&case.source);
+        let tokenized = tokenize(&source);
+        let accepted = match case.stage.as_str() {
+            "tokenize" => tokenized.is_ok(),
+            "normalize" => tokenized
+                .as_ref()
+                .is_ok_and(|stream| normalize_bindings(stream, 0..stream.tokens().len()).is_ok()),
+            "expression" => tokenized.as_ref().is_ok_and(|stream| {
+                parse_sql_expression(stream, 0)
+                    .is_ok_and(|parsed| parsed_to_eof(stream, parsed.next_token))
+            }),
+            "query" => tokenized.as_ref().is_ok_and(|stream| {
+                parse_sql_query(stream, 0)
+                    .is_ok_and(|parsed| parsed_to_eof(stream, parsed.next_token))
+            }),
+            stage => panic!("unknown manifest stage `{stage}` for {}", case.id),
+        };
+        assert_eq!(
+            accepted, case.accepted,
+            "manifest case {} ({}/{}) disagrees with the strict frontend: `{}`",
+            case.id, case.category, case.stage, case.source
+        );
+
+        if !case.significant_classes.is_empty() {
+            let stream = tokenized.unwrap_or_else(|error| {
+                panic!("manifest case {} failed tokenization: {error}", case.id)
+            });
+            assert_eq!(
+                significant_class_names(&stream),
+                case.significant_classes,
+                "token classes for manifest case {}",
+                case.id
+            );
+        }
+    }
+}
+
+#[test]
+fn unsupported_literal_and_identifier_forms_have_stable_spans() {
+    for spelling in [
+        "`column`",
+        "N'text'",
+        "U&'text'",
+        "B'1010'",
+        "R'raw'",
+        "Q'|raw|'",
+        "NQ'|raw|'",
+        "'''multiline'''",
+        "\"\"\"multiline\"\"\"",
+        "0xdeadbeef",
+        "$café$raw$café$",
+    ] {
+        let source = memory_source(spelling);
+        let error = tokenize(&source).unwrap_err();
+        assert_eq!(error.diagnostic().code.as_str(), "AVENGER-TOKEN-002");
+        let span = error.diagnostic().primary.span;
+        assert_eq!(span.source, source.id);
+        assert_eq!(span.range.start, 0);
+        assert!(span.range.end > span.range.start);
+        assert!(span.range.end <= spelling.len());
+    }
 }
 
 #[test]

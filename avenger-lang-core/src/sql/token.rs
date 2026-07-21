@@ -2,7 +2,10 @@ use std::{fmt, sync::Arc};
 
 use sqlparser::tokenizer::{Location, Token, TokenWithSpan, Tokenizer, Whitespace, Word};
 
-use crate::{ByteSpan, Diagnostic, SourceFile, SourceLabel, SourceSpan, sql::AvengerSqlDialect};
+use crate::{
+    ByteSpan, Diagnostic, SourceFile, SourceLabel, SourceSpan,
+    sql::{AvengerSqlDialect, is_unquoted_identifier},
+};
 
 /// Stable, DSL-relevant classification over sqlparser's complete token enum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,12 +220,19 @@ pub fn tokenize(source: &SourceFile) -> Result<TokenStream, TokenizeError> {
     for sql in sql_tokens {
         let span = sql_span_to_source(source, sql.span.start, sql.span.end)
             .expect("sqlparser locations must map back into the tokenized source");
-        tokens.push(LanguageToken {
-            class: classify(&sql.token),
-            sql,
-            span,
-        });
+        validate_token_policy(source, &sql.token, span)?;
+        let class = if matches!(&sql.token, Token::Word(word) if matches!(word.value.as_str(), "start" | "previous"))
+            && tokens.last().is_some_and(|previous: &LanguageToken| {
+                matches!(previous.token(), Token::AtSign)
+                    && previous.span().range.end == span.range.start
+            }) {
+            TokenClass::TemporalVersion
+        } else {
+            classify(&sql.token)
+        };
+        tokens.push(LanguageToken { class, sql, span });
     }
+    validate_token_sequences(source, &tokens)?;
     let eof_span = SourceSpan::empty(source.id, source.text().len());
     tokens.push(LanguageToken {
         sql: TokenWithSpan::new_eof(),
@@ -234,6 +244,128 @@ pub fn tokenize(source: &SourceFile) -> Result<TokenStream, TokenizeError> {
         text: Arc::from(source.text()),
         tokens,
     })
+}
+
+fn validate_token_sequences(
+    source: &SourceFile,
+    tokens: &[LanguageToken],
+) -> Result<(), TokenizeError> {
+    for window in tokens.windows(2) {
+        let [prefix, string] = window else {
+            unreachable!()
+        };
+        if matches!(prefix.token(), Token::Word(word) if matches!(word.value.to_ascii_lowercase().as_str(), "q" | "nq"))
+            && matches!(string.token(), Token::SingleQuotedString(_))
+            && prefix.span().range.end == string.span().range.start
+        {
+            let span = SourceSpan::new(
+                source.id,
+                prefix.span().range.start,
+                string.span().range.end,
+            )
+            .expect("ordered adjacent token span");
+            return Err(unsupported_token_error(
+                span,
+                "use an ordinary or `E'...'` string",
+            ));
+        }
+    }
+    for window in tokens.windows(3) {
+        let [prefix, ampersand, string] = window else {
+            unreachable!()
+        };
+        if matches!(prefix.token(), Token::Word(word) if word.value.eq_ignore_ascii_case("u"))
+            && matches!(ampersand.token(), Token::Ampersand)
+            && matches!(string.token(), Token::SingleQuotedString(_))
+            && prefix.span().range.end == ampersand.span().range.start
+            && ampersand.span().range.end == string.span().range.start
+        {
+            let span = SourceSpan::new(
+                source.id,
+                prefix.span().range.start,
+                string.span().range.end,
+            )
+            .expect("ordered adjacent token span");
+            return Err(unsupported_token_error(
+                span,
+                "use an ordinary or `E'...'` string",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_token_policy(
+    source: &SourceFile,
+    token: &Token,
+    span: SourceSpan,
+) -> Result<(), TokenizeError> {
+    let raw = &source.text()[span.range.as_range()];
+    if raw.starts_with("'''") || raw.starts_with("\"\"\"") {
+        return Err(unsupported_token_error(
+            span,
+            "use a dollar-quoted raw string for multiline text",
+        ));
+    }
+    let replacement = match token {
+        Token::Word(Word {
+            quote_style: Some('"') | None,
+            ..
+        })
+        | Token::SingleQuotedString(_)
+        | Token::EscapedStringLiteral(_) => return Ok(()),
+        Token::DollarQuotedString(value) => {
+            if value.tag.as_deref().is_none_or(valid_dollar_tag) {
+                return Ok(());
+            }
+            "use `$$...$$` or an ASCII `$tag$...$tag$` raw string"
+        }
+        Token::HexStringLiteral(_) if raw.starts_with("X'") || raw.starts_with("x'") => {
+            return Ok(());
+        }
+        Token::Word(Word {
+            quote_style: Some(_),
+            ..
+        }) => "use a double-quoted identifier",
+        Token::Char('`') => "use a double-quoted identifier",
+        Token::DoubleQuotedString(_) => "use a single-quoted string",
+        Token::TripleSingleQuotedString(_) | Token::TripleDoubleQuotedString(_) => {
+            "use a dollar-quoted raw string for multiline text"
+        }
+        Token::NationalStringLiteral(_)
+        | Token::UnicodeStringLiteral(_)
+        | Token::QuoteDelimitedStringLiteral(_)
+        | Token::NationalQuoteDelimitedStringLiteral(_) => "use an ordinary or `E'...'` string",
+        Token::SingleQuotedByteStringLiteral(_)
+        | Token::DoubleQuotedByteStringLiteral(_)
+        | Token::TripleSingleQuotedByteStringLiteral(_)
+        | Token::TripleDoubleQuotedByteStringLiteral(_)
+        | Token::SingleQuotedRawStringLiteral(_)
+        | Token::DoubleQuotedRawStringLiteral(_)
+        | Token::TripleSingleQuotedRawStringLiteral(_)
+        | Token::TripleDoubleQuotedRawStringLiteral(_) => {
+            "use `X'...'` for binary or a dollar-quoted raw string for text"
+        }
+        Token::HexStringLiteral(_) => "use the canonical `X'...'` binary literal",
+        _ => return Ok(()),
+    };
+    Err(unsupported_token_error(span, replacement))
+}
+
+fn unsupported_token_error(span: SourceSpan, replacement: &str) -> TokenizeError {
+    TokenizeError {
+        diagnostic: Box::new(Diagnostic::error(
+            "AVENGER-TOKEN-002",
+            "unsupported Avenger SQL literal or identifier form",
+            SourceLabel::new(span, replacement),
+        )),
+    }
+}
+
+fn valid_dollar_tag(tag: &str) -> bool {
+    let mut bytes = tag.bytes();
+    matches!(bytes.next(), Some(first) if first.is_ascii_alphabetic() || first == b'_')
+        && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
 }
 
 fn tokenizer_error(
@@ -283,7 +415,6 @@ fn sql_location_to_offset(
 fn classify(token: &Token) -> TokenClass {
     match token {
         Token::EOF => TokenClass::Eof,
-        Token::Word(word) if is_temporal_spelling(&word.value) => TokenClass::TemporalVersion,
         Token::Word(Word {
             quote_style: Some(_),
             ..
@@ -317,9 +448,7 @@ pub(crate) fn named_binding(value: &str) -> bool {
 }
 
 pub(crate) fn valid_identifier(value: &str) -> bool {
-    let mut characters = value.chars();
-    matches!(characters.next(), Some(first) if first.is_alphabetic() || first == '_')
-        && characters.all(|character| character.is_alphanumeric() || character == '_')
+    is_unquoted_identifier(value)
 }
 
 fn positional_dollar(value: &str) -> bool {
@@ -328,36 +457,12 @@ fn positional_dollar(value: &str) -> bool {
     })
 }
 
-pub(crate) fn is_temporal_spelling(value: &str) -> bool {
-    value == "@start"
-        || value == "@previous"
-        || value.strip_suffix("@start").is_some_and(valid_identifier)
-        || value
-            .strip_suffix("@previous")
-            .is_some_and(valid_identifier)
-}
-
 fn is_string(token: &Token) -> bool {
     matches!(
         token,
         Token::SingleQuotedString(_)
-            | Token::DoubleQuotedString(_)
-            | Token::TripleSingleQuotedString(_)
-            | Token::TripleDoubleQuotedString(_)
             | Token::DollarQuotedString(_)
-            | Token::SingleQuotedByteStringLiteral(_)
-            | Token::DoubleQuotedByteStringLiteral(_)
-            | Token::TripleSingleQuotedByteStringLiteral(_)
-            | Token::TripleDoubleQuotedByteStringLiteral(_)
-            | Token::SingleQuotedRawStringLiteral(_)
-            | Token::DoubleQuotedRawStringLiteral(_)
-            | Token::TripleSingleQuotedRawStringLiteral(_)
-            | Token::TripleDoubleQuotedRawStringLiteral(_)
-            | Token::NationalStringLiteral(_)
-            | Token::QuoteDelimitedStringLiteral(_)
-            | Token::NationalQuoteDelimitedStringLiteral(_)
             | Token::EscapedStringLiteral(_)
-            | Token::UnicodeStringLiteral(_)
             | Token::HexStringLiteral(_)
     )
 }
@@ -398,6 +503,7 @@ fn normalized_value(token: &Token) -> String {
         | Token::EscapedStringLiteral(value)
         | Token::UnicodeStringLiteral(value)
         | Token::HexStringLiteral(value) => value.clone(),
+        Token::DollarQuotedString(value) => value.value.clone(),
         _ => token.to_string(),
     }
 }
