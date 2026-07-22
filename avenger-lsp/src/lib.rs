@@ -3502,6 +3502,7 @@ chart cartesian as chart {
 
         let project = tempdir().unwrap();
         let data = project.path().join("catalog.data.avenger");
+        let definition = project.path().join("dot.mark.avenger");
         let chart = project.path().join("chart.avenger");
         let data_text = r#"avenger 1;
 schema tables as vega {
@@ -3511,6 +3512,7 @@ schema tables as vega {
 }
 "#;
         let chart_text = r#"avenger 1;
+import 'dot.mark.avenger';
 chart cartesian as chart {
   data: { table: 'vega.movies'; }
   transform sql as rows {
@@ -3518,14 +3520,16 @@ chart cartesian as chart {
       FROM vega.movies AS m
       SELECT m.title, m.rating;
   }
-  mark symbol { x: title; y: rating; }
+  mark dot as points {}
 }
 "#;
         fs::write(&data, data_text).unwrap();
+        fs::write(&definition, "avenger 1; define mark dot { mark symbol {} }").unwrap();
         fs::write(&chart, chart_text).unwrap();
 
         let root_uri = Uri::from_file_path(project.path()).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let definition_uri = Uri::from_file_path(fs::canonicalize(&definition).unwrap()).unwrap();
         let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Backend>));
         let captured_factory = std::sync::Arc::clone(&captured);
         let (mut service, _socket) = LspService::new(move |client| {
@@ -3596,7 +3600,6 @@ chart cartesian as chart {
         })
         .await
         .expect("semantic analysis timeout");
-
         let cursor = chart_text.find("m.title").unwrap() + 2;
         let completion = call(
             &mut service,
@@ -3624,6 +3627,29 @@ chart cartesian as chart {
                 .unwrap_or_else(|| panic!("missing {expected}: {:?}", completion.items));
             assert!(item.detail.is_some());
         }
+
+        let definition_cursor = chart_text.find("mark dot").unwrap() + "mark d".len();
+        let definition_response = call(
+            &mut service,
+            Request::build("textDocument/definition")
+                .id(3)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": position(chart_text, definition_cursor)
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let definition_response: GotoDefinitionResponse = serde_json::from_value(
+            serde_json::to_value(definition_response.result().unwrap()).unwrap(),
+        )
+        .unwrap();
+        let GotoDefinitionResponse::Array(locations) = definition_response else {
+            panic!("expected definition locations")
+        };
+        assert_eq!(locations.len(), 1);
+        assert_eq!(locations[0].uri, definition_uri);
     }
 
     async fn call(

@@ -359,16 +359,41 @@ impl AnalysisService {
             // the snapshot like cancelled work so it can never publish.
             return Err(AnalysisCancelled);
         }
-        let syntax = snapshot
+        let mut syntax = snapshot
             .open_documents
             .iter()
             .map(|(origin, document)| (origin.clone(), analyze_syntax(document)))
-            .collect();
+            .collect::<BTreeMap<_, _>>();
         cancellation.check()?;
         let registry = self.compiler.language_host().authoring_schema().clone();
 
         let loader = snapshot.source_loader(self.compiler.options().source_loader.clone());
-        let compiler = self.compiler.fork_with_source_loader(Arc::new(loader));
+        let capabilities = self.compiler.options().import_capabilities.clone();
+        for origin in &snapshot.known_disk_sources {
+            if syntax.contains_key(origin) {
+                continue;
+            }
+            cancellation.check()?;
+            let load = loader.load(origin, &capabilities);
+            pin_mut!(load);
+            let cancelled = cancellation.cancelled();
+            pin_mut!(cancelled);
+            let loaded = match select(load, cancelled).await {
+                Either::Left((Ok(loaded), _)) => loaded,
+                Either::Left((Err(_), _)) => continue,
+                Either::Right(((), _)) => return Err(AnalysisCancelled),
+            };
+            let document = DocumentSnapshot::new(
+                loaded.origin.clone(),
+                SourceRevision::from_text(&loaded.text),
+                loaded.text,
+            );
+            syntax.insert(document.origin.clone(), analyze_syntax(&document));
+        }
+        cancellation.check()?;
+        let compiler = self
+            .compiler
+            .fork_with_source_loader(Arc::new(loader.clone()));
         let data_roots = snapshot
             .roots
             .iter()
