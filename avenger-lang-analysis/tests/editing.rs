@@ -190,6 +190,56 @@ chart cartesian as chart {
 }
 
 #[test]
+fn references_prefer_the_nearest_lexical_binding_when_names_repeat() {
+    let source = r#"avenger 1;
+
+chart cartesian as first {
+  -- | Width for the first chart.
+  param as width { type: float64; default: 10.0; }
+  mark symbol as points { size: $width; }
+}
+
+chart cartesian as second {
+  -- | Width for the second chart.
+  param as width { type: float64; default: 20.0; }
+  mark symbol as points { size: $width; }
+}
+"#;
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let first_reference = source.find("$width").unwrap() + 2;
+    let request = PositionRequest {
+        source: origin.clone(),
+        byte_offset: first_reference,
+        source_revision: revision,
+    };
+
+    let hover = analysis
+        .hover(&request, &AnalysisCancellation::default())
+        .unwrap()
+        .unwrap();
+    assert!(hover.markdown.contains("Width for the first chart."));
+    assert!(!hover.markdown.contains("Width for the second chart."));
+
+    let definition = analysis
+        .definition(&request, &AnalysisCancellation::default())
+        .unwrap();
+    assert_eq!(definition.targets.len(), 1);
+    assert_eq!(
+        &source[definition.targets[0].selection_span.range.as_range()],
+        "width"
+    );
+    assert_eq!(
+        definition.targets[0].selection_span.range.start,
+        source.find("param as width").unwrap() + "param as ".len()
+    );
+
+    let edit = analysis
+        .rename(&request, "first_width", &AnalysisCancellation::default())
+        .unwrap();
+    assert_eq!(edit.sources[&origin].edits.len(), 2);
+}
+
+#[test]
 fn local_quick_fixes_are_mechanical_and_typed() {
     let source = r#"avenger 1;
 

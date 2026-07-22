@@ -352,7 +352,29 @@ impl WorkspaceSemanticIndex {
             })
             .collect::<BTreeMap<_, _>>();
         for document in self.documents.values_mut() {
-            for reference in &mut document.references {
+            let local_targets = document
+                .references
+                .iter()
+                .map(|reference| {
+                    let first = reference.name.split('.').next().unwrap_or(&reference.name);
+                    let last = reference.name.rsplit('.').next().unwrap_or(&reference.name);
+                    let mut candidates = document
+                        .symbols
+                        .iter()
+                        .filter(|symbol| symbol.name == first || symbol.name == last)
+                        .filter_map(|symbol| {
+                            lexical_scope_rank(document, symbol, reference.span.range.start)
+                                .map(|rank| (rank, symbol.identity.clone(), symbol.value_kind))
+                        })
+                        .collect::<Vec<_>>();
+                    candidates.sort_by_key(|candidate| candidate.0);
+                    let candidate = candidates.first()?;
+                    let is_unique_at_rank =
+                        candidates.get(1).is_none_or(|other| other.0 != candidate.0);
+                    is_unique_at_rank.then(|| (candidate.1.clone(), candidate.2))
+                })
+                .collect::<Vec<_>>();
+            for (reference, local_target) in document.references.iter_mut().zip(local_targets) {
                 if let Some(reference_target) = self.public_references.get(&reference.name) {
                     reference.value_kind = reference_target.value_kind;
                     reference.target_identity =
@@ -370,6 +392,11 @@ impl WorkspaceSemanticIndex {
                             .get(&(target.origin.clone(), target.selection_span))
                             .cloned()
                     });
+                    continue;
+                }
+                if let Some((identity, value_kind)) = local_target {
+                    reference.target_identity = Some(identity);
+                    reference.value_kind = value_kind;
                     continue;
                 }
                 let first = reference.name.split('.').next().unwrap_or(&reference.name);
@@ -1715,12 +1742,6 @@ impl<'a> QueryContext<'a> {
                 .target_identity
                 .as_deref()
                 .and_then(|identity| self.index.symbol_by_identity(identity));
-            let detail = target
-                .and_then(|symbol| symbol.detail.clone())
-                .unwrap_or_else(|| format!("{:?}", reference.value_kind).to_ascii_lowercase());
-            let source = target
-                .map(|symbol| symbol.origin.canonical_uri())
-                .unwrap_or_else(|| reference.origin.canonical_uri());
             let sigil = matches!(
                 reference.value_kind,
                 IndexedValueKind::Scalar
@@ -1730,13 +1751,34 @@ impl<'a> QueryContext<'a> {
             )
             .then_some("$")
             .unwrap_or("");
-            (
-                reference.span,
-                format!(
-                    "```avenger\n{}\n```\n\n{detail}\n\nSource: `{source}`",
-                    format_args!("{sigil}{}", reference.name)
-                ),
-            )
+            let mut markdown = format!("```avenger\n{sigil}{}\n```", reference.name);
+            if let Some(target) = target {
+                if let Some(detail) = &target.detail {
+                    markdown.push_str(&format!("\n\n{detail}"));
+                }
+                if let Some(docs) = &target.documentation {
+                    markdown.push_str(&format!("\n\n{docs}"));
+                }
+                markdown.push_str(&format!(
+                    "\n\n- Visibility: `{}`\n- Source: `{}`",
+                    match target.visibility {
+                        Visibility::Default => "default",
+                        Visibility::Private => "private",
+                        Visibility::Public => "public",
+                    },
+                    target.origin.canonical_uri()
+                ));
+                if let Some(kind) = &target.native_kind {
+                    markdown.push_str(&format!("\n- Resolved kind: `{kind}`"));
+                }
+            } else {
+                markdown.push_str(&format!(
+                    "\n\n{}\n\nSource: `{}`",
+                    format!("{:?}", reference.value_kind).to_ascii_lowercase(),
+                    reference.origin.canonical_uri()
+                ));
+            }
+            (reference.span, markdown)
         } else if let Some((span, name)) = property {
             let owner = owner_symbol(self.index, &request.source, request.byte_offset);
             let schema =
@@ -1869,6 +1911,14 @@ fn scope_visible(
     candidate: &IndexedSymbol,
     cursor: usize,
 ) -> bool {
+    lexical_scope_rank(document, candidate, cursor).is_some()
+}
+
+fn lexical_scope_rank(
+    document: &DocumentSemanticIndex,
+    candidate: &IndexedSymbol,
+    cursor: usize,
+) -> Option<usize> {
     let owner = document
         .symbols
         .iter()
@@ -1877,22 +1927,24 @@ fn scope_visible(
         })
         .min_by_key(|symbol| symbol.scope_span.range.len());
     let Some(owner) = owner else {
-        return candidate.parent.is_none();
+        return candidate.parent.is_none().then_some(usize::MAX);
     };
     let mut current = Some(owner);
+    let mut rank = 0;
     while let Some(symbol) = current {
         let ordinal = document
             .symbols
             .iter()
             .position(|item| item.identity == symbol.identity);
         if candidate.parent == ordinal || candidate.identity == symbol.identity {
-            return true;
+            return Some(rank);
         }
         current = symbol
             .parent
             .and_then(|parent| document.symbols.get(parent));
+        rank += 1;
     }
-    candidate.parent.is_none()
+    candidate.parent.is_none().then_some(rank)
 }
 
 pub(crate) fn schema_for_symbol<'a>(
