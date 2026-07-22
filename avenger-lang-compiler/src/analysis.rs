@@ -221,6 +221,15 @@ fn physical_type_constructors() -> Vec<String> {
         .collect()
 }
 
+/// Convert the language's required physical type into its exact Arrow type.
+///
+/// Compiler lowering and editor analysis share this conversion so nested
+/// struct/list/map completion cannot drift from runtime parameter and store
+/// schemas.
+pub fn physical_type_to_arrow(value: &avenger_lang_core::PhysicalType) -> DataType {
+    crate::lowering::physical_data_type(value)
+}
+
 #[derive(Clone, Debug, thiserror::Error)]
 pub enum AnalysisIndexError {
     #[error("dataset stage identity does not belong to the analyzed dataset")]

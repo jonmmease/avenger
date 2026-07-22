@@ -1,0 +1,513 @@
+use std::{collections::BTreeMap, sync::Arc, time::Instant};
+
+use avenger_lang_analysis::{
+    AnalysisCancellation, AnalysisGeneration, AnalysisService, CompletionOptions, DocumentSnapshot,
+    PositionRequest, SourceRevision, WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
+};
+use avenger_lang_compiler::Compiler;
+use avenger_lang_core::{InMemorySourceLoader, ProjectRoot, SourceOrigin};
+
+const CURSOR: &str = "⟦cursor⟧";
+
+struct Fixture {
+    analysis: WorkspaceAnalysis,
+    data: SourceOrigin,
+    chart: SourceOrigin,
+}
+
+fn data_source(query: &str) -> String {
+    format!(
+        r#"avenger 1;
+
+schema tables as vega {{
+  table inline as movies {{
+    values: [
+      {{ id: 1; title: 'A'; category: 'drama'; rating: 8.5; }},
+      {{ id: 2; title: 'B'; category: 'comedy'; rating: 7.0; }}
+    ];
+  }}
+  table inline as ratings {{
+    values: [
+      {{ id: 1; movie_id: 1; value: 4.0; }},
+      {{ id: 2; movie_id: 2; value: 3.0; }}
+    ];
+  }}
+  table sql as popular {{
+    sql: {query};
+  }}
+}}
+"#
+    )
+}
+
+fn chart_source(expression: &str) -> String {
+    format!(
+        r#"avenger 1;
+
+chart cartesian as chart {{
+  data: {{ table: 'vega.movies'; }}
+  param as minimum {{ type: float64; default: 5.0; }}
+  param as config {{
+    type: struct(field('label', utf8), field('weight', int64));
+    default: {{ label: 'base'; weight: 2; }}
+  }}
+  store as selected {{
+    field id: int64;
+    field label: utf8;
+  }}
+  mark symbol as points {{
+    x: {expression};
+    y: rating;
+  }}
+}}
+"#
+    )
+}
+
+fn chart_query_source(query: &str) -> String {
+    chart_source("rating").replace(
+        "  mark symbol as points {",
+        &format!(
+            "  transform sql as edited {{\n    query: {query};\n  }}\n  mark symbol as points {{"
+        ),
+    )
+}
+
+fn chart_handler_source(expression: &str) -> String {
+    chart_source("rating").replace(
+        "  mark symbol as points {",
+        &format!(
+            "  on cursor_moved as inspect {{\n    filter: {expression};\n  }}\n  mark symbol as points {{"
+        ),
+    )
+}
+
+async fn fixture() -> Fixture {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    // Keep the directory alive for the duration of the test process. The
+    // compiler reads through the immutable in-memory snapshot, not disk.
+    let _ = Box::leak(Box::new(directory));
+    let data = SourceOrigin::File(project_root.join("catalog.data.avenger"));
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let data_text = data_source("SELECT id, title, category, rating FROM vega.movies");
+    let chart_text = chart_source("rating");
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(InMemorySourceLoader::default()))
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let snapshot = WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(1),
+        project_root,
+        roots: vec![
+            ProjectRoot::data(data.clone()),
+            ProjectRoot::chart(chart.clone()),
+        ],
+        open_documents: BTreeMap::from([
+            (
+                data.clone(),
+                DocumentSnapshot::new(
+                    data.clone(),
+                    SourceRevision::from_text(&data_text),
+                    data_text,
+                ),
+            ),
+            (
+                chart.clone(),
+                DocumentSnapshot::new(
+                    chart.clone(),
+                    SourceRevision::from_text(&chart_text),
+                    chart_text,
+                ),
+            ),
+        ]),
+        known_disk_sources: vec![data.clone(), chart.clone()],
+        native_registry_profile: profile,
+    };
+    let analysis = AnalysisService::new(compiler)
+        .analyze_workspace(snapshot, &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        analysis.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_ok(),
+        "fixture failed: {:?}",
+        analysis.semantic_roots[&chart.canonical_uri()].result
+    );
+    Fixture {
+        analysis,
+        data,
+        chart,
+    }
+}
+
+async fn transform_pipeline_fixture() -> (Fixture, String) {
+    let project_root = std::fs::canonicalize(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../avenger-lang-compiler/tests/fixtures/projects/02_sql_pipeline"),
+    )
+    .unwrap();
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let text = std::fs::read_to_string(match &chart {
+        SourceOrigin::File(path) => path,
+        _ => unreachable!(),
+    })
+    .unwrap();
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .build()
+        .unwrap();
+    let profile = compiler
+        .language_host()
+        .registry()
+        .profile_id()
+        .as_str()
+        .to_owned();
+    let analysis = AnalysisService::new(compiler)
+        .analyze_workspace(
+            WorkspaceSnapshot {
+                generation: AnalysisGeneration::new(1),
+                project_root,
+                roots: vec![ProjectRoot::chart(chart.clone())],
+                open_documents: BTreeMap::from([(
+                    chart.clone(),
+                    DocumentSnapshot::new(
+                        chart.clone(),
+                        SourceRevision::from_text(&text),
+                        text.clone(),
+                    ),
+                )]),
+                known_disk_sources: vec![chart.clone()],
+                native_registry_profile: profile,
+            },
+            &AnalysisCancellation::default(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        analysis.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_ok()
+    );
+    (
+        Fixture {
+            analysis,
+            data: chart.clone(),
+            chart,
+        },
+        text,
+    )
+}
+
+fn complete_marked(
+    fixture: &Fixture,
+    origin: &SourceOrigin,
+    marked: String,
+) -> avenger_lang_analysis::CompletionResult {
+    assert_eq!(marked.matches(CURSOR).count(), 1);
+    let cursor = marked.find(CURSOR).unwrap();
+    let text = marked.replacen(CURSOR, "", 1);
+    let revision = SourceRevision::from_text(&text);
+    let mut syntax = fixture.analysis.syntax.clone();
+    syntax.insert(
+        origin.clone(),
+        analyze_syntax(&DocumentSnapshot::new(
+            origin.clone(),
+            revision.clone(),
+            text,
+        )),
+    );
+    fixture
+        .analysis
+        .with_syntax(AnalysisGeneration::new(2), syntax)
+        .complete(
+            &PositionRequest {
+                source: origin.clone(),
+                byte_offset: cursor,
+                source_revision: revision,
+            },
+            CompletionOptions::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+}
+
+fn labels(result: &avenger_lang_analysis::CompletionResult) -> Vec<&str> {
+    result
+        .items
+        .iter()
+        .map(|item| item.label.as_str())
+        .collect()
+}
+
+#[tokio::test]
+async fn select_first_and_from_first_share_qualified_columns() {
+    let fixture = fixture().await;
+    for query in [
+        "SELECT m.⟦cursor⟧ FROM vega.movies AS m",
+        "FROM vega.movies AS m SELECT m.⟦cursor⟧",
+    ] {
+        let result = complete_marked(&fixture, &fixture.data, data_source(query));
+        let labels = labels(&result);
+        assert_eq!(labels.first().copied(), Some("category"));
+        for expected in ["id", "title", "category", "rating"] {
+            assert!(labels.contains(&expected), "missing {expected}: {labels:?}");
+        }
+        let rating = result
+            .items
+            .iter()
+            .find(|item| item.label == "rating")
+            .unwrap();
+        assert!(rating.detail.as_deref().unwrap().contains("Float64"));
+        assert_eq!(rating.replacement.range.start, rating.replacement.range.end);
+    }
+}
+
+#[tokio::test]
+async fn catalog_cte_subquery_and_join_scopes_are_semantic() {
+    let fixture = fixture().await;
+    let catalog = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source("SELECT * FROM vega.⟦cursor⟧"),
+    );
+    assert!(labels(&catalog).contains(&"movies"));
+
+    let cte = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source(
+            "WITH filtered AS (SELECT title, rating FROM vega.movies) SELECT f.⟦cursor⟧ FROM filtered AS f",
+        ),
+    );
+    assert!(labels(&cte).contains(&"title"));
+    assert!(labels(&cte).contains(&"rating"));
+
+    let subquery = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source("SELECT s.⟦cursor⟧ FROM (SELECT title AS movie_title FROM vega.movies) AS s"),
+    );
+    assert!(labels(&subquery).contains(&"movie_title"));
+
+    let join = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source(
+            "FROM vega.movies AS m JOIN vega.ratings AS r ON m.id = r.movie_id SELECT i⟦cursor⟧",
+        ),
+    );
+    let id_insertions = join
+        .items
+        .iter()
+        .filter(|item| item.label == "id")
+        .map(|item| item.insert_text.as_str())
+        .collect::<Vec<_>>();
+    assert!(id_insertions.contains(&"m.id"), "{id_insertions:?}");
+    assert!(id_insertions.contains(&"r.id"), "{id_insertions:?}");
+
+    let correlated = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source(
+            "SELECT * FROM vega.movies AS m WHERE EXISTS (SELECT 1 FROM vega.ratings AS r WHERE r.movie_id = m.⟦cursor⟧)",
+        ),
+    );
+    assert!(labels(&correlated).contains(&"id"));
+    assert!(labels(&correlated).contains(&"title"));
+
+    let set_output = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source(
+            "SELECT u.⟦cursor⟧ FROM (SELECT title FROM vega.movies UNION ALL SELECT title FROM vega.movies) AS u",
+        ),
+    );
+    assert!(labels(&set_output).contains(&"title"));
+
+    let plans_before = avenger_lang_analysis::SqlCompletionMetrics::snapshot().logical_query_plans;
+    let projection_alias = complete_marked(
+        &fixture,
+        &fixture.data,
+        data_source("SELECT rating AS score FROM vega.movies ORDER BY score⟦cursor⟧"),
+    );
+    assert!(labels(&projection_alias).contains(&"score"));
+    let score = projection_alias
+        .items
+        .iter()
+        .find(|item| item.label == "score")
+        .unwrap();
+    assert!(score.detail.as_deref().unwrap().contains("Float64"));
+    assert!(
+        avenger_lang_analysis::SqlCompletionMetrics::snapshot().logical_query_plans > plans_before
+    );
+}
+
+#[tokio::test]
+async fn exact_pipeline_schema_bindings_functions_and_types_complete() {
+    let fixture = fixture().await;
+    let expression = complete_marked(&fixture, &fixture.chart, chart_source("rat⟦cursor⟧"));
+    assert!(labels(&expression).contains(&"rating"));
+    let scalar = complete_marked(&fixture, &fixture.chart, chart_source("$min⟦cursor⟧"));
+    assert!(labels(&scalar).contains(&"$minimum"));
+
+    let struct_param = complete_marked(&fixture, &fixture.chart, chart_source("$config.⟦cursor⟧"));
+    assert!(labels(&struct_param).contains(&"label"));
+    assert!(labels(&struct_param).contains(&"weight"));
+
+    let store = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_query_source("SELECT s.⟦cursor⟧ FROM $selected AS s"),
+    );
+    assert!(labels(&store).contains(&"id"));
+    assert!(labels(&store).contains(&"label"));
+
+    let temporal = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_handler_source("$minimum@⟦cursor⟧"),
+    );
+    assert!(labels(&temporal).contains(&"$minimum@start"));
+    assert!(labels(&temporal).contains(&"$minimum@previous"));
+
+    let function = complete_marked(&fixture, &fixture.chart, chart_source("ro⟦cursor⟧(rating)"));
+    assert!(
+        labels(&function)
+            .iter()
+            .any(|label| label.eq_ignore_ascii_case("round"))
+    );
+
+    let data_type = complete_marked(
+        &fixture,
+        &fixture.chart,
+        chart_source("CAST(rating AS DO⟦cursor⟧)"),
+    );
+    assert!(labels(&data_type).contains(&"DOUBLE"));
+}
+
+#[tokio::test]
+async fn chained_transforms_complete_the_exact_input_and_output_stage() {
+    let (fixture, source) = transform_pipeline_fixture().await;
+
+    let aggregate_input = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace("expr: \"amount\"", "expr: am⟦cursor⟧"),
+    );
+    assert!(labels(&aggregate_input).contains(&"amount"));
+    assert!(!labels(&aggregate_input).contains(&"total"));
+
+    let sql_input = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace(
+            "SELECT category, total * 2.0 AS doubled\n        FROM input\n        ORDER BY category",
+            "SELECT i.⟦cursor⟧\n        FROM input AS i",
+        ),
+    );
+    assert!(labels(&sql_input).contains(&"category"));
+    assert!(labels(&sql_input).contains(&"total"));
+    assert!(!labels(&sql_input).contains(&"amount"));
+    assert!(!labels(&sql_input).contains(&"doubled"));
+
+    let final_output = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace("y: \"doubled\"", "y: dou⟦cursor⟧"),
+    );
+    assert!(labels(&final_output).contains(&"doubled"));
+    let final_category = complete_marked(
+        &fixture,
+        &fixture.chart,
+        source.replace("y: \"doubled\"", "y: cat⟦cursor⟧"),
+    );
+    assert!(labels(&final_category).contains(&"category"));
+    assert!(!labels(&final_output).contains(&"amount"));
+    assert!(!labels(&final_output).contains(&"total"));
+}
+
+#[tokio::test]
+async fn exact_fingerprint_cache_reuses_authored_analysis_only() {
+    let fixture = fixture().await;
+    let marked = data_source("FROM vega.movies AS m SELECT m.⟦cursor⟧");
+    let before = avenger_lang_analysis::SqlCompletionMetrics::snapshot();
+    let first = complete_marked(&fixture, &fixture.data, marked.clone());
+    let second = complete_marked(&fixture, &fixture.data, marked);
+    assert_eq!(labels(&first), labels(&second));
+    let after = avenger_lang_analysis::SqlCompletionMetrics::snapshot();
+    assert!(after.cache_hits > before.cache_hits);
+}
+
+#[tokio::test]
+async fn syntax_only_completion_is_immediate_and_reports_incomplete_metadata() {
+    let fixture = fixture().await;
+    let source = data_source("FROM vega.movies AS m SELECT m.⟦cursor⟧");
+    let cursor = source.find(CURSOR).unwrap();
+    let text = source.replacen(CURSOR, "", 1);
+    let revision = SourceRevision::from_text(&text);
+    let syntax = BTreeMap::from([(
+        fixture.data.clone(),
+        analyze_syntax(&DocumentSnapshot::new(
+            fixture.data.clone(),
+            revision.clone(),
+            text,
+        )),
+    )]);
+    let analysis = WorkspaceAnalysis::syntax_only(
+        AnalysisGeneration::new(3),
+        fixture.analysis.project_root.clone(),
+        vec![fixture.data.clone()],
+        syntax,
+        fixture.analysis.registry.clone(),
+    );
+    let result = analysis
+        .complete(
+            &PositionRequest {
+                source: fixture.data.clone(),
+                byte_offset: cursor,
+                source_revision: revision,
+            },
+            CompletionOptions::default(),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert!(result.is_incomplete);
+}
+
+#[tokio::test]
+#[ignore = "manual SQL completion timing baseline; not a CI threshold"]
+async fn record_sql_completion_timing_baseline() {
+    let fixture = fixture().await;
+    let marked = data_source("FROM vega.movies AS m SELECT m.⟦cursor⟧");
+    let start = Instant::now();
+    std::hint::black_box(complete_marked(&fixture, &fixture.data, marked.clone()));
+    let cold = start.elapsed();
+    let mut samples = Vec::with_capacity(500);
+    for _ in 0..500 {
+        let start = Instant::now();
+        std::hint::black_box(complete_marked(&fixture, &fixture.data, marked.clone()));
+        samples.push(start.elapsed());
+    }
+    samples.sort_unstable();
+    eprintln!(
+        "sql completion cold={cold:?} warm_p50={:?} warm_p95={:?}",
+        samples[samples.len() / 2],
+        samples[samples.len() * 95 / 100]
+    );
+}
+
+#[test]
+fn completion_instrumentation_has_no_execution_path() {
+    let metrics = avenger_lang_analysis::SqlCompletionMetrics::snapshot();
+    assert_eq!(metrics.physical_plans, 0);
+    assert_eq!(metrics.executions, 0);
+}

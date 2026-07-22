@@ -117,7 +117,7 @@ impl Backend {
     }
 
     async fn ensure_workspace_for_uri(&self, uri: &Uri) -> Option<PathBuf> {
-        let path = uri.to_file_path()?.into_owned();
+        let path = normalize_existing_path(uri.to_file_path()?.into_owned());
         {
             let state = self.inner.state.read().await;
             if let Some(root) = owning_workspace(&state.workspaces, &path) {
@@ -943,10 +943,11 @@ fn negotiate_position_encoding(capabilities: &ClientCapabilities) -> PositionEnc
 }
 
 fn normalize_existing_path(path: PathBuf) -> PathBuf {
-    normalize_path(&path)
+    std::fs::canonicalize(&path).unwrap_or_else(|_| normalize_path(&path))
 }
 
 fn owning_workspace(workspaces: &BTreeMap<PathBuf, Workspace>, path: &Path) -> Option<PathBuf> {
+    let path = normalize_existing_path(path.to_path_buf());
     workspaces
         .keys()
         .filter(|root| path.starts_with(root))
@@ -1744,6 +1745,175 @@ mod tests {
             serde_json::from_value(serde_json::to_value(highlights.result().unwrap()).unwrap())
                 .unwrap();
         assert_eq!(highlights.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn transcript_sql_completion_uses_last_good_datafusion_schemas() {
+        fn position(text: &str, offset: usize) -> serde_json::Value {
+            let prefix = &text[..offset];
+            let line = prefix.bytes().filter(|byte| *byte == b'\n').count();
+            let character = prefix
+                .rsplit_once('\n')
+                .map_or(prefix.len(), |(_, line)| line.len());
+            json!({ "line": line, "character": character })
+        }
+
+        let project = tempdir().unwrap();
+        let data = project.path().join("catalog.data.avenger");
+        let chart = project.path().join("chart.avenger");
+        let valid = r#"avenger 1;
+schema tables as vega {
+  table inline as movies {
+    values: [{ title: 'A'; rating: 8.5; }];
+  }
+  table sql as popular {
+    sql: SELECT title, rating FROM vega.movies;
+  }
+}
+"#;
+        let chart_text = r#"avenger 1;
+chart cartesian as chart {
+  data: { table: 'vega.movies'; }
+  mark symbol { x: title; y: rating; }
+}
+"#;
+        fs::write(&data, valid).unwrap();
+        fs::write(&chart, chart_text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let data_uri = Uri::from_file_path(&data).unwrap();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Backend>));
+        let captured_factory = std::sync::Arc::clone(&captured);
+        let (mut service, mut socket) = LspService::new(move |client| {
+            let backend = Backend::new(client);
+            *captured_factory.lock().expect("capture backend") = Some(backend.clone());
+            backend
+        });
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "general": { "positionEncodings": ["utf-8"] },
+                        "textDocument": { "completion": { "completionItem": {} } }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": data_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": valid
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        // The first publication is tolerant syntax; the second publishes the
+        // immutable DataFusion-backed project snapshot used as last-good
+        // semantics while the query below is incomplete.
+        let semantic = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        let semantic: PublishDiagnosticsParams =
+            serde_json::from_value(semantic.params().cloned().unwrap()).unwrap();
+        assert!(
+            semantic.diagnostics.is_empty(),
+            "valid semantic fixture failed: {:?}",
+            semantic.diagnostics
+        );
+        let backend = captured
+            .lock()
+            .expect("captured backend")
+            .clone()
+            .expect("backend");
+        let state = backend.inner.state.read().await;
+        let analysis = state
+            .semantic_analysis
+            .values()
+            .next()
+            .expect("published semantic analysis");
+        assert!(
+            analysis.semantic_roots.values().any(|root| {
+                root.result
+                    .as_ref()
+                    .is_ok_and(|project| !project.datasets.is_empty())
+            }),
+            "semantic roots: {:?}",
+            analysis.semantic_roots
+        );
+        drop(state);
+
+        for (version, edited) in [
+            (
+                2,
+                valid.replace(
+                    "SELECT title, rating FROM vega.movies",
+                    "FROM vega.movies AS m SELECT m.",
+                ),
+            ),
+            (
+                3,
+                valid.replace(
+                    "SELECT title, rating FROM vega.movies",
+                    "SELECT m. FROM vega.movies AS m",
+                ),
+            ),
+        ] {
+            call(
+                &mut service,
+                Request::build("textDocument/didChange")
+                    .params(json!({
+                        "textDocument": { "uri": data_uri, "version": version },
+                        "contentChanges": [{ "text": edited }]
+                    }))
+                    .finish(),
+            )
+            .await;
+            let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+            let cursor = edited.find("m.").unwrap() + 2;
+            let completion = call(
+                &mut service,
+                Request::build("textDocument/completion")
+                    .id(version + 10)
+                    .params(json!({
+                        "textDocument": { "uri": data_uri },
+                        "position": position(&edited, cursor)
+                    }))
+                    .finish(),
+            )
+            .await
+            .unwrap();
+            let completion: CompletionResponse =
+                serde_json::from_value(serde_json::to_value(completion.result().unwrap()).unwrap())
+                    .unwrap();
+            let CompletionResponse::List(completion) = completion else {
+                panic!("expected SQL completion list")
+            };
+            for expected in ["title", "rating"] {
+                let item = completion
+                    .items
+                    .iter()
+                    .find(|item| item.label == expected)
+                    .unwrap_or_else(|| panic!("missing {expected}: {:?}", completion.items));
+                let Some(CompletionTextEdit::Edit(edit)) = &item.text_edit else {
+                    panic!("expected exact text edit for {expected}")
+                };
+                assert_eq!(edit.range.start, edit.range.end);
+                assert!(item.detail.is_some());
+            }
+        }
     }
 
     async fn call(

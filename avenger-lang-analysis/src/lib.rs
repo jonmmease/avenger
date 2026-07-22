@@ -5,10 +5,14 @@
 //! these contracts to editor-specific positions and wire types.
 
 mod intelligence;
+mod sql_intelligence;
 
 pub use intelligence::{
     AnalysisQueryError, CompletionOptions, DocumentSemanticIndex, IndexedBinding, IndexedReference,
     IndexedSymbol, IndexedValueKind, WorkspaceSemanticIndex,
+};
+pub use sql_intelligence::{
+    SqlCompletionDebug, SqlCompletionMetrics, SqlExpectedRole, SqlRepairStrategy,
 };
 
 use std::{
@@ -170,6 +174,8 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
+            &self.semantic_roots,
+            &self.dataset_contexts,
         )
         .complete(request, options, cancellation)
     }
@@ -186,6 +192,8 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
+            &self.semantic_roots,
+            &self.dataset_contexts,
         )
         .hover(request, cancellation)
     }
@@ -202,6 +210,8 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
+            &self.semantic_roots,
+            &self.dataset_contexts,
         )
         .definition(request, cancellation)
     }
@@ -219,6 +229,8 @@ impl WorkspaceAnalysis {
             &self.registry,
             &self.syntax,
             &self.semantic_index,
+            &self.semantic_roots,
+            &self.dataset_contexts,
         )
         .references(request, include_declaration, cancellation)
     }

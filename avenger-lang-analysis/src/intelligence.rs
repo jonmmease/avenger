@@ -18,8 +18,8 @@ use sqlparser::tokenizer::Token;
 
 use crate::{
     AnalysisCancellation, AnalysisGeneration, CompletionItem, CompletionKind, CompletionOrigin,
-    CompletionResult, CompletionTextFormat, HoverResult, NavigationResult, NavigationTarget,
-    PositionRequest, RootAnalysis, SymbolKind, SyntaxAnalysis,
+    CompletionResult, CompletionTextFormat, DatasetContext, HoverResult, NavigationResult,
+    NavigationTarget, PositionRequest, RootAnalysis, SymbolKind, SyntaxAnalysis,
 };
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -1059,9 +1059,12 @@ pub(crate) struct QueryContext<'a> {
     registry: &'a NativeSchemaSnapshot,
     syntax: &'a BTreeMap<SourceOrigin, SyntaxAnalysis>,
     index: &'a WorkspaceSemanticIndex,
+    semantic_roots: &'a BTreeMap<String, RootAnalysis>,
+    dataset_contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
 }
 
 impl<'a> QueryContext<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         generation: AnalysisGeneration,
         project_root: &'a Path,
@@ -1069,6 +1072,8 @@ impl<'a> QueryContext<'a> {
         registry: &'a NativeSchemaSnapshot,
         syntax: &'a BTreeMap<SourceOrigin, SyntaxAnalysis>,
         index: &'a WorkspaceSemanticIndex,
+        semantic_roots: &'a BTreeMap<String, RootAnalysis>,
+        dataset_contexts: &'a BTreeMap<SourceOrigin, Vec<DatasetContext>>,
     ) -> Self {
         Self {
             generation,
@@ -1077,6 +1082,8 @@ impl<'a> QueryContext<'a> {
             registry,
             syntax,
             index,
+            semantic_roots,
+            dataset_contexts,
         }
     }
 
@@ -1111,7 +1118,18 @@ impl<'a> QueryContext<'a> {
         let prefix = &text[replacement.range.start..cursor];
         let mut items = Vec::new();
 
-        if let Some(import_prefix) = import_prefix(text, cursor) {
+        let sql = crate::sql_intelligence::complete_sql(
+            request,
+            syntax,
+            self.index,
+            self.semantic_roots,
+            self.dataset_contexts,
+            cancellation,
+        );
+        let sql_incomplete = sql.as_ref().is_some_and(|result| result.is_incomplete);
+        if let Some(sql) = sql {
+            items.extend(sql.items);
+        } else if let Some(import_prefix) = import_prefix(text, cursor) {
             self.complete_imports(import_prefix, replacement, &mut items);
         } else if prefix.starts_with('$') {
             self.complete_bindings(prefix, replacement, &request.source, cursor, &mut items);
@@ -1155,7 +1173,7 @@ impl<'a> QueryContext<'a> {
         rank_and_deduplicate(&mut items, prefix);
         Ok(CompletionResult {
             items,
-            is_incomplete: false,
+            is_incomplete: sql_incomplete,
             generation: self.generation,
             source_revision: request.source_revision.clone(),
         })
@@ -2296,6 +2314,8 @@ mod tests {
         let syntax = BTreeMap::from([(origin.clone(), syntax)]);
         let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let semantic_roots = BTreeMap::new();
+        let dataset_contexts = BTreeMap::new();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -2303,6 +2323,8 @@ mod tests {
             compiler.language_host().authoring_schema(),
             &syntax,
             &index,
+            &semantic_roots,
+            &dataset_contexts,
         );
         let result = context
             .complete(
@@ -2349,6 +2371,8 @@ mod tests {
         ]);
         let index = WorkspaceSemanticIndex::build(&syntax, &BTreeMap::new());
         let compiler = Compiler::builder().project_root("/tmp").build().unwrap();
+        let semantic_roots = BTreeMap::new();
+        let dataset_contexts = BTreeMap::new();
         let context = QueryContext::new(
             AnalysisGeneration::new(1),
             Path::new("/tmp"),
@@ -2356,6 +2380,8 @@ mod tests {
             compiler.language_host().authoring_schema(),
             &syntax,
             &index,
+            &semantic_roots,
+            &dataset_contexts,
         );
         let reference_start = chart_text.find("defs.badge").unwrap();
         let navigation = context

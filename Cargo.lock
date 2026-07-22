@@ -1308,10 +1308,12 @@ dependencies = [
 name = "avenger-lang-analysis"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "async-trait",
  "avenger-chart-schema",
  "avenger-lang-compiler",
  "avenger-lang-core",
+ "datafusion",
  "futures",
  "serde_json",
  "sha2 0.10.9",

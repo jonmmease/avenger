@@ -7,9 +7,11 @@ description = "Editor-neutral language intelligence for Avenger projects"
 
 [dependencies]
 async-trait = { workspace = true }
+arrow = { workspace = true }
 avenger-chart-schema = { path = "../avenger-chart-schema" }
 avenger-lang-core = { path = "../avenger-lang-core" }
 avenger-lang-compiler = { path = "../avenger-lang-compiler" }
+datafusion = { workspace = true }
 futures = { workspace = true }
 sha2 = "0.10"
 sqlparser = { workspace = true }
