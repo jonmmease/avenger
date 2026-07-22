@@ -240,6 +240,89 @@ chart cartesian as second {
 }
 
 #[test]
+fn nested_state_shadowing_resolves_each_reference_to_its_own_scope() {
+    let source = r#"avenger 1;
+
+chart cartesian as chart {
+  -- | Outer width.
+  param as width { type: float64; default: 10.0; }
+
+  group as inner {
+    -- | Inner width.
+    param as width { type: float64; default: 20.0; }
+    mark symbol as inner_points { size: $width; }
+  }
+
+  mark symbol as outer_points { size: $width; }
+}
+"#;
+    let (analysis, origin, revision) = workspace_analysis(source);
+    let reference_request = |offset| PositionRequest {
+        source: origin.clone(),
+        byte_offset: offset,
+        source_revision: revision.clone(),
+    };
+    let inner_offset = source.find("$width").unwrap() + 2;
+    let outer_offset = source.rfind("$width").unwrap() + 2;
+
+    let inner_hover = analysis
+        .hover(
+            &reference_request(inner_offset),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(inner_hover.markdown.contains("Inner width."));
+    assert!(!inner_hover.markdown.contains("Outer width."));
+
+    let outer_hover = analysis
+        .hover(
+            &reference_request(outer_offset),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(outer_hover.markdown.contains("Outer width."));
+    assert!(!outer_hover.markdown.contains("Inner width."));
+
+    let inner_definition = analysis
+        .definition(
+            &reference_request(inner_offset),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let outer_definition = analysis
+        .definition(
+            &reference_request(outer_offset),
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(inner_definition.targets.len(), 1);
+    assert_eq!(outer_definition.targets.len(), 1);
+    assert_ne!(
+        inner_definition.targets[0].selection_span,
+        outer_definition.targets[0].selection_span
+    );
+
+    let inner_rename = analysis
+        .rename(
+            &reference_request(inner_offset),
+            "inner_width",
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let outer_rename = analysis
+        .rename(
+            &reference_request(outer_offset),
+            "outer_width",
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    assert_eq!(inner_rename.sources[&origin].edits.len(), 2);
+    assert_eq!(outer_rename.sources[&origin].edits.len(), 2);
+}
+
+#[test]
 fn local_quick_fixes_are_mechanical_and_typed() {
     let source = r#"avenger 1;
 
