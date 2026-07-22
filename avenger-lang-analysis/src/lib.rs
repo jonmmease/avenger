@@ -4,9 +4,11 @@
 //! Protocol adapters such as `avenger-lsp` are responsible for translating
 //! these contracts to editor-specific positions and wire types.
 
+mod editing;
 mod intelligence;
 mod sql_intelligence;
 
+pub use editing::RenameError;
 pub use intelligence::{
     AnalysisQueryError, CompletionOptions, DocumentSemanticIndex, IndexedBinding, IndexedReference,
     IndexedSymbol, IndexedValueKind, WorkspaceSemanticIndex,
@@ -178,6 +180,48 @@ impl WorkspaceAnalysis {
             &self.dataset_contexts,
         )
         .complete(request, options, cancellation)
+    }
+
+    pub fn format_document(
+        &self,
+        request: &DocumentRequest,
+        line_ending: LineEnding,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<Option<FormattingResult>, AnalysisQueryError> {
+        editing::format_document(self, request, line_ending, cancellation)
+    }
+
+    pub fn semantic_tokens(
+        &self,
+        request: &DocumentRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<SemanticTokensResult, AnalysisQueryError> {
+        editing::semantic_tokens(self, request, cancellation)
+    }
+
+    pub fn prepare_rename(
+        &self,
+        request: &PositionRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<Option<PrepareRenameResult>, AnalysisQueryError> {
+        editing::prepare_rename(self, request, cancellation)
+    }
+
+    pub fn rename(
+        &self,
+        request: &PositionRequest,
+        new_name: &str,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<WorkspaceEdit, RenameError> {
+        editing::rename(self, request, new_name, cancellation)
+    }
+
+    pub fn code_actions(
+        &self,
+        request: &CodeActionRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<Vec<CodeAction>, AnalysisQueryError> {
+        editing::code_actions(self, request, cancellation)
     }
 
     pub fn hover(
@@ -497,6 +541,20 @@ pub struct PositionRequest {
     pub source: SourceOrigin,
     pub byte_offset: usize,
     pub source_revision: SourceRevision,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DocumentRequest {
+    pub source: SourceOrigin,
+    pub source_revision: SourceRevision,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LineEnding {
+    #[default]
+    Lf,
+    Crlf,
+    Cr,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -821,9 +879,31 @@ pub struct SemanticToken {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SemanticTokensResult {
+    pub tokens: Vec<SemanticToken>,
+    pub generation: AnalysisGeneration,
+    pub source_revision: SourceRevision,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceTextEdit {
     pub span: SourceSpan,
     pub new_text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FormattingResult {
+    pub edit: SourceTextEdit,
+    pub generation: AnalysisGeneration,
+    pub source_revision: SourceRevision,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrepareRenameResult {
+    pub span: SourceSpan,
+    pub placeholder: String,
+    pub generation: AnalysisGeneration,
+    pub source_revision: SourceRevision,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -852,6 +932,14 @@ pub struct CodeAction {
     pub diagnostic_codes: Vec<String>,
     pub preferred: bool,
     pub edit: WorkspaceEdit,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CodeActionRequest {
+    pub source: SourceOrigin,
+    pub range: SourceSpan,
+    pub source_revision: SourceRevision,
+    pub diagnostic_codes: Vec<String>,
 }
 
 #[cfg(test)]

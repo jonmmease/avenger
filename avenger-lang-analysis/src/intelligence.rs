@@ -479,6 +479,37 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
         }
     }
 
+    for (alias, selection_span, declaration_span) in scan_import_aliases(syntax) {
+        let ordinal = output.symbols.len();
+        output.symbols.push(IndexedSymbol {
+            identity: format!(
+                "syntax:{}:import-alias:{}",
+                origin.canonical_uri(),
+                selection_span.range.start
+            ),
+            name: alias,
+            kind: SymbolKind::Schema,
+            value_kind: IndexedValueKind::Declaration,
+            origin: origin.clone(),
+            declaration_span,
+            selection_span,
+            scope_span: SourceSpan {
+                source: selection_span.source,
+                range: ByteSpan {
+                    start: 0,
+                    end: syntax.parsed.tokens.text().len(),
+                },
+            },
+            parent: None,
+            keyword: "import".to_owned(),
+            native_kind: None,
+            visibility: Visibility::Default,
+            detail: Some("import alias".to_owned()),
+            documentation: None,
+        });
+        debug_assert_eq!(output.symbols.len(), ordinal + 1);
+    }
+
     let occupied = output
         .symbols
         .iter()
@@ -488,6 +519,34 @@ fn build_document_index(origin: &SourceOrigin, syntax: &SyntaxAnalysis) -> Docum
     output
         .references
         .extend(scan_references(origin, syntax, &occupied));
+    let aliases = output
+        .symbols
+        .iter()
+        .filter(|symbol| symbol.keyword == "import")
+        .map(|symbol| (symbol.name.clone(), symbol.identity.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let alias_references = output
+        .references
+        .iter()
+        .filter_map(|reference| {
+            let alias = reference.name.split('.').next()?;
+            let identity = aliases.get(alias)?;
+            (reference.name.contains('.')).then(|| IndexedReference {
+                name: alias.to_owned(),
+                origin: origin.clone(),
+                span: SourceSpan {
+                    source: reference.span.source,
+                    range: ByteSpan {
+                        start: reference.span.range.start,
+                        end: reference.span.range.start + alias.len(),
+                    },
+                },
+                target_identity: Some(identity.clone()),
+                value_kind: IndexedValueKind::Declaration,
+            })
+        })
+        .collect::<Vec<_>>();
+    output.references.extend(alias_references);
     output
 }
 
@@ -865,6 +924,47 @@ fn scan_imports(syntax: &SyntaxAnalysis) -> Vec<(String, Option<String>)> {
             next += 1;
         }
         output.push((specifier.to_owned(), alias));
+        index = next.saturating_add(1);
+    }
+    output
+}
+
+fn scan_import_aliases(syntax: &SyntaxAnalysis) -> Vec<(String, SourceSpan, SourceSpan)> {
+    let tokens = significant_tokens(syntax, None);
+    let mut output = Vec::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        if tokens[index].word() != Some("import") {
+            index += 1;
+            continue;
+        }
+        let start = tokens[index].span;
+        let mut next = index + 1;
+        while next < tokens.len() && !matches!(tokens[next].token, Some(Token::SemiColon)) {
+            if tokens[next].word() == Some("as")
+                && let Some(alias) = tokens.get(next + 1)
+                && let Some(name) = alias.word()
+            {
+                let end = tokens
+                    .iter()
+                    .skip(next + 2)
+                    .find(|token| matches!(token.token, Some(Token::SemiColon)))
+                    .map_or(alias.span.range.end, |token| token.span.range.end);
+                output.push((
+                    name.to_owned(),
+                    alias.span,
+                    SourceSpan {
+                        source: start.source,
+                        range: ByteSpan {
+                            start: start.range.start,
+                            end,
+                        },
+                    },
+                ));
+                break;
+            }
+            next += 1;
+        }
         index = next.saturating_add(1);
     }
     output
@@ -1748,7 +1848,7 @@ impl<'a> QueryContext<'a> {
     }
 }
 
-fn owner_symbol<'a>(
+pub(crate) fn owner_symbol<'a>(
     index: &'a WorkspaceSemanticIndex,
     origin: &SourceOrigin,
     cursor: usize,
@@ -1795,7 +1895,7 @@ fn scope_visible(
     candidate.parent.is_none()
 }
 
-fn schema_for_symbol<'a>(
+pub(crate) fn schema_for_symbol<'a>(
     registry: &'a NativeSchemaSnapshot,
     symbol: &IndexedSymbol,
     index: &WorkspaceSemanticIndex,
@@ -1939,12 +2039,12 @@ fn authored_properties(syntax: &SyntaxAnalysis, scope: SourceSpan) -> BTreeSet<S
 }
 
 #[derive(Clone, Copy)]
-struct PropertyView<'a> {
-    shape: &'a ValueShape,
-    docs: &'a str,
+pub(crate) struct PropertyView<'a> {
+    pub(crate) shape: &'a ValueShape,
+    pub(crate) docs: &'a str,
 }
 
-fn property_schema<'a>(schema: &'a KindSchema, name: &str) -> Option<PropertyView<'a>> {
+pub(crate) fn property_schema<'a>(schema: &'a KindSchema, name: &str) -> Option<PropertyView<'a>> {
     schema
         .properties
         .get(name)
@@ -2097,7 +2197,7 @@ fn complete_physical_types(
     }
 }
 
-fn core_properties(keyword: &str) -> &'static [(&'static str, &'static str)] {
+pub(crate) fn core_properties(keyword: &str) -> &'static [(&'static str, &'static str)] {
     match keyword {
         "param" => &[
             ("type", "Exact Arrow physical type for this parameter."),

@@ -17,9 +17,12 @@ use std::{
 
 use avenger_lang_analysis::{
     AnalysisCancellation, AnalysisGeneration, AnalysisService,
+    CodeActionKind as AnalysisCodeActionKind, CodeActionRequest,
     CompletionKind as AvengerCompletionKind, CompletionOptions as AnalysisCompletionOptions,
-    CompletionTextFormat, DocumentSnapshot, PositionRequest, SourceRevision, SyntaxAnalysis,
-    WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
+    CompletionTextFormat, DocumentRequest, DocumentSnapshot, LineEnding, PositionRequest,
+    RenameError, SemanticTokenKind as AvengerSemanticTokenKind,
+    SemanticTokenModifiers as AvengerSemanticTokenModifiers, SourceRevision, SyntaxAnalysis,
+    WorkspaceAnalysis, WorkspaceEdit as AnalysisWorkspaceEdit, WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::{CompileFailure, Compiler};
 use avenger_lang_core::{
@@ -61,6 +64,9 @@ struct ServerState {
     position_encoding_kind: PositionEncodingKind,
     hierarchical_symbols: bool,
     completion_snippets: bool,
+    document_changes: bool,
+    code_action_literals: bool,
+    code_action_preferred: bool,
     documents: DocumentStore,
     syntax: HashMap<Uri, SyntaxAnalysis>,
     workspaces: BTreeMap<PathBuf, Workspace>,
@@ -93,6 +99,9 @@ impl Backend {
                     position_encoding_kind: PositionEncodingKind::UTF16,
                     hierarchical_symbols: true,
                     completion_snippets: false,
+                    document_changes: false,
+                    code_action_literals: false,
+                    code_action_preferred: false,
                     documents: DocumentStore::default(),
                     syntax: HashMap::new(),
                     workspaces: BTreeMap::new(),
@@ -418,6 +427,81 @@ impl Backend {
         ))
     }
 
+    async fn workspace_edit(
+        &self,
+        edit: AnalysisWorkspaceEdit,
+    ) -> jsonrpc::Result<tower_lsp_server::ls_types::WorkspaceEdit> {
+        let encoding = self.position_encoding().await;
+        let state = self.inner.state.read().await;
+        let mut documents = Vec::new();
+        for (origin, source_edits) in edit.sources {
+            let canonical_uri = uri_for_origin(&origin).ok_or_else(|| {
+                jsonrpc::Error::invalid_params("rename target has no editable file URI")
+            })?;
+            let open_document = state
+                .documents
+                .values()
+                .find(|document| origin_for_uri(&document.uri) == origin);
+            let (uri, positions, version) = if let Some(document) = open_document {
+                if SourceRevision::from_text(&document.text) != source_edits.source_revision {
+                    return Err(jsonrpc::Error::invalid_params(
+                        "an affected open document changed before the edit was returned",
+                    ));
+                }
+                (
+                    document.uri.clone(),
+                    document.positions.clone(),
+                    Some(document.version),
+                )
+            } else {
+                let SourceOrigin::File(path) = &origin else {
+                    return Err(jsonrpc::Error::invalid_params(
+                        "closed non-file sources cannot be edited",
+                    ));
+                };
+                let text = std::fs::read_to_string(path).map_err(|error| {
+                    jsonrpc::Error::invalid_params(format!(
+                        "could not read affected source {}: {error}",
+                        path.display()
+                    ))
+                })?;
+                if SourceRevision::from_text(&text) != source_edits.source_revision {
+                    return Err(jsonrpc::Error::invalid_params(
+                        "an affected disk document changed before the edit was returned",
+                    ));
+                }
+                (
+                    canonical_uri,
+                    PositionIndex::new(Arc::<str>::from(text), encoding),
+                    None,
+                )
+            };
+            let edits = source_edits
+                .edits
+                .into_iter()
+                .map(|edit| {
+                    positions
+                        .lsp_range(edit.span.range.as_range())
+                        .map(|range| OneOf::Left(TextEdit::new(range, edit.new_text)))
+                        .map_err(|error| {
+                            jsonrpc::Error::invalid_params(format!(
+                                "affected edit range is invalid: {error}"
+                            ))
+                        })
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            documents.push(TextDocumentEdit {
+                text_document: OptionalVersionedTextDocumentIdentifier { uri, version },
+                edits,
+            });
+        }
+        Ok(tower_lsp_server::ls_types::WorkspaceEdit {
+            changes: None,
+            document_changes: Some(DocumentChanges::Edits(documents)),
+            change_annotations: None,
+        })
+    }
+
     async fn start_watcher(&self, root: PathBuf) {
         if self
             .inner
@@ -491,6 +575,24 @@ impl LanguageServer for Backend {
             .and_then(|completion| completion.completion_item.as_ref())
             .and_then(|item| item.snippet_support)
             .unwrap_or(false);
+        let document_changes = params
+            .capabilities
+            .workspace
+            .as_ref()
+            .and_then(|workspace| workspace.workspace_edit.as_ref())
+            .and_then(|edit| edit.document_changes)
+            .unwrap_or(false);
+        let code_action = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text| text.code_action.as_ref());
+        let code_action_literals = code_action
+            .and_then(|action| action.code_action_literal_support.as_ref())
+            .is_some();
+        let code_action_preferred = code_action
+            .and_then(|action| action.is_preferred_support)
+            .unwrap_or(false);
         let mut roots = Vec::new();
         if let Some(folders) = params.workspace_folders.as_ref() {
             roots.extend(
@@ -534,6 +636,9 @@ impl LanguageServer for Backend {
             state.position_encoding_kind = encoding_kind.clone();
             state.hierarchical_symbols = hierarchical_symbols;
             state.completion_snippets = completion_snippets;
+            state.document_changes = document_changes;
+            state.code_action_literals = code_action_literals;
+            state.code_action_preferred = code_action_preferred;
             state.workspaces = workspaces;
             state.workspace_generations = state
                 .workspaces
@@ -574,6 +679,28 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 document_highlight_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            work_done_progress_options: WorkDoneProgressOptions::default(),
+                            legend: semantic_tokens_legend(),
+                            range: Some(false),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                        },
+                    ),
+                ),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions::default(),
+                })),
+                code_action_provider: (document_changes && code_action_literals).then(|| {
+                    CodeActionProviderCapability::Options(CodeActionOptions {
+                        code_action_kinds: Some(vec![CodeActionKind::QUICKFIX]),
+                        work_done_progress_options: WorkDoneProgressOptions::default(),
+                        resolve_provider: Some(false),
+                    })
+                }),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
@@ -729,6 +856,219 @@ impl LanguageServer for Backend {
             );
             Ok(Some(DocumentSymbolResponse::Flat(symbols)))
         }
+    }
+
+    async fn formatting(
+        &self,
+        params: DocumentFormattingParams,
+    ) -> jsonrpc::Result<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+        let Some((document, analysis, request, _)) =
+            self.query_snapshot(&uri, Position::new(0, 0)).await
+        else {
+            return Ok(None);
+        };
+        let line_ending = detected_line_ending(&document.text);
+        let result = analysis.format_document(
+            &DocumentRequest {
+                source: request.source,
+                source_revision: request.source_revision,
+            },
+            line_ending,
+            &AnalysisCancellation::default(),
+        );
+        let Ok(Some(result)) = result else {
+            return Ok(None);
+        };
+        let Some(range) = document
+            .positions
+            .lsp_range(result.edit.span.range.as_range())
+            .ok()
+        else {
+            return Ok(None);
+        };
+        Ok(Some(vec![TextEdit::new(range, result.edit.new_text)]))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> jsonrpc::Result<Option<tower_lsp_server::ls_types::SemanticTokensResult>> {
+        let uri = params.text_document.uri;
+        let Some((document, analysis, request, _)) =
+            self.query_snapshot(&uri, Position::new(0, 0)).await
+        else {
+            return Ok(None);
+        };
+        let result = analysis.semantic_tokens(
+            &DocumentRequest {
+                source: request.source,
+                source_revision: request.source_revision,
+            },
+            &AnalysisCancellation::default(),
+        );
+        let Ok(result) = result else {
+            return Ok(None);
+        };
+        let data = encode_semantic_tokens(&result.tokens, &document.positions);
+        Ok(Some(
+            tower_lsp_server::ls_types::SemanticTokensResult::Tokens(SemanticTokens {
+                result_id: Some(format!(
+                    "{}:{}",
+                    result.generation.get(),
+                    result.source_revision.as_str()
+                )),
+                data,
+            }),
+        ))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> jsonrpc::Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let Some((document, analysis, request, _)) =
+            self.query_snapshot(&uri, params.position).await
+        else {
+            return Ok(None);
+        };
+        let Ok(Some(result)) = analysis.prepare_rename(&request, &AnalysisCancellation::default())
+        else {
+            return Ok(None);
+        };
+        let Some(range) = document
+            .positions
+            .lsp_range(result.span.range.as_range())
+            .ok()
+        else {
+            return Ok(None);
+        };
+        Ok(Some(PrepareRenameResponse::RangeWithPlaceholder {
+            range,
+            placeholder: result.placeholder,
+        }))
+    }
+
+    async fn rename(
+        &self,
+        params: RenameParams,
+    ) -> jsonrpc::Result<Option<tower_lsp_server::ls_types::WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let Some((_, analysis, request, _)) = self
+            .query_snapshot(&uri, params.text_document_position.position)
+            .await
+        else {
+            return Ok(None);
+        };
+        if !self.inner.state.read().await.document_changes {
+            return Err(jsonrpc::Error::invalid_params(
+                "client does not support versioned documentChanges",
+            ));
+        }
+        let edit = analysis
+            .rename(&request, &params.new_name, &AnalysisCancellation::default())
+            .map_err(rename_error)?;
+        self.workspace_edit(edit).await.map(Some)
+    }
+
+    async fn code_action(
+        &self,
+        params: CodeActionParams,
+    ) -> jsonrpc::Result<Option<CodeActionResponse>> {
+        let uri = params.text_document.uri;
+        let Some((document, analysis, position_request, _)) =
+            self.query_snapshot(&uri, params.range.start).await
+        else {
+            return Ok(None);
+        };
+        let state = self.inner.state.read().await;
+        let supported = state.document_changes && state.code_action_literals;
+        let preferred_support = state.code_action_preferred;
+        drop(state);
+        if !supported
+            || params.context.only.as_ref().is_some_and(|only| {
+                !only
+                    .iter()
+                    .any(|kind| kind.as_str().is_empty() || kind == &CodeActionKind::QUICKFIX)
+            })
+        {
+            return Ok(None);
+        }
+        let Ok(byte_range) = document.positions.byte_range(params.range) else {
+            return Ok(None);
+        };
+        let Some(source_id) = analysis
+            .syntax
+            .get(&position_request.source)
+            .map(|syntax| syntax.parsed.tokens.source())
+        else {
+            return Ok(None);
+        };
+        let diagnostic_codes = params
+            .context
+            .diagnostics
+            .iter()
+            .filter_map(|diagnostic| match diagnostic.code.as_ref()? {
+                NumberOrString::String(code) => Some(code.clone()),
+                NumberOrString::Number(code) => Some(code.to_string()),
+            })
+            .collect::<Vec<_>>();
+        let actions = analysis.code_actions(
+            &CodeActionRequest {
+                source: position_request.source,
+                range: avenger_lang_core::SourceSpan {
+                    source: source_id,
+                    range: avenger_lang_core::ByteSpan {
+                        start: byte_range.start,
+                        end: byte_range.end,
+                    },
+                },
+                source_revision: position_request.source_revision,
+                diagnostic_codes,
+            },
+            &AnalysisCancellation::default(),
+        );
+        let Ok(actions) = actions else {
+            return Ok(None);
+        };
+        let mut response = Vec::new();
+        for action in actions {
+            let matching_diagnostics = params
+                .context
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.code.as_ref().is_some_and(|code| {
+                        let code = match code {
+                            NumberOrString::String(code) => code.clone(),
+                            NumberOrString::Number(code) => code.to_string(),
+                        };
+                        action.diagnostic_codes.contains(&code)
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let edit = self.workspace_edit(action.edit).await?;
+            response.push(CodeActionOrCommand::CodeAction(
+                tower_lsp_server::ls_types::CodeAction {
+                    title: action.title,
+                    kind: Some(match action.kind {
+                        AnalysisCodeActionKind::QuickFix => CodeActionKind::QUICKFIX,
+                        AnalysisCodeActionKind::RefactorInline => CodeActionKind::REFACTOR_INLINE,
+                        AnalysisCodeActionKind::RefactorExtract => CodeActionKind::REFACTOR_EXTRACT,
+                        AnalysisCodeActionKind::Source => CodeActionKind::SOURCE,
+                    }),
+                    diagnostics: (!matching_diagnostics.is_empty()).then_some(matching_diagnostics),
+                    edit: Some(edit),
+                    command: None,
+                    is_preferred: preferred_support.then_some(action.preferred),
+                    disabled: None,
+                    data: None,
+                },
+            ));
+        }
+        Ok((!response.is_empty()).then_some(response))
     }
 
     async fn completion(
@@ -1053,6 +1393,92 @@ fn scan_avenger_files(root: &Path) -> BTreeSet<SourceOrigin> {
     let mut output = BTreeSet::new();
     visit(root, 0, &mut output);
     output
+}
+
+fn detected_line_ending(text: &str) -> LineEnding {
+    if text.contains("\r\n") {
+        LineEnding::Crlf
+    } else if text.contains('\r') {
+        LineEnding::Cr
+    } else {
+        LineEnding::Lf
+    }
+}
+
+fn semantic_tokens_legend() -> SemanticTokensLegend {
+    SemanticTokensLegend {
+        token_types: vec![
+            SemanticTokenType::PARAMETER,
+            SemanticTokenType::VARIABLE,
+            SemanticTokenType::PROPERTY,
+            SemanticTokenType::FUNCTION,
+            SemanticTokenType::TYPE,
+            SemanticTokenType::NAMESPACE,
+        ],
+        token_modifiers: vec![
+            SemanticTokenModifier::DECLARATION,
+            SemanticTokenModifier::READONLY,
+            SemanticTokenModifier::DEPRECATED,
+            SemanticTokenModifier::DEFAULT_LIBRARY,
+        ],
+    }
+}
+
+fn encode_semantic_tokens(
+    tokens: &[avenger_lang_analysis::SemanticToken],
+    positions: &PositionIndex,
+) -> Vec<SemanticToken> {
+    let mut output = Vec::new();
+    let mut previous_line = 0;
+    let mut previous_start = 0;
+    for token in tokens {
+        let Ok(range) = positions.lsp_range(token.span.range.as_range()) else {
+            continue;
+        };
+        if range.start.line != range.end.line || range.start.character == range.end.character {
+            continue;
+        }
+        let delta_line = range.start.line.saturating_sub(previous_line);
+        let delta_start = if delta_line == 0 {
+            range.start.character.saturating_sub(previous_start)
+        } else {
+            range.start.character
+        };
+        output.push(SemanticToken {
+            delta_line,
+            delta_start,
+            length: range.end.character - range.start.character,
+            token_type: semantic_token_type(token.kind),
+            token_modifiers_bitset: semantic_token_modifiers(token.modifiers),
+        });
+        previous_line = range.start.line;
+        previous_start = range.start.character;
+    }
+    output
+}
+
+fn semantic_token_type(kind: AvengerSemanticTokenKind) -> u32 {
+    match kind {
+        AvengerSemanticTokenKind::Parameter => 0,
+        AvengerSemanticTokenKind::Binding
+        | AvengerSemanticTokenKind::Variable
+        | AvengerSemanticTokenKind::UnresolvedReference => 1,
+        AvengerSemanticTokenKind::Property | AvengerSemanticTokenKind::Field => 2,
+        AvengerSemanticTokenKind::Function => 3,
+        AvengerSemanticTokenKind::Type => 4,
+        AvengerSemanticTokenKind::Namespace => 5,
+    }
+}
+
+fn semantic_token_modifiers(modifiers: AvengerSemanticTokenModifiers) -> u32 {
+    u32::from(modifiers.declaration)
+        | (u32::from(modifiers.readonly) << 1)
+        | (u32::from(modifiers.deprecated) << 2)
+        | (u32::from(modifiers.default_library) << 3)
+}
+
+fn rename_error(error: RenameError) -> jsonrpc::Error {
+    jsonrpc::Error::invalid_params(error.to_string())
 }
 
 fn origin_is_in_workspace(origin: &SourceOrigin, workspace_root: &Path) -> bool {
@@ -1409,6 +1835,9 @@ mod tests {
             Some(PositionEncodingKind::UTF8)
         );
         assert!(result.capabilities.text_document_sync.is_some());
+        assert!(result.capabilities.document_formatting_provider.is_some());
+        assert!(result.capabilities.semantic_tokens_provider.is_some());
+        assert!(result.capabilities.rename_provider.is_some());
         assert_eq!(
             result.server_info.as_ref().map(|info| info.name.as_str()),
             Some("avenger-lsp")
@@ -1583,6 +2012,172 @@ mod tests {
         .await
         .expect("error response");
         assert!(response.is_error());
+    }
+
+    #[tokio::test]
+    async fn transcript_format_semantic_tokens_prepare_and_versioned_rename() {
+        let project = tempdir().unwrap();
+        let chart = project.path().join("chart.avenger");
+        let text = "avenger 1; chart cartesian as chart { param as width { default: 640.0; type: float64; } mark symbol as points { siez: 12.0; size: $width; } }";
+        fs::write(&chart, text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let (mut service, _socket) = LspService::new(Backend::new);
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "workspace": {
+                            "workspaceEdit": { "documentChanges": true }
+                        },
+                        "textDocument": {
+                            "codeAction": {
+                                "codeActionLiteralSupport": {
+                                    "codeActionKind": { "valueSet": ["quickfix"] }
+                                },
+                                "isPreferredSupport": true
+                            }
+                        }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 7,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+
+        let formatting = call(
+            &mut service,
+            Request::build("textDocument/formatting")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "options": { "tabSize": 2, "insertSpaces": true }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        assert!(!formatting.is_error(), "{formatting:?}");
+        assert!(formatting.result().is_some(), "{formatting:?}");
+        let formatting: Vec<TextEdit> =
+            serde_json::from_value(serde_json::to_value(formatting.result().unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(formatting.len(), 1);
+        assert!(formatting[0].new_text.contains("param as width"));
+
+        let semantic = call(
+            &mut service,
+            Request::build("textDocument/semanticTokens/full")
+                .id(3)
+                .params(json!({ "textDocument": { "uri": chart_uri } }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let semantic: SemanticTokensResult =
+            serde_json::from_value(serde_json::to_value(semantic.result().unwrap()).unwrap())
+                .unwrap();
+        assert!(
+            matches!(semantic, SemanticTokensResult::Tokens(tokens) if !tokens.data.is_empty())
+        );
+
+        let reference_character = text.rfind("width").unwrap() as u32 + 1;
+        let prepared = call(
+            &mut service,
+            Request::build("textDocument/prepareRename")
+                .id(4)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": reference_character }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let prepared: PrepareRenameResponse =
+            serde_json::from_value(serde_json::to_value(prepared.result().unwrap()).unwrap())
+                .unwrap();
+        assert!(matches!(
+            prepared,
+            PrepareRenameResponse::RangeWithPlaceholder { placeholder, .. }
+                if placeholder == "width"
+        ));
+
+        let renamed = call(
+            &mut service,
+            Request::build("textDocument/rename")
+                .id(5)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": reference_character },
+                    "newName": "canvas_width"
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let renamed: WorkspaceEdit =
+            serde_json::from_value(serde_json::to_value(renamed.result().unwrap()).unwrap())
+                .unwrap();
+        let Some(DocumentChanges::Edits(documents)) = renamed.document_changes else {
+            panic!("rename did not return versioned document changes");
+        };
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].text_document.version, Some(7));
+        assert_eq!(documents[0].edits.len(), 2);
+
+        let typo_start = text.find("siez").unwrap() as u32;
+        let actions = call(
+            &mut service,
+            Request::build("textDocument/codeAction")
+                .id(6)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "range": {
+                        "start": { "line": 0, "character": typo_start },
+                        "end": { "line": 0, "character": typo_start + 4 }
+                    },
+                    "context": { "diagnostics": [], "only": ["quickfix"] }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let actions: CodeActionResponse =
+            serde_json::from_value(serde_json::to_value(actions.result().unwrap()).unwrap())
+                .unwrap();
+        assert!(actions.iter().any(|action| {
+            matches!(
+                action,
+                CodeActionOrCommand::CodeAction(action)
+                    if action.title == "Replace `siez` with `size`"
+                        && action.is_preferred == Some(true)
+                        && action.edit.as_ref().is_some_and(|edit| {
+                            matches!(edit.document_changes, Some(DocumentChanges::Edits(ref docs)) if docs[0].text_document.version == Some(7))
+                        })
+            )
+        }));
     }
 
     #[tokio::test]

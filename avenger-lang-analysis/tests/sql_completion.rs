@@ -1,11 +1,12 @@
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 
 use avenger_lang_analysis::{
-    AnalysisCancellation, AnalysisGeneration, AnalysisService, CompletionOptions, DocumentSnapshot,
-    PositionRequest, SourceRevision, WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
+    AnalysisCancellation, AnalysisGeneration, AnalysisService, CodeActionRequest,
+    CompletionOptions, DocumentSnapshot, PositionRequest, SourceRevision, WorkspaceAnalysis,
+    WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::Compiler;
-use avenger_lang_core::{InMemorySourceLoader, ProjectRoot, SourceOrigin};
+use avenger_lang_core::{ByteSpan, InMemorySourceLoader, ProjectRoot, SourceOrigin, SourceSpan};
 
 const CURSOR: &str = "⟦cursor⟧";
 
@@ -445,6 +446,50 @@ async fn exact_fingerprint_cache_reuses_authored_analysis_only() {
     assert_eq!(labels(&first), labels(&second));
     let after = avenger_lang_analysis::SqlCompletionMetrics::snapshot();
     assert!(after.cache_hits > before.cache_hits);
+}
+
+#[tokio::test]
+async fn ambiguous_column_quick_fixes_use_scoped_qualified_insertions() {
+    let fixture = fixture().await;
+    let text =
+        data_source("SELECT id FROM vega.movies AS m JOIN vega.ratings AS r ON m.id = r.movie_id");
+    let revision = SourceRevision::from_text(&text);
+    let mut syntax = fixture.analysis.syntax.clone();
+    syntax.insert(
+        fixture.data.clone(),
+        analyze_syntax(&DocumentSnapshot::new(
+            fixture.data.clone(),
+            revision.clone(),
+            text.clone(),
+        )),
+    );
+    let analysis = fixture
+        .analysis
+        .with_syntax(AnalysisGeneration::new(3), syntax);
+    let start = text.find("SELECT id").unwrap() + "SELECT ".len();
+    let actions = analysis
+        .code_actions(
+            &CodeActionRequest {
+                source: fixture.data.clone(),
+                range: SourceSpan {
+                    source: analysis.syntax[&fixture.data].parsed.tokens.source(),
+                    range: ByteSpan {
+                        start,
+                        end: start + 2,
+                    },
+                },
+                source_revision: revision,
+                diagnostic_codes: vec!["DataFusion".to_owned()],
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap();
+    let titles = actions
+        .iter()
+        .map(|action| action.title.as_str())
+        .collect::<Vec<_>>();
+    assert!(titles.contains(&"Qualify `id` as `m.id`"), "{titles:?}");
+    assert!(titles.contains(&"Qualify `id` as `r.id`"), "{titles:?}");
 }
 
 #[tokio::test]
