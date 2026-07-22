@@ -52,10 +52,7 @@ fn lsp_stdout_contains_only_framed_protocol_messages() {
     );
     let initialize = read_message(&mut stdout);
     assert_eq!(initialize["id"], 1);
-    assert_eq!(
-        initialize["result"]["serverInfo"]["name"],
-        "avenger-lsp"
-    );
+    assert_eq!(initialize["result"]["serverInfo"]["name"], "avenger-lsp");
 
     write_message(
         &mut stdin,
@@ -68,16 +65,15 @@ fn lsp_stdout_contains_only_framed_protocol_messages() {
     let shutdown = read_message(&mut stdout);
     assert_eq!(shutdown["id"], 2);
     assert!(shutdown["result"].is_null());
-    write_message(
-        &mut stdin,
-        &json!({ "jsonrpc": "2.0", "method": "exit" }),
-    );
+    write_message(&mut stdin, &json!({ "jsonrpc": "2.0", "method": "exit" }));
     drop(stdin);
 
     let status = child.wait().expect("wait for avenger lsp");
     assert!(status.success(), "LSP exited with {status}");
     let mut trailing = Vec::new();
-    stdout.read_to_end(&mut trailing).expect("read trailing stdout");
+    stdout
+        .read_to_end(&mut trailing)
+        .expect("read trailing stdout");
     assert!(
         trailing.is_empty(),
         "non-protocol bytes followed shutdown: {:?}",

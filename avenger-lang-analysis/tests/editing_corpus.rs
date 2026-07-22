@@ -1,5 +1,6 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Instant};
 
+use avenger_lang_analysis::{DocumentSnapshot, SourceRevision, SyntaxContextKind, analyze_syntax};
 use avenger_lang_core::{SourceFile, SourceId, SourceOrigin, syntax::parse_file};
 
 const CURSOR: &str = "⟦cursor⟧";
@@ -57,4 +58,61 @@ fn frozen_valid_sources_remain_accepted_by_the_strict_parser() {
         );
         parse_file(&source).unwrap_or_else(|error| panic!("strict parse {relative}: {error}"));
     }
+}
+
+#[test]
+fn incomplete_source_still_produces_symbols_and_context() {
+    let text = fixture("incomplete_chart.avenger");
+    let snapshot = DocumentSnapshot::new(
+        SourceOrigin::Memory("incomplete_chart.avenger".into()),
+        SourceRevision::new("1"),
+        text.clone(),
+    );
+    let analysis = analyze_syntax(&snapshot);
+    assert!(!analysis.diagnostics.is_empty());
+    assert!(analysis.symbols.iter().any(|symbol| symbol.name == "chart"));
+    let offset = text.find("default:").expect("default property") + "default:".len();
+    assert!(matches!(
+        analysis.context_at(offset).kind,
+        SyntaxContextKind::Property | SyntaxContextKind::Expression
+    ));
+}
+
+#[test]
+fn sql_cursor_is_classified_as_query_context() {
+    let marked = fixture("sql_from_first.cursor.avenger");
+    let offset = marked.find(CURSOR).expect("cursor");
+    let text = marked.replacen(CURSOR, "", 1);
+    let snapshot = DocumentSnapshot::new(
+        SourceOrigin::Memory("sql_from_first.cursor.avenger".into()),
+        SourceRevision::new("1"),
+        text,
+    );
+    let analysis = analyze_syntax(&snapshot);
+    assert_eq!(analysis.context_at(offset).kind, SyntaxContextKind::Query);
+}
+
+#[test]
+#[ignore = "manual timing baseline; not a CI threshold"]
+fn record_syntax_timing_baseline() {
+    let snapshot = DocumentSnapshot::new(
+        SourceOrigin::Memory("valid_chart.avenger".into()),
+        SourceRevision::new("timing"),
+        fixture("valid_chart.avenger"),
+    );
+    let start = Instant::now();
+    std::hint::black_box(analyze_syntax(&snapshot));
+    let cold = start.elapsed();
+    let mut samples = Vec::with_capacity(500);
+    for _ in 0..500 {
+        let start = Instant::now();
+        std::hint::black_box(analyze_syntax(&snapshot));
+        samples.push(start.elapsed());
+    }
+    samples.sort_unstable();
+    eprintln!(
+        "syntax cold={cold:?} warm_p50={:?} warm_p95={:?}",
+        samples[samples.len() / 2],
+        samples[samples.len() * 95 / 100]
+    );
 }

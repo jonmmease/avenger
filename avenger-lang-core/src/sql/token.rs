@@ -79,6 +79,68 @@ pub struct TokenStream {
     tokens: Vec<LanguageToken>,
 }
 
+/// Token classification used by the tolerant, lossless editing frontend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LosslessTokenKind {
+    Token(TokenClass),
+    Error,
+    Eof,
+}
+
+/// One valid or recovered lexical range in a lossless token stream.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LosslessToken {
+    token: Option<Token>,
+    kind: LosslessTokenKind,
+    span: SourceSpan,
+}
+
+impl LosslessToken {
+    pub fn token(&self) -> Option<&Token> {
+        self.token.as_ref()
+    }
+
+    pub const fn kind(&self) -> LosslessTokenKind {
+        self.kind
+    }
+
+    pub const fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
+/// Best-effort tokenization that owns every source byte, including malformed
+/// ranges that the strict tokenizer rejects.
+#[derive(Clone, Debug)]
+pub struct LosslessTokenStream {
+    source: crate::SourceId,
+    text: Arc<str>,
+    tokens: Vec<LosslessToken>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl LosslessTokenStream {
+    pub const fn source(&self) -> crate::SourceId {
+        self.source
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn tokens(&self) -> &[LosslessToken] {
+        &self.tokens
+    }
+
+    pub fn diagnostics(&self) -> &[Diagnostic] {
+        &self.diagnostics
+    }
+
+    pub fn raw(&self, token: &LosslessToken) -> &str {
+        &self.text[token.span.range.as_range()]
+    }
+}
+
 impl TokenStream {
     pub const fn source(&self) -> crate::SourceId {
         self.source
@@ -244,6 +306,119 @@ pub fn tokenize(source: &SourceFile) -> Result<TokenStream, TokenizeError> {
         text: Arc::from(source.text()),
         tokens,
     })
+}
+
+/// Tokenize for editor analysis, retaining malformed ranges and continuing
+/// after recoverable lexical failures.
+pub fn tokenize_lossless(source: &SourceFile) -> LosslessTokenStream {
+    let dialect = AvengerSqlDialect::new();
+    let mut tokens = Vec::new();
+    let mut diagnostics = Vec::new();
+    let mut base = 0;
+
+    while base < source.text().len() {
+        let remaining = &source.text()[base..];
+        let local_source = SourceFile::new(
+            source.id,
+            source.origin.clone(),
+            Arc::<str>::from(remaining),
+        );
+        let mut sql_tokens = Vec::new();
+        let result =
+            Tokenizer::new(&dialect, remaining).tokenize_with_location_into_buf(&mut sql_tokens);
+        let mut consumed = 0;
+
+        for sql in sql_tokens {
+            let local_span = sql_span_to_source(&local_source, sql.span.start, sql.span.end)
+                .expect("sqlparser locations must map into the tokenized suffix");
+            let span = SourceSpan::new(
+                source.id,
+                base + local_span.range.start,
+                base + local_span.range.end,
+            )
+            .expect("translated token span is ordered");
+            consumed = local_span.range.end;
+            match validate_token_policy(source, &sql.token, span) {
+                Ok(()) => {
+                    let class = if matches!(&sql.token, Token::Word(word) if matches!(word.value.as_str(), "start" | "previous"))
+                        && tokens.last().is_some_and(|previous: &LosslessToken| {
+                            matches!(previous.token(), Some(Token::AtSign))
+                                && previous.span().range.end == span.range.start
+                        }) {
+                        TokenClass::TemporalVersion
+                    } else {
+                        classify(&sql.token)
+                    };
+                    tokens.push(LosslessToken {
+                        kind: LosslessTokenKind::Token(class),
+                        token: Some(sql.token),
+                        span,
+                    })
+                }
+                Err(error) => {
+                    diagnostics.push(error.into_diagnostic());
+                    tokens.push(LosslessToken {
+                        kind: LosslessTokenKind::Error,
+                        token: Some(sql.token),
+                        span,
+                    });
+                }
+            }
+        }
+
+        let Err(error) = result else {
+            break;
+        };
+        let reported =
+            sql_location_to_offset(&local_source, error.location).unwrap_or(remaining.len());
+        let error_start = consumed.min(remaining.len());
+        let mut error_end = if reported < remaining.len() {
+            reported
+                + remaining[reported..]
+                    .chars()
+                    .next()
+                    .map_or(0, char::len_utf8)
+        } else {
+            remaining.len()
+        };
+        if error_end <= error_start && error_start < remaining.len() {
+            error_end = error_start
+                + remaining[error_start..]
+                    .chars()
+                    .next()
+                    .map_or(0, char::len_utf8);
+        }
+        let span = SourceSpan::new(source.id, base + error_start, base + error_end)
+            .expect("recovered token error span is ordered");
+        diagnostics.push(Diagnostic::error(
+            "AVENGER-TOKEN-001",
+            error.message.clone(),
+            SourceLabel::new(span, error.message),
+        ));
+        if !span.range.is_empty() {
+            tokens.push(LosslessToken {
+                token: None,
+                kind: LosslessTokenKind::Error,
+                span,
+            });
+        }
+        if error_end == 0 {
+            break;
+        }
+        base += error_end;
+    }
+
+    tokens.push(LosslessToken {
+        token: Some(Token::EOF),
+        kind: LosslessTokenKind::Eof,
+        span: SourceSpan::empty(source.id, source.text().len()),
+    });
+    LosslessTokenStream {
+        source: source.id,
+        text: Arc::from(source.text()),
+        tokens,
+        diagnostics,
+    }
 }
 
 fn validate_token_sequences(
@@ -512,7 +687,7 @@ fn normalized_value(token: &Token) -> String {
 mod tests {
     use crate::{SourceFile, SourceId, SourceOrigin};
 
-    use super::{TokenClass, WhitespaceKind, tokenize};
+    use super::{LosslessTokenKind, TokenClass, WhitespaceKind, tokenize, tokenize_lossless};
 
     #[test]
     fn token_stream_preserves_utf8_byte_spans_and_trivia() {
@@ -544,5 +719,47 @@ mod tests {
         assert_eq!(docs.len(), 2);
         assert_eq!(docs[0].text, "first\nsecond");
         assert_eq!(docs[1].text, "third");
+    }
+
+    #[test]
+    fn lossless_tokenization_retains_unterminated_string_and_suffix() {
+        let source = SourceFile::new(
+            SourceId::new(2),
+            SourceOrigin::Memory("incomplete".into()),
+            "x: 'unterminated\ny: 2;",
+        );
+        let stream = tokenize_lossless(&source);
+        let reconstructed = stream
+            .tokens()
+            .iter()
+            .filter(|token| token.kind() != LosslessTokenKind::Eof)
+            .map(|token| stream.raw(token))
+            .collect::<String>();
+        assert_eq!(reconstructed, source.text());
+        assert!(
+            stream
+                .tokens()
+                .iter()
+                .any(|token| token.kind() == LosslessTokenKind::Error)
+        );
+        assert!(!stream.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn lossless_tokenization_recovers_after_invalid_character() {
+        let source = SourceFile::new(
+            SourceId::new(3),
+            SourceOrigin::Memory("recovery".into()),
+            "x: 1; § y: 2;",
+        );
+        let stream = tokenize_lossless(&source);
+        let reconstructed = stream
+            .tokens()
+            .iter()
+            .filter(|token| token.kind() != LosslessTokenKind::Eof)
+            .map(|token| stream.raw(token))
+            .collect::<String>();
+        assert_eq!(reconstructed, source.text());
+        assert!(stream.tokens().iter().any(|token| stream.raw(token) == "y"));
     }
 }

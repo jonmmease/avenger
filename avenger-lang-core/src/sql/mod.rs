@@ -16,8 +16,9 @@ pub use parser::{
     parse_sql_query, parse_sql_query_with_limits,
 };
 pub use token::{
-    CommentKind, DocCommentBlock, LanguageToken, TokenClass, TokenStream, TokenizeError,
-    WhitespaceKind, tokenize,
+    CommentKind, DocCommentBlock, LanguageToken, LosslessToken, LosslessTokenKind,
+    LosslessTokenStream, TokenClass, TokenStream, TokenizeError, WhitespaceKind, tokenize,
+    tokenize_lossless,
 };
 
 pub(crate) use identifier::{

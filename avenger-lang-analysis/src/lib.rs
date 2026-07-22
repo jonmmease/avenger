@@ -6,7 +6,32 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use avenger_lang_core::{SourceOrigin, SourceSpan};
+use avenger_lang_core::{
+    Diagnostic, LineIndex, SourceFile, SourceId, SourceOrigin, SourceSpan,
+    syntax::{
+        TolerantParsedFile, TolerantSyntaxNode, TolerantSyntaxNodeId, TolerantSyntaxNodeKind,
+    },
+};
+
+#[derive(Clone, Debug)]
+pub struct DocumentSnapshot {
+    pub origin: SourceOrigin,
+    pub revision: SourceRevision,
+    pub text: Arc<str>,
+    pub line_index: LineIndex,
+}
+
+impl DocumentSnapshot {
+    pub fn new(origin: SourceOrigin, revision: SourceRevision, text: impl Into<Arc<str>>) -> Self {
+        let text = text.into();
+        Self {
+            origin,
+            revision,
+            line_index: LineIndex::new(text.clone()),
+            text,
+        }
+    }
+}
 
 /// Monotonic identity for one immutable workspace-analysis generation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -139,6 +164,155 @@ pub struct DocumentSymbol {
     pub span: SourceSpan,
     pub selection_span: SourceSpan,
     pub children: Vec<DocumentSymbol>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SyntaxContextKind {
+    Root,
+    Declaration,
+    Property,
+    Query,
+    Expression,
+    Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SyntaxContext {
+    pub kind: SyntaxContextKind,
+    pub span: SourceSpan,
+    pub declaration_keyword: Option<String>,
+    pub property_name: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyntaxAnalysis {
+    pub revision: SourceRevision,
+    pub parsed: TolerantParsedFile,
+    pub diagnostics: Vec<Diagnostic>,
+    pub symbols: Vec<DocumentSymbol>,
+}
+
+impl SyntaxAnalysis {
+    pub fn context_at(&self, byte_offset: usize) -> SyntaxContext {
+        let node = self.parsed.enclosing_node(byte_offset);
+        match node.map(|node| &node.kind) {
+            Some(TolerantSyntaxNodeKind::Declaration { keyword, .. }) => SyntaxContext {
+                kind: SyntaxContextKind::Declaration,
+                span: node.unwrap().span,
+                declaration_keyword: Some(keyword.clone()),
+                property_name: None,
+            },
+            Some(TolerantSyntaxNodeKind::Property { name }) => SyntaxContext {
+                kind: SyntaxContextKind::Property,
+                span: node.unwrap().span,
+                declaration_keyword: None,
+                property_name: Some(name.clone()),
+            },
+            Some(TolerantSyntaxNodeKind::SqlIsland { context }) => SyntaxContext {
+                kind: if matches!(
+                    context,
+                    avenger_lang_core::syntax::SqlIslandContext::QueryProperty
+                ) {
+                    SyntaxContextKind::Query
+                } else {
+                    SyntaxContextKind::Expression
+                },
+                span: node.unwrap().span,
+                declaration_keyword: None,
+                property_name: None,
+            },
+            Some(TolerantSyntaxNodeKind::Error | TolerantSyntaxNodeKind::MissingToken { .. }) => {
+                SyntaxContext {
+                    kind: SyntaxContextKind::Error,
+                    span: node.unwrap().span,
+                    declaration_keyword: None,
+                    property_name: None,
+                }
+            }
+            _ => SyntaxContext {
+                kind: SyntaxContextKind::Root,
+                span: self.parsed.nodes[0].span,
+                declaration_keyword: None,
+                property_name: None,
+            },
+        }
+    }
+}
+
+pub fn analyze_syntax(snapshot: &DocumentSnapshot) -> SyntaxAnalysis {
+    let source = SourceFile::new(
+        SourceId::new(0),
+        snapshot.origin.clone(),
+        snapshot.text.clone(),
+    );
+    let parsed = avenger_lang_core::syntax::parse_file_tolerant(&source);
+    let diagnostics = parsed.diagnostics.clone();
+    let symbols = declaration_symbols(&parsed.nodes, None);
+    SyntaxAnalysis {
+        revision: snapshot.revision.clone(),
+        parsed,
+        diagnostics,
+        symbols,
+    }
+}
+
+fn declaration_symbols(
+    nodes: &[TolerantSyntaxNode],
+    parent: Option<TolerantSyntaxNodeId>,
+) -> Vec<DocumentSymbol> {
+    nodes
+        .iter()
+        .filter_map(|node| {
+            let TolerantSyntaxNodeKind::Declaration { keyword, name } = &node.kind else {
+                return None;
+            };
+            if normalized_parent(nodes, node.parent) != parent {
+                return None;
+            }
+            Some(DocumentSymbol {
+                name: name.clone().unwrap_or_else(|| keyword.clone()),
+                detail: Some(keyword.clone()),
+                kind: symbol_kind(keyword),
+                span: node.span,
+                selection_span: node.span,
+                children: declaration_symbols(nodes, Some(node.id)),
+            })
+        })
+        .collect()
+}
+
+fn normalized_parent(
+    nodes: &[TolerantSyntaxNode],
+    mut parent: Option<TolerantSyntaxNodeId>,
+) -> Option<TolerantSyntaxNodeId> {
+    while let Some(id) = parent {
+        let node = &nodes[id.get() as usize];
+        if matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. }) {
+            return Some(id);
+        }
+        parent = node.parent;
+    }
+    None
+}
+
+fn symbol_kind(keyword: &str) -> SymbolKind {
+    match keyword.to_ascii_lowercase().as_str() {
+        "chart" => SymbolKind::Chart,
+        "define" => SymbolKind::Definition,
+        "catalog" => SymbolKind::Catalog,
+        "schema" => SymbolKind::Schema,
+        "table" => SymbolKind::Table,
+        "group" => SymbolKind::Group,
+        "mark" => SymbolKind::Mark,
+        "transform" => SymbolKind::Transform,
+        "param" => SymbolKind::Param,
+        "store" => SymbolKind::Store,
+        "selection" => SymbolKind::Selection,
+        "tool" => SymbolKind::Tool,
+        "widget" => SymbolKind::Widget,
+        "event" => SymbolKind::Event,
+        _ => SymbolKind::Definition,
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
