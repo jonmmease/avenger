@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use sqlparser::tokenizer::Token;
 
 use crate::{
@@ -139,6 +141,7 @@ struct TolerantTreeBuilder<'a> {
     nodes: Vec<TolerantSyntaxNode>,
     diagnostics: Vec<Diagnostic>,
     delimiters: Vec<OpenDelimiter>,
+    pending_delimiter_owners: BTreeMap<usize, TolerantSyntaxNodeId>,
     limits: SyntaxLimits,
     declaration_count: usize,
     reported_declaration_limit: bool,
@@ -179,6 +182,7 @@ impl<'a> TolerantTreeBuilder<'a> {
             }],
             diagnostics,
             delimiters: Vec::new(),
+            pending_delimiter_owners: BTreeMap::new(),
             limits,
             declaration_count: 0,
             reported_declaration_limit: false,
@@ -218,7 +222,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                 if self.delimiters.len() < self.limits.max_nesting_depth {
                     self.delimiters.push(OpenDelimiter {
                         delimiter,
-                        owner: parent,
+                        owner: self.pending_delimiter_owners.remove(&position).or(parent),
                         span: token.span(),
                     });
                 } else {
@@ -239,8 +243,16 @@ impl<'a> TolerantTreeBuilder<'a> {
             }
 
             if self.at_statement_boundary(position) {
-                if let Some(keyword) = self
+                let declaration_position = if self
                     .word_at(position)
+                    .is_some_and(|word| matches!(word, "public" | "private"))
+                {
+                    position + 1
+                } else {
+                    position
+                };
+                if let Some(keyword) = self
+                    .word_at(declaration_position)
                     .filter(|word| is_declaration(word))
                     .map(str::to_owned)
                 {
@@ -263,9 +275,9 @@ impl<'a> TolerantTreeBuilder<'a> {
                         continue;
                     }
                     self.declaration_count += 1;
-                    let end_position = self.find_header_end(position);
+                    let end_position = self.find_header_end(declaration_position);
                     let end_span = self.token_at_significant(end_position).span();
-                    let name = self.declaration_name(position, end_position);
+                    let name = self.declaration_name(declaration_position, end_position);
                     let id = self.push_node(
                         parent,
                         SourceSpan {
@@ -281,9 +293,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                         end_span_token(self.token_at_significant(end_position)),
                         Some('{')
                     ) {
-                        if let Some(open) = self.delimiters.last_mut() {
-                            open.owner = Some(id);
-                        }
+                        self.pending_delimiter_owners.insert(end_position, id);
                     }
                 }
             }
@@ -499,28 +509,10 @@ impl<'a> TolerantTreeBuilder<'a> {
 }
 
 fn is_declaration(word: &str) -> bool {
-    matches!(
-        word.to_ascii_lowercase().as_str(),
-        "import"
-            | "catalog"
-            | "schema"
-            | "table"
-            | "chart"
-            | "define"
-            | "param"
-            | "store"
-            | "selection"
-            | "tool"
-            | "widget"
-            | "group"
-            | "mark"
-            | "transform"
-            | "scale"
-            | "axis"
-            | "legend"
-            | "projection"
-            | "event"
-    )
+    word == "chart"
+        || crate::resolve::DECLARATION_KEYWORDS
+            .iter()
+            .any(|keyword| *keyword == word)
 }
 
 fn opening_delimiter(token: Option<&Token>) -> Option<char> {
@@ -606,5 +598,37 @@ mod tests {
         let parsed = parse_file_tolerant(&source);
         assert!(parsed.strict.is_some());
         assert!(parsed.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn declaration_hierarchy_and_visibility_prefix_survive_recovery() {
+        let source = SourceFile::new(
+            SourceId::new(1),
+            SourceOrigin::Memory("hierarchy".into()),
+            "avenger 1; chart cartesian as chart { public param as width { type: float64; default: 1.0; } mark symbol as points {} }",
+        );
+        let parsed = parse_file_tolerant(&source);
+        let chart = parsed
+            .nodes
+            .iter()
+            .find(|node| {
+                matches!(&node.kind, TolerantSyntaxNodeKind::Declaration { keyword, .. } if keyword == "chart")
+            })
+            .unwrap();
+        let children = parsed
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.parent == Some(chart.id)
+                    && matches!(node.kind, TolerantSyntaxNodeKind::Declaration { .. })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(children.len(), 2);
+        assert!(children.iter().any(|node| {
+            matches!(&node.kind, TolerantSyntaxNodeKind::Declaration { keyword, name } if keyword == "param" && name.as_deref() == Some("width"))
+        }));
+        assert!(children.iter().any(|node| {
+            matches!(&node.kind, TolerantSyntaxNodeKind::Declaration { keyword, name } if keyword == "mark" && name.as_deref() == Some("points"))
+        }));
     }
 }

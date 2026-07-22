@@ -4,6 +4,13 @@
 //! Protocol adapters such as `avenger-lsp` are responsible for translating
 //! these contracts to editor-specific positions and wire types.
 
+mod intelligence;
+
+pub use intelligence::{
+    AnalysisQueryError, CompletionOptions, DocumentSemanticIndex, IndexedBinding, IndexedReference,
+    IndexedSymbol, IndexedValueKind, WorkspaceSemanticIndex,
+};
+
 use std::{
     collections::BTreeMap,
     sync::{
@@ -58,9 +65,13 @@ pub struct RootAnalysis {
 #[derive(Clone, Debug)]
 pub struct WorkspaceAnalysis {
     pub generation: AnalysisGeneration,
+    pub project_root: std::path::PathBuf,
+    pub known_sources: Vec<SourceOrigin>,
     pub syntax: BTreeMap<SourceOrigin, SyntaxAnalysis>,
     pub semantic_roots: BTreeMap<String, RootAnalysis>,
     pub dataset_contexts: BTreeMap<SourceOrigin, Vec<DatasetContext>>,
+    pub registry: avenger_chart_schema::NativeSchemaSnapshot,
+    pub semantic_index: WorkspaceSemanticIndex,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,6 +83,70 @@ pub struct DatasetContext {
 }
 
 impl WorkspaceAnalysis {
+    /// Build an immediate tolerant, syntax-only analysis while slower project
+    /// semantics are still debouncing. The same query APIs and revision guards
+    /// apply; semantic candidates simply become available in a later snapshot.
+    pub fn syntax_only(
+        generation: AnalysisGeneration,
+        project_root: std::path::PathBuf,
+        known_sources: Vec<SourceOrigin>,
+        syntax: BTreeMap<SourceOrigin, SyntaxAnalysis>,
+        registry: avenger_chart_schema::NativeSchemaSnapshot,
+    ) -> Self {
+        let semantic_roots = BTreeMap::new();
+        let semantic_index = WorkspaceSemanticIndex::build(&syntax, &semantic_roots);
+        Self {
+            generation,
+            project_root,
+            known_sources,
+            syntax,
+            semantic_roots,
+            dataset_contexts: BTreeMap::new(),
+            registry,
+            semantic_index,
+        }
+    }
+
+    /// Overlay the latest tolerant document analyses on the last published
+    /// semantic snapshot. This is the explicit last-good fallback used during
+    /// ordinary incomplete edits.
+    pub fn with_syntax(
+        &self,
+        generation: AnalysisGeneration,
+        syntax: BTreeMap<SourceOrigin, SyntaxAnalysis>,
+    ) -> Self {
+        let semantic_index = WorkspaceSemanticIndex::build(&syntax, &self.semantic_roots);
+        Self {
+            generation,
+            project_root: self.project_root.clone(),
+            known_sources: self.known_sources.clone(),
+            syntax,
+            semantic_roots: self.semantic_roots.clone(),
+            dataset_contexts: self.dataset_contexts.clone(),
+            registry: self.registry.clone(),
+            semantic_index,
+        }
+    }
+
+    /// Retain successful semantic indexes from the preceding snapshot for
+    /// roots that are currently malformed, while keeping the current failures
+    /// available for diagnostics.
+    pub fn with_last_good_semantics(&self, previous: &Self) -> Self {
+        let mut index_roots = self.semantic_roots.clone();
+        for (root, prior) in &previous.semantic_roots {
+            let current_failed = index_roots
+                .get(root)
+                .is_some_and(|current| current.result.is_err());
+            if current_failed && prior.result.is_ok() {
+                index_roots.insert(root.clone(), prior.clone());
+            }
+        }
+        let semantic_index = WorkspaceSemanticIndex::build(&self.syntax, &index_roots);
+        let mut output = self.clone();
+        output.semantic_index = semantic_index;
+        output
+    }
+
     pub fn dataset_context_at(
         &self,
         origin: &SourceOrigin,
@@ -80,6 +155,72 @@ impl WorkspaceAnalysis {
         self.dataset_contexts.get(origin)?.iter().find(|context| {
             context.span.range.start <= byte_offset && byte_offset <= context.span.range.end
         })
+    }
+
+    pub fn complete(
+        &self,
+        request: &PositionRequest,
+        options: CompletionOptions,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<CompletionResult, AnalysisQueryError> {
+        intelligence::QueryContext::new(
+            self.generation,
+            &self.project_root,
+            &self.known_sources,
+            &self.registry,
+            &self.syntax,
+            &self.semantic_index,
+        )
+        .complete(request, options, cancellation)
+    }
+
+    pub fn hover(
+        &self,
+        request: &PositionRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<Option<HoverResult>, AnalysisQueryError> {
+        intelligence::QueryContext::new(
+            self.generation,
+            &self.project_root,
+            &self.known_sources,
+            &self.registry,
+            &self.syntax,
+            &self.semantic_index,
+        )
+        .hover(request, cancellation)
+    }
+
+    pub fn definition(
+        &self,
+        request: &PositionRequest,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<NavigationResult, AnalysisQueryError> {
+        intelligence::QueryContext::new(
+            self.generation,
+            &self.project_root,
+            &self.known_sources,
+            &self.registry,
+            &self.syntax,
+            &self.semantic_index,
+        )
+        .definition(request, cancellation)
+    }
+
+    pub fn references(
+        &self,
+        request: &PositionRequest,
+        include_declaration: bool,
+        cancellation: &AnalysisCancellation,
+    ) -> Result<NavigationResult, AnalysisQueryError> {
+        intelligence::QueryContext::new(
+            self.generation,
+            &self.project_root,
+            &self.known_sources,
+            &self.registry,
+            &self.syntax,
+            &self.semantic_index,
+        )
+        .references(request, include_declaration, cancellation)
     }
 }
 
@@ -109,6 +250,7 @@ impl AnalysisService {
             .map(|(origin, document)| (origin.clone(), analyze_syntax(document)))
             .collect();
         cancellation.check()?;
+        let registry = self.compiler.language_host().authoring_schema().clone();
 
         let loader = snapshot.source_loader(self.compiler.options().source_loader.clone());
         let compiler = self.compiler.fork_with_source_loader(Arc::new(loader));
@@ -167,11 +309,16 @@ impl AnalysisService {
             });
         }
         cancellation.check()?;
+        let semantic_index = WorkspaceSemanticIndex::build(&syntax, &semantic_roots);
         Ok(WorkspaceAnalysis {
             generation: snapshot.generation,
+            project_root: snapshot.project_root,
+            known_sources: snapshot.known_disk_sources,
             syntax,
             semantic_roots,
             dataset_contexts,
+            registry,
+            semantic_index,
         })
     }
 }

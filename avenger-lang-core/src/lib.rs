@@ -46,16 +46,17 @@ pub use project::{
     ProjectLoadFailure, ProjectLoadLimits, ProjectLoadRequest, ProjectLoader, ProjectRoot,
 };
 pub use resolve::{
-    DeclarationId, DefinitionChannel, DefinitionExport, DefinitionExportKind, DefinitionLocalSeed,
-    DefinitionPart, DefinitionSchema, DefinitionSlot, EventId, GeneratedStateOrigin, HelperClass,
-    MarkId, ParamId, ResolveAttempt, ResolveFailure, ResolvedActionRoute, ResolvedBinding,
-    ResolvedCatalogTable, ResolvedDeclaration, ResolvedDimension, ResolvedEventBinding,
-    ResolvedEventScope, ResolvedEventSurface, ResolvedExpression, ResolvedFile, ResolvedHelper,
-    ResolvedHelperArgument, ResolvedOutputHandle, ResolvedOutputShape, ResolvedParam, ResolvedPart,
-    ResolvedProject, ResolvedQuery, ResolvedReference, ResolvedSelection, ResolvedSelectionCombine,
-    ResolvedSelectionEmpty, ResolvedSqlReference, ResolvedStateLValue, ResolvedStore,
-    ResolvedTarget, ResolvedValue, SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId,
-    WidgetId, resolve_project,
+    DECLARATION_KEYWORDS, DeclarationId, DefinitionChannel, DefinitionExport, DefinitionExportKind,
+    DefinitionLocalSeed, DefinitionPart, DefinitionSchema, DefinitionSlot, EventId,
+    GeneratedStateOrigin, HelperClass, MarkId, ParamId, ResolveAttempt, ResolveFailure,
+    ResolvedActionRoute, ResolvedBinding, ResolvedCatalogTable, ResolvedDeclaration,
+    ResolvedDimension, ResolvedEventBinding, ResolvedEventScope, ResolvedEventSurface,
+    ResolvedExpression, ResolvedFile, ResolvedHelper, ResolvedHelperArgument, ResolvedOutputHandle,
+    ResolvedOutputShape, ResolvedParam, ResolvedPart, ResolvedProject, ResolvedQuery,
+    ResolvedReference, ResolvedSelection, ResolvedSelectionCombine, ResolvedSelectionEmpty,
+    ResolvedSqlReference, ResolvedStateLValue, ResolvedStore, ResolvedTarget, ResolvedValue,
+    SelectionId, StateMigrationKey, StateSharing, StoreId, ToolId, WidgetId,
+    allowed_child_declarations, placement_allowed, resolve_project,
 };
 pub use semantic_schema::semantic_json_schema;
 pub use source::{

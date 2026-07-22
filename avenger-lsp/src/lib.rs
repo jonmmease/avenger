@@ -16,13 +16,15 @@ use std::{
 };
 
 use avenger_lang_analysis::{
-    AnalysisCancellation, AnalysisGeneration, AnalysisService, DocumentSnapshot, SourceRevision,
-    SyntaxAnalysis, WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
+    AnalysisCancellation, AnalysisGeneration, AnalysisService,
+    CompletionKind as AvengerCompletionKind, CompletionOptions as AnalysisCompletionOptions,
+    CompletionTextFormat, DocumentSnapshot, PositionRequest, SourceRevision, SyntaxAnalysis,
+    WorkspaceAnalysis, WorkspaceSnapshot, analyze_syntax,
 };
 use avenger_lang_compiler::{CompileFailure, Compiler};
 use avenger_lang_core::{
     Diagnostic as AvengerDiagnostic, DiagnosticSeverity as AvengerDiagnosticSeverity, ProjectRoot,
-    SourceFile, SourceMap, SourceOrigin,
+    SourceFile, SourceMap, SourceOrigin, project::normalize_path,
 };
 use documents::{DocumentStore, OpenDocument};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -58,11 +60,13 @@ struct ServerState {
     position_encoding: PositionEncoding,
     position_encoding_kind: PositionEncodingKind,
     hierarchical_symbols: bool,
+    completion_snippets: bool,
     documents: DocumentStore,
     syntax: HashMap<Uri, SyntaxAnalysis>,
     workspaces: BTreeMap<PathBuf, Workspace>,
     workspace_generations: BTreeMap<PathBuf, u64>,
     published_semantic: BTreeMap<PathBuf, BTreeSet<Uri>>,
+    semantic_analysis: BTreeMap<PathBuf, Arc<WorkspaceAnalysis>>,
     initialized: bool,
     shutting_down: bool,
 }
@@ -88,11 +92,13 @@ impl Backend {
                     position_encoding: PositionEncoding::Utf16,
                     position_encoding_kind: PositionEncodingKind::UTF16,
                     hierarchical_symbols: true,
+                    completion_snippets: false,
                     documents: DocumentStore::default(),
                     syntax: HashMap::new(),
                     workspaces: BTreeMap::new(),
                     workspace_generations: BTreeMap::new(),
                     published_semantic: BTreeMap::new(),
+                    semantic_analysis: BTreeMap::new(),
                     initialized: false,
                     shutting_down: false,
                 }),
@@ -232,6 +238,15 @@ impl Backend {
         versions: BTreeMap<Uri, i32>,
         analysis: WorkspaceAnalysis,
     ) {
+        let analysis = {
+            let state = self.inner.state.read().await;
+            state
+                .semantic_analysis
+                .get(&workspace_root)
+                .map_or(analysis.clone(), |previous| {
+                    analysis.with_last_good_semantics(previous)
+                })
+        };
         let mut by_uri = semantic_diagnostics(&analysis, self.position_encoding().await);
         // Successful roots still need an explicit empty semantic batch, while
         // open files retain their tolerant diagnostics in the merged publish.
@@ -277,6 +292,9 @@ impl Backend {
             if !current {
                 (false, BTreeSet::new())
             } else {
+                state
+                    .semantic_analysis
+                    .insert(workspace_root.clone(), Arc::new(analysis.clone()));
                 let previous = state
                     .published_semantic
                     .insert(workspace_root, by_uri.keys().cloned().collect())
@@ -322,6 +340,82 @@ impl Backend {
 
     async fn position_encoding(&self) -> PositionEncoding {
         self.inner.state.read().await.position_encoding
+    }
+
+    async fn query_snapshot(
+        &self,
+        uri: &Uri,
+        position: Position,
+    ) -> Option<(OpenDocument, Arc<WorkspaceAnalysis>, PositionRequest, bool)> {
+        let (document, root, workspace, generation, syntax, latest, snippets) = {
+            let state = self.inner.state.read().await;
+            let document = state.documents.get(uri)?.clone();
+            let path = uri.to_file_path()?.into_owned();
+            let root = owning_workspace(&state.workspaces, &path)?;
+            let workspace = state.workspaces.get(&root)?.clone();
+            let generation = AnalysisGeneration::new(
+                state
+                    .workspace_generations
+                    .get(&root)
+                    .copied()
+                    .unwrap_or_default(),
+            );
+            let syntax = state
+                .syntax
+                .iter()
+                .filter_map(|(uri, syntax)| {
+                    let origin = origin_for_uri(uri);
+                    origin_is_in_workspace(&origin, &root).then(|| (origin, syntax.clone()))
+                })
+                .collect::<BTreeMap<_, _>>();
+            (
+                document,
+                root.clone(),
+                workspace,
+                generation,
+                syntax,
+                state.semantic_analysis.get(&root).cloned(),
+                state.completion_snippets,
+            )
+        };
+        let byte_offset = document.positions.offset(position).ok()?;
+        let origin = origin_for_uri(uri);
+        let revision = SourceRevision::from_text(&document.text);
+        let analysis = if let Some(latest) = latest {
+            let is_current = latest
+                .syntax
+                .get(&origin)
+                .is_some_and(|current| current.revision == revision);
+            if is_current {
+                latest
+            } else {
+                Arc::new(latest.with_syntax(generation, syntax))
+            }
+        } else {
+            let known_sources = scan_avenger_files(&root).into_iter().collect();
+            Arc::new(WorkspaceAnalysis::syntax_only(
+                generation,
+                root,
+                known_sources,
+                syntax,
+                workspace
+                    .service
+                    .compiler()
+                    .language_host()
+                    .authoring_schema()
+                    .clone(),
+            ))
+        };
+        Some((
+            document,
+            analysis,
+            PositionRequest {
+                source: origin,
+                byte_offset,
+                source_revision: revision,
+            },
+            snippets,
+        ))
     }
 
     async fn start_watcher(&self, root: PathBuf) {
@@ -389,6 +483,14 @@ impl LanguageServer for Backend {
             .and_then(|text| text.document_symbol.as_ref())
             .and_then(|symbols| symbols.hierarchical_document_symbol_support)
             .unwrap_or(false);
+        let completion_snippets = params
+            .capabilities
+            .text_document
+            .as_ref()
+            .and_then(|text| text.completion.as_ref())
+            .and_then(|completion| completion.completion_item.as_ref())
+            .and_then(|item| item.snippet_support)
+            .unwrap_or(false);
         let mut roots = Vec::new();
         if let Some(folders) = params.workspace_folders.as_ref() {
             roots.extend(
@@ -431,6 +533,7 @@ impl LanguageServer for Backend {
             state.position_encoding = PositionEncoding::from_lsp(&encoding_kind);
             state.position_encoding_kind = encoding_kind.clone();
             state.hierarchical_symbols = hierarchical_symbols;
+            state.completion_snippets = completion_snippets;
             state.workspaces = workspaces;
             state.workspace_generations = state
                 .workspaces
@@ -455,6 +558,22 @@ impl LanguageServer for Backend {
                     .into(),
                 ),
                 document_symbol_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(tower_lsp_server::ls_types::CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec![
+                        "$".to_owned(),
+                        ".".to_owned(),
+                        "@".to_owned(),
+                        ":".to_owned(),
+                        "'".to_owned(),
+                        "\"".to_owned(),
+                    ]),
+                    ..Default::default()
+                }),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
+                document_highlight_provider: Some(OneOf::Left(true)),
                 workspace: Some(WorkspaceServerCapabilities {
                     workspace_folders: Some(WorkspaceFoldersServerCapabilities {
                         supported: Some(true),
@@ -612,6 +731,128 @@ impl LanguageServer for Backend {
         }
     }
 
+    async fn completion(
+        &self,
+        params: CompletionParams,
+    ) -> jsonrpc::Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let Some((document, analysis, request, snippets)) =
+            self.query_snapshot(&uri, position).await
+        else {
+            return Ok(None);
+        };
+        let cancellation = AnalysisCancellation::default();
+        let result = analysis.complete(
+            &request,
+            AnalysisCompletionOptions { snippets },
+            &cancellation,
+        );
+        let Ok(result) = result else {
+            return Ok(None);
+        };
+        let items = result
+            .items
+            .into_iter()
+            .filter_map(|item| completion_item(item, &document.positions))
+            .collect();
+        Ok(Some(CompletionResponse::List(CompletionList {
+            is_incomplete: result.is_incomplete,
+            items,
+        })))
+    }
+
+    async fn hover(&self, params: HoverParams) -> jsonrpc::Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let Some((document, analysis, request, _)) = self.query_snapshot(&uri, position).await
+        else {
+            return Ok(None);
+        };
+        let cancellation = AnalysisCancellation::default();
+        let Ok(Some(result)) = analysis.hover(&request, &cancellation) else {
+            return Ok(None);
+        };
+        Ok(Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: result.markdown,
+            }),
+            range: document
+                .positions
+                .lsp_range(result.span.range.as_range())
+                .ok(),
+        }))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> jsonrpc::Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let Some((_, analysis, request, _)) = self.query_snapshot(&uri, position).await else {
+            return Ok(None);
+        };
+        let cancellation = AnalysisCancellation::default();
+        let Ok(result) = analysis.definition(&request, &cancellation) else {
+            return Ok(None);
+        };
+        let locations =
+            navigation_locations(&analysis, result.targets, self.position_encoding().await);
+        Ok((!locations.is_empty()).then_some(GotoDefinitionResponse::Array(locations)))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> jsonrpc::Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let Some((_, analysis, request, _)) = self.query_snapshot(&uri, position).await else {
+            return Ok(None);
+        };
+        let cancellation = AnalysisCancellation::default();
+        let Ok(result) =
+            analysis.references(&request, params.context.include_declaration, &cancellation)
+        else {
+            return Ok(None);
+        };
+        Ok(Some(navigation_locations(
+            &analysis,
+            result.targets,
+            self.position_encoding().await,
+        )))
+    }
+
+    async fn document_highlight(
+        &self,
+        params: DocumentHighlightParams,
+    ) -> jsonrpc::Result<Option<Vec<DocumentHighlight>>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let Some((document, analysis, request, _)) = self.query_snapshot(&uri, position).await
+        else {
+            return Ok(None);
+        };
+        let cancellation = AnalysisCancellation::default();
+        let Ok(result) = analysis.references(&request, true, &cancellation) else {
+            return Ok(None);
+        };
+        let highlights = result
+            .targets
+            .into_iter()
+            .filter(|target| target.origin == request.source)
+            .filter_map(|target| {
+                Some(DocumentHighlight {
+                    range: document
+                        .positions
+                        .lsp_range(target.selection_span.range.as_range())
+                        .ok()?,
+                    kind: Some(DocumentHighlightKind::READ),
+                })
+            })
+            .collect();
+        Ok(Some(highlights))
+    }
+
     async fn did_change_workspace_folders(&self, params: DidChangeWorkspaceFoldersParams) {
         for removed in params.event.removed {
             if let Some(path) = removed.uri.to_file_path() {
@@ -702,7 +943,7 @@ fn negotiate_position_encoding(capabilities: &ClientCapabilities) -> PositionEnc
 }
 
 fn normalize_existing_path(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path).unwrap_or(path)
+    normalize_path(&path)
 }
 
 fn owning_workspace(workspaces: &BTreeMap<PathBuf, Workspace>, path: &Path) -> Option<PathBuf> {
@@ -1034,6 +1275,95 @@ fn symbol_kind(kind: avenger_lang_analysis::SymbolKind) -> SymbolKind {
     }
 }
 
+fn completion_item(
+    item: avenger_lang_analysis::CompletionItem,
+    positions: &PositionIndex,
+) -> Option<tower_lsp_server::ls_types::CompletionItem> {
+    let range = positions
+        .lsp_range(item.replacement.range.as_range())
+        .ok()?;
+    Some(tower_lsp_server::ls_types::CompletionItem {
+        label: item.label,
+        kind: Some(match item.kind {
+            AvengerCompletionKind::Keyword => CompletionItemKind::KEYWORD,
+            AvengerCompletionKind::Declaration => CompletionItemKind::CLASS,
+            AvengerCompletionKind::Property => CompletionItemKind::PROPERTY,
+            AvengerCompletionKind::EnumValue => CompletionItemKind::ENUM_MEMBER,
+            AvengerCompletionKind::Variable => CompletionItemKind::VARIABLE,
+            AvengerCompletionKind::Field => CompletionItemKind::FIELD,
+            AvengerCompletionKind::Function => CompletionItemKind::FUNCTION,
+            AvengerCompletionKind::Type => CompletionItemKind::TYPE_PARAMETER,
+            AvengerCompletionKind::Module => CompletionItemKind::MODULE,
+            AvengerCompletionKind::Catalog | AvengerCompletionKind::Schema => {
+                CompletionItemKind::MODULE
+            }
+            AvengerCompletionKind::Table => CompletionItemKind::STRUCT,
+            AvengerCompletionKind::Snippet => CompletionItemKind::SNIPPET,
+        }),
+        detail: item.detail,
+        documentation: item.documentation.map(|value| {
+            Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value,
+            })
+        }),
+        deprecated: item.deprecated.then_some(true),
+        sort_text: Some(item.sort_key),
+        filter_text: item.filter_text,
+        insert_text_format: Some(match item.insert_text_format {
+            CompletionTextFormat::PlainText => InsertTextFormat::PLAIN_TEXT,
+            CompletionTextFormat::Snippet => InsertTextFormat::SNIPPET,
+        }),
+        text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+            range,
+            new_text: item.insert_text,
+        })),
+        ..Default::default()
+    })
+}
+
+fn navigation_locations(
+    analysis: &WorkspaceAnalysis,
+    targets: Vec<avenger_lang_analysis::NavigationTarget>,
+    encoding: PositionEncoding,
+) -> Vec<Location> {
+    targets
+        .into_iter()
+        .filter_map(|target| {
+            let uri = uri_for_origin(&target.origin)?;
+            let text = source_text_for_origin(analysis, &target.origin)?;
+            let positions = PositionIndex::new(text, encoding);
+            let range = positions
+                .lsp_range(target.selection_span.range.as_range())
+                .ok()?;
+            Some(Location::new(uri, range))
+        })
+        .collect()
+}
+
+fn source_text_for_origin(analysis: &WorkspaceAnalysis, origin: &SourceOrigin) -> Option<Arc<str>> {
+    if let Some(syntax) = analysis.syntax.get(origin) {
+        return Some(Arc::from(syntax.parsed.tokens.text()));
+    }
+    for root in analysis.semantic_roots.values() {
+        let Ok(project) = &root.result else {
+            continue;
+        };
+        if let Some(source) = project
+            .sources
+            .iter()
+            .map(|(_, source)| source)
+            .find(|source| &source.origin == origin)
+        {
+            return Some(Arc::from(source.text()));
+        }
+    }
+    match origin {
+        SourceOrigin::File(path) => std::fs::read_to_string(path).ok().map(Arc::from),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{fs, time::Duration};
@@ -1252,6 +1582,168 @@ mod tests {
         .await
         .expect("error response");
         assert!(response.is_error());
+    }
+
+    #[tokio::test]
+    async fn transcript_completion_hover_definition_references_and_highlights() {
+        let project = tempdir().unwrap();
+        let chart = project.path().join("chart.avenger");
+        let text = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 640.0; } mark symbol as points { size: $wid; } }";
+        fs::write(&chart, text).unwrap();
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let (mut service, mut socket) = LspService::new(Backend::new);
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "textDocument": {
+                            "completion": {
+                                "completionItem": { "snippetSupport": true }
+                            }
+                        }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        let completion_offset = text.find("$wid").unwrap() + "$wid".len();
+        let completion = call(
+            &mut service,
+            Request::build("textDocument/completion")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": completion_offset }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let completion_value = serde_json::to_value(completion.result().unwrap()).unwrap();
+        let completion: CompletionResponse = serde_json::from_value(completion_value).unwrap();
+        let CompletionResponse::List(completion) = completion else {
+            panic!("expected completion list")
+        };
+        let width = completion
+            .items
+            .iter()
+            .find(|item| item.label == "$width")
+            .expect("width completion");
+        assert!(matches!(width.text_edit, Some(CompletionTextEdit::Edit(_))));
+
+        let reference_offset = text.find("$wid").unwrap() + 2;
+        let hover = call(
+            &mut service,
+            Request::build("textDocument/hover")
+                .id(3)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": reference_offset }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let hover: Hover =
+            serde_json::from_value(serde_json::to_value(hover.result().unwrap()).unwrap()).unwrap();
+        assert!(matches!(hover.contents, HoverContents::Markup(_)));
+
+        // Complete the reference so lexical identity resolution is exact.
+        call(
+            &mut service,
+            Request::build("textDocument/didChange")
+                .params(json!({
+                    "textDocument": { "uri": chart_uri, "version": 2 },
+                    "contentChanges": [{
+                        "range": {
+                            "start": { "line": 0, "character": completion_offset - 4 },
+                            "end": { "line": 0, "character": completion_offset }
+                        },
+                        "text": "$width"
+                    }]
+                }))
+                .finish(),
+        )
+        .await;
+        let updated_reference = text.find("$wid").unwrap() + 2;
+        let definition = call(
+            &mut service,
+            Request::build("textDocument/definition")
+                .id(4)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": updated_reference }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let definition: GotoDefinitionResponse =
+            serde_json::from_value(serde_json::to_value(definition.result().unwrap()).unwrap())
+                .unwrap();
+        assert!(
+            matches!(definition, GotoDefinitionResponse::Array(ref values) if values.len() == 1)
+        );
+
+        let references = call(
+            &mut service,
+            Request::build("textDocument/references")
+                .id(5)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": updated_reference },
+                    "context": { "includeDeclaration": true }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let references: Vec<Location> =
+            serde_json::from_value(serde_json::to_value(references.result().unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(references.len(), 2);
+
+        let highlights = call(
+            &mut service,
+            Request::build("textDocument/documentHighlight")
+                .id(6)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": { "line": 0, "character": updated_reference }
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let highlights: Vec<DocumentHighlight> =
+            serde_json::from_value(serde_json::to_value(highlights.result().unwrap()).unwrap())
+                .unwrap();
+        assert_eq!(highlights.len(), 2);
     }
 
     async fn call(

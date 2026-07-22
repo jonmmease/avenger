@@ -1309,10 +1309,12 @@ name = "avenger-lang-analysis"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "avenger-chart-schema",
  "avenger-lang-compiler",
  "avenger-lang-core",
  "futures",
  "sha2 0.10.9",
+ "sqlparser",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

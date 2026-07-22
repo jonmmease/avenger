@@ -7238,7 +7238,11 @@ fn requires_registered_kind(declaration: &Decl) -> bool {
     )
 }
 
-fn placement_allowed(parent: &str, child: &str) -> bool {
+/// Returns whether a core declaration keyword may appear below `parent`.
+///
+/// This is shared by semantic validation and editor completion so tooling
+/// cannot drift from the resolver's placement rules.
+pub fn placement_allowed(parent: &str, child: &str) -> bool {
     if child == "view" {
         return matches!(parent, "mark" | "group");
     }
@@ -7266,6 +7270,56 @@ fn placement_allowed(parent: &str, child: &str) -> bool {
         "schema" => matches!(child, "table"),
         _ => ordinary_plot_child(child) || matches!(child, "export" | "set" | "match" | "splice"),
     }
+}
+
+/// Canonical declaration-keyword inventory accepted by the resolver.
+pub const DECLARATION_KEYWORDS: &[&str] = &[
+    "adjust",
+    "catalog",
+    "cell",
+    "channel",
+    "define",
+    "derive",
+    "dimension",
+    "export",
+    "field",
+    "group",
+    "key",
+    "layer",
+    "level",
+    "mark",
+    "match",
+    "on",
+    "output",
+    "overlay",
+    "param",
+    "part",
+    "plot",
+    "resource",
+    "row",
+    "scale_edit",
+    "scale_hint",
+    "schema",
+    "selection",
+    "set",
+    "slot",
+    "store",
+    "table",
+    "theme",
+    "tool",
+    "transform",
+    "variable",
+    "view",
+    "when",
+    "widget",
+];
+
+/// Declaration keywords valid below `parent`, in deterministic lexical order.
+pub fn allowed_child_declarations(parent: &str) -> impl Iterator<Item = &'static str> + '_ {
+    DECLARATION_KEYWORDS
+        .iter()
+        .copied()
+        .filter(move |child| placement_allowed(parent, child))
 }
 
 fn ordinary_plot_child(child: &str) -> bool {
