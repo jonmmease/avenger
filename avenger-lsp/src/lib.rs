@@ -3489,6 +3489,143 @@ chart cartesian as chart {
         }
     }
 
+    #[tokio::test]
+    async fn transcript_transform_sql_completion_uses_discovered_data_roots() {
+        fn position(text: &str, offset: usize) -> serde_json::Value {
+            let prefix = &text[..offset];
+            let line = prefix.bytes().filter(|byte| *byte == b'\n').count();
+            let character = prefix
+                .rsplit_once('\n')
+                .map_or(prefix.len(), |(_, line)| line.len());
+            json!({ "line": line, "character": character })
+        }
+
+        let project = tempdir().unwrap();
+        let data = project.path().join("catalog.data.avenger");
+        let chart = project.path().join("chart.avenger");
+        let data_text = r#"avenger 1;
+schema tables as vega {
+  table inline as movies {
+    values: [{ title: 'A'; rating: 8.5; }];
+  }
+}
+"#;
+        let chart_text = r#"avenger 1;
+chart cartesian as chart {
+  data: { table: 'vega.movies'; }
+  transform sql as rows {
+    query:
+      FROM vega.movies AS m
+      SELECT m.title, m.rating;
+  }
+  mark symbol { x: title; y: rating; }
+}
+"#;
+        fs::write(&data, data_text).unwrap();
+        fs::write(&chart, chart_text).unwrap();
+
+        let root_uri = Uri::from_file_path(project.path()).unwrap();
+        let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Backend>));
+        let captured_factory = std::sync::Arc::clone(&captured);
+        let (mut service, _socket) = LspService::new(move |client| {
+            let backend = Backend::new(client);
+            *captured_factory.lock().expect("capture backend") = Some(backend.clone());
+            backend
+        });
+        call(
+            &mut service,
+            Request::build("initialize")
+                .id(1)
+                .params(json!({
+                    "capabilities": {
+                        "general": { "positionEncodings": ["utf-8"] },
+                        "textDocument": { "completion": { "completionItem": {} } }
+                    },
+                    "workspaceFolders": [{ "uri": root_uri, "name": "fixture" }]
+                }))
+                .finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("initialized").params(json!({})).finish(),
+        )
+        .await;
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": chart_text
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+
+        let backend = captured
+            .lock()
+            .expect("captured backend")
+            .clone()
+            .expect("backend");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let ready = backend
+                    .inner
+                    .state
+                    .read()
+                    .await
+                    .semantic_analysis
+                    .values()
+                    .any(|analysis| {
+                        analysis.semantic_roots.values().any(|root| {
+                            root.result
+                                .as_ref()
+                                .is_ok_and(|project| !project.datasets.is_empty())
+                        })
+                    });
+                if ready {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("semantic analysis timeout");
+
+        let cursor = chart_text.find("m.title").unwrap() + 2;
+        let completion = call(
+            &mut service,
+            Request::build("textDocument/completion")
+                .id(2)
+                .params(json!({
+                    "textDocument": { "uri": chart_uri },
+                    "position": position(chart_text, cursor)
+                }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+        let completion: CompletionResponse =
+            serde_json::from_value(serde_json::to_value(completion.result().unwrap()).unwrap())
+                .unwrap();
+        let CompletionResponse::List(completion) = completion else {
+            panic!("expected SQL completion list")
+        };
+        for expected in ["title", "rating"] {
+            let item = completion
+                .items
+                .iter()
+                .find(|item| item.label == expected)
+                .unwrap_or_else(|| panic!("missing {expected}: {:?}", completion.items));
+            assert!(item.detail.is_some());
+        }
+    }
+
     async fn call(
         service: &mut LspService<Backend>,
         request: Request,
