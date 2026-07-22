@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use arrow::datatypes::{DataType, SchemaRef};
 use avenger_chart_lang_registry::NativeRegistryProfileId;
@@ -177,6 +178,12 @@ pub struct ProjectAnalysis {
     pub dependency_fingerprints: ProjectDependencyFingerprints,
     pub functions: FunctionInventory,
     pub physical_type_constructors: Vec<String>,
+    /// The immutable semantic model that produced this analysis.
+    ///
+    /// Editor hosts use this to build symbol, scope, and reference indexes
+    /// without reimplementing resolver semantics. It contains no DataFusion
+    /// session or executable plan and is shared cheaply with cached analyses.
+    pub resolved_project: Option<Arc<avenger_lang_core::ResolvedProject>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -201,6 +208,7 @@ impl ProjectAnalysis {
             dependency_fingerprints: ProjectDependencyFingerprints::default(),
             functions: FunctionInventory::default(),
             physical_type_constructors: physical_type_constructors(),
+            resolved_project: None,
         }
     }
 }

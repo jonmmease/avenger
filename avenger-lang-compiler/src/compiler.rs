@@ -574,6 +574,7 @@ impl Compiler {
             self.options.native_registry.profile_id().clone(),
             project_fingerprint,
         );
+        analysis.resolved_project = Some(Arc::new(project.clone()));
         let state = environment.session_context().state();
         analysis.functions.scalar = state.scalar_functions().keys().cloned().collect();
         analysis.functions.aggregate = state.aggregate_functions().keys().cloned().collect();
