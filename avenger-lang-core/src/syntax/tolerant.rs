@@ -2,10 +2,12 @@ use sqlparser::tokenizer::Token;
 
 use crate::{
     ByteSpan, Diagnostic, SourceFile, SourceLabel, SourceSpan,
-    sql::{LosslessTokenKind, LosslessTokenStream, TokenClass, tokenize_lossless},
+    sql::{LosslessTokenKind, LosslessTokenStream, TokenClass, tokenize_lossless_with_limit},
 };
 
-use super::{ParseError, ParsedFile, SqlIslandContext, parse_file};
+use super::{
+    ParseError, ParsedFile, SqlIslandContext, SyntaxLimits, parse_file, parse_file_with_limits,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseMode {
@@ -88,8 +90,15 @@ pub fn parse_file_with_mode(
 }
 
 pub fn parse_file_tolerant(source: &SourceFile) -> TolerantParsedFile {
-    let tokens = tokenize_lossless(source);
-    let strict_result = parse_file(source);
+    parse_file_tolerant_with_limits(source, SyntaxLimits::default())
+}
+
+pub fn parse_file_tolerant_with_limits(
+    source: &SourceFile,
+    limits: SyntaxLimits,
+) -> TolerantParsedFile {
+    let tokens = tokenize_lossless_with_limit(source, limits.max_tokens);
+    let strict_result = parse_file_with_limits(source, limits);
     let mut diagnostics = tokens.diagnostics().to_vec();
     let strict = match strict_result {
         Ok(parsed) => Some(parsed),
@@ -104,7 +113,7 @@ pub fn parse_file_tolerant(source: &SourceFile) -> TolerantParsedFile {
         }
     };
     let (nodes, diagnostics) = {
-        let mut builder = TolerantTreeBuilder::new(source, &tokens, diagnostics);
+        let mut builder = TolerantTreeBuilder::new(source, &tokens, diagnostics, limits);
         builder.build();
         (builder.nodes, builder.diagnostics)
     };
@@ -130,6 +139,9 @@ struct TolerantTreeBuilder<'a> {
     nodes: Vec<TolerantSyntaxNode>,
     diagnostics: Vec<Diagnostic>,
     delimiters: Vec<OpenDelimiter>,
+    limits: SyntaxLimits,
+    declaration_count: usize,
+    reported_declaration_limit: bool,
 }
 
 impl<'a> TolerantTreeBuilder<'a> {
@@ -137,6 +149,7 @@ impl<'a> TolerantTreeBuilder<'a> {
         source: &'a SourceFile,
         tokens: &'a LosslessTokenStream,
         diagnostics: Vec<Diagnostic>,
+        limits: SyntaxLimits,
     ) -> Self {
         let significant = tokens
             .tokens()
@@ -166,6 +179,9 @@ impl<'a> TolerantTreeBuilder<'a> {
             }],
             diagnostics,
             delimiters: Vec::new(),
+            limits,
+            declaration_count: 0,
+            reported_declaration_limit: false,
         }
     }
 
@@ -199,17 +215,54 @@ impl<'a> TolerantTreeBuilder<'a> {
             }
 
             if let Some(delimiter) = opening_delimiter(token.token()) {
-                self.delimiters.push(OpenDelimiter {
-                    delimiter,
-                    owner: parent,
-                    span: token.span(),
-                });
+                if self.delimiters.len() < self.limits.max_nesting_depth {
+                    self.delimiters.push(OpenDelimiter {
+                        delimiter,
+                        owner: parent,
+                        span: token.span(),
+                    });
+                } else {
+                    self.diagnostics.push(Diagnostic::error(
+                        "AVENGER-PARSE-RECOVER-004",
+                        "tolerant syntax nesting limit exceeded",
+                        SourceLabel::new(
+                            token.span(),
+                            format!(
+                                "configured nesting limit is {}",
+                                self.limits.max_nesting_depth
+                            ),
+                        ),
+                    ));
+                }
             } else if let Some(delimiter) = closing_delimiter(token.token()) {
                 self.close_delimiter(delimiter, token.span());
             }
 
             if self.at_statement_boundary(position) {
-                if let Some(keyword) = self.word_at(position).filter(|word| is_declaration(word)) {
+                if let Some(keyword) = self
+                    .word_at(position)
+                    .filter(|word| is_declaration(word))
+                    .map(str::to_owned)
+                {
+                    if self.declaration_count >= self.limits.max_declarations {
+                        if !self.reported_declaration_limit {
+                            self.diagnostics.push(Diagnostic::error(
+                                "AVENGER-PARSE-RECOVER-005",
+                                "tolerant declaration limit exceeded",
+                                SourceLabel::new(
+                                    token.span(),
+                                    format!(
+                                        "configured declaration limit is {}",
+                                        self.limits.max_declarations
+                                    ),
+                                ),
+                            ));
+                            self.reported_declaration_limit = true;
+                        }
+                        position += 1;
+                        continue;
+                    }
+                    self.declaration_count += 1;
                     let end_position = self.find_header_end(position);
                     let end_span = self.token_at_significant(end_position).span();
                     let name = self.declaration_name(position, end_position);
@@ -222,10 +275,7 @@ impl<'a> TolerantTreeBuilder<'a> {
                                 end: end_span.range.end,
                             },
                         },
-                        TolerantSyntaxNodeKind::Declaration {
-                            keyword: keyword.to_owned(),
-                            name,
-                        },
+                        TolerantSyntaxNodeKind::Declaration { keyword, name },
                     );
                     if matches!(
                         end_span_token(self.token_at_significant(end_position)),

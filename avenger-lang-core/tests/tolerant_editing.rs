@@ -1,7 +1,9 @@
 use avenger_lang_core::{
     SourceFile, SourceId, SourceOrigin,
     sql::LosslessTokenKind,
-    syntax::{TolerantParsedFile, parse_file_tolerant},
+    syntax::{
+        SyntaxLimits, TolerantParsedFile, parse_file_tolerant, parse_file_tolerant_with_limits,
+    },
 };
 
 const VALID: &str = r#"avenger 1;
@@ -122,4 +124,28 @@ fn arbitrary_unicode_inputs_terminate_without_panicking() {
         let parsed = parse(&text);
         assert_lossless(&text, &parsed);
     }
+}
+
+#[test]
+fn configured_limits_collapse_work_without_losing_source_ownership() {
+    let parsed = parse_file_tolerant_with_limits(
+        &SourceFile::new(
+            SourceId::new(9),
+            SourceOrigin::Memory("limited".into()),
+            VALID.to_owned(),
+        ),
+        SyntaxLimits {
+            max_tokens: 12,
+            max_nesting_depth: 1,
+            max_declarations: 1,
+            ..SyntaxLimits::default()
+        },
+    );
+    assert_lossless(VALID, &parsed);
+    assert!(
+        parsed
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_str() == "AVENGER-TOKEN-003")
+    );
 }

@@ -18,7 +18,7 @@ pub use parser::{
 pub use token::{
     CommentKind, DocCommentBlock, LanguageToken, LosslessToken, LosslessTokenKind,
     LosslessTokenStream, TokenClass, TokenStream, TokenizeError, WhitespaceKind, tokenize,
-    tokenize_lossless,
+    tokenize_lossless, tokenize_lossless_with_limit,
 };
 
 pub(crate) use identifier::{

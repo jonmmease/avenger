@@ -311,6 +311,10 @@ pub fn tokenize(source: &SourceFile) -> Result<TokenStream, TokenizeError> {
 /// Tokenize for editor analysis, retaining malformed ranges and continuing
 /// after recoverable lexical failures.
 pub fn tokenize_lossless(source: &SourceFile) -> LosslessTokenStream {
+    tokenize_lossless_with_limit(source, usize::MAX)
+}
+
+pub fn tokenize_lossless_with_limit(source: &SourceFile, max_tokens: usize) -> LosslessTokenStream {
     let dialect = AvengerSqlDialect::new();
     let mut tokens = Vec::new();
     let mut diagnostics = Vec::new();
@@ -408,6 +412,25 @@ pub fn tokenize_lossless(source: &SourceFile) -> LosslessTokenStream {
         base += error_end;
     }
 
+    if tokens.len() > max_tokens {
+        let retained = max_tokens.saturating_sub(1);
+        let start = tokens
+            .get(retained)
+            .map_or(source.text().len(), |token| token.span.range.start);
+        tokens.truncate(retained);
+        let span = SourceSpan::new(source.id, start, source.text().len())
+            .expect("token-limit recovery span is ordered");
+        tokens.push(LosslessToken {
+            token: None,
+            kind: LosslessTokenKind::Error,
+            span,
+        });
+        diagnostics.push(Diagnostic::error(
+            "AVENGER-TOKEN-003",
+            "source token limit exceeded during tolerant analysis",
+            SourceLabel::new(span, format!("configured token limit is {max_tokens}")),
+        ));
+    }
     tokens.push(LosslessToken {
         token: Some(Token::EOF),
         kind: LosslessTokenKind::Eof,

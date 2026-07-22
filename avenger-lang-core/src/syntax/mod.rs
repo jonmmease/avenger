@@ -11,5 +11,6 @@ pub use parser::{
 };
 pub use tolerant::{
     ParseMode, ParseModeOutput, TolerantParsedFile, TolerantSyntaxNode, TolerantSyntaxNodeId,
-    TolerantSyntaxNodeKind, parse_file_tolerant, parse_file_with_mode,
+    TolerantSyntaxNodeKind, parse_file_tolerant, parse_file_tolerant_with_limits,
+    parse_file_with_mode,
 };
