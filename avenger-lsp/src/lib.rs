@@ -2347,6 +2347,13 @@ mod tests {
         )
         .await;
         assert!(backend.document(&oversized_uri).await.is_none());
+
+        let shutdown = call(&mut service, Request::build("shutdown").id(3).finish())
+            .await
+            .unwrap();
+        assert!(shutdown.is_ok());
+        assert!(backend.inner.semantic_tasks.lock().await.is_empty());
+        assert!(backend.inner.watchers.lock().unwrap().is_empty());
     }
 
     #[tokio::test]
