@@ -78,6 +78,58 @@ async fn independent_roots_preserve_healthy_analysis_and_unsaved_text() {
     assert!(analysis.syntax.contains_key(&good));
 }
 
+#[tokio::test]
+async fn unsaved_new_imports_participate_in_the_exact_snapshot_closure() {
+    let directory = tempfile::tempdir().unwrap();
+    let project_root = std::fs::canonicalize(directory.path()).unwrap();
+    let chart = SourceOrigin::File(project_root.join("chart.avenger"));
+    let badge = SourceOrigin::File(project_root.join("badge.mark.avenger"));
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .source_loader(Arc::new(InMemorySourceLoader::default()))
+        .build()
+        .unwrap();
+    let chart_text = "avenger 1; import 'badge.mark.avenger'; chart cartesian as chart { mark badge as imported {} }";
+    let badge_text = "avenger 1; define mark badge { mark symbol {} }";
+    let snapshot = WorkspaceSnapshot {
+        generation: AnalysisGeneration::new(9),
+        project_root,
+        roots: vec![ProjectRoot::chart(chart.clone())],
+        open_documents: BTreeMap::from([
+            (
+                chart.clone(),
+                DocumentSnapshot::new(
+                    chart.clone(),
+                    SourceRevision::from_text(chart_text),
+                    chart_text,
+                ),
+            ),
+            (
+                badge.clone(),
+                DocumentSnapshot::new(badge, SourceRevision::from_text(badge_text), badge_text),
+            ),
+        ]),
+        known_disk_sources: Vec::new(),
+        native_registry_profile: compiler
+            .language_host()
+            .registry()
+            .profile_id()
+            .as_str()
+            .to_owned(),
+    };
+    let analysis = AnalysisService::new(compiler)
+        .analyze_workspace(snapshot, &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        analysis.semantic_roots[&chart.canonical_uri()]
+            .result
+            .is_ok(),
+        "unsaved import failed: {:?}",
+        analysis.semantic_roots[&chart.canonical_uri()].result
+    );
+}
+
 #[derive(Debug)]
 struct PendingLoader;
 
