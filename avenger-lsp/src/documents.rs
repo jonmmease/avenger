@@ -30,6 +30,8 @@ pub(crate) enum DocumentError {
     InvalidChange(#[from] PositionError),
     #[error("rangeLength {provided} does not match replaced length {actual}")]
     RangeLengthMismatch { provided: u32, actual: u32 },
+    #[error("document size {actual} bytes exceeds configured limit {limit} bytes")]
+    TooLarge { actual: usize, limit: usize },
 }
 
 impl DocumentStore {
@@ -37,9 +39,16 @@ impl DocumentStore {
         &mut self,
         item: TextDocumentItem,
         encoding: PositionEncoding,
+        max_bytes: usize,
     ) -> Result<OpenDocument, DocumentError> {
         if self.documents.contains_key(&item.uri) {
             return Err(DocumentError::AlreadyOpen(item.uri.as_str().to_owned()));
+        }
+        if item.text.len() > max_bytes {
+            return Err(DocumentError::TooLarge {
+                actual: item.text.len(),
+                limit: max_bytes,
+            });
         }
         let text: Arc<str> = item.text.into();
         let document = OpenDocument {
@@ -59,6 +68,7 @@ impl DocumentStore {
         version: i32,
         changes: &[TextDocumentContentChangeEvent],
         encoding: PositionEncoding,
+        max_bytes: usize,
     ) -> Result<OpenDocument, DocumentError> {
         let current = self
             .documents
@@ -93,6 +103,12 @@ impl DocumentStore {
                 text = change.text.clone();
             }
         }
+        if text.len() > max_bytes {
+            return Err(DocumentError::TooLarge {
+                actual: text.len(),
+                limit: max_bytes,
+            });
+        }
         let text: Arc<str> = text.into();
         let updated = OpenDocument {
             uri: current.uri.clone(),
@@ -110,6 +126,7 @@ impl DocumentStore {
         uri: &Uri,
         text: Option<String>,
         encoding: PositionEncoding,
+        max_bytes: usize,
     ) -> Result<OpenDocument, DocumentError> {
         let current = self
             .documents
@@ -118,6 +135,12 @@ impl DocumentStore {
         let Some(text) = text else {
             return Ok(current.clone());
         };
+        if text.len() > max_bytes {
+            return Err(DocumentError::TooLarge {
+                actual: text.len(),
+                limit: max_bytes,
+            });
+        }
         let text: Arc<str> = text.into();
         let updated = OpenDocument {
             uri: current.uri.clone(),
@@ -166,7 +189,7 @@ mod tests {
     fn applies_sequential_incremental_edits() {
         let mut store = DocumentStore::default();
         let doc = store
-            .open(item("a😀c", 1), PositionEncoding::Utf16)
+            .open(item("a😀c", 1), PositionEncoding::Utf16, usize::MAX)
             .unwrap();
         let changes = vec![
             TextDocumentContentChangeEvent {
@@ -181,7 +204,7 @@ mod tests {
             },
         ];
         let changed = store
-            .change(&doc.uri, 2, &changes, PositionEncoding::Utf16)
+            .change(&doc.uri, 2, &changes, PositionEncoding::Utf16, usize::MAX)
             .unwrap();
         assert_eq!(&*changed.text, "abd");
     }
@@ -189,7 +212,9 @@ mod tests {
     #[test]
     fn malformed_batch_is_transactional() {
         let mut store = DocumentStore::default();
-        let doc = store.open(item("abc", 1), PositionEncoding::Utf16).unwrap();
+        let doc = store
+            .open(item("abc", 1), PositionEncoding::Utf16, usize::MAX)
+            .unwrap();
         let changes = vec![
             TextDocumentContentChangeEvent {
                 range: Some(Range::new(Position::new(0, 0), Position::new(0, 1))),
@@ -204,7 +229,7 @@ mod tests {
         ];
         assert!(
             store
-                .change(&doc.uri, 2, &changes, PositionEncoding::Utf16)
+                .change(&doc.uri, 2, &changes, PositionEncoding::Utf16, usize::MAX,)
                 .is_err()
         );
         let retained = store.get(&doc.uri).unwrap();
@@ -215,19 +240,126 @@ mod tests {
     #[test]
     fn rejects_stale_versions_and_supports_full_replacement() {
         let mut store = DocumentStore::default();
-        let doc = store.open(item("old", 5), PositionEncoding::Utf16).unwrap();
+        let doc = store
+            .open(item("old", 5), PositionEncoding::Utf16, usize::MAX)
+            .unwrap();
         let replacement = [TextDocumentContentChangeEvent {
             range: None,
             range_length: None,
             text: "new".into(),
         }];
         assert!(matches!(
-            store.change(&doc.uri, 5, &replacement, PositionEncoding::Utf16),
+            store.change(
+                &doc.uri,
+                5,
+                &replacement,
+                PositionEncoding::Utf16,
+                usize::MAX,
+            ),
             Err(DocumentError::StaleVersion { .. })
         ));
         let updated = store
-            .change(&doc.uri, 6, &replacement, PositionEncoding::Utf16)
+            .change(
+                &doc.uri,
+                6,
+                &replacement,
+                PositionEncoding::Utf16,
+                usize::MAX,
+            )
             .unwrap();
         assert_eq!(&*updated.text, "new");
+    }
+
+    #[test]
+    fn size_limits_are_transactional_for_open_change_and_save() {
+        let mut store = DocumentStore::default();
+        assert!(matches!(
+            store.open(item("12345", 1), PositionEncoding::Utf8, 4),
+            Err(DocumentError::TooLarge { .. })
+        ));
+        let doc = store
+            .open(item("1234", 1), PositionEncoding::Utf8, 4)
+            .unwrap();
+        let replacement = [TextDocumentContentChangeEvent {
+            range: None,
+            range_length: None,
+            text: "12345".to_owned(),
+        }];
+        assert!(matches!(
+            store.change(&doc.uri, 2, &replacement, PositionEncoding::Utf8, 4),
+            Err(DocumentError::TooLarge { .. })
+        ));
+        assert_eq!(store.get(&doc.uri).unwrap().version, 1);
+        assert!(matches!(
+            store.save(
+                &doc.uri,
+                Some("12345".to_owned()),
+                PositionEncoding::Utf8,
+                4,
+            ),
+            Err(DocumentError::TooLarge { .. })
+        ));
+        assert_eq!(&*store.get(&doc.uri).unwrap().text, "1234");
+    }
+
+    #[test]
+    fn randomized_incremental_edits_match_string_oracle() {
+        for encoding in [PositionEncoding::Utf8, PositionEncoding::Utf16] {
+            let mut store = DocumentStore::default();
+            let doc = store
+                .open(item("alpha 😀\r\nbeta 中\ngamma", 1), encoding, usize::MAX)
+                .unwrap();
+            let uri = doc.uri;
+            let mut oracle = doc.text.to_string();
+            let mut version = 1;
+            let mut random = 0x4d59_5df4_d0f3_3173_u64;
+            let replacements = ["", "x", "😀", "\n", "é中"];
+
+            for _ in 0..250 {
+                let index = PositionIndex::new(Arc::from(oracle.as_str()), encoding);
+                let offsets = oracle
+                    .char_indices()
+                    .map(|(offset, _)| offset)
+                    .chain(std::iter::once(oracle.len()))
+                    .filter(|offset| index.position(*offset).is_ok())
+                    .collect::<Vec<_>>();
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                let left = offsets[(random as usize) % offsets.len()];
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                let right = offsets[(random as usize) % offsets.len()];
+                let (start, end) = if left <= right {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1);
+                let replacement = replacements[(random as usize) % replacements.len()];
+                let replaced = &oracle[start..end];
+                let range_length = match encoding {
+                    PositionEncoding::Utf8 => replaced.len(),
+                    PositionEncoding::Utf16 => replaced.encode_utf16().count(),
+                } as u32;
+                let change = [TextDocumentContentChangeEvent {
+                    range: Some(Range::new(
+                        index.position(start).unwrap(),
+                        index.position(end).unwrap(),
+                    )),
+                    range_length: Some(range_length),
+                    text: replacement.to_owned(),
+                }];
+                oracle.replace_range(start..end, replacement);
+                version += 1;
+                let updated = store
+                    .change(&uri, version, &change, encoding, usize::MAX)
+                    .unwrap();
+                assert_eq!(&*updated.text, oracle);
+            }
+        }
     }
 }

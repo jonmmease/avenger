@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, fs, path::Path, sync::Arc, time::Instant};
 
 use avenger_lang_analysis::{
-    AnalysisCancellation, AnalysisGeneration, CompletionOptions, DocumentSnapshot, DocumentSymbol,
-    PositionRequest, SnapshotSourceLoader, SourceRevision, SyntaxContextKind, WorkspaceAnalysis,
-    analyze_syntax,
+    AnalysisCancellation, AnalysisGeneration, CompletionOptions, DocumentRequest, DocumentSnapshot,
+    DocumentSymbol, PositionRequest, SnapshotSourceLoader, SourceRevision, SyntaxContextKind,
+    WorkspaceAnalysis, analyze_syntax,
 };
 use avenger_lang_compiler::Compiler;
 use avenger_lang_core::{
@@ -65,6 +65,80 @@ fn frozen_valid_sources_remain_accepted_by_the_strict_parser() {
             text,
         );
         parse_file(&source).unwrap_or_else(|error| panic!("strict parse {relative}: {error}"));
+    }
+}
+
+#[test]
+fn compiler_fixture_corpus_builds_tolerant_indexes_without_panics() {
+    fn collect_avenger_files(directory: &Path, output: &mut Vec<std::path::PathBuf>) {
+        let mut entries = fs::read_dir(directory)
+            .unwrap_or_else(|error| {
+                panic!("read fixture directory {}: {error}", directory.display())
+            })
+            .map(|entry| entry.unwrap().path())
+            .collect::<Vec<_>>();
+        entries.sort();
+        for path in entries {
+            if path.is_dir() {
+                collect_avenger_files(&path, output);
+            } else if path
+                .extension()
+                .is_some_and(|extension| extension == "avenger")
+            {
+                output.push(path);
+            }
+        }
+    }
+
+    let project_root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../avenger-lang-compiler/tests/fixtures");
+    let project_root = fs::canonicalize(project_root).unwrap();
+    let mut files = Vec::new();
+    collect_avenger_files(&project_root, &mut files);
+    assert_eq!(
+        files.len(),
+        61,
+        "fixture additions should update this corpus gate"
+    );
+
+    let syntax = files
+        .iter()
+        .map(|path| {
+            let origin = SourceOrigin::File(path.clone());
+            let text = fs::read_to_string(path).unwrap();
+            let snapshot =
+                DocumentSnapshot::new(origin.clone(), SourceRevision::from_text(&text), text);
+            (origin, analyze_syntax(&snapshot))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let compiler = Compiler::builder()
+        .project_root(&project_root)
+        .build()
+        .unwrap();
+    let analysis = WorkspaceAnalysis::syntax_only(
+        AnalysisGeneration::new(1),
+        project_root,
+        syntax.keys().cloned().collect(),
+        syntax,
+        compiler.language_host().authoring_schema().clone(),
+    );
+    let cancellation = AnalysisCancellation::default();
+    assert_eq!(analysis.semantic_index.documents.len(), 61);
+    for (origin, syntax) in &analysis.syntax {
+        assert!(analysis.semantic_index.documents.contains_key(origin));
+        let request = DocumentRequest {
+            source: origin.clone(),
+            source_revision: syntax.revision.clone(),
+        };
+        let tokens = analysis.semantic_tokens(&request, &cancellation).unwrap();
+        for token in tokens.tokens {
+            let range = token.span.range.as_range();
+            assert!(range.start <= range.end);
+            assert!(range.end <= syntax.parsed.tokens.text().len());
+        }
+        for offset in [0, syntax.parsed.tokens.text().len()] {
+            std::hint::black_box(syntax.context_at(offset));
+        }
     }
 }
 

@@ -63,7 +63,23 @@ enum Command {
 }
 
 #[derive(Clone, Debug, Args)]
-pub struct LspArgs {}
+pub struct LspArgs {
+    /// Quiet period before workspace-wide semantic analysis.
+    #[arg(long, default_value_t = 120, value_name = "MILLIS")]
+    debounce_ms: u64,
+
+    /// Maximum size accepted for one open source document.
+    #[arg(long, default_value_t = 8, value_name = "MB")]
+    max_document_mb: usize,
+
+    /// Maximum diagnostics published for one document in one batch.
+    #[arg(long, default_value_t = 200, value_name = "COUNT")]
+    max_diagnostics: usize,
+
+    /// Maximum number of workspace roots retained by the server.
+    #[arg(long, default_value_t = 32, value_name = "COUNT")]
+    max_workspaces: usize,
+}
 
 #[derive(Clone, Debug, Args)]
 pub struct WatchArgs {
@@ -224,7 +240,7 @@ pub fn run_cli(cli: Cli) -> Result<(), CliError> {
     init_tracing();
     match cli.command {
         Command::Watch(args) => run_watch(args),
-        Command::Lsp(_args) => run_lsp(),
+        Command::Lsp(args) => run_lsp(args),
     }
 }
 
@@ -233,11 +249,36 @@ fn init_tracing() {
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }
 
-fn run_lsp() -> Result<(), CliError> {
+fn run_lsp(args: LspArgs) -> Result<(), CliError> {
+    let max_document_bytes = args
+        .max_document_mb
+        .checked_mul(1024 * 1024)
+        .filter(|bytes| *bytes > 0)
+        .ok_or_else(|| {
+            CliError::InvalidArguments(
+                "--max-document-mb must be greater than zero and fit in memory".to_owned(),
+            )
+        })?;
+    if args.max_diagnostics == 0 {
+        return Err(CliError::InvalidArguments(
+            "--max-diagnostics must be greater than zero".to_owned(),
+        ));
+    }
+    if args.max_workspaces == 0 {
+        return Err(CliError::InvalidArguments(
+            "--max-workspaces must be greater than zero".to_owned(),
+        ));
+    }
+    let config = avenger_lsp::LspServerConfig {
+        semantic_debounce: Duration::from_millis(args.debounce_ms),
+        max_document_bytes,
+        max_diagnostics_per_document: args.max_diagnostics,
+        max_workspaces: args.max_workspaces,
+    };
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(avenger_lsp::run_stdio());
+        .block_on(avenger_lsp::run_stdio_with_config(config));
     Ok(())
 }
 
@@ -1494,11 +1535,37 @@ mod tests {
             "--no-cache",
         ])
         .unwrap();
-        let Command::Watch(args) = cli.command;
+        let Command::Watch(args) = cli.command else {
+            panic!("expected watch command");
+        };
         assert_eq!(args.chart, PathBuf::from("chart.avenger"));
         assert_eq!(args.debounce_ms, 25);
         assert_eq!(args.scale, 2.0);
         assert!(args.no_cache);
+    }
+
+    #[test]
+    fn lsp_command_parses_resource_controls() {
+        let cli = Cli::try_parse_from([
+            "avenger",
+            "lsp",
+            "--debounce-ms",
+            "25",
+            "--max-document-mb",
+            "4",
+            "--max-diagnostics",
+            "50",
+            "--max-workspaces",
+            "3",
+        ])
+        .unwrap();
+        let Command::Lsp(args) = cli.command else {
+            panic!("expected lsp command");
+        };
+        assert_eq!(args.debounce_ms, 25);
+        assert_eq!(args.max_document_mb, 4);
+        assert_eq!(args.max_diagnostics, 50);
+        assert_eq!(args.max_workspaces, 3);
     }
 
     #[test]

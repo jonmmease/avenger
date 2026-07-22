@@ -39,7 +39,35 @@ use tokio::{
 use tower_lsp_server::{Client, LanguageServer, LspService, Server, jsonrpc, ls_types::*};
 
 const SERVER_NAME: &str = "avenger-lsp";
-const SEMANTIC_DEBOUNCE: Duration = Duration::from_millis(120);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LspServerConfig {
+    pub semantic_debounce: Duration,
+    pub max_document_bytes: usize,
+    pub max_diagnostics_per_document: usize,
+    pub max_workspaces: usize,
+}
+
+impl Default for LspServerConfig {
+    fn default() -> Self {
+        Self {
+            semantic_debounce: Duration::from_millis(120),
+            max_document_bytes: 8 * 1024 * 1024,
+            max_diagnostics_per_document: 200,
+            max_workspaces: 32,
+        }
+    }
+}
+
+impl LspServerConfig {
+    fn normalized(self) -> Self {
+        Self {
+            semantic_debounce: self.semantic_debounce,
+            max_document_bytes: self.max_document_bytes.max(1),
+            max_diagnostics_per_document: self.max_diagnostics_per_document.max(1),
+            max_workspaces: self.max_workspaces.max(1),
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Backend {
@@ -48,6 +76,7 @@ struct Backend {
 }
 
 struct BackendInner {
+    config: LspServerConfig,
     state: RwLock<ServerState>,
     semantic_tasks: Mutex<HashMap<PathBuf, SemanticTask>>,
     publish_lock: Mutex<()>,
@@ -90,10 +119,16 @@ struct SemanticInput {
 }
 
 impl Backend {
+    #[cfg(test)]
     fn new(client: Client) -> Self {
+        Self::with_config(client, LspServerConfig::default())
+    }
+
+    fn with_config(client: Client, config: LspServerConfig) -> Self {
         Self {
             client,
             inner: Arc::new(BackendInner {
+                config: config.normalized(),
                 state: RwLock::new(ServerState {
                     position_encoding: PositionEncoding::Utf16,
                     position_encoding_kind: PositionEncodingKind::UTF16,
@@ -132,6 +167,18 @@ impl Backend {
             if let Some(root) = owning_workspace(&state.workspaces, &path) {
                 return Some(root);
             }
+            if state.workspaces.len() >= self.inner.config.max_workspaces {
+                drop(state);
+                self.report_error(
+                    "could not create workspace",
+                    format!(
+                        "configured workspace limit {} reached",
+                        self.inner.config.max_workspaces
+                    ),
+                )
+                .await;
+                return None;
+            }
         }
         let root = path.parent()?.to_path_buf();
         match Workspace::new(root.clone()) {
@@ -168,6 +215,7 @@ impl Backend {
             .filter_map(|diagnostic| {
                 lsp_diagnostic_for_single_source(diagnostic, &document.uri, &document.positions)
             })
+            .take(self.inner.config.max_diagnostics_per_document)
             .collect();
         self.inner
             .state
@@ -218,7 +266,7 @@ impl Backend {
         let task_cancellation = cancellation.clone();
         let task_root = workspace_root.clone();
         let handle = tokio::spawn(async move {
-            tokio::time::sleep(SEMANTIC_DEBOUNCE).await;
+            tokio::time::sleep(backend.inner.config.semantic_debounce).await;
             let result = analyze_on_worker(
                 input.workspace.service.clone(),
                 input.snapshot,
@@ -257,6 +305,9 @@ impl Backend {
                 })
         };
         let mut by_uri = semantic_diagnostics(&analysis, self.position_encoding().await);
+        for diagnostics in by_uri.values_mut() {
+            diagnostics.truncate(self.inner.config.max_diagnostics_per_document);
+        }
         // Successful roots still need an explicit empty semantic batch, while
         // open files retain their tolerant diagnostics in the merged publish.
         for uri in versions.keys() {
@@ -288,6 +339,7 @@ impl Backend {
                 )
             });
             diagnostics.dedup();
+            diagnostics.truncate(self.inner.config.max_diagnostics_per_document);
         }
 
         let _publication = self.inner.publish_lock.lock().await;
@@ -619,7 +671,7 @@ impl LanguageServer for Backend {
         }
 
         let mut workspaces = BTreeMap::new();
-        for root in roots {
+        for root in roots.into_iter().take(self.inner.config.max_workspaces) {
             let root = normalize_existing_path(root);
             match Workspace::new(root.clone()) {
                 Ok(workspace) => {
@@ -748,13 +800,11 @@ impl LanguageServer for Backend {
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let encoding = self.position_encoding().await;
-        let opened = self
-            .inner
-            .state
-            .write()
-            .await
-            .documents
-            .open(params.text_document, encoding);
+        let opened = self.inner.state.write().await.documents.open(
+            params.text_document,
+            encoding,
+            self.inner.config.max_document_bytes,
+        );
         match opened {
             Ok(document) => {
                 let workspace = self.ensure_workspace_for_uri(&document.uri).await;
@@ -775,6 +825,7 @@ impl LanguageServer for Backend {
             params.text_document.version,
             &params.content_changes,
             encoding,
+            self.inner.config.max_document_bytes,
         );
         match changed {
             Ok(document) => {
@@ -791,13 +842,12 @@ impl LanguageServer for Backend {
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
         let uri = params.text_document.uri;
         let encoding = self.position_encoding().await;
-        let saved = self
-            .inner
-            .state
-            .write()
-            .await
-            .documents
-            .save(&uri, params.text, encoding);
+        let saved = self.inner.state.write().await.documents.save(
+            &uri,
+            params.text,
+            encoding,
+            self.inner.config.max_document_bytes,
+        );
         match saved {
             Ok(document) => {
                 self.publish_syntax(document).await;
@@ -1263,9 +1313,17 @@ impl Workspace {
 /// Standard output is reserved exclusively for LSP framing. Callers must send
 /// human-readable logs to standard error or through LSP client notifications.
 pub async fn run_stdio() {
+    run_stdio_with_config(LspServerConfig::default()).await;
+}
+
+/// Run the native Avenger language server with explicit resource limits.
+///
+/// Standard output is reserved exclusively for LSP framing. Callers must send
+/// human-readable logs to standard error or through LSP client notifications.
+pub async fn run_stdio_with_config(config: LspServerConfig) {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
-    let (service, socket) = LspService::new(Backend::new);
+    let (service, socket) = LspService::new(move |client| Backend::with_config(client, config));
     Server::new(stdin, stdout, socket).serve(service).await;
 }
 
