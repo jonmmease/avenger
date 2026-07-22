@@ -126,9 +126,9 @@ impl PositionIndex {
         if offset > self.text.len() || !self.text.is_char_boundary(offset) {
             return Err(PositionError::InvalidOffset { offset });
         }
-        let line_number = self
-            .lines
-            .partition_point(|line| line.end <= offset && line.end < self.text.len());
+        let line_number = self.lines.partition_point(|line| {
+            line.end < offset || (line.end == offset && line.end > line.content_end)
+        });
         let line = self
             .lines
             .get(line_number)
@@ -233,13 +233,28 @@ mod tests {
 
     #[test]
     fn handles_lf_crlf_bare_cr_and_trailing_empty_lines() {
-        let index = PositionIndex::new("a\r\nb\rc\n".into(), PositionEncoding::Utf16);
+        let text: Arc<str> = "a\r\nb\rc\n".into();
+        let index = PositionIndex::new(text.clone(), PositionEncoding::Utf16);
         assert_eq!(index.line_count(), 4);
         assert_eq!(index.offset(Position::new(0, 1)).unwrap(), 1);
         assert_eq!(index.offset(Position::new(1, 0)).unwrap(), 3);
         assert_eq!(index.offset(Position::new(2, 0)).unwrap(), 5);
         assert_eq!(index.offset(Position::new(3, 0)).unwrap(), 7);
+        assert_eq!(index.position(text.len()).unwrap(), Position::new(3, 0));
         assert!(index.position(2).is_err());
+    }
+
+    #[test]
+    fn maps_end_of_document_with_and_without_a_trailing_newline() {
+        let without_newline = PositionIndex::new("abc".into(), PositionEncoding::Utf16);
+        assert_eq!(without_newline.position(3).unwrap(), Position::new(0, 3));
+
+        let with_newline = PositionIndex::new("abc\n".into(), PositionEncoding::Utf16);
+        assert_eq!(with_newline.position(4).unwrap(), Position::new(1, 0));
+        assert_eq!(
+            with_newline.lsp_range(0..4).unwrap(),
+            Range::new(Position::new(0, 0), Position::new(1, 0))
+        );
     }
 
     #[test]
