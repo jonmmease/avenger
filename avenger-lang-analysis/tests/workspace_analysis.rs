@@ -58,7 +58,12 @@ async fn independent_roots_preserve_healthy_analysis_and_unsaved_text() {
             .as_str()
             .to_owned(),
     };
-    let analysis = AnalysisService::new(compiler)
+    let service = AnalysisService::new(compiler);
+    let mut after_delete = snapshot.clone();
+    after_delete.generation = AnalysisGeneration::new(8);
+    after_delete.roots = vec![ProjectRoot::chart(good.clone())];
+    after_delete.known_disk_sources = vec![good.clone()];
+    let analysis = service
         .analyze_workspace(snapshot, &AnalysisCancellation::default())
         .await
         .unwrap();
@@ -76,6 +81,15 @@ async fn independent_roots_preserve_healthy_analysis_and_unsaved_text() {
     );
     assert_eq!(analysis.generation, AnalysisGeneration::new(7));
     assert!(analysis.syntax.contains_key(&good));
+    let after_delete = service
+        .analyze_workspace(after_delete, &AnalysisCancellation::default())
+        .await
+        .unwrap();
+    assert!(
+        !after_delete
+            .semantic_roots
+            .contains_key(&bad.canonical_uri())
+    );
 }
 
 #[tokio::test]

@@ -144,7 +144,7 @@ async fn snapshot_loader_overlays_every_origin_kind_and_falls_back() {
             )
         })
         .collect::<BTreeMap<_, _>>();
-    let loader = SnapshotSourceLoader::new(overlay, Arc::new(fallback));
+    let loader = SnapshotSourceLoader::new(overlay, Arc::new(fallback.clone()));
     let capabilities = ImportCapabilities {
         project_root,
         allow_memory: true,
@@ -152,11 +152,25 @@ async fn snapshot_loader_overlays_every_origin_kind_and_falls_back() {
         allow_filesystem: true,
         allow_http: true,
     };
-    for origin in [file, memory, std, http] {
+    for origin in [file.clone(), memory, std, http] {
         let loaded = loader.load(&origin, &capabilities).await.unwrap();
         assert_eq!(&*loaded.text, "open text");
         assert_eq!(loaded.version.as_str(), "open-1");
     }
     let loaded = loader.load(&fallback_origin, &capabilities).await.unwrap();
     assert_eq!(&*loaded.text, "fallback text");
+    fallback.insert(LoadedSource::new(
+        fallback_origin.clone(),
+        "updated disk text",
+        ContentVersion::new("disk-2"),
+    ));
+    fallback.insert(LoadedSource::new(
+        file.clone(),
+        "watcher must not replace open text",
+        ContentVersion::new("disk-file-2"),
+    ));
+    let closed = loader.load(&fallback_origin, &capabilities).await.unwrap();
+    assert_eq!(&*closed.text, "updated disk text");
+    let still_open = loader.load(&file, &capabilities).await.unwrap();
+    assert_eq!(&*still_open.text, "open text");
 }
