@@ -149,12 +149,12 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
     let directory = tempfile::tempdir().unwrap();
     let project_root = std::fs::canonicalize(directory.path()).unwrap();
     let chart = SourceOrigin::File(project_root.join("chart.avenger"));
-    let valid = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 640.0; } mark symbol as points { size: $width; } }";
-    let invalid = "avenger 1; chart cartesian as chart { param as width { type: float64; default: 640.0; mark symbol as points { size: $width; }";
+    let valid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam as width { type: float64; default: 640.0; } mark symbol as points { size: $width; } }";
+    let invalid_text = "avenger 1; chart cartesian as chart {\n-- | Canvas width.\nparam as width { type: float64; default: 640.0; mark symbol as points { size: $width; }";
     let compiler = Compiler::builder()
         .project_root(&project_root)
         .source_loader(Arc::new(
-            InMemorySourceLoader::default().with_source(loaded(&chart, valid, "disk")),
+            InMemorySourceLoader::default().with_source(loaded(&chart, valid_text, "disk")),
         ))
         .build()
         .unwrap();
@@ -181,11 +181,11 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
     };
     let service = AnalysisService::new(compiler);
     let valid = service
-        .analyze_workspace(snapshot(1, valid), &AnalysisCancellation::default())
+        .analyze_workspace(snapshot(1, valid_text), &AnalysisCancellation::default())
         .await
         .unwrap();
     let invalid = service
-        .analyze_workspace(snapshot(2, invalid), &AnalysisCancellation::default())
+        .analyze_workspace(snapshot(2, invalid_text), &AnalysisCancellation::default())
         .await
         .unwrap();
     assert!(
@@ -201,6 +201,19 @@ async fn malformed_edit_keeps_last_good_semantic_identity_and_type() {
         .unwrap();
     assert!(!width.identity.starts_with("syntax:"));
     assert_eq!(width.detail.as_deref(), Some("param: float64"));
+    let hover = merged
+        .hover(
+            &avenger_lang_analysis::PositionRequest {
+                source: chart,
+                byte_offset: invalid_text.rfind("$width").unwrap() + 2,
+                source_revision: SourceRevision::from_text(invalid_text),
+            },
+            &AnalysisCancellation::default(),
+        )
+        .unwrap()
+        .unwrap();
+    assert!(hover.markdown.contains("param: float64"));
+    assert!(hover.markdown.contains("Canvas width."));
 }
 
 #[derive(Debug)]
