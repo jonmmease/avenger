@@ -2,7 +2,8 @@
 
 `avenger watch` compiles one Avenger chart into a persistent native
 winit/wgpu window and hot reloads it when the chart or a compiler-reported
-local dependency changes.
+local dependency changes. `avenger lsp` runs the native Avenger language
+server over stdio.
 
 ## Build and run
 
@@ -37,6 +38,31 @@ avenger watch [OPTIONS] <CHART>
 `AVENGER_PHYSICAL_CACHE=0` is the environment-wide cache kill switch;
 `--no-cache` is the explicit command-local equivalent. `RUST_LOG` controls
 detailed tracing. Run `avenger watch --help` for the installed command help.
+
+## Language server
+
+Editors should start one process per worktree:
+
+```sh
+target/release/avenger lsp
+```
+
+The command reserves stdout for LSP 3.17 framing and writes human warnings to
+stderr. It supports these long-lived-process controls:
+
+```text
+--debounce-ms <MILLIS>                 default 120
+--max-document-mb <MB>                 default 8
+--max-diagnostics <COUNT>              default 200
+--max-workspaces <COUNT>               default 32
+--max-semantic-tokens <COUNT>          default 100000
+--max-concurrent-requests <COUNT>       default 16
+--max-analysis-cache-entries <COUNT>    default 64
+--max-dataset-cache-entries <COUNT>     default 512
+```
+
+See [`../avenger-lsp/README.md`](../avenger-lsp/README.md) for the feature,
+snapshot, capability, test, and security contracts.
 
 ## Reload behavior
 
@@ -156,6 +182,5 @@ Run the platform and editor scenarios in
 [`MANUAL_ACCEPTANCE.md`](MANUAL_ACCEPTANCE.md) before claiming native release
 support. The checklist deliberately requires a human-visible desktop session.
 
-Formatting, checking, rendering, inspection protocols, LSP/DAP/MCP adapters,
-multi-chart galleries, and additional CLI subcommands are separate milestones;
-they are not partially scaffolded in this crate.
+Inspection protocols, DAP/MCP adapters, multi-chart galleries, and additional
+CLI subcommands remain separate milestones.
