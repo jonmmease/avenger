@@ -1305,6 +1305,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "avenger-lang-analysis"
+version = "0.1.0"
+dependencies = [
+ "avenger-lang-core",
+]
+
+[[package]]
 name = "avenger-lang-cli"
 version = "0.1.0"
 dependencies = [
@@ -1314,6 +1321,7 @@ dependencies = [
  "avenger-eventstream",
  "avenger-geometry",
  "avenger-lang",
+ "avenger-lsp",
  "avenger-winit-wgpu",
  "clap",
  "ctrlc",
@@ -1395,6 +1403,17 @@ dependencies = [
  "avenger-wgpu",
  "resvg",
  "tokio",
+]
+
+[[package]]
+name = "avenger-lsp"
+version = "0.1.0"
+dependencies = [
+ "avenger-lang-analysis",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-lsp-server",
 ]
 
 [[package]]
@@ -6172,6 +6191,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ls-types"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "896e16b8e17d8732b9efe4d5b66cb0cc162b3023a2d8122f2aea6f7f185e0a67"
+dependencies = [
+ "bitflags 2.13.0",
+ "fluent-uri",
+ "percent-encoding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lyon"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9553,6 +9585,26 @@ name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "121c2a6cda46980bb0fcd1647ffaf6cd3fc79a013de288782836f6df9c48780e"
+
+[[package]]
+name = "tower-lsp-server"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f0e711655c89181a6bc6a2cc348131fcd9680085f5b06b6af13427a393a6e72"
+dependencies = [
+ "bytes",
+ "dashmap",
+ "futures",
+ "httparse",
+ "ls-types",
+ "memchr",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tower",
+ "tracing",
+]
 
 [[package]]
 name = "tower-service"

@@ -1,0 +1,9 @@
+avenger data 1;
+
+catalog vega {
+    schema public {
+        table movies {
+            url: './movies.csv';
+        }
+    }
+}

@@ -1,0 +1,17 @@
+{
+  "format_version": 1,
+  "cases": [
+    {
+      "fixture": "expression.cursor.avenger",
+      "ordered_top": ["$point_size"],
+      "must_include": ["$canvas_width", "$canvas_height"],
+      "must_exclude": ["$not_in_scope"]
+    },
+    {
+      "fixture": "sql_from_first.cursor.avenger",
+      "ordered_top": ["Horsepower"],
+      "must_include": ["Miles_per_Gallon"],
+      "must_exclude": ["unknown_column"]
+    }
+  ]
+}

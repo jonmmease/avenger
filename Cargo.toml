@@ -27,6 +27,8 @@ members = [
     "avenger-chart-lang-registry",
     "avenger-lang-core",
     "avenger-lang-compiler",
+    "avenger-lang-analysis",
+    "avenger-lsp",
     "avenger-lang",
     "avenger-lang-cli",
     "avenger-chart-marks",
@@ -140,6 +142,7 @@ indexmap = { version = "2.9.0", features = ["serde"] }
 log = "0.4.27"
 ordered-float = "5.0.0"
 tokio = { version = "1.*", default-features = false }
+tower-lsp-server = "=0.23.0"
 async-trait = "0.1"
 arrow = { version = "58.3.0" }
 datafusion = { version = "54.0.0", default-features = false, features = [

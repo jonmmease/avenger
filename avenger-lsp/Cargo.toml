@@ -1,0 +1,16 @@
+[package]
+name = "avenger-lsp"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Native Language Server Protocol adapter for Avenger"
+
+[dependencies]
+avenger-lang-analysis = { path = "../avenger-lang-analysis" }
+tokio = { workspace = true, features = ["io-std"] }
+tower-lsp-server = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "io-util"] }
+tower = { version = "0.5", features = ["util"] }

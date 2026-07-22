@@ -1,0 +1,21 @@
+avenger 1;
+
+chart cartesian as chart {
+    param as point_size {
+        type: float64;
+        default: 64.0;
+    }
+    param as canvas_width {
+        type: float64;
+        default: 640.0;
+    }
+    param as canvas_height {
+        type: float64;
+        default: 420.0;
+    }
+
+    mark symbol as points {
+        x: "Horsepower";
+        y: ⟦cursor⟧;
+    }
+}

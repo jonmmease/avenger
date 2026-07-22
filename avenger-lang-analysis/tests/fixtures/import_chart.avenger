@@ -1,0 +1,7 @@
+avenger 1;
+
+import './multi_file/definitions.avenger' as shared;
+
+chart cartesian as chart {
+    mark shared.badge as imported_badge {}
+}

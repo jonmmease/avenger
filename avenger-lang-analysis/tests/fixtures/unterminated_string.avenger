@@ -1,0 +1,8 @@
+avenger 1;
+
+chart cartesian as chart {
+    param as label {
+        type: utf8;
+        default: 'unfinished
+    }
+}

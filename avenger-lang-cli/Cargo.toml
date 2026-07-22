@@ -17,13 +17,14 @@ path = "src/main.rs"
 avenger-chart = { path = "../avenger-chart" }
 avenger-chart-app = { path = "../avenger-chart-app", features = ["winit-wgpu"] }
 avenger-lang = { path = "../avenger-lang" }
+avenger-lsp = { path = "../avenger-lsp" }
 avenger-winit-wgpu = { path = "../avenger-winit-wgpu" }
 clap = { version = "4.5.48", features = ["derive"] }
 ctrlc = "3.4"
 datafusion = { workspace = true }
 notify = "8.0.0"
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time"] }
+tokio = { workspace = true, features = ["io-std", "rt-multi-thread", "sync", "time"] }
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 winit = { workspace = true }

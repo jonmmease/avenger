@@ -1,0 +1,5 @@
+avenger 1;
+
+define mark badge {
+    mark symbol {}
+}

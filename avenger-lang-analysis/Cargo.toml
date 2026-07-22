@@ -1,0 +1,9 @@
+[package]
+name = "avenger-lang-analysis"
+version = "0.1.0"
+edition = "2024"
+license = "BSD-3-Clause"
+description = "Editor-neutral language intelligence for Avenger projects"
+
+[dependencies]
+avenger-lang-core = { path = "../avenger-lang-core" }

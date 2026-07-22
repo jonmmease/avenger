@@ -58,7 +58,12 @@ pub struct Cli {
 enum Command {
     /// Display a chart in a native window and hot reload local changes.
     Watch(WatchArgs),
+    /// Run the Avenger language server over standard input/output.
+    Lsp(LspArgs),
 }
+
+#[derive(Clone, Debug, Args)]
+pub struct LspArgs {}
 
 #[derive(Clone, Debug, Args)]
 pub struct WatchArgs {
@@ -219,12 +224,21 @@ pub fn run_cli(cli: Cli) -> Result<(), CliError> {
     init_tracing();
     match cli.command {
         Command::Watch(args) => run_watch(args),
+        Command::Lsp(_args) => run_lsp(),
     }
 }
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
+}
+
+fn run_lsp() -> Result<(), CliError> {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(avenger_lsp::run_stdio());
+    Ok(())
 }
 
 fn run_watch(args: WatchArgs) -> Result<(), CliError> {
