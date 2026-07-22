@@ -2361,9 +2361,12 @@ mod tests {
         let project = tempdir().unwrap();
         let root = fs::canonicalize(project.path()).unwrap();
         let chart = root.join("chart.avenger");
+        let second_chart = root.join("second.avenger");
         let initial = "avenger 1; chart cartesian as chart {}";
         fs::write(&chart, initial).unwrap();
+        fs::write(&second_chart, initial).unwrap();
         let chart_uri = Uri::from_file_path(&chart).unwrap();
+        let second_chart_uri = Uri::from_file_path(&second_chart).unwrap();
         let root_uri = Uri::from_file_path(&root).unwrap();
         let config = LspServerConfig {
             semantic_debounce: Duration::from_secs(60),
@@ -2418,12 +2421,55 @@ mod tests {
             .cancellation
             .clone();
 
-        let replacement = "avenger 1; chart cartesian as chart { mark symbol {} }";
+        call(
+            &mut service,
+            Request::build("textDocument/didOpen")
+                .params(json!({
+                    "textDocument": {
+                        "uri": second_chart_uri,
+                        "languageId": "avenger",
+                        "version": 1,
+                        "text": initial
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+
+        let mut replacement = String::new();
+        for version in 2..=12 {
+            replacement = format!(
+                "avenger 1; chart cartesian as chart {{ mark symbol as points {{ size: {version}; }} }}"
+            );
+            call(
+                &mut service,
+                Request::build("textDocument/didChange")
+                    .params(json!({
+                        "textDocument": { "uri": chart_uri, "version": version },
+                        "contentChanges": [{ "text": replacement }]
+                    }))
+                    .finish(),
+            )
+            .await;
+            let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+            call(
+                &mut service,
+                Request::build("textDocument/didSave")
+                    .params(json!({
+                        "textDocument": { "uri": chart_uri },
+                        "text": replacement
+                    }))
+                    .finish(),
+            )
+            .await;
+            let _ = next_notification(&mut socket, "textDocument/publishDiagnostics").await;
+        }
         call(
             &mut service,
             Request::build("textDocument/didChange")
                 .params(json!({
-                    "textDocument": { "uri": chart_uri, "version": 2 },
+                    "textDocument": { "uri": second_chart_uri, "version": 2 },
                     "contentChanges": [{ "text": replacement }]
                 }))
                 .finish(),
@@ -2433,6 +2479,11 @@ mod tests {
         assert!(first_cancellation.is_cancelled());
         assert_eq!(backend.inner.semantic_tasks.lock().await.len(), 1);
         assert_eq!(backend.inner.watchers.lock().unwrap().len(), 1);
+        assert_eq!(backend.document(&chart_uri).await.unwrap().version, 12);
+        assert_eq!(
+            backend.document(&second_chart_uri).await.unwrap().version,
+            2
+        );
         let (_, stale_analysis, _, _) = backend
             .query_snapshot(&chart_uri, Position::new(0, 0))
             .await
@@ -2454,6 +2505,37 @@ mod tests {
                 .semantic_analysis
                 .is_empty()
         );
+
+        call(
+            &mut service,
+            Request::build("workspace/didChangeWorkspaceFolders")
+                .params(json!({
+                    "event": {
+                        "added": [],
+                        "removed": [{ "uri": root_uri, "name": "rapid" }]
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        assert!(backend.inner.state.read().await.workspaces.is_empty());
+        assert!(backend.inner.semantic_tasks.lock().await.is_empty());
+        assert!(backend.inner.watchers.lock().unwrap().is_empty());
+
+        call(
+            &mut service,
+            Request::build("workspace/didChangeWorkspaceFolders")
+                .params(json!({
+                    "event": {
+                        "added": [{ "uri": root_uri, "name": "rapid" }],
+                        "removed": []
+                    }
+                }))
+                .finish(),
+        )
+        .await;
+        assert_eq!(backend.inner.state.read().await.workspaces.len(), 1);
+        assert_eq!(backend.inner.watchers.lock().unwrap().len(), 1);
 
         let shutdown = call(&mut service, Request::build("shutdown").id(2).finish())
             .await
